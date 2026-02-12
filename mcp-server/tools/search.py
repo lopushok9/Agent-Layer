@@ -29,6 +29,15 @@ def register(mcp, cache: Cache):
 
         Returns:
             JSON array with title, url, content snippet, relevance score.
+
+        Examples:
+            Search for Bitcoin news:
+                Input: {"query": "Bitcoin ETF inflows 2026", "max_results": 3}
+                Output: [{"title": "Bitcoin ETF Sees Record $1.2B Daily Inflow", "url": "https://...", "content": "Spot Bitcoin ETFs recorded...", "score": 0.95}]
+
+            Search for protocol analysis:
+                Input: {"query": "Aave v4 launch date features"}
+                Output: [{"title": "Aave V4: Everything You Need to Know", "url": "https://...", "content": "Aave's upcoming V4 introduces...", "score": 0.88}]
         """
         max_results = min(max_results, 10)
         cache_key = f"search:{query}:{max_results}"

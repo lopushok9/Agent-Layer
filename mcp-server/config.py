@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     cache_ttl_tx_history: int = 60
     cache_ttl_gas: int = 15
     cache_ttl_token_balances: int = 120
+    cache_ttl_portfolio: int = 60
     cache_ttl_search: int = 300
 
     # Stale data max age (seconds) — used when provider fails

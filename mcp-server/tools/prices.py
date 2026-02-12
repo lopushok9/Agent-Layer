@@ -37,6 +37,15 @@ def register(mcp, cache: Cache):
 
         Returns:
             JSON array with price_usd, change_24h (%), volume_24h, market_cap for each symbol.
+
+        Examples:
+            Single coin:
+                Input: {"symbols": ["BTC"]}
+                Output: [{"symbol": "bitcoin", "price_usd": 97500.0, "change_24h": 2.35, "volume_24h": 28500000000, "market_cap": 1920000000000}]
+
+            Multiple coins (batch):
+                Input: {"symbols": ["BTC", "ETH", "SOL"]}
+                Output: [{"symbol": "bitcoin", "price_usd": 97500.0, ...}, {"symbol": "ethereum", "price_usd": 3150.0, ...}, {"symbol": "solana", "price_usd": 195.0, ...}]
         """
         symbols = [s.strip() for s in symbols[:50]]
         cache_key = f"prices:{','.join(sorted(s.upper() for s in symbols))}"
@@ -86,6 +95,10 @@ def register(mcp, cache: Cache):
         Returns:
             JSON object with total_market_cap_usd, total_volume_24h_usd,
             btc_dominance, eth_dominance, active_cryptocurrencies.
+
+        Examples:
+            Input: {}
+            Output: {"total_market_cap_usd": 3450000000000, "total_volume_24h_usd": 125000000000, "btc_dominance": 57.2, "eth_dominance": 12.8, "active_cryptocurrencies": 15234}
         """
         cache_key = "market_overview"
         cached = cache.get(cache_key)
@@ -110,6 +123,10 @@ def register(mcp, cache: Cache):
 
         Returns:
             JSON array with symbol, name, market_cap_rank, price_usd, change_24h.
+
+        Examples:
+            Input: {}
+            Output: [{"symbol": "PEPE", "name": "Pepe", "market_cap_rank": 25, "price_usd": 0.0000123, "change_24h": 15.7}, {"symbol": "WIF", "name": "dogwifhat", "market_cap_rank": 42, "price_usd": 2.85, "change_24h": 8.3}]
         """
         cache_key = "trending"
         cached = cache.get(cache_key)

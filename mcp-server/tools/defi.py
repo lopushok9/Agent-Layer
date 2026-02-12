@@ -31,6 +31,15 @@ def register(mcp, cache: Cache):
 
         Returns:
             JSON array with pool name, project, chain, tvl_usd, apy, stablecoin flag.
+
+        Examples:
+            Top yields across all chains:
+                Input: {"limit": 5}
+                Output: [{"pool": "USDC-USDT", "project": "Aave V3", "chain": "Ethereum", "tvl_usd": 450000000, "apy": 5.2, "apy_base": 3.1, "apy_reward": 2.1, "stablecoin": true}]
+
+            Stablecoin yields on Arbitrum with min TVL:
+                Input: {"chain": "Arbitrum", "min_tvl": 1000000, "stablecoin_only": true, "limit": 10}
+                Output: [{"pool": "USDC-USDT", "project": "GMX", "chain": "Arbitrum", "tvl_usd": 12000000, "apy": 8.5, "apy_base": 8.5, "apy_reward": 0, "stablecoin": true}]
         """
         limit = min(limit, 100)
         cache_key = f"yields:{chain}:{min_tvl}:{stablecoin_only}:{limit}"
@@ -61,6 +70,15 @@ def register(mcp, cache: Cache):
 
         Returns:
             JSON object (single protocol) or JSON array (top protocols) with name, tvl_usd, change_1d, change_7d.
+
+        Examples:
+            Single protocol:
+                Input: {"protocol": "aave"}
+                Output: {"name": "Aave", "tvl_usd": 18500000000, "change_1d": 1.2, "change_7d": -0.5, "chains": ["Ethereum", "Arbitrum", "Polygon"], "category": "Lending"}
+
+            Top protocols by TVL:
+                Input: {"limit": 3}
+                Output: [{"name": "Lido", "tvl_usd": 35000000000, "change_1d": 0.8, "change_7d": 2.1, ...}, {"name": "Aave", "tvl_usd": 18500000000, ...}, {"name": "EigenLayer", "tvl_usd": 15000000000, ...}]
         """
         limit = min(limit, 100)
 
@@ -99,6 +117,11 @@ def register(mcp, cache: Cache):
 
         Returns:
             JSON array with name, fees_24h, revenue_24h, category.
+
+        Examples:
+            Top 5 protocols by fees:
+                Input: {"limit": 5}
+                Output: [{"name": "Uniswap", "fees_24h": 3200000, "revenue_24h": 850000, "category": "DEX"}, {"name": "Aave", "fees_24h": 1800000, "revenue_24h": 1200000, "category": "Lending"}]
         """
         limit = min(limit, 100)
         cache_key = f"fees:{limit}"
@@ -128,6 +151,11 @@ def register(mcp, cache: Cache):
 
         Returns:
             JSON array with name, symbol, peg_type, circulating_usd, chains.
+
+        Examples:
+            Top 3 stablecoins:
+                Input: {"limit": 3}
+                Output: [{"name": "Tether", "symbol": "USDT", "peg_type": "peggedUSD", "circulating_usd": 95000000000, "chains": ["Ethereum", "Tron", "BSC"]}, {"name": "USD Coin", "symbol": "USDC", "peg_type": "peggedUSD", "circulating_usd": 42000000000, "chains": ["Ethereum", "Base", "Arbitrum"]}]
         """
         limit = min(limit, 50)
         cache_key = f"stablecoins:{limit}"

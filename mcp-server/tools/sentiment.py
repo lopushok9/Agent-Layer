@@ -22,6 +22,10 @@ def register(mcp, cache: Cache):
 
         Returns:
             JSON object with value (0-100), classification, timestamp.
+
+        Examples:
+            Input: {}
+            Output: {"value": 72, "classification": "Greed", "timestamp": "2026-02-12T00:00:00Z"}
         """
         cache_key = "fear_greed"
         cached = cache.get(cache_key)

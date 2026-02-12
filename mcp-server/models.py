@@ -126,6 +126,26 @@ class TokenBalance(BaseModel):
     source: str = "alchemy"
 
 
+class PortfolioToken(BaseModel):
+    symbol: str
+    name: str | None = None
+    balance: float
+    price_usd: float | None = None
+    value_usd: float | None = None
+
+
+class WalletPortfolio(BaseModel):
+    address: str
+    chain: str
+    native_symbol: str
+    native_balance: float
+    native_price_usd: float | None = None
+    native_value_usd: float | None = None
+    tokens: list[PortfolioToken] = []
+    total_value_usd: float | None = None
+    source: str = "rpc+alchemy+coingecko"
+
+
 class SearchResult(BaseModel):
     title: str
     url: str

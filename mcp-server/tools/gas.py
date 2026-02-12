@@ -23,6 +23,15 @@ def register(mcp, cache: Cache):
 
         Returns:
             JSON object with slow_gwei, standard_gwei, fast_gwei.
+
+        Examples:
+            Ethereum gas:
+                Input: {"chain": "ethereum"}
+                Output: {"chain": "ethereum", "slow_gwei": 15.0, "standard_gwei": 22.0, "fast_gwei": 35.0}
+
+            Arbitrum gas (L2 — much cheaper):
+                Input: {"chain": "arbitrum"}
+                Output: {"chain": "arbitrum", "slow_gwei": 0.01, "standard_gwei": 0.1, "fast_gwei": 0.25}
         """
         cache_key = f"gas:{chain}"
         cached = cache.get(cache_key)
