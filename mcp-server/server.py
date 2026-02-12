@@ -33,4 +33,13 @@ gas.register(mcp, cache)
 search.register(mcp, cache)
 
 if __name__ == "__main__":
-    mcp.run()
+    import sys
+
+    if "--http" in sys.argv:
+        port = 8000
+        for arg in sys.argv:
+            if arg.startswith("--port="):
+                port = int(arg.split("=")[1])
+        mcp.run(transport="http", host="0.0.0.0", port=port)
+    else:
+        mcp.run()

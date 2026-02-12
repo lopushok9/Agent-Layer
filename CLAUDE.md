@@ -81,6 +81,14 @@ mcp-server/
 
 ## Запуск локально
 
+ 2. Запусти MCP сервер в HTTP-режиме
+
+  cd /Users/yuriytsygankov/Documents/openclaw_skill/mcp-server
+  source .venv/bin/activate
+  python server.py --http --port=8765
+
+  Сервер будет доступен по адресу http://localhost:8765/mcp.
+
 ### Быстрый старт (2 минуты)
 
 ```bash
