@@ -39,6 +39,12 @@ def register(mcp, cache: Cache):
                 Input: {"query": "Aave v4 launch date features"}
                 Output: [{"title": "Aave V4: Everything You Need to Know", "url": "https://...", "content": "Aave's upcoming V4 introduces...", "score": 0.88}]
         """
+        query = query.strip()
+        if not query:
+            raise ValueError(
+                "Search query is required. "
+                'Example: "Bitcoin ETF latest news" or "Aave v4 launch"'
+            )
         max_results = min(max_results, 10)
         cache_key = f"search:{query}:{max_results}"
 

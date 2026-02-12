@@ -7,6 +7,7 @@ from cache import Cache
 from config import settings
 from models import GasPrice
 from providers import explorer, rpc
+from validation import SUPPORTED_CHAINS_RPC, validate_chain
 
 log = logging.getLogger(__name__)
 
@@ -33,6 +34,8 @@ def register(mcp, cache: Cache):
                 Input: {"chain": "arbitrum"}
                 Output: {"chain": "arbitrum", "slow_gwei": 0.01, "standard_gwei": 0.1, "fast_gwei": 0.25}
         """
+        chain = validate_chain(chain, SUPPORTED_CHAINS_RPC)
+
         cache_key = f"gas:{chain}"
         cached = cache.get(cache_key)
         if cached is not None:

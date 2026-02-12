@@ -8,6 +8,7 @@ from config import settings
 from exceptions import AllProvidersFailedError
 from models import MarketOverview, PriceData, TrendingCoin
 from providers import coingecko
+from validation import validate_symbols
 
 log = logging.getLogger(__name__)
 
@@ -47,7 +48,7 @@ def register(mcp, cache: Cache):
                 Input: {"symbols": ["BTC", "ETH", "SOL"]}
                 Output: [{"symbol": "bitcoin", "price_usd": 97500.0, ...}, {"symbol": "ethereum", "price_usd": 3150.0, ...}, {"symbol": "solana", "price_usd": 195.0, ...}]
         """
-        symbols = [s.strip() for s in symbols[:50]]
+        symbols = validate_symbols(symbols)
         cache_key = f"prices:{','.join(sorted(s.upper() for s in symbols))}"
 
         # 1. Check fresh cache
@@ -61,9 +62,15 @@ def register(mcp, cache: Cache):
         try:
             raw = await coingecko.fetch_prices(symbols)
             items = [PriceData(**r).model_dump() for r in raw]
-            result = json.dumps(items, ensure_ascii=False)
-            cache.set(cache_key, result, settings.cache_ttl_prices)
-            return result
+            if items:
+                result = json.dumps(items, ensure_ascii=False)
+                cache.set(cache_key, result, settings.cache_ttl_prices)
+                # Report symbols not found
+                found = {item["symbol"].upper() for item in items}
+                not_found = [s for s in symbols if s.upper() not in found]
+                if not_found:
+                    log.info("Symbols not found on CoinGecko: %s", not_found)
+                return result
         except Exception as exc:
             log.warning("CoinGecko prices failed: %s", exc)
             errors.append(exc)
@@ -79,14 +86,21 @@ def register(mcp, cache: Cache):
             coincap = _get_coincap()
             raw = await coincap.fetch_prices(symbols)
             items = [PriceData(**r).model_dump() for r in raw]
-            result = json.dumps(items, ensure_ascii=False)
-            cache.set(cache_key, result, settings.cache_ttl_prices)
-            return result
+            if items:
+                result = json.dumps(items, ensure_ascii=False)
+                cache.set(cache_key, result, settings.cache_ttl_prices)
+                return result
         except Exception as exc:
             log.warning("CoinCap prices failed: %s", exc)
             errors.append(exc)
 
-        raise AllProvidersFailedError(errors)
+        # 5. All failed — give actionable error
+        known = sorted(coingecko.TICKER_MAP.keys())
+        raise ValueError(
+            f"No price data found for: {', '.join(symbols)}. "
+            f"Check spelling or use known tickers: {', '.join(known[:25])}... "
+            "You can also use CoinGecko IDs like 'bitcoin', 'ethereum', 'solana'."
+        )
 
     @mcp.tool()
     async def get_market_overview() -> str:

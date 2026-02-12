@@ -7,6 +7,7 @@ from cache import Cache
 from config import settings
 from models import DefiYield, ProtocolFees, ProtocolTvl, StablecoinData
 from providers import defillama
+from validation import SUPPORTED_CHAINS_DEFI
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +42,16 @@ def register(mcp, cache: Cache):
                 Input: {"chain": "Arbitrum", "min_tvl": 1000000, "stablecoin_only": true, "limit": 10}
                 Output: [{"pool": "USDC-USDT", "project": "GMX", "chain": "Arbitrum", "tvl_usd": 12000000, "apy": 8.5, "apy_base": 8.5, "apy_reward": 0, "stablecoin": true}]
         """
+        if chain is not None:
+            # DeFiLlama uses capitalized chain names
+            chain_cap = chain.strip().capitalize()
+            if chain_cap not in SUPPORTED_CHAINS_DEFI:
+                raise ValueError(
+                    f"Unknown DeFi chain: '{chain}'. "
+                    f"Common chains: {', '.join(sorted(SUPPORTED_CHAINS_DEFI))}. "
+                    "Note: DeFiLlama uses capitalized names (e.g. 'Ethereum', not 'ethereum')."
+                )
+            chain = chain_cap
         limit = min(limit, 100)
         cache_key = f"yields:{chain}:{min_tvl}:{stablecoin_only}:{limit}"
 
@@ -83,6 +94,12 @@ def register(mcp, cache: Cache):
         limit = min(limit, 100)
 
         if protocol:
+            protocol = protocol.strip().lower()
+            if not protocol:
+                raise ValueError(
+                    "Protocol name is required. "
+                    'Use slug format: "aave", "uniswap", "lido", "eigenlayer".'
+                )
             cache_key = f"tvl:{protocol}"
         else:
             cache_key = f"tvl:top:{limit}"

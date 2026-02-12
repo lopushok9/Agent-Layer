@@ -14,6 +14,13 @@ from models import (
     WalletPortfolio,
 )
 from providers import alchemy, coingecko, explorer, rpc
+from validation import (
+    SUPPORTED_CHAINS_ALCHEMY,
+    SUPPORTED_CHAINS_EXPLORER,
+    SUPPORTED_CHAINS_RPC,
+    validate_address,
+    validate_chain,
+)
 
 log = logging.getLogger(__name__)
 
@@ -63,6 +70,9 @@ def register(mcp, cache: Cache):
                 Input: {"address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", "chain": "arbitrum"}
                 Output: {"address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", "chain": "arbitrum", "balance_native": 3.42, "balance_usd": 10773.0}
         """
+        address = validate_address(address)
+        chain = validate_chain(chain, SUPPORTED_CHAINS_RPC)
+
         cache_key = f"balance:{chain}:{address}"
         cached = cache.get(cache_key)
         if cached is not None:
@@ -110,6 +120,9 @@ def register(mcp, cache: Cache):
                 Input: {"address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", "chain": "arbitrum"}
                 Output: {"address": "0xd8dA...", "chain": "arbitrum", "native_symbol": "ETH", "native_balance": 5.0, "native_price_usd": 3150.0, "native_value_usd": 15750.0, "tokens": [{"symbol": "ARB", "name": "Arbitrum", "balance": 1200.0, "price_usd": 1.85, "value_usd": 2220.0}], "total_value_usd": 17970.0}
         """
+        address = validate_address(address)
+        chain = validate_chain(chain, SUPPORTED_CHAINS_ALCHEMY)
+
         cache_key = f"portfolio:{chain}:{address}"
         cached = cache.get(cache_key)
         if cached is not None:
@@ -214,6 +227,8 @@ def register(mcp, cache: Cache):
                 Input: {"address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", "chain": "ethereum", "limit": 5}
                 Output: [{"tx_hash": "0xabc...", "block_number": 19500000, "timestamp": "2026-02-10T14:30:00Z", "from_address": "0xd8dA...", "to_address": "0x1234...", "token_symbol": "USDC", "value": "5000.0"}]
         """
+        address = validate_address(address)
+        chain = validate_chain(chain, SUPPORTED_CHAINS_EXPLORER)
         limit = min(limit, 100)
         cache_key = f"transfers:{chain}:{address}:{limit}"
 
@@ -252,6 +267,8 @@ def register(mcp, cache: Cache):
                 Input: {"address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", "chain": "ethereum", "limit": 3}
                 Output: [{"tx_hash": "0xdef...", "block_number": 19500100, "timestamp": "2026-02-10T15:00:00Z", "from_address": "0xd8dA...", "to_address": "0x5678...", "value_eth": 0.5, "gas_used": 21000, "gas_price_gwei": 25.0, "status": "success"}]
         """
+        address = validate_address(address)
+        chain = validate_chain(chain, SUPPORTED_CHAINS_EXPLORER)
         limit = min(limit, 100)
         cache_key = f"txhistory:{chain}:{address}:{limit}"
 
@@ -289,6 +306,9 @@ def register(mcp, cache: Cache):
                 Input: {"address": "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", "chain": "ethereum"}
                 Output: [{"contract_address": "0xA0b8...", "symbol": "USDC", "name": "USD Coin", "balance": "15000.0", "decimals": 6}, {"contract_address": "0xdAC1...", "symbol": "USDT", "name": "Tether USD", "balance": "8500.0", "decimals": 6}]
         """
+        address = validate_address(address)
+        chain = validate_chain(chain, SUPPORTED_CHAINS_ALCHEMY)
+
         cache_key = f"token_balances:{chain}:{address}"
         cached = cache.get(cache_key)
         if cached is not None:
