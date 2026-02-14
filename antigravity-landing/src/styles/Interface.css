@@ -1,0 +1,193 @@
+.interface {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    /* Let clicks pass through to canvas if needed, but we handle UI pointer events below */
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    z-index: 10;
+}
+
+.interface * {
+    pointer-events: auto;
+    /* Re-enable pointer events for UI elements */
+}
+
+/* Header */
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 40px;
+    background: transparent;
+    animation: fadeIn 1s ease-out forwards;
+    opacity: 0;
+    /* Start hidden */
+    animation-delay: 0.2s;
+}
+
+.nav {
+    display: flex;
+    gap: 30px;
+}
+
+.nav a {
+    text-decoration: none;
+    color: #5F6368;
+    font-weight: 500;
+    font-size: 14px;
+}
+
+.btn-download {
+    background: #202124;
+    color: #fff;
+    border: none;
+    padding: 10px 24px;
+    border-radius: 24px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.btn-download:hover {
+    background: #3c4043;
+}
+
+/* Hero */
+.hero {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+}
+
+.hero-content {
+    max-width: 600px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    animation: fadeInUp 1s ease-out forwards;
+    opacity: 0;
+    /* Start hidden */
+    animation-delay: 0.5s;
+}
+
+.hero-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.hero-title-text {
+    font-size: 24px;
+    color: #202124;
+    font-weight: 500;
+    font-family: 'Google Sans', 'Product Sans', sans-serif;
+}
+
+h1 {
+    font-size: 36px;
+    color: #202124;
+    font-weight: 500;
+    margin: 0;
+    letter-spacing: 0.2px;
+    font-family: 'Google Sans', 'Product Sans', sans-serif;
+}
+
+.subtitle {
+    font-size: 16px;
+    color: #202124;
+    font-weight: 500;
+    margin: 0;
+    font-family: 'Google Sans', 'Product Sans', sans-serif;
+}
+
+.subtitle a {
+    color: #1a73e8;
+    text-decoration: none;
+}
+
+.footer-links {
+    margin-top: 20px;
+    display: flex;
+    gap: 10px;
+    color: #5F6368;
+    font-size: 14px;
+}
+
+.footer-links a {
+    color: #1a73e8;
+    text-decoration: none;
+}
+
+.separator {
+    color: #dadce0;
+}
+
+/* Footer Bar */
+.footer-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 40px;
+    background: #f8f9fa;
+    border-top: 1px solid #dadce0;
+    animation: fadeIn 1s ease-out forwards;
+    opacity: 0;
+    /* Start hidden */
+    animation-delay: 1s;
+}
+
+.disclaimer {
+    font-size: 12px;
+    color: #5F6368;
+}
+
+.disclaimer a {
+    color: #1a73e8;
+    text-decoration: underline;
+}
+
+.btn-ok {
+    background: #1a73e8;
+    color: #fff;
+    border: none;
+    padding: 8px 24px;
+    border-radius: 4px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.btn-ok:hover {
+    background: #1765cc;
+}
+
+/* Animations */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
