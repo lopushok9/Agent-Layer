@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     cache_ttl_token_balances: int = 120
     cache_ttl_portfolio: int = 60
     cache_ttl_search: int = 300
+    cache_ttl_agent_identity: int = 120
 
     # Stale data max age (seconds) — used when provider fails
     cache_stale_max_age: int = 300

@@ -146,6 +146,15 @@ class WalletPortfolio(BaseModel):
     source: str = "rpc+alchemy+coingecko"
 
 
+class AgentIdentity(BaseModel):
+    agent_id: int
+    exists: bool
+    owner: str | None = None
+    agent_wallet: str | None = None
+    agent_uri: str | None = None
+    source: str = "erc8004"
+
+
 class SearchResult(BaseModel):
     title: str
     url: str
