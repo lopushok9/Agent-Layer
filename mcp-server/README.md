@@ -1,5 +1,13 @@
 # OpenClaw Crypto MCP Server
 
+  {                                                                                                                                                           
+    "mcpServers": {                                                                                                                                           
+      "openclaw-crypto": {                                                                                                                                    
+        "url": "https://agent-layer-production-852f.up.railway.app/mcp"                                                                                       
+      }                                                                                                                                                       
+    }                                                                                                                                                         
+  }
+
 MCP server for crypto analytics — prices, DeFi yields/TVL, on-chain data, sentiment, gas prices.
 
 **100% free-tier APIs.** No paid subscriptions required.

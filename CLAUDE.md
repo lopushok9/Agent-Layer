@@ -22,7 +22,7 @@ User → Agent → MCP Server (Python) → Cached API calls → JSON Response
             In-memory TTL cache + Rate limiter + Fallback chains
 ```
 
-**12 инструментов, 6 бесплатных API, 0$/мес:**
+**16 инструментов, 7 бесплатных API, 0$/мес:**
 
 | # | Инструмент | Что делает | Источник | Кеш |
 |---|-----------|-----------|----------|-----|
@@ -38,6 +38,10 @@ User → Agent → MCP Server (Python) → Cached API calls → JSON Response
 | 10 | `get_token_transfers` | ERC-20 трансферы кошелька | Etherscan | 60s |
 | 11 | `get_transaction_history` | Транзакции кошелька | Etherscan | 60s |
 | 12 | `get_gas_prices` | Газ (slow/standard/fast) по чейнам | Explorer + RPC | 15s |
+| 13 | `get_token_balances` | ERC-20 балансы кошелька | Alchemy | 2min |
+| 14 | `get_wallet_portfolio` | Полный портфель: native + ERC-20 + USD стоимость | Alchemy + CoinGecko | 1min |
+| 15 | `search_crypto` | Поиск крипто-новостей и аналитики | Tavily AI | 5min |
+| 16 | `get_agent_by_id` | ERC-8004 AI-агент: owner, wallet, метаданные (name, description, endpoints) | Alchemy RPC | 2min |
 
 **Архитектура сервера:**
 
@@ -48,46 +52,81 @@ mcp-server/
 ├── cache.py               # In-memory TTL кеш + stale fallback
 ├── rate_limiter.py         # Sliding window rate limiter (async)
 ├── http_client.py          # Shared httpx.AsyncClient
-├── models.py               # 12 Pydantic моделей ответов
+├── models.py               # 16 Pydantic моделей ответов (+ AgentIdentity)
 ├── exceptions.py           # ProviderError, RateLimitError, AllProvidersFailedError
+├── requirements.txt        # Зависимости для Railway/облачных платформ
 ├── providers/
 │   ├── coingecko.py        # Цены, глобальные данные, тренды (30/min, без ключа)
 │   ├── coincap.py          # Fallback цен (unlimited, без ключа)
 │   ├── defillama.py        # Yields, TVL, fees, stablecoins (unlimited, без ключа)
 │   ├── fear_greed.py       # Fear & Greed (без ключа)
 │   ├── rpc.py              # Балансы, газ через PublicNode RPC (6 чейнов, без ключа)
-│   └── explorer.py         # Etherscan/Arbiscan/Basescan (бесплатный ключ)
+│   ├── alchemy.py          # Token balances, portfolio (Alchemy API key)
+│   ├── explorer.py         # Etherscan/Arbiscan/Basescan (бесплатный ключ)
+│   ├── tavily.py           # Поиск новостей (Tavily API key)
+│   └── erc8004.py          # ERC-8004 IdentityRegistry: owner/wallet/tokenURI + metadata resolve
 ├── tools/
 │   ├── prices.py           # get_crypto_prices, get_market_overview, get_trending_coins
 │   ├── sentiment.py        # get_fear_greed_index
 │   ├── defi.py             # get_defi_yields, get_protocol_tvl, get_protocol_fees, get_stablecoin_stats
-│   ├── onchain.py          # get_wallet_balance, get_token_transfers, get_transaction_history
-│   └── gas.py              # get_gas_prices
+│   ├── onchain.py          # get_wallet_balance, get_token_transfers, get_transaction_history,
+│   │                       # get_token_balances, get_wallet_portfolio
+│   ├── gas.py              # get_gas_prices
+│   ├── search.py           # search_crypto (Tavily)
+│   └── agents.py           # get_agent_by_id (ERC-8004)
 ├── pyproject.toml
 ├── Dockerfile / docker-compose.yml
+├── .dockerignore
 ├── .env.example
 └── README.md
 ```
 
 **Ключевые решения:**
-- **Zero paid APIs** — все 6 источников бесплатные/без ключа
+- **Zero paid APIs** — все базовые источники бесплатные/без ключа
 - **In-memory кеш** с stale fallback (не нужен Redis)
 - **Fallback цепочка** для цен: CoinGecko → stale cache → CoinCap
 - **Rate limiting**: sliding window per provider (80% от реальных лимитов)
 - **Ticker маппинг**: пользователь пишет "BTC" или "bitcoin" — оба работают
-- **FastMCP 2.x** — stdio транспорт (стандарт MCP)
+- **FastMCP 2.x** — stdio (локально) и HTTP (деплой) транспорт
+- **ERC-8004 agent_metadata**: авто-резолвинг URI → `data:base64` / `ipfs://` / `ar://` / `https://`
+
+---
+
+## Деплой в продакшн (Railway) ✅
+
+**Production URL:** `https://agent-layer-production-852f.up.railway.app/mcp`
+
+### Настройка Railway
+
+1. New Project → Deploy from GitHub → `Agent-Layer`
+2. **Settings → Root Directory** = `mcp-server`
+3. **Start Command** = `python server.py --http`
+4. **Settings → Networking → Port** = `8000`
+5. **Variables** → добавить API ключи (ALCHEMY_API_KEY, ETHERSCAN_API_KEY и т.д.)
+
+Railway автоматически найдёт `pyproject.toml` / `requirements.txt` в `mcp-server/` и установит зависимости. Порт читается из `$PORT` env var (дефолт 8000).
+
+**Подключение к Claude Desktop (HTTP-режим):**
+```json
+{
+  "mcpServers": {
+    "openclaw-crypto": {
+      "url": "https://agent-layer-production-852f.up.railway.app/mcp"
+    }
+  }
+}
+```
 
 ---
 
 ## Запуск локально
 
- 2. Запусти MCP сервер в HTTP-режиме
-
-  cd /Users/yuriytsygankov/Documents/openclaw_skill/mcp-server
-  source .venv/bin/activate
-  python server.py --http --port=8765
-
-  Сервер будет доступен по адресу http://localhost:8765/mcp.
+```bash
+cd /Users/yuriytsygankov/Documents/openclaw_skill/mcp-server
+source .venv/bin/activate
+python server.py --http --port=8765
+# Сервер доступен по адресу http://localhost:8765/mcp
+```
 
 ### Быстрый старт (2 минуты)
 
@@ -1028,19 +1067,22 @@ class GetPricesInput(BaseModel):
 
 **MCP Server Core** ✅
 - [x] Set up Python project structure (pyproject.toml, FastMCP 2.x)
-- [x] Implement MCP server with 12 tools
+- [x] Implement MCP server с 16 tools
 - [x] In-memory TTL кеш с stale fallback
 - [x] CoinGecko + CoinCap для цен (fallback chain)
 - [x] DeFiLlama для DeFi (yields, TVL, fees, stablecoins)
 - [x] PublicNode RPC для балансов и газа (6 чейнов)
 - [x] Etherscan для транзакций и трансферов
-- [x] Rate limiting, Dockerfile, docker-compose
+- [x] Alchemy для token balances и portfolio
+- [x] Tavily для поиска крипто-новостей
+- [x] ERC-8004 IdentityRegistry (get_agent_by_id) с авто-резолвингом metadata URI
+- [x] agent_metadata: поддержка data:base64 / ipfs:// / ar:// / https://
+- [x] Rate limiting, Dockerfile, docker-compose, .dockerignore
+- [x] Деплой на Railway ✅ https://agent-layer-production-852f.up.railway.app/mcp
 
 **Следующие шаги:**
 - [ ] Подключить к OpenClaw Gateway через MCP Plugin
 - [ ] Обновить SKILL.md для использования MCP tools
-- [ ] Протестировать полный flow в OpenClaw
-- [ ] Деплой на Fly.io / Railway
 - [ ] Добавить Prometheus метрики (опционально)
 
 ### Backward Compatibility
@@ -1146,5 +1188,5 @@ The skill will support **graceful degradation**:
 
 ---
 
-_Last Updated: 2026-02-10_
-_Version: 2.0 — MCP Server Implemented_
+_Last Updated: 2026-02-17_
+_Version: 2.1 — 16 tools, ERC-8004 agent identity, Railway deployment_
