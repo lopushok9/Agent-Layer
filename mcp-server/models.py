@@ -152,6 +152,7 @@ class AgentIdentity(BaseModel):
     owner: str | None = None
     agent_wallet: str | None = None
     agent_uri: str | None = None
+    agent_metadata: dict | None = None
     source: str = "erc8004"
 
 

@@ -6,6 +6,8 @@ using batch JSON-RPC eth_call via Alchemy.
 Contract: 0x8004A169FB4a3325136EB29fA0ceB6D2e539a432 (Ethereum mainnet)
 """
 
+import base64
+import json
 import logging
 
 from config import settings
@@ -66,6 +68,65 @@ def _decode_string(hex_data: str) -> str | None:
         return bytes.fromhex(data_hex).decode("utf-8", errors="replace")
     except (ValueError, IndexError):
         return None
+
+
+_IPFS_GATEWAYS = [
+    "https://ipfs.io/ipfs/",
+    "https://cloudflare-ipfs.com/ipfs/",
+    "https://gateway.pinata.cloud/ipfs/",
+]
+
+
+def _decode_data_uri(uri: str) -> dict | None:
+    """Decode inline data:application/json;base64,<b64> URI."""
+    prefix = "data:application/json;base64,"
+    if not uri.startswith(prefix):
+        return None
+    try:
+        raw = base64.b64decode(uri[len(prefix):]).decode("utf-8")
+        return json.loads(raw)
+    except Exception:
+        return None
+
+
+async def _resolve_agent_metadata(uri: str | None) -> dict | None:
+    """Resolve agent_uri to a metadata dict.
+
+    Supports:
+      - data:application/json;base64,... — decoded inline, no HTTP
+      - ipfs://<cid>                     — fetched via public IPFS gateways
+      - https://...                      — fetched directly
+    Returns None if uri is absent, unrecognized, or fetch fails.
+    """
+    if not uri:
+        return None
+
+    # 1. Inline base64 data URI — no network needed
+    if uri.startswith("data:"):
+        return _decode_data_uri(uri)
+
+    # 2. Build HTTP URL
+    if uri.startswith("ipfs://"):
+        cid = uri[len("ipfs://"):]
+        urls = [gw + cid for gw in _IPFS_GATEWAYS]
+    elif uri.startswith("ar://"):
+        txid = uri[len("ar://"):]
+        urls = [f"https://arweave.net/{txid}"]
+    elif uri.startswith("http://") or uri.startswith("https://"):
+        urls = [uri]
+    else:
+        return None
+
+    client = get_client()
+    for url in urls:
+        try:
+            resp = await client.get(url, timeout=10.0)
+            if resp.status_code == 200:
+                return resp.json()
+        except Exception as exc:
+            log.debug("Failed to fetch metadata from %s: %s", url, exc)
+
+    return None
 
 
 def _get_alchemy_url() -> str:
@@ -160,5 +221,6 @@ async def fetch_agent_identity(agent_id: int) -> dict:
         "owner": owner,
         "agent_wallet": agent_wallet,
         "agent_uri": agent_uri,
+        "agent_metadata": await _resolve_agent_metadata(agent_uri),
         "source": "erc8004",
     }
