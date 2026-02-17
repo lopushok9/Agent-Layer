@@ -34,10 +34,11 @@ search.register(mcp, cache)
 agents.register(mcp, cache)
 
 if __name__ == "__main__":
+    import os
     import sys
 
     if "--http" in sys.argv:
-        port = 8000
+        port = int(os.environ.get("PORT", 8000))
         for arg in sys.argv:
             if arg.startswith("--port="):
                 port = int(arg.split("=")[1])
