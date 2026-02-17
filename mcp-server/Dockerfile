@@ -7,4 +7,4 @@ RUN pip install --no-cache-dir .
 
 EXPOSE 8000
 
-CMD ["python", "server.py"]
+CMD ["python", "server.py", "--http", "--port=8000"]
