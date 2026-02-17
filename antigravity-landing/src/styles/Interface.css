@@ -3,13 +3,9 @@
     top: 0;
     left: 0;
     width: 100%;
-    height: 100%;
+    min-height: 100vh;
     pointer-events: none;
-    /* Let clicks pass through to canvas if needed, but we handle UI pointer events below */
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    z-index: 10;
+    color: #111213;
 }
 
 .interface * {
@@ -17,44 +13,221 @@
     /* Re-enable pointer events for UI elements */
 }
 
+/* --- Responsive Utilities --- */
+.desktop-only {
+    display: flex;
+}
+
+.mobile-menu-btn {
+    display: none;
+    /* Hidden on desktop */
+    background: transparent;
+    border: none;
+    padding: 8px;
+    cursor: pointer;
+    z-index: 200;
+    /* Ensure strictly above other header elements */
+    pointer-events: auto;
+    /* Explicitly enable clicks */
+}
+
+.mobile-menu-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: #ffffff;
+    z-index: 9999;
+    /* Maximize to be above everything */
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    opacity: 0;
+    transform: translateY(-10px);
+    pointer-events: none;
+    visibility: hidden;
+    transition: opacity 0.25s ease, transform 0.25s ease, visibility 0.25s ease;
+}
+
+.mobile-menu-overlay.open {
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: translateY(0) !important;
+    pointer-events: auto !important;
+}
+
+.mobile-menu-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    height: 72px;
+    padding: 0 24px;
+    border-bottom: 1px solid #f0f1f2;
+    background: #ffffff;
+}
+
+.brand-block-menu {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.google-icon {
+    /* Representing the "G" style icon from screen */
+}
+
+.brand-text-menu {
+    font-size: 20px;
+    font-weight: 500;
+    color: #111213;
+    letter-spacing: -0.01em;
+}
+
+.brand-subtext-menu {
+    font-size: 20px;
+    font-weight: 400;
+    color: #5f6368;
+    margin-left: -4px;
+    /* Tighten gap between names */
+}
+
+.mobile-menu-close {
+    background: #2d2e31;
+    /* Dark circular close button from screen */
+    border: none;
+    width: 60px;
+    /* Larger circular target */
+    height: 36px;
+    border-radius: 999px;
+    /* Pill/Circle shape */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.mobile-menu-close:hover {
+    background: #1a1b1f;
+}
+
+.mobile-menu-content {
+    flex: 1;
+    overflow-y: auto;
+    padding-top: 12px;
+}
+
+.mobile-nav-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.mobile-nav-link {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 24px;
+    font-size: 26px;
+    /* High magnitude menu items */
+    font-weight: 500;
+    color: #111213;
+    text-decoration: none;
+    border-bottom: 1px solid #f8f9fa;
+    /* Very subtle divider */
+    transition: background 0.2s;
+}
+
+.mobile-nav-link:active {
+    background: #f8f9fa;
+}
+
+.mobile-nav-link.has-chevron {
+    /* Style for items like "Use Cases" */
+}
+
+/* Header */
 /* Header */
 .header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 20px 40px;
+    height: 72px;
+    /* Fixed height as requested */
+    padding: 0 32px;
+    /* 28-32px padding */
     background: transparent;
     animation: fadeIn 1s ease-out forwards;
     opacity: 0;
-    /* Start hidden */
     animation-delay: 0.2s;
+    box-sizing: border-box;
+}
+
+.brand-block {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.brand-text {
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: #111213;
 }
 
 .nav {
     display: flex;
-    gap: 30px;
+    gap: 28px;
+    /* 22-28px spacing */
+    align-items: center;
 }
 
-.nav a {
+.nav-item {
     text-decoration: none;
-    color: #5F6368;
+    color: #111213;
     font-weight: 500;
     font-size: 14px;
+    line-height: 20px;
+    letter-spacing: -0.01em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: opacity 0.2s;
 }
 
+.nav-item:hover {
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+    opacity: 0.8;
+}
+
+.chevron {
+    opacity: 0.8;
+}
+
+
 .btn-download {
-    background: #202124;
-    color: #fff;
+    background: #111213;
+    color: #ffffff;
     border: none;
-    padding: 10px 24px;
-    border-radius: 24px;
-    font-weight: 500;
+    height: 38px;
+    padding: 0 16px;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
     cursor: pointer;
     transition: background 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .btn-download:hover {
-    background: #3c4043;
+    background: #1a1b1f;
+    /* Slightly lighter on hover */
 }
 
 /* Hero */
@@ -63,73 +236,97 @@
     display: flex;
     justify-content: center;
     align-items: center;
+    /* Center horizontally and somewhat vertically */
     text-align: center;
+    min-height: 80vh;
+    padding-bottom: 5vh;
+    /* Adjustment to visually center "slightly above" */
 }
 
 .hero-content {
-    max-width: 600px;
+    max-width: 720px;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 20px;
     animation: fadeInUp 1s ease-out forwards;
     opacity: 0;
-    /* Start hidden */
     animation-delay: 0.5s;
 }
 
-.hero-logo {
+.hero-logo-row {
     display: flex;
     align-items: center;
-    gap: 10px;
-    margin-bottom: 10px;
+    gap: 12px;
+    margin-bottom: 22px;
+    /* 18-22px margin-top for text implies spacing here */
 }
 
-.hero-title-text {
-    font-size: 24px;
-    color: #202124;
-    font-weight: 500;
-    font-family: 'Google Sans', 'Product Sans', sans-serif;
+.hero-brand-text {
+    font-size: 30px;
+    /* Logo text size 28-32px */
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: #111213;
 }
 
-h1 {
-    font-size: 36px;
-    color: #202124;
-    font-weight: 500;
-    margin: 0;
-    letter-spacing: 0.2px;
-    font-family: 'Google Sans', 'Product Sans', sans-serif;
+.hero-headline {
+    font-size: 38px;
+    /* 34-40px desktop */
+    color: #111213;
+    font-weight: 600;
+    line-height: 1.15;
+    letter-spacing: -0.03em;
+    margin: 0 0 18px 0;
 }
 
 .subtitle {
-    font-size: 16px;
-    color: #202124;
-    font-weight: 500;
+    font-size: 14px;
+    color: #5f6368;
+    font-weight: 400;
+    line-height: 20px;
+    letter-spacing: -0.005em;
     margin: 0;
-    font-family: 'Google Sans', 'Product Sans', sans-serif;
 }
 
 .subtitle a {
     color: #1a73e8;
+    /* Google blue */
     text-decoration: none;
+    font-weight: 500;
 }
 
-.footer-links {
-    margin-top: 20px;
+.subtitle a:hover {
+    text-decoration: underline;
+}
+
+.hero-footer-links {
+    margin-top: 16px;
+    /* 14-18px top margin */
     display: flex;
-    gap: 10px;
-    color: #5F6368;
+    gap: 8px;
+    align-items: center;
     font-size: 14px;
+    font-weight: 500;
 }
 
-.footer-links a {
+.hero-footer-links a {
     color: #1a73e8;
     text-decoration: none;
 }
 
-.separator {
-    color: #dadce0;
+.hero-footer-links a:hover {
+    text-decoration: underline;
 }
+
+.separator {
+    width: 1px;
+    height: 12px;
+    background-color: #dadce0;
+    display: inline-block;
+    margin: 0 4px;
+}
+
+
 
 /* Footer Bar */
 .footer-bar {
@@ -189,5 +386,251 @@ h1 {
 
     to {
         opacity: 1;
+    }
+}
+
+/* Extended Section / Continuation */
+.extended-section {
+    position: relative;
+    width: 100%;
+    padding: 8vh 40px 4vh;
+    /* Less top/bottom padding to let text dominate, but enough for "air" */
+    box-sizing: border-box;
+    margin-top: 0vh;
+    /* Removed significant gap so it appears immediately on scroll */
+    min-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    /* Push content towards bottom like prompt implies if text dominates lower half */
+    color: #111213;
+    font-family: 'Inter', sans-serif;
+}
+
+.extended-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: auto;
+    /* Push it to top */
+    width: 100%;
+}
+
+.lift-off-title {
+    font-size: 32px;
+    font-weight: 500;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    margin: 0;
+    color: #111213;
+}
+
+.extended-links {
+    display: flex;
+    gap: 80px;
+    text-align: left;
+}
+
+.link-column {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    /* Slightly more spacing */
+}
+
+.link-column a {
+    text-decoration: none;
+    color: #111213;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 20px;
+    letter-spacing: -0.01em;
+    transition: color 0.2s ease, text-decoration 0.2s;
+}
+
+.link-column a:hover {
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+}
+
+.huge-text-container {
+    display: flex;
+    justify-content: center;
+    align-items: flex-end;
+    width: 100%;
+    margin-bottom: 4vh;
+    /* Minimal spacing below */
+    margin-top: 10vh;
+    /* Minimal spacing above */
+}
+
+.huge-antigravity {
+    font-size: 19vw;
+    /* 18-22vw range */
+    font-weight: 800;
+    /* ExtraBold */
+    letter-spacing: -0.04em;
+    /* Tighter tracking */
+    color: #111213;
+    line-height: 0.9;
+    margin: 0;
+    text-align: center;
+    white-space: nowrap;
+    transform: translateX(-0.5vw);
+    /* Optical alignment */
+}
+
+.extended-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding-top: 0;
+    width: 100%;
+    padding-bottom: 20px;
+}
+
+.footer-brand {
+    font-size: 24px;
+    font-weight: 500;
+    color: #111213;
+    letter-spacing: -0.03em;
+}
+
+.footer-bottom-links {
+    display: flex;
+    gap: 24px;
+}
+
+.footer-bottom-links a {
+    color: #111213;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 400;
+    letter-spacing: -0.005em;
+    line-height: 20px;
+    opacity: 0.8;
+    transition: opacity 0.2s;
+}
+
+/* --- Mobile Breakpoint --- */
+@media (max-width: 768px) {
+    .desktop-only {
+        display: none !important;
+    }
+
+    .mobile-menu-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 40px;
+        height: 40px;
+        padding: 0;
+        border-radius: 50%;
+        /* circular target */
+    }
+
+    .header {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 64px;
+        padding: 0 20px;
+        /* Mobile horizontal padding */
+        border-bottom: 1px solid #e6e8eb;
+        /* Subtle logic divider */
+        background: #ffffff;
+        /* Ensure white background when fixed */
+        z-index: 200;
+        /* Same as menu button */
+    }
+
+    .hero {
+        align-items: center;
+        justify-content: center;
+        padding-top: 64px;
+        /* Offset for fixed header */
+        min-height: 100vh;
+        /* Fill full screen to separate from next section */
+        padding-bottom: 0px;
+    }
+
+    .hero-content {
+        max-width: 100%;
+        padding: 0 20px;
+        animation: none;
+        /* Simplify mobile load */
+        opacity: 1;
+    }
+
+    .hero-logo-row {
+        flex-direction: column;
+        gap: 16px;
+        margin-bottom: 16px;
+    }
+
+    .hero-headline {
+        font-size: 32px;
+        /* Adjusted magnitude */
+        line-height: 1.2;
+        max-width: 320px;
+        /* constrain width */
+        margin-top: 16px;
+    }
+
+    .hero-brand-text {
+        font-size: 24px;
+        /* Slightly smaller logic */
+    }
+
+    .subtitle {
+        max-width: 300px;
+        margin-top: 14px;
+    }
+
+    .extended-section {
+        margin-top: 0;
+        padding: 60px 20px 40px;
+        min-height: auto;
+    }
+
+    .extended-header {
+        flex-direction: column;
+        gap: 40px;
+    }
+
+    .lift-off-title {
+        font-size: 28px;
+    }
+
+    .extended-links {
+        flex-direction: column;
+        gap: 40px;
+        width: 100%;
+    }
+
+    .link-column {
+        gap: 20px;
+    }
+
+    .huge-text-container {
+        padding: 60px 0;
+        margin: 0;
+    }
+
+    .huge-antigravity {
+        font-size: 17vw;
+        /* Keep relative mass */
+    }
+
+    .extended-footer {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 32px;
+    }
+
+    .footer-bottom-links {
+        flex-direction: column;
+        gap: 16px;
     }
 }
