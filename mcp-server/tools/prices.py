@@ -12,8 +12,9 @@ from validation import validate_symbols
 
 log = logging.getLogger(__name__)
 
-# Lazy import to avoid circular deps — coincap loaded on demand
+# Lazy imports to avoid circular deps
 _coincap = None
+_dexscreener = None
 
 
 def _get_coincap():
@@ -25,6 +26,15 @@ def _get_coincap():
     return _coincap
 
 
+def _get_dexscreener():
+    global _dexscreener
+    if _dexscreener is None:
+        from providers import dexscreener
+
+        _dexscreener = dexscreener
+    return _dexscreener
+
+
 def register(mcp, cache: Cache):
     """Register price tools on the FastMCP server."""
 
@@ -32,21 +42,28 @@ def register(mcp, cache: Cache):
     async def get_crypto_prices(symbols: list[str]) -> str:
         """Get current prices for cryptocurrencies.
 
+        Supports major coins (BTC, ETH, SOL) and low-cap/DEX-only tokens via DexScreener.
+        Fallback chain: CoinGecko → CoinCap → DexScreener (for tokens not on CEX).
+
         Args:
             symbols: List of ticker symbols or CoinGecko IDs, e.g. ["BTC", "ETH", "SOL"].
                      Supports up to 50 symbols per request.
+                     For low-cap tokens use the exact ticker as shown on DEX (e.g. "BRETT", "TOSHI").
 
         Returns:
             JSON array with price_usd, change_24h (%), volume_24h, market_cap for each symbol.
+            For DEX-sourced tokens, also includes chain, dex, liquidity_usd, pair_url.
 
         Examples:
-            Single coin:
-                Input: {"symbols": ["BTC"]}
-                Output: [{"symbol": "bitcoin", "price_usd": 97500.0, "change_24h": 2.35, "volume_24h": 28500000000, "market_cap": 1920000000000}]
-
-            Multiple coins (batch):
+            Major coins:
                 Input: {"symbols": ["BTC", "ETH", "SOL"]}
-                Output: [{"symbol": "bitcoin", "price_usd": 97500.0, ...}, {"symbol": "ethereum", "price_usd": 3150.0, ...}, {"symbol": "solana", "price_usd": 195.0, ...}]
+
+            Low-cap DEX token:
+                Input: {"symbols": ["BRETT"]}
+                Output: [{"symbol": "BRETT", "price_usd": 0.12, "source": "dexscreener", "chain": "base", "dex": "uniswap", "liquidity_usd": 5200000, ...}]
+
+            Mixed (major + low-cap):
+                Input: {"symbols": ["ETH", "BRETT", "TOSHI"]}
         """
         symbols = validate_symbols(symbols)
         cache_key = f"prices:{','.join(sorted(s.upper() for s in symbols))}"
@@ -57,49 +74,73 @@ def register(mcp, cache: Cache):
             return cached
 
         errors: list[Exception] = []
+        all_items: list[dict] = []
+        remaining_symbols: list[str] = list(symbols)
 
         # 2. Try CoinGecko
         try:
-            raw = await coingecko.fetch_prices(symbols)
+            raw = await coingecko.fetch_prices(remaining_symbols)
             items = [PriceData(**r).model_dump() for r in raw]
             if items:
-                result = json.dumps(items, ensure_ascii=False)
-                cache.set(cache_key, result, settings.cache_ttl_prices)
-                # Report symbols not found
+                all_items.extend(items)
                 found = {item["symbol"].upper() for item in items}
-                not_found = [s for s in symbols if s.upper() not in found]
-                if not_found:
-                    log.info("Symbols not found on CoinGecko: %s", not_found)
-                return result
+                remaining_symbols = [s for s in remaining_symbols if s.upper() not in found]
+                if remaining_symbols:
+                    log.info("Symbols not found on CoinGecko: %s", remaining_symbols)
         except Exception as exc:
             log.warning("CoinGecko prices failed: %s", exc)
             errors.append(exc)
 
-        # 3. Stale cache fallback
+        # 3. CoinCap fallback for remaining
+        if remaining_symbols:
+            try:
+                coincap = _get_coincap()
+                raw = await coincap.fetch_prices(remaining_symbols)
+                items = [PriceData(**r).model_dump() for r in raw]
+                if items:
+                    all_items.extend(items)
+                    found = {item["symbol"].upper() for item in items}
+                    remaining_symbols = [s for s in remaining_symbols if s.upper() not in found]
+                    if remaining_symbols:
+                        log.info("Symbols not found on CoinCap: %s", remaining_symbols)
+            except Exception as exc:
+                log.warning("CoinCap prices failed: %s", exc)
+                errors.append(exc)
+
+        # 4. DexScreener fallback for low-cap / DEX-only tokens
+        if remaining_symbols:
+            try:
+                dexscreener = _get_dexscreener()
+                raw = await dexscreener.fetch_prices(remaining_symbols)
+                # DexScreener returns extra fields (chain, dex, etc.) — keep them all
+                all_items.extend(raw)
+                found = {item["symbol"].upper() for item in raw}
+                remaining_symbols = [s for s in remaining_symbols if s.upper() not in found]
+                if remaining_symbols:
+                    log.info("Symbols not found on DexScreener: %s", remaining_symbols)
+            except Exception as exc:
+                log.warning("DexScreener prices failed: %s", exc)
+                errors.append(exc)
+
+        # 5. Return results if we have any
+        if all_items:
+            result = json.dumps(all_items, ensure_ascii=False)
+            cache.set(cache_key, result, settings.cache_ttl_prices)
+            return result
+
+        # 6. Stale cache fallback
         stale = cache.get_stale(cache_key, settings.cache_stale_max_age)
         if stale is not None:
             log.info("Returning stale cache for prices")
             return stale
 
-        # 4. CoinCap fallback
-        try:
-            coincap = _get_coincap()
-            raw = await coincap.fetch_prices(symbols)
-            items = [PriceData(**r).model_dump() for r in raw]
-            if items:
-                result = json.dumps(items, ensure_ascii=False)
-                cache.set(cache_key, result, settings.cache_ttl_prices)
-                return result
-        except Exception as exc:
-            log.warning("CoinCap prices failed: %s", exc)
-            errors.append(exc)
-
-        # 5. All failed — give actionable error
+        # 7. All failed — give actionable error
         known = sorted(coingecko.TICKER_MAP.keys())
         raise ValueError(
             f"No price data found for: {', '.join(symbols)}. "
             f"Check spelling or use known tickers: {', '.join(known[:25])}... "
-            "You can also use CoinGecko IDs like 'bitcoin', 'ethereum', 'solana'."
+            "You can also use CoinGecko IDs like 'bitcoin', 'ethereum', 'solana'. "
+            "For low-cap tokens, use the exact ticker symbol as shown on DexScreener."
         )
 
     @mcp.tool()

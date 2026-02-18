@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     rate_limit_defillama: int = 200
     rate_limit_explorer: int = 80
     rate_limit_alchemy: int = 300
+    rate_limit_dexscreener: int = 50
     rate_limit_tavily: int = 60
 
     # --- HTTP ---
