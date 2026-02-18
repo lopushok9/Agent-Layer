@@ -4,6 +4,24 @@
 
 ---
 
+## Install 
+
+Connect from OpenClaw or any MCP client — no setup required:
+
+```json
+{
+  "mcpServers": {
+    "openclaw-crypto": {
+      "url": "https://agent-layer-production-852f.up.railway.app/mcp"
+    }
+  }
+}
+```
+
+> This is a public demo instance. If you need a no API limits server, deploy your own.
+
+---
+
 ## What It Does
 
 AI agents need financial data. This server provides it: prices, yields, gas, wallet balances, transaction history, protocol analytics, and on-chain agent identity — all through 16 structured MCP tools with built-in caching, fallback chains, and rate limiting.
@@ -52,24 +70,6 @@ mcp-server/
 **Data sources:** CoinGecko, CoinCap, DexScreener, DeFiLlama, Alternative.me, PublicNode RPC, Etherscan family, Alchemy, Tavily AI
 
 **Price fallback chain:** CoinGecko → CoinCap → DexScreener (for DEX-only micro-caps) → stale cache
-
----
-
-## Production
-
-**Live endpoint:** `https://agent-layer-production-852f.up.railway.app/mcp`
-
-Connect from OpenClaw or any MCP client:
-
-```json
-{
-  "mcpServers": {
-    "openclaw-crypto": {
-      "url": "https://agent-layer-production-852f.up.railway.app/mcp"
-    }
-  }
-}
-```
 
 ---
 
