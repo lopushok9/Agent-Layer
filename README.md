@@ -1,6 +1,6 @@
 # OpenClaw Finance MCP Server
 
-**The finance layer for AI agents.** A production-grade MCP server giving any AI agent real-time access to crypto markets, DeFi protocols, on-chain data, and blockchain identity — with zero infrastructure cost.
+**The finance layer for AI agents.** A production-grade MCP server giving any AI agent real-time access to finance, crypto, DeFi protocols, on-chain data, and blockchain identity (via ERC-8004) — with zero infrastructure cost.
 
 ---
 
@@ -11,14 +11,14 @@ Connect from OpenClaw or any MCP client — no setup required:
 ```json
 {
   "mcpServers": {
-    "openclaw-crypto": {
+    "AgentLayer": {
       "url": "https://agent-layer-production-852f.up.railway.app/mcp"
     }
   }
 }
 ```
 
-> This is a public demo instance. If you need a no API limits server, deploy your own.
+> This is a beta version. If you need a server without API limits, deploy your own.
 
 ---
 
