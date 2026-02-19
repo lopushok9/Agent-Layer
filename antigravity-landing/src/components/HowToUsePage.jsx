@@ -135,8 +135,8 @@ export const HowToUsePage = () => {
           <div className="htu-footer-bottom">
             <div className="htu-footer-brand">Agent Layer</div>
             <div className="htu-footer-bottom-links">
-              <a href="#">About Agent Layer</a>
-              <a href="#">Terms</a>
+              <a href="#about-agent-layer">About Agent Layer</a>
+              <a href="#terms">Terms</a>
             </div>
           </div>
         </div>

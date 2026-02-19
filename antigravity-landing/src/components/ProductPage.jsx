@@ -123,8 +123,8 @@ export const ProductPage = () => {
           <div className="pp-footer-bottom">
             <div className="pp-footer-brand">Agent Layer</div>
             <div className="pp-footer-bottom-links">
-              <a href="#">About Agent Layer</a>
-              <a href="#">Terms</a>
+              <a href="#about-agent-layer">About Agent Layer</a>
+              <a href="#terms">Terms</a>
             </div>
           </div>
         </div>

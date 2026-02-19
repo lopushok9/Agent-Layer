@@ -126,8 +126,8 @@ export const Interface = () => {
                 <div className="extended-footer">
                     <div className="footer-brand">Agent Layer</div>
                     <div className="footer-bottom-links">
-                        <a href="#">About Agent Layer</a>
-                        <a href="#">Terms</a>
+                        <a href="#about-agent-layer">About Agent Layer</a>
+                        <a href="#terms">Terms</a>
                     </div>
                 </div>
             </div>
@@ -135,4 +135,3 @@ export const Interface = () => {
         </div >
     )
 }
-
