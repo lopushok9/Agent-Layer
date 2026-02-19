@@ -37,18 +37,18 @@ export const ProductPage = () => {
 
       {/* Header */}
       <header className="pp-header">
-        <div className="pp-brand">
+        <a href="#" className="pp-brand">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
             <path d="M12 2L2 7L12 12L22 7L12 2Z" fill="#111213" />
             <path d="M2 17L12 22L22 17" stroke="#111213" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             <path d="M2 12L12 17L22 12" stroke="#111213" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
           <span className="pp-brand-text">AgentLayer</span>
-        </div>
+        </a>
 
         <nav className="pp-nav">
           <a href="#product" className="pp-nav-item pp-nav-active">Product</a>
-          <a href="#" className="pp-nav-item">Use Cases</a>
+          <a href="#use-cases" className="pp-nav-item">Use Cases</a>
           <a href="#" className="pp-nav-item">Pricing</a>
           <a href="#" className="pp-nav-item">Blog</a>
           <a href="#" className="pp-nav-item">Resources</a>
@@ -74,7 +74,7 @@ export const ProductPage = () => {
             </p>
             <div className="pp-status">
               <span className="pp-status-dot" />
-              Building
+              beta version
             </div>
           </div>
         </section>

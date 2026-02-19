@@ -24,7 +24,7 @@ export const Interface = () => {
                             <path d="M1 1L5 5L9 1" stroke="#111213" strokeOpacity="0.8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
                     </a>
-                    <a href="#" className="nav-item">Use Cases</a>
+                    <a href="#use-cases" className="nav-item">Use Cases</a>
                     <a href="#" className="nav-item">Pricing</a>
                     <a href="#" className="nav-item">Blog</a>
                     <a href="#" className="nav-item">
@@ -76,7 +76,7 @@ export const Interface = () => {
                 <div className="mobile-menu-content">
                     <nav className="mobile-nav-list">
                         <a href="#product" className="mobile-nav-link">Product</a>
-                        <a href="#" className="mobile-nav-link has-chevron">
+                        <a href="#use-cases" className="mobile-nav-link has-chevron">
                             Use Cases
                             <svg width="12" height="8" viewBox="0 0 10 6" fill="none">
                                 <path d="M1 1L5 5L9 1" stroke="#111213" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
