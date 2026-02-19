@@ -18,21 +18,10 @@ export const Interface = () => {
                 </div>
 
                 <nav className="nav desktop-only">
-                    <a href="#product" className="nav-item">
-                        Product
-                        <svg className="chevron" width="10" height="6" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M1 1L5 5L9 1" stroke="#111213" strokeOpacity="0.8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                    </a>
+                    <a href="#product" className="nav-item">Product</a>
                     <a href="#use-cases" className="nav-item">Use Cases</a>
-                    <a href="#" className="nav-item">Pricing</a>
-                    <a href="#" className="nav-item">Blog</a>
-                    <a href="#" className="nav-item">
-                        Resources
-                        <svg className="chevron" width="10" height="6" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M1 1L5 5L9 1" stroke="#111213" strokeOpacity="0.8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                    </a>
+                    <a href="#how-to-use" className="nav-item">How to use</a>
+                    <a href="#" className="nav-item">Resources</a>
                 </nav>
 
                 <button className="btn-download desktop-only">
@@ -76,20 +65,9 @@ export const Interface = () => {
                 <div className="mobile-menu-content">
                     <nav className="mobile-nav-list">
                         <a href="#product" className="mobile-nav-link">Product</a>
-                        <a href="#use-cases" className="mobile-nav-link has-chevron">
-                            Use Cases
-                            <svg width="12" height="8" viewBox="0 0 10 6" fill="none">
-                                <path d="M1 1L5 5L9 1" stroke="#111213" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                        </a>
-                        <a href="#" className="mobile-nav-link">Pricing</a>
-                        <a href="#" className="mobile-nav-link">Blog</a>
-                        <a href="#" className="mobile-nav-link has-chevron">
-                            Resources
-                            <svg width="12" height="8" viewBox="0 0 10 6" fill="none">
-                                <path d="M1 1L5 5L9 1" stroke="#111213" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                        </a>
+                        <a href="#use-cases" className="mobile-nav-link">Use Cases</a>
+                        <a href="#how-to-use" className="mobile-nav-link">How to use</a>
+                        <a href="#" className="mobile-nav-link">Resources</a>
                     </nav>
                 </div>
             </div>

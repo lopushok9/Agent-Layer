@@ -45,8 +45,7 @@ export const UseCasesPage = () => {
         <nav className="uc-nav">
           <a href="#product" className="uc-nav-item">Product</a>
           <a href="#use-cases" className="uc-nav-item uc-nav-active">Use Cases</a>
-          <a href="#" className="uc-nav-item">Pricing</a>
-          <a href="#" className="uc-nav-item">Blog</a>
+          <a href="#how-to-use" className="uc-nav-item">How to use</a>
           <a href="#" className="uc-nav-item">Resources</a>
         </nav>
 

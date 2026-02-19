@@ -49,8 +49,7 @@ export const ProductPage = () => {
         <nav className="pp-nav">
           <a href="#product" className="pp-nav-item pp-nav-active">Product</a>
           <a href="#use-cases" className="pp-nav-item">Use Cases</a>
-          <a href="#" className="pp-nav-item">Pricing</a>
-          <a href="#" className="pp-nav-item">Blog</a>
+          <a href="#how-to-use" className="pp-nav-item">How to use</a>
           <a href="#" className="pp-nav-item">Resources</a>
         </nav>
 
