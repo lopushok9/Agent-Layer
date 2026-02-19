@@ -18,7 +18,7 @@ export const Interface = () => {
                 </div>
 
                 <nav className="nav desktop-only">
-                    <a href="#" className="nav-item">
+                    <a href="#product" className="nav-item">
                         Product
                         <svg className="chevron" width="10" height="6" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg">
                             <path d="M1 1L5 5L9 1" stroke="#111213" strokeOpacity="0.8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -75,7 +75,7 @@ export const Interface = () => {
 
                 <div className="mobile-menu-content">
                     <nav className="mobile-nav-list">
-                        <a href="#" className="mobile-nav-link">Product</a>
+                        <a href="#product" className="mobile-nav-link">Product</a>
                         <a href="#" className="mobile-nav-link has-chevron">
                             Use Cases
                             <svg width="12" height="8" viewBox="0 0 10 6" fill="none">
@@ -123,7 +123,7 @@ export const Interface = () => {
             {/* Continuation Section (Reference Implementation) */}
             <div className="extended-section">
                 <div className="extended-header">
-                    <h2 className="lift-off-title">Experience liftoff</h2>
+                    <h2 className="finance-title">finance</h2>
                     <div className="extended-links">
                         <div className="link-column">
                             <a href="#">Download</a>
@@ -142,7 +142,7 @@ export const Interface = () => {
                 </div>
 
                 <div className="huge-text-container">
-                    <h1 className="huge-antigravity">Antigravity</h1>
+                    <h1 className="huge-antigravity">for ai agents</h1>
                 </div>
 
                 <div className="extended-footer">
@@ -156,7 +156,7 @@ export const Interface = () => {
                 </div>
             </div>
 
-        </div>
+        </div >
     )
 }
 
