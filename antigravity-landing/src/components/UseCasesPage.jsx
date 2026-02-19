@@ -116,8 +116,6 @@ export const UseCasesPage = () => {
             <div className="uc-footer-brand">Agent Layer</div>
             <div className="uc-footer-bottom-links">
               <a href="#">About Agent Layer</a>
-              <a href="#">Agent Layer Products</a>
-              <a href="#">Privacy</a>
               <a href="#">Terms</a>
             </div>
           </div>

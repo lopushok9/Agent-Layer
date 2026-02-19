@@ -411,19 +411,18 @@
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    margin-bottom: auto;
-    /* Push it to top */
     width: 100%;
 }
 
-.lift-off-title {
-    font-size: 32px;
-    font-weight: 500;
-    line-height: 1.15;
-    letter-spacing: -0.02em;
+.finance-title {
+    font-size: 14.5vw;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 0.88;
     margin: 0;
     color: #111213;
 }
+
 
 .extended-links {
     display: flex;
@@ -454,30 +453,20 @@
 }
 
 .huge-text-container {
-    display: flex;
-    justify-content: center;
-    align-items: flex-end;
     width: 100%;
+    margin-top: 0;
     margin-bottom: 4vh;
-    /* Minimal spacing below */
-    margin-top: 10vh;
-    /* Minimal spacing above */
 }
 
 .huge-antigravity {
-    font-size: 19vw;
-    /* 18-22vw range */
+    font-size: 14.5vw;
     font-weight: 800;
-    /* ExtraBold */
     letter-spacing: -0.04em;
-    /* Tighter tracking */
     color: #111213;
-    line-height: 0.9;
+    line-height: 0.88;
     margin: 0;
-    text-align: center;
+    text-align: left;
     white-space: nowrap;
-    transform: translateX(-0.5vw);
-    /* Optical alignment */
 }
 
 .extended-footer {
@@ -599,9 +588,6 @@
         gap: 40px;
     }
 
-    .lift-off-title {
-        font-size: 28px;
-    }
 
     .extended-links {
         flex-direction: column;
