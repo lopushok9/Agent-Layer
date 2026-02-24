@@ -35,7 +35,10 @@ async def _get(url: str, params: dict | None = None) -> dict | list:
 async def fetch_yields(
     chain: str | None = None,
     min_tvl: float = 0,
+    max_tvl: float | None = None,
+    min_apy: float = 0,
     stablecoin_only: bool = False,
+    sort_by: str = "apy",
     limit: int = 20,
 ) -> list[dict]:
     """Top DeFi yield pools with optional filters."""
@@ -49,6 +52,10 @@ async def fetch_yields(
         apy = p.get("apy") or 0
         if tvl < min_tvl:
             continue
+        if max_tvl is not None and tvl > max_tvl:
+            continue
+        if apy < min_apy:
+            continue
         if chain and (p.get("chain", "").lower() != chain.lower()):
             continue
         if stablecoin_only and not p.get("stablecoin", False):
@@ -57,8 +64,13 @@ async def fetch_yields(
             continue
         filtered.append(p)
 
-    # Sort by TVL descending, take top N
-    filtered.sort(key=lambda x: x.get("tvlUsd", 0), reverse=True)
+    sort_keys = {
+        "apy": lambda x: x.get("apy") or 0,
+        "tvl": lambda x: x.get("tvlUsd") or 0,
+        "apy_reward": lambda x: x.get("apyReward") or 0,
+    }
+    key_fn = sort_keys.get(sort_by, sort_keys["apy"])
+    filtered.sort(key=key_fn, reverse=True)
     filtered = filtered[:limit]
 
     return [
