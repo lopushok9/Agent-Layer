@@ -1,3 +1,5 @@
+![OpenClaw](logo+name.png)
+
 # OpenClaw Finance MCP Server
 
 **The finance layer for AI agents.** A production-grade MCP server giving any AI agent real-time access to finance, crypto, DeFi protocols, on-chain data, and blockchain identity (via ERC-8004) — with zero infrastructure cost.
