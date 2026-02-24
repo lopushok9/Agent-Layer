@@ -34,7 +34,7 @@ The server starts in stdio mode (standard MCP transport).
 | `get_protocol_tvl` | TVL for a protocol or top protocols |
 | `get_protocol_fees` | Protocol fees/revenue (24h) |
 | `get_stablecoin_stats` | Stablecoin supply, peg type, chains |
-| `get_curve_pools` | Curve pools by chain/registry with TVL/APY/gauge filters |
+| `get_curve_pools` | Curve pools by chain/registry with TVL/APY/gauge filters (base + rewards APY) |
 | `get_curve_subgraph_data` | Curve chain metrics: TVL, 24h volume/fees, CRV APY |
 | `get_wallet_balance` | Native token balance on 6 chains |
 | `get_token_transfers` | ERC-20 transfers (requires explorer key) |

@@ -227,6 +227,8 @@ def register(mcp, cache: Cache):
         registry: str = "main",
         min_tvl: float = 0,
         max_tvl: float | None = None,
+        min_apy: float = 0,
+        max_apy: float | None = None,
         only_gauged: bool = False,
         asset_type: str | None = None,
         sort_by: str = "tvl",
@@ -239,6 +241,8 @@ def register(mcp, cache: Cache):
             registry: Curve registry id (usually "main").
             min_tvl: Minimum pool TVL in USD.
             max_tvl: Maximum pool TVL in USD.
+            min_apy: Minimum APY % (combined base+rewards).
+            max_apy: Maximum APY %.
             only_gauged: If True, return only pools with a gauge.
             asset_type: Optional asset type filter (example: "USD", "BTC", "ETH").
             sort_by: Sort by "tvl" or "apy". Default: "tvl".
@@ -246,6 +250,16 @@ def register(mcp, cache: Cache):
 
         Returns:
             JSON array with pool, address, tvl_usd, apy metrics, and gauge metadata.
+
+        Examples:
+            Top Curve pools by APY on Ethereum:
+                Input: {"chain": "ethereum", "registry": "main", "sort_by": "apy", "limit": 10}
+
+            Safer/larger pools:
+                Input: {"min_tvl": 10000000, "max_apy": 20, "sort_by": "tvl", "limit": 10}
+
+            Gauge-only pools with APY floor:
+                Input: {"only_gauged": true, "min_apy": 1.5, "sort_by": "apy", "limit": 20}
         """
         valid_sort = {"tvl", "apy"}
         if sort_by not in valid_sort:
@@ -260,7 +274,7 @@ def register(mcp, cache: Cache):
 
         limit = min(limit, 100)
         cache_key = (
-            f"curve:pools:{chain}:{registry}:{min_tvl}:{max_tvl}:"
+            f"curve:pools:{chain}:{registry}:{min_tvl}:{max_tvl}:{min_apy}:{max_apy}:"
             f"{only_gauged}:{asset_type}:{sort_by}:{limit}"
         )
 
@@ -274,6 +288,8 @@ def register(mcp, cache: Cache):
                 registry=registry,
                 min_tvl=min_tvl,
                 max_tvl=max_tvl,
+                min_apy=min_apy,
+                max_apy=max_apy,
                 only_gauged=only_gauged,
                 asset_type=asset_type,
                 sort_by=sort_by,
@@ -291,7 +307,11 @@ def register(mcp, cache: Cache):
 
     @mcp.tool()
     async def get_curve_subgraph_data(chain: str = "ethereum") -> str:
-        """Get Curve subgraph summary metrics (TVL, volume, fees, CRV APY) for a chain."""
+        """Get Curve subgraph summary metrics for a chain.
+
+        Returns:
+            JSON object with pool_count, 24h total/crypto volume, crypto share, and APY summary stats.
+        """
         chain = chain.strip().lower()
         if not chain:
             raise ValueError("Curve chain cannot be empty.")

@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     defillama_base_url: str = "https://api.llama.fi"
     defillama_yields_url: str = "https://yields.llama.fi"
     defillama_stablecoins_url: str = "https://stablecoins.llama.fi"
-    curve_api_url: str = "https://api.curve.finance/api"
+    curve_api_url: str = "https://api.curve.finance/v1"
     fear_greed_url: str = "https://api.alternative.me/fng"
 
     # RPC endpoints (Alchemy when key set, PublicNode as defaults)

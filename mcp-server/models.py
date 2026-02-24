@@ -99,6 +99,12 @@ class CurveSubgraphData(BaseModel):
     fees_24h_usd: float | None = None
     crv_apy: float | None = None
     pool_count: int | None = None
+    crypto_share_percent: float | None = None
+    crypto_volume_24h_usd: float | None = None
+    avg_daily_apy: float | None = None
+    avg_weekly_apy: float | None = None
+    max_daily_apy: float | None = None
+    max_weekly_apy: float | None = None
     source: str = "curve"
 
 
