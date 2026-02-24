@@ -22,7 +22,7 @@ python server.py
 
 The server starts in stdio mode (standard MCP transport).
 
-## Tools (12)
+## Tools (14)
 
 | Tool | Description |
 |------|-------------|
@@ -34,6 +34,8 @@ The server starts in stdio mode (standard MCP transport).
 | `get_protocol_tvl` | TVL for a protocol or top protocols |
 | `get_protocol_fees` | Protocol fees/revenue (24h) |
 | `get_stablecoin_stats` | Stablecoin supply, peg type, chains |
+| `get_curve_pools` | Curve pools by chain/registry with TVL/APY/gauge filters |
+| `get_curve_subgraph_data` | Curve chain metrics: TVL, 24h volume/fees, CRV APY |
 | `get_wallet_balance` | Native token balance on 6 chains |
 | `get_token_transfers` | ERC-20 transfers (requires explorer key) |
 | `get_transaction_history` | Transaction history (requires explorer key) |
@@ -46,6 +48,7 @@ The server starts in stdio mode (standard MCP transport).
 | CoinGecko | 30/min | No |
 | CoinCap | Unlimited | No |
 | DeFiLlama | Unlimited | No |
+| Curve API | Unlimited | No |
 | Alternative.me | Unlimited | No |
 | PublicNode RPC | Unlimited | No |
 | Etherscan/Arbiscan/Basescan | 100k/day | Free signup |

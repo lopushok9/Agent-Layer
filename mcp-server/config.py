@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     defillama_base_url: str = "https://api.llama.fi"
     defillama_yields_url: str = "https://yields.llama.fi"
     defillama_stablecoins_url: str = "https://stablecoins.llama.fi"
+    curve_api_url: str = "https://api.curve.finance/api"
     fear_greed_url: str = "https://api.alternative.me/fng"
 
     # RPC endpoints (Alchemy when key set, PublicNode as defaults)
@@ -47,6 +48,8 @@ class Settings(BaseSettings):
     cache_ttl_protocol_tvl: int = 600
     cache_ttl_protocol_fees: int = 600
     cache_ttl_stablecoins: int = 600
+    cache_ttl_curve_pools: int = 300
+    cache_ttl_curve_subgraph: int = 300
     cache_ttl_wallet_balance: int = 120
     cache_ttl_token_transfers: int = 60
     cache_ttl_tx_history: int = 60
@@ -66,6 +69,7 @@ class Settings(BaseSettings):
     rate_limit_coingecko: int = 24
     rate_limit_coincap: int = 200
     rate_limit_defillama: int = 200
+    rate_limit_curve: int = 120
     rate_limit_explorer: int = 80
     rate_limit_alchemy: int = 300
     rate_limit_dexscreener: int = 50

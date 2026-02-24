@@ -77,6 +77,31 @@ class StablecoinData(BaseModel):
     source: str = "defillama"
 
 
+class CurvePool(BaseModel):
+    pool: str
+    address: str | None = None
+    chain: str
+    registry: str
+    asset_type: str | None = None
+    tvl_usd: float
+    apy: float | None = None
+    apy_base: float | None = None
+    apy_reward: float | None = None
+    has_gauge: bool = False
+    gauge_address: str | None = None
+    source: str = "curve"
+
+
+class CurveSubgraphData(BaseModel):
+    chain: str
+    tvl_usd: float | None = None
+    volume_24h_usd: float | None = None
+    fees_24h_usd: float | None = None
+    crv_apy: float | None = None
+    pool_count: int | None = None
+    source: str = "curve"
+
+
 class WalletBalance(BaseModel):
     address: str
     chain: str

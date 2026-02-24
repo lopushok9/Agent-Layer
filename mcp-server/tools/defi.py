@@ -5,8 +5,8 @@ import logging
 
 from cache import Cache
 from config import settings
-from models import DefiYield, ProtocolFees, ProtocolTvl, StablecoinData
-from providers import defillama
+from models import CurvePool, CurveSubgraphData, DefiYield, ProtocolFees, ProtocolTvl, StablecoinData
+from providers import curve, defillama
 from validation import SUPPORTED_CHAINS_DEFI
 
 log = logging.getLogger(__name__)
@@ -214,6 +214,98 @@ def register(mcp, cache: Cache):
             items = [StablecoinData(**r).model_dump() for r in raw]
             result = json.dumps(items, ensure_ascii=False)
             cache.set(cache_key, result, settings.cache_ttl_stablecoins)
+            return result
+        except Exception:
+            stale = cache.get_stale(cache_key, settings.cache_stale_max_age)
+            if stale is not None:
+                return stale
+            raise
+
+    @mcp.tool()
+    async def get_curve_pools(
+        chain: str = "ethereum",
+        registry: str = "main",
+        min_tvl: float = 0,
+        max_tvl: float | None = None,
+        only_gauged: bool = False,
+        asset_type: str | None = None,
+        sort_by: str = "tvl",
+        limit: int = 20,
+    ) -> str:
+        """Get Curve pools by chain and registry with TVL/APY filters.
+
+        Args:
+            chain: Curve chain id (e.g. "ethereum", "arbitrum", "base").
+            registry: Curve registry id (usually "main").
+            min_tvl: Minimum pool TVL in USD.
+            max_tvl: Maximum pool TVL in USD.
+            only_gauged: If True, return only pools with a gauge.
+            asset_type: Optional asset type filter (example: "USD", "BTC", "ETH").
+            sort_by: Sort by "tvl" or "apy". Default: "tvl".
+            limit: Max number of results (default 20, max 100).
+
+        Returns:
+            JSON array with pool, address, tvl_usd, apy metrics, and gauge metadata.
+        """
+        valid_sort = {"tvl", "apy"}
+        if sort_by not in valid_sort:
+            raise ValueError(f"Invalid sort_by: '{sort_by}'. Must be one of: {', '.join(sorted(valid_sort))}.")
+
+        chain = chain.strip().lower()
+        if not chain:
+            raise ValueError("Curve chain cannot be empty.")
+        registry = registry.strip().lower()
+        if not registry:
+            raise ValueError("Curve registry cannot be empty.")
+
+        limit = min(limit, 100)
+        cache_key = (
+            f"curve:pools:{chain}:{registry}:{min_tvl}:{max_tvl}:"
+            f"{only_gauged}:{asset_type}:{sort_by}:{limit}"
+        )
+
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        try:
+            raw = await curve.fetch_pools(
+                chain=chain,
+                registry=registry,
+                min_tvl=min_tvl,
+                max_tvl=max_tvl,
+                only_gauged=only_gauged,
+                asset_type=asset_type,
+                sort_by=sort_by,
+                limit=limit,
+            )
+            items = [CurvePool(**r).model_dump() for r in raw]
+            result = json.dumps(items, ensure_ascii=False)
+            cache.set(cache_key, result, settings.cache_ttl_curve_pools)
+            return result
+        except Exception:
+            stale = cache.get_stale(cache_key, settings.cache_stale_max_age)
+            if stale is not None:
+                return stale
+            raise
+
+    @mcp.tool()
+    async def get_curve_subgraph_data(chain: str = "ethereum") -> str:
+        """Get Curve subgraph summary metrics (TVL, volume, fees, CRV APY) for a chain."""
+        chain = chain.strip().lower()
+        if not chain:
+            raise ValueError("Curve chain cannot be empty.")
+
+        cache_key = f"curve:subgraph:{chain}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        try:
+            raw = await curve.fetch_subgraph_data(chain=chain)
+            item = CurveSubgraphData(**raw).model_dump()
+            result = json.dumps(item, ensure_ascii=False)
+            cache.set(cache_key, result, settings.cache_ttl_curve_subgraph)
             return result
         except Exception:
             stale = cache.get_stale(cache_key, settings.cache_stale_max_age)
