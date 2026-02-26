@@ -40,8 +40,9 @@ def _write_keypair(folder: Path, key_name: str, public_key: str, private_key: st
     folder.mkdir(parents=True, exist_ok=True)
     pub_path = folder / f"{key_name}.public"
     prv_path = folder / f"{key_name}.private"
-    pub_path.write_text(public_key.strip() + "\n", encoding="utf-8")
-    prv_path.write_text(private_key.strip() + "\n", encoding="utf-8")
+    # tkcli expects strict hex content without trailing newline bytes.
+    pub_path.write_text(public_key.strip(), encoding="utf-8")
+    prv_path.write_text(private_key.strip(), encoding="utf-8")
     os.chmod(pub_path, 0o644)
     os.chmod(prv_path, 0o600)
 
