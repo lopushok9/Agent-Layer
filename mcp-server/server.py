@@ -6,7 +6,7 @@ from fastmcp import FastMCP
 
 from cache import Cache
 from config import settings
-from tools import prices, sentiment, defi, onchain, gas, search, agents
+from tools import prices, sentiment, defi, onchain, gas, search, agents, wallet
 
 logging.basicConfig(
     level=logging.INFO,
@@ -32,6 +32,7 @@ onchain.register(mcp, cache)
 gas.register(mcp, cache)
 search.register(mcp, cache)
 agents.register(mcp, cache)
+wallet.register(mcp, cache)
 
 if __name__ == "__main__":
     import os

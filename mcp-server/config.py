@@ -26,6 +26,15 @@ class Settings(BaseSettings):
     tavily_api_key: str = ""
     firecrawl_api_key: str = ""
 
+    # --- Turnkey (headless wallet backend for agents) ---
+    turnkey_enabled: bool = False
+    turnkey_cli_path: str = "turnkey"
+    turnkey_organization_id: str = ""
+    turnkey_key_name: str = "default"
+    turnkey_keys_folder: str = ""
+    turnkey_command_timeout: float = 30.0
+    turnkey_allow_signing: bool = False
+
     # Blockchain explorer API keys (free tier)
     etherscan_api_key: str = ""
     arbiscan_api_key: str = ""

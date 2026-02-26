@@ -8,7 +8,7 @@
     }                                                                                                                                                         
   }
 
-MCP server for crypto analytics — prices, DeFi yields/TVL, on-chain data, sentiment, gas prices.
+MCP server for crypto analytics + headless wallet ops (Turnkey) — prices, DeFi yields/TVL, on-chain data, sentiment, gas prices, wallet management.
 
 **100% free-tier APIs.** No paid subscriptions required.
 
@@ -22,7 +22,7 @@ python server.py
 
 The server starts in stdio mode (standard MCP transport).
 
-## Tools (14)
+## Tools (19)
 
 | Tool | Description |
 |------|-------------|
@@ -40,6 +40,11 @@ The server starts in stdio mode (standard MCP transport).
 | `get_token_transfers` | ERC-20 transfers (requires explorer key) |
 | `get_transaction_history` | Transaction history (requires explorer key) |
 | `get_gas_prices` | Gas prices (slow/standard/fast) per chain |
+| `turnkey_status` | Check Turnkey CLI + config readiness |
+| `turnkey_create_wallet` | Create Turnkey wallet |
+| `turnkey_create_ethereum_account` | Create ETH account in Turnkey wallet |
+| `turnkey_list_accounts` | List wallet accounts |
+| `turnkey_sign_transaction` | Sign unsigned ETH tx (requires TURNKEY_ALLOW_SIGNING=true) |
 
 ## Free APIs Used
 
@@ -62,6 +67,28 @@ Only explorer API keys need manual setup (for `get_token_transfers` and `get_tra
 1. Go to [etherscan.io/myapikey](https://etherscan.io/myapikey)
 2. Sign up (30 seconds)
 3. Copy your free API key to `.env`
+
+### Turnkey (VPS/headless wallet backend)
+
+Install Turnkey CLI:
+
+```bash
+npm i -g @turnkey/sdk-server
+```
+
+Configure `.env`:
+
+```bash
+TURNKEY_ENABLED=true
+TURNKEY_CLI_PATH=turnkey
+TURNKEY_ORGANIZATION_ID=...
+TURNKEY_KEY_NAME=default
+# optional:
+# TURNKEY_KEYS_FOLDER=/path/to/.config/turnkey/keys
+TURNKEY_ALLOW_SIGNING=false
+```
+
+Safety note: `TURNKEY_ALLOW_SIGNING` is `false` by default. Keep it disabled until policies and limits are configured.
 
 ## Connect to Claude Desktop
 
