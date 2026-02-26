@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import shutil
+from pathlib import Path
 
 from config import settings
 from exceptions import ProviderError
@@ -33,6 +34,61 @@ def _resolve_cli_path() -> str:
     )
 
 
+def _write_keypair(folder: Path, key_name: str, public_key: str, private_key: str) -> None:
+    """Write turnkey keypair files to the given folder."""
+    folder.mkdir(parents=True, exist_ok=True)
+    pub_path = folder / f"{key_name}.public"
+    prv_path = folder / f"{key_name}.private"
+    pub_path.write_text(public_key.strip() + "\n", encoding="utf-8")
+    prv_path.write_text(private_key.strip() + "\n", encoding="utf-8")
+    os.chmod(pub_path, 0o644)
+    os.chmod(prv_path, 0o600)
+
+
+def _resolve_keys_folders() -> tuple[str | None, str | None]:
+    """Resolve API/encryption key folders from settings or env-provided key material."""
+    keys_folder = settings.turnkey_keys_folder.strip() or None
+    enc_keys_folder = settings.turnkey_encryption_keys_folder.strip() or None
+
+    has_api_env = bool(settings.turnkey_api_public_key and settings.turnkey_api_private_key)
+    has_enc_env = bool(
+        settings.turnkey_encryption_public_key and settings.turnkey_encryption_private_key
+    )
+
+    if (settings.turnkey_api_public_key or settings.turnkey_api_private_key) and not has_api_env:
+        raise ProviderError(
+            "turnkey",
+            "Set both TURNKEY_API_PUBLIC_KEY and TURNKEY_API_PRIVATE_KEY, or neither.",
+        )
+    if (settings.turnkey_encryption_public_key or settings.turnkey_encryption_private_key) and not has_enc_env:
+        raise ProviderError(
+            "turnkey",
+            "Set both TURNKEY_ENCRYPTION_PUBLIC_KEY and TURNKEY_ENCRYPTION_PRIVATE_KEY, or neither.",
+        )
+
+    if has_api_env:
+        api_dir = Path("/tmp/turnkey/keys")
+        _write_keypair(
+            folder=api_dir,
+            key_name=settings.turnkey_key_name,
+            public_key=settings.turnkey_api_public_key,
+            private_key=settings.turnkey_api_private_key,
+        )
+        keys_folder = str(api_dir)
+
+    if has_enc_env:
+        enc_dir = Path("/tmp/turnkey/encryption-keys")
+        _write_keypair(
+            folder=enc_dir,
+            key_name=settings.turnkey_encryption_key_name,
+            public_key=settings.turnkey_encryption_public_key,
+            private_key=settings.turnkey_encryption_private_key,
+        )
+        enc_keys_folder = str(enc_dir)
+
+    return keys_folder, enc_keys_folder
+
+
 def _base_args() -> list[str]:
     if not settings.turnkey_enabled:
         raise ProviderError(
@@ -50,6 +106,7 @@ def _base_args() -> list[str]:
             "TURNKEY_KEY_NAME is required.",
         )
     cli_path = _resolve_cli_path()
+    keys_folder, encryption_keys_folder = _resolve_keys_folders()
 
     args = [
         cli_path,
@@ -60,8 +117,12 @@ def _base_args() -> list[str]:
         "--output",
         "json",
     ]
-    if settings.turnkey_keys_folder:
-        args.extend(["--keys-folder", settings.turnkey_keys_folder])
+    if keys_folder:
+        args.extend(["--keys-folder", keys_folder])
+    if encryption_keys_folder:
+        args.extend(["--encryption-keys-folder", encryption_keys_folder])
+    if settings.turnkey_encryption_key_name:
+        args.extend(["--encryption-key-name", settings.turnkey_encryption_key_name])
     return args
 
 
@@ -108,6 +169,11 @@ async def get_status() -> dict:
             "organization_id_set": bool(settings.turnkey_organization_id),
             "key_name_set": bool(settings.turnkey_key_name),
             "keys_folder_set": bool(settings.turnkey_keys_folder),
+            "encryption_keys_folder_set": bool(settings.turnkey_encryption_keys_folder),
+            "api_key_from_env": bool(settings.turnkey_api_public_key and settings.turnkey_api_private_key),
+            "encryption_key_from_env": bool(
+                settings.turnkey_encryption_public_key and settings.turnkey_encryption_private_key
+            ),
         }
     process = await asyncio.create_subprocess_exec(
         cli_path,
@@ -124,6 +190,11 @@ async def get_status() -> dict:
         "organization_id_set": bool(settings.turnkey_organization_id),
         "key_name_set": bool(settings.turnkey_key_name),
         "keys_folder_set": bool(settings.turnkey_keys_folder),
+        "encryption_keys_folder_set": bool(settings.turnkey_encryption_keys_folder),
+        "api_key_from_env": bool(settings.turnkey_api_public_key and settings.turnkey_api_private_key),
+        "encryption_key_from_env": bool(
+            settings.turnkey_encryption_public_key and settings.turnkey_encryption_private_key
+        ),
         "version": version or None,
     }
 

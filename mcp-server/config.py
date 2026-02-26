@@ -31,9 +31,15 @@ class Settings(BaseSettings):
     turnkey_cli_path: str = "turnkey"
     turnkey_organization_id: str = ""
     turnkey_key_name: str = "default"
+    turnkey_encryption_key_name: str = "default"
     turnkey_keys_folder: str = ""
+    turnkey_encryption_keys_folder: str = ""
     turnkey_command_timeout: float = 30.0
     turnkey_allow_signing: bool = False
+    turnkey_api_public_key: str = ""
+    turnkey_api_private_key: str = ""
+    turnkey_encryption_public_key: str = ""
+    turnkey_encryption_private_key: str = ""
 
     # Blockchain explorer API keys (free tier)
     etherscan_api_key: str = ""

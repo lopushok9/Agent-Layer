@@ -85,12 +85,25 @@ TURNKEY_ENABLED=true
 TURNKEY_CLI_PATH=turnkey
 TURNKEY_ORGANIZATION_ID=...
 TURNKEY_KEY_NAME=default
+TURNKEY_ENCRYPTION_KEY_NAME=default
 # optional:
 # TURNKEY_KEYS_FOLDER=/path/to/.config/turnkey/keys
+# TURNKEY_ENCRYPTION_KEYS_FOLDER=/path/to/.config/turnkey/encryption-keys
 TURNKEY_ALLOW_SIGNING=false
 ```
 
 Safety note: `TURNKEY_ALLOW_SIGNING` is `false` by default. Keep it disabled until policies and limits are configured.
+
+For Railway/container deployments with ephemeral filesystem, provide key material via env vars:
+
+```bash
+TURNKEY_API_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----..."
+TURNKEY_API_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----..."
+TURNKEY_ENCRYPTION_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----..."
+TURNKEY_ENCRYPTION_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----..."
+```
+
+The server will write them to `/tmp/turnkey/...` at runtime and pass proper folders to `turnkey` CLI.
 
 ## Connect to Claude Desktop
 
