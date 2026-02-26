@@ -57,6 +57,8 @@ def _base_args() -> list[str]:
         settings.turnkey_organization_id,
         "--key-name",
         settings.turnkey_key_name,
+        "--output",
+        "json",
     ]
     if settings.turnkey_keys_folder:
         args.extend(["--keys-folder", settings.turnkey_keys_folder])
@@ -128,7 +130,7 @@ async def get_status() -> dict:
 
 async def create_wallet(wallet_name: str) -> dict:
     """Create a wallet in Turnkey."""
-    return await _run_cli("wallets", "create", "--name", wallet_name, "--json")
+    return await _run_cli("wallets", "create", "--name", wallet_name)
 
 
 async def create_wallet_account(
@@ -156,13 +158,12 @@ async def create_wallet_account(
         curve,
         "--address-format",
         address_format,
-        "--json",
     )
 
 
 async def list_wallet_accounts(wallet_name: str) -> dict:
     """List accounts for wallet."""
-    return await _run_cli("wallets", "accounts", "list", "--wallet", wallet_name, "--json")
+    return await _run_cli("wallets", "accounts", "list", "--wallet", wallet_name)
 
 
 async def sign_transaction(
@@ -192,5 +193,4 @@ async def sign_transaction(
                 },
             }
         ),
-        "--json",
     )
