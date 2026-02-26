@@ -14,7 +14,7 @@ RUN apt-get update \
     esac \
   && curl -fsSL -o /usr/local/bin/turnkey "https://github.com/tkhq/tkcli/releases/download/${TURNKEY_CLI_VERSION}/turnkey.linux-${tk_arch}" \
   && chmod +x /usr/local/bin/turnkey \
-  && /usr/local/bin/turnkey --version \
+  && /usr/local/bin/turnkey version \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 

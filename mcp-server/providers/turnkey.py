@@ -88,7 +88,7 @@ async def get_status() -> dict:
         }
     process = await asyncio.create_subprocess_exec(
         settings.turnkey_cli_path,
-        "--version",
+        "version",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
