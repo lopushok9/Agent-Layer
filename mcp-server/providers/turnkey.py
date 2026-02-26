@@ -267,14 +267,12 @@ async def create_wallet_account(
     address_format: str = "ADDRESS_FORMAT_ETHEREUM",
 ) -> dict:
     """Create an account inside wallet."""
-    return await _run_cli(
+    base_args = [
         "wallets",
         "accounts",
         "create",
         "--wallet",
         wallet_name,
-        "--name",
-        account_name,
         "--path-format",
         path_format,
         "--path",
@@ -283,7 +281,15 @@ async def create_wallet_account(
         curve,
         "--address-format",
         address_format,
-    )
+    ]
+    # Newer tkcli supports explicit account label via --name.
+    # Older versions reject --name; in that case retry without it.
+    try:
+        return await _run_cli(*base_args[:5], "--name", account_name, *base_args[5:])
+    except ProviderError as exc:
+        if "unknown flag: --name" not in str(exc):
+            raise
+        return await _run_cli(*base_args)
 
 
 async def list_wallet_accounts(wallet_name: str) -> dict:
