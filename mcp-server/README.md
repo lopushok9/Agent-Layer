@@ -22,7 +22,7 @@ python server.py
 
 The server starts in stdio mode (standard MCP transport).
 
-## Tools (19)
+## Tools (23)
 
 | Tool | Description |
 |------|-------------|
@@ -44,7 +44,11 @@ The server starts in stdio mode (standard MCP transport).
 | `turnkey_create_wallet` | Create Turnkey wallet |
 | `turnkey_create_ethereum_account` | Create ETH account in Turnkey wallet |
 | `turnkey_list_accounts` | List wallet accounts |
-| `turnkey_sign_transaction` | Sign unsigned ETH tx (requires TURNKEY_ALLOW_SIGNING=true) |
+| `turnkey_sign_transaction` | Sign unsigned ETH transaction |
+| `turnkey_list_activities` | List organization activities (including pending consensus) |
+| `turnkey_get_activity` | Get a specific activity by ID |
+| `turnkey_approve_activity` | Approve activity by activity ID or fingerprint |
+| `turnkey_reject_activity` | Reject activity by activity ID or fingerprint |
 
 ## Free APIs Used
 
@@ -89,10 +93,7 @@ TURNKEY_ENCRYPTION_KEY_NAME=default
 # optional:
 # TURNKEY_KEYS_FOLDER=/path/to/.config/turnkey/keys
 # TURNKEY_ENCRYPTION_KEYS_FOLDER=/path/to/.config/turnkey/encryption-keys
-TURNKEY_ALLOW_SIGNING=false
 ```
-
-Safety note: `TURNKEY_ALLOW_SIGNING` is `false` by default. Keep it disabled until policies and limits are configured.
 
 For Railway/container deployments with ephemeral filesystem, provide key material via env vars:
 

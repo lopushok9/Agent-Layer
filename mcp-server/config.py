@@ -35,7 +35,6 @@ class Settings(BaseSettings):
     turnkey_keys_folder: str = ""
     turnkey_encryption_keys_folder: str = ""
     turnkey_command_timeout: float = 30.0
-    turnkey_allow_signing: bool = False
     turnkey_api_public_key: str = ""
     turnkey_api_private_key: str = ""
     turnkey_encryption_public_key: str = ""

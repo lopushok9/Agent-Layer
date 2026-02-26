@@ -11,6 +11,7 @@ WALLET_NAME_RE = re.compile(r"^[A-Za-z0-9._-]{2,64}$")
 ACCOUNT_NAME_RE = re.compile(r"^[A-Za-z0-9._-]{2,64}$")
 TURNKEY_ACCOUNT_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 HEX_RE = re.compile(r"^0x[0-9a-fA-F]+$")
+ACTIVITY_ID_RE = re.compile(r"^[A-Za-z0-9-]{8,128}$")
 
 
 def _validate_wallet_name(name: str) -> str:
@@ -42,6 +43,20 @@ def _validate_unsigned_tx(unsigned_transaction: str) -> str:
     val = unsigned_transaction.strip()
     if not HEX_RE.match(val):
         raise ValueError("Invalid unsigned_transaction. Expected 0x-prefixed hex string.")
+    return val
+
+
+def _validate_activity_id(activity_id: str) -> str:
+    val = activity_id.strip()
+    if not ACTIVITY_ID_RE.match(val):
+        raise ValueError("Invalid activity_id format.")
+    return val
+
+
+def _validate_fingerprint(fingerprint: str) -> str:
+    val = fingerprint.strip()
+    if not val:
+        raise ValueError("fingerprint cannot be empty.")
     return val
 
 
@@ -121,4 +136,47 @@ def register(mcp, cache: Cache):
         sign_with = _validate_turnkey_account(sign_with)
         unsigned_transaction = _validate_unsigned_tx(unsigned_transaction)
         data = await turnkey.sign_transaction(sign_with, unsigned_transaction)
+        return json.dumps(data, ensure_ascii=False)
+
+    @mcp.tool()
+    async def turnkey_list_activities() -> str:
+        """List organization activities (including pending consensus activities)."""
+        data = await turnkey.list_activities()
+        return json.dumps(data, ensure_ascii=False)
+
+    @mcp.tool()
+    async def turnkey_get_activity(activity_id: str) -> str:
+        """Get details and status for one activity."""
+        activity_id = _validate_activity_id(activity_id)
+        data = await turnkey.get_activity(activity_id)
+        return json.dumps(data, ensure_ascii=False)
+
+    @mcp.tool()
+    async def turnkey_approve_activity(
+        activity_id: str = "",
+        fingerprint: str = "",
+    ) -> str:
+        """Approve activity by activity_id or fingerprint."""
+        activity_id = activity_id.strip()
+        fingerprint = fingerprint.strip()
+        if activity_id:
+            activity_id = _validate_activity_id(activity_id)
+        if fingerprint:
+            fingerprint = _validate_fingerprint(fingerprint)
+        data = await turnkey.approve_activity(activity_id=activity_id or None, fingerprint=fingerprint or None)
+        return json.dumps(data, ensure_ascii=False)
+
+    @mcp.tool()
+    async def turnkey_reject_activity(
+        activity_id: str = "",
+        fingerprint: str = "",
+    ) -> str:
+        """Reject activity by activity_id or fingerprint."""
+        activity_id = activity_id.strip()
+        fingerprint = fingerprint.strip()
+        if activity_id:
+            activity_id = _validate_activity_id(activity_id)
+        if fingerprint:
+            fingerprint = _validate_fingerprint(fingerprint)
+        data = await turnkey.reject_activity(activity_id=activity_id or None, fingerprint=fingerprint or None)
         return json.dumps(data, ensure_ascii=False)

@@ -233,6 +233,26 @@ async def get_status() -> dict:
     }
 
 
+def _extract_activity_payload(data: dict) -> dict:
+    """Return nested activity object if present, otherwise raw payload."""
+    if isinstance(data.get("activity"), dict):
+        return data["activity"]
+    if isinstance(data.get("result"), dict):
+        result = data["result"]
+        if isinstance(result.get("activity"), dict):
+            return result["activity"]
+    return data
+
+
+def _extract_fingerprint(data: dict) -> str:
+    """Extract activity fingerprint from get_activity-like payload."""
+    activity = _extract_activity_payload(data)
+    fp = activity.get("fingerprint") if isinstance(activity, dict) else None
+    if not fp:
+        raise ProviderError("turnkey", "Could not extract activity fingerprint from response")
+    return str(fp)
+
+
 async def create_wallet(wallet_name: str) -> dict:
     """Create a wallet in Turnkey."""
     return await _run_cli("wallets", "create", "--name", wallet_name)
@@ -277,11 +297,6 @@ async def sign_transaction(
     type_: str = "TRANSACTION_TYPE_ETHEREUM",
 ) -> dict:
     """Sign raw unsigned transaction with Turnkey account."""
-    if not settings.turnkey_allow_signing:
-        raise ProviderError(
-            "turnkey",
-            "Transaction signing is disabled. Set TURNKEY_ALLOW_SIGNING=true to enable.",
-        )
     return await _run_cli(
         "request",
         "--path",
@@ -298,4 +313,60 @@ async def sign_transaction(
                 },
             }
         ),
+    )
+
+
+async def list_activities() -> dict:
+    """List organization activities."""
+    return await _run_cli("activities", "list")
+
+
+async def get_activity(activity_id: str) -> dict:
+    """Get activity details by ID."""
+    return await _run_cli("activities", "get", activity_id.strip())
+
+
+async def approve_activity(activity_id: str | None = None, fingerprint: str | None = None) -> dict:
+    """Approve activity by fingerprint or activity ID."""
+    fp = (fingerprint or "").strip()
+    if not fp:
+        if not activity_id or not activity_id.strip():
+            raise ProviderError("turnkey", "Provide activity_id or fingerprint")
+        activity = await get_activity(activity_id)
+        fp = _extract_fingerprint(activity)
+
+    body = {
+        "type": "ACTIVITY_TYPE_APPROVE_ACTIVITY",
+        "organizationId": settings.turnkey_organization_id,
+        "parameters": {"fingerprint": fp},
+    }
+    return await _run_cli(
+        "request",
+        "--path",
+        "/public/v1/submit/approve_activity",
+        "--body",
+        json.dumps(body),
+    )
+
+
+async def reject_activity(activity_id: str | None = None, fingerprint: str | None = None) -> dict:
+    """Reject activity by fingerprint or activity ID."""
+    fp = (fingerprint or "").strip()
+    if not fp:
+        if not activity_id or not activity_id.strip():
+            raise ProviderError("turnkey", "Provide activity_id or fingerprint")
+        activity = await get_activity(activity_id)
+        fp = _extract_fingerprint(activity)
+
+    body = {
+        "type": "ACTIVITY_TYPE_REJECT_ACTIVITY",
+        "organizationId": settings.turnkey_organization_id,
+        "parameters": {"fingerprint": fp},
+    }
+    return await _run_cli(
+        "request",
+        "--path",
+        "/public/v1/submit/reject_activity",
+        "--body",
+        json.dumps(body),
     )
