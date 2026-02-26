@@ -70,10 +70,12 @@ Only explorer API keys need manual setup (for `get_token_transfers` and `get_tra
 
 ### Turnkey (VPS/headless wallet backend)
 
-Install Turnkey CLI:
+Install Turnkey CLI (binary):
 
 ```bash
-npm i -g @turnkey/sdk-server
+curl -fsSL -o /usr/local/bin/turnkey \
+  https://github.com/tkhq/tkcli/releases/download/v1.1.5/turnkey.linux-x86_64
+chmod +x /usr/local/bin/turnkey
 ```
 
 Configure `.env`:
