@@ -4,10 +4,33 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
 
 from config import settings
 from exceptions import ProviderError
+
+
+def _resolve_cli_path() -> str:
+    """Resolve turnkey CLI path from env/path with sane fallback."""
+    configured = settings.turnkey_cli_path.strip()
+    if configured:
+        if os.path.isabs(configured) and os.path.exists(configured):
+            return configured
+        resolved = shutil.which(configured)
+        if resolved:
+            return resolved
+
+    # Dockerfile installs the binary here.
+    fallback = "/usr/local/bin/turnkey"
+    if os.path.exists(fallback):
+        return fallback
+
+    raise ProviderError(
+        "turnkey",
+        "Turnkey CLI not found. Set TURNKEY_CLI_PATH (e.g. /usr/local/bin/turnkey) "
+        "or install tkcli binary.",
+    )
 
 
 def _base_args() -> list[str]:
@@ -26,14 +49,10 @@ def _base_args() -> list[str]:
             "turnkey",
             "TURNKEY_KEY_NAME is required.",
         )
-    if shutil.which(settings.turnkey_cli_path) is None:
-        raise ProviderError(
-            "turnkey",
-            f"Turnkey CLI not found: '{settings.turnkey_cli_path}'. Install with 'npm i -g @turnkey/sdk-server'.",
-        )
+    cli_path = _resolve_cli_path()
 
     args = [
-        settings.turnkey_cli_path,
+        cli_path,
         "--organization",
         settings.turnkey_organization_id,
         "--key-name",
@@ -77,7 +96,9 @@ async def _run_cli(*extra_args: str) -> dict:
 
 async def get_status() -> dict:
     """Check CLI availability and return version/config summary."""
-    if shutil.which(settings.turnkey_cli_path) is None:
+    try:
+        cli_path = _resolve_cli_path()
+    except ProviderError:
         return {
             "enabled": settings.turnkey_enabled,
             "cli_found": False,
@@ -87,7 +108,7 @@ async def get_status() -> dict:
             "keys_folder_set": bool(settings.turnkey_keys_folder),
         }
     process = await asyncio.create_subprocess_exec(
-        settings.turnkey_cli_path,
+        cli_path,
         "version",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -97,7 +118,7 @@ async def get_status() -> dict:
     return {
         "enabled": settings.turnkey_enabled,
         "cli_found": True,
-        "cli_path": settings.turnkey_cli_path,
+        "cli_path": cli_path,
         "organization_id_set": bool(settings.turnkey_organization_id),
         "key_name_set": bool(settings.turnkey_key_name),
         "keys_folder_set": bool(settings.turnkey_keys_folder),
