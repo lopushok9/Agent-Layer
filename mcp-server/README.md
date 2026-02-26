@@ -97,13 +97,15 @@ Safety note: `TURNKEY_ALLOW_SIGNING` is `false` by default. Keep it disabled unt
 For Railway/container deployments with ephemeral filesystem, provide key material via env vars:
 
 ```bash
-TURNKEY_API_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----..."
-TURNKEY_API_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----..."
-TURNKEY_ENCRYPTION_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----..."
-TURNKEY_ENCRYPTION_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----..."
+TURNKEY_API_PUBLIC_KEY="04ab12cd... (hex)"
+TURNKEY_API_PRIVATE_KEY="9f8e7d... (hex)"
+TURNKEY_ENCRYPTION_PUBLIC_KEY="04de34fa... (hex)"
+TURNKEY_ENCRYPTION_PRIVATE_KEY="7c6b5a... (hex)"
 ```
 
 The server will write them to `/tmp/turnkey/...` at runtime and pass proper folders to `turnkey` CLI.
+
+Important: these values must be raw hex keys expected by `tkcli` key files (optionally `0x`-prefixed), not PEM blocks.
 
 ## Connect to Claude Desktop
 

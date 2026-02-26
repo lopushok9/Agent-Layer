@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import binascii
 import json
 import os
 import shutil
@@ -45,6 +46,28 @@ def _write_keypair(folder: Path, key_name: str, public_key: str, private_key: st
     os.chmod(prv_path, 0o600)
 
 
+def _normalize_hex_key(value: str, env_name: str) -> str:
+    """Normalize and validate a hex-encoded key for tkcli key files."""
+    raw = value.strip()
+    if "BEGIN " in raw or "-----" in raw:
+        raise ProviderError(
+            "turnkey",
+            f"{env_name} appears to be PEM-formatted. Turnkey CLI key files require raw hex keys.",
+        )
+    if raw.startswith("0x") or raw.startswith("0X"):
+        raw = raw[2:]
+    raw = "".join(raw.split())
+    if not raw:
+        raise ProviderError("turnkey", f"{env_name} is empty.")
+    if len(raw) % 2 != 0:
+        raise ProviderError("turnkey", f"{env_name} must contain an even-length hex string.")
+    try:
+        binascii.unhexlify(raw)
+    except (binascii.Error, ValueError) as exc:
+        raise ProviderError("turnkey", f"{env_name} is not valid hex: {exc}") from exc
+    return raw.lower()
+
+
 def _resolve_keys_folders() -> tuple[str | None, str | None]:
     """Resolve API/encryption key folders from settings or env-provided key material."""
     keys_folder = settings.turnkey_keys_folder.strip() or None
@@ -67,22 +90,32 @@ def _resolve_keys_folders() -> tuple[str | None, str | None]:
         )
 
     if has_api_env:
+        api_pub = _normalize_hex_key(settings.turnkey_api_public_key, "TURNKEY_API_PUBLIC_KEY")
+        api_prv = _normalize_hex_key(settings.turnkey_api_private_key, "TURNKEY_API_PRIVATE_KEY")
         api_dir = Path("/tmp/turnkey/keys")
         _write_keypair(
             folder=api_dir,
             key_name=settings.turnkey_key_name,
-            public_key=settings.turnkey_api_public_key,
-            private_key=settings.turnkey_api_private_key,
+            public_key=api_pub,
+            private_key=api_prv,
         )
         keys_folder = str(api_dir)
 
     if has_enc_env:
+        enc_pub = _normalize_hex_key(
+            settings.turnkey_encryption_public_key,
+            "TURNKEY_ENCRYPTION_PUBLIC_KEY",
+        )
+        enc_prv = _normalize_hex_key(
+            settings.turnkey_encryption_private_key,
+            "TURNKEY_ENCRYPTION_PRIVATE_KEY",
+        )
         enc_dir = Path("/tmp/turnkey/encryption-keys")
         _write_keypair(
             folder=enc_dir,
             key_name=settings.turnkey_encryption_key_name,
-            public_key=settings.turnkey_encryption_public_key,
-            private_key=settings.turnkey_encryption_private_key,
+            public_key=enc_pub,
+            private_key=enc_prv,
         )
         enc_keys_folder = str(enc_dir)
 
