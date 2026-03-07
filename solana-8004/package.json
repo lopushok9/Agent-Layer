@@ -1,0 +1,16 @@
+{
+  "name": "solana-8004-registration",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "register:mainnet": "node register-mainnet.mjs",
+    "check:env": "node register-mainnet.mjs --check-only",
+    "upload:ipfs": "node upload-to-ipfs.mjs"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.98.4",
+    "8004-solana": "^0.6.5",
+    "dotenv": "^16.6.1"
+  }
+}
