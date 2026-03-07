@@ -62,6 +62,17 @@ The server starts in stdio mode (standard MCP transport).
 | PublicNode RPC | Unlimited | No |
 | Etherscan/Arbiscan/Basescan | 100k/day | Free signup |
 
+## Agent Discovery (Off-Chain)
+
+The server includes ERC-8004 directory search via `8004scan` index API:
+
+- `list_erc8004_chains` — list indexed chains and chain IDs
+- `search_erc8004_agents` — search/list agents by query + chain (e.g. `base`)
+
+This is off-chain indexed discovery (fast) and complements on-chain lookup via:
+
+- `get_agent_by_id` — direct IdentityRegistry read on Ethereum
+
 ## Configuration
 
 Copy `.env.example` to `.env`. Most settings have sensible defaults.

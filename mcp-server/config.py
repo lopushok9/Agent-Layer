@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     defillama_stablecoins_url: str = "https://stablecoins.llama.fi"
     curve_api_url: str = "https://api.curve.finance/v1"
     fear_greed_url: str = "https://api.alternative.me/fng"
+    scan8004_api_url: str = "https://api.8004scan.io"
 
     # RPC endpoints (Alchemy when key set, PublicNode as defaults)
     eth_rpc_url: str = "https://ethereum-rpc.publicnode.com"
@@ -72,6 +73,7 @@ class Settings(BaseSettings):
     cache_ttl_portfolio: int = 60
     cache_ttl_search: int = 300
     cache_ttl_agent_identity: int = 120
+    cache_ttl_agent_search: int = 180
 
     # Stale data max age (seconds) — used when provider fails
     cache_stale_max_age: int = 300
@@ -88,6 +90,7 @@ class Settings(BaseSettings):
     rate_limit_alchemy: int = 300
     rate_limit_dexscreener: int = 50
     rate_limit_tavily: int = 60
+    rate_limit_scan8004: int = 60
 
     # --- HTTP ---
     http_timeout: float = 10.0

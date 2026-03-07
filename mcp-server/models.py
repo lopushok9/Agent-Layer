@@ -187,6 +187,25 @@ class AgentIdentity(BaseModel):
     source: str = "erc8004"
 
 
+class AgentSearchItem(BaseModel):
+    agent_id: str
+    chain_id: int
+    chain_name: str | None = None
+    token_id: str
+    name: str | None = None
+    description: str | None = None
+    owner_address: str
+    supported_protocols: list[str] = []
+    has_mcp: bool = False
+    has_a2a: bool = False
+    has_oasf: bool = False
+    x402_supported: bool = False
+    total_score: float | None = None
+    star_count: int = 0
+    is_testnet: bool | None = None
+    source: str = "8004scan"
+
+
 class SearchResult(BaseModel):
     title: str
     url: str
