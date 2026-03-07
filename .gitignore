@@ -1,2 +1,26 @@
 8004.md
 CLAUDE.md
+
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Python cache
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# Local environment files
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# Explicit secrets in agent subprojects
+solana-8004/.env
+solana-8004/.env.*
+agent-a2a-gateway/.env
+agent-a2a-gateway/.env.*
+
+# OS files
+.DS_Store
