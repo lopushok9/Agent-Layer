@@ -1,16 +1,50 @@
-# React + Vite
+# Antigravity Landing
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Лендинг на React + Vite, готовый к деплою на Vercel.
 
-Currently, two official plugins are available:
+## Локальный запуск
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+```bash
+npm install
+npm run dev
+```
 
-## React Compiler
+Приложение поднимется на локальном Vite dev server.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Продакшен-сборка
 
-## Expanding the ESLint configuration
+```bash
+npm run build
+npm run preview
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Готовый статический билд складывается в `dist/`.
+
+## Деплой на Vercel
+
+В репозитории уже добавлен [`vercel.json`](/Users/yuriytsygankov/Documents/openclaw_skill/antigravity-landing/vercel.json) с явной конфигурацией:
+
+- framework: `vite`
+- build command: `npm run build`
+- output directory: `dist`
+
+### Через UI Vercel
+
+1. Импортируй репозиторий в Vercel.
+2. Укажи Root Directory: `antigravity-landing`, если репозиторий монорепозиторный.
+3. Build settings Vercel подтянет из `vercel.json`.
+4. Нажми Deploy.
+
+### Через Vercel CLI
+
+```bash
+npm i -g vercel
+vercel
+vercel --prod
+```
+
+Если проект деплоится из корня монорепозитория, запускай команды внутри директории `antigravity-landing`.
+
+## Маршрутизация
+
+Навигация в приложении построена через hash routes (`#product`, `#use-cases` и т.д.), поэтому отдельный SPA rewrite для Vercel не требуется.
