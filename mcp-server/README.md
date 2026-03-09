@@ -68,6 +68,7 @@ The server includes ERC-8004 directory search via `8004scan` index API:
 
 - `list_erc8004_chains` — list indexed chains and chain IDs
 - `search_erc8004_agents` — search/list agents by query + chain (e.g. `base`)
+- `get_erc8004_agent_profile` — normalized agent card by `chain + token_id`
 
 This is off-chain indexed discovery (fast) and complements on-chain lookup via:
 

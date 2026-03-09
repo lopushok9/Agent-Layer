@@ -5,7 +5,7 @@ import logging
 
 from cache import Cache
 from config import settings
-from models import AgentIdentity, AgentSearchItem
+from models import AgentIdentity, AgentSearchItem, AgentStructuredProfile
 from providers import erc8004, scan8004
 
 log = logging.getLogger(__name__)
@@ -155,6 +155,58 @@ def register(mcp, cache: Cache):
                 "items": normalized_items,
                 "query_url": raw.get("query_url"),
             }
+            result = json.dumps(payload, ensure_ascii=False)
+            cache.set(cache_key, result, settings.cache_ttl_agent_search)
+            return result
+        except Exception:
+            stale = cache.get_stale(cache_key, settings.cache_stale_max_age)
+            if stale is not None:
+                return stale
+            raise
+
+    @mcp.tool()
+    async def get_erc8004_agent_profile(
+        token_id: str,
+        chain: str = "base",
+    ) -> str:
+        """Get a normalized agent profile by chain + token ID.
+
+        Use this after search to fetch one agent in a machine-friendly structure.
+        The output is intentionally normalized for LLM agents and includes:
+        - stable identity fields
+        - description
+        - supported protocols
+        - structured services
+        - available MCP tools / A2A skills counts when indexed
+
+        Args:
+            token_id: Agent token ID on the target chain.
+            chain: Chain name/slug. Examples: "base", "ethereum", "arbitrum".
+
+        Returns:
+            JSON object with normalized agent profile.
+        """
+        chain_normalized = chain.strip().lower()
+        if not token_id.strip():
+            raise ValueError("token_id is required")
+        if not chain_normalized:
+            raise ValueError("chain is required")
+
+        chain_id = await scan8004.resolve_chain_id(chain_normalized)
+        if chain_id is None:
+            raise ValueError(
+                f"Unknown chain: {chain}. Use list_erc8004_chains() to discover valid names."
+            )
+
+        cache_key = f"agent_profile:chain={chain_normalized}:chain_id={chain_id}:token_id={token_id.strip()}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        try:
+            raw = await scan8004.get_agent_details(chain_id, token_id)
+            payload = AgentStructuredProfile(**raw).model_dump()
+            payload["chain"] = chain
             result = json.dumps(payload, ensure_ascii=False)
             cache.set(cache_key, result, settings.cache_ttl_agent_search)
             return result

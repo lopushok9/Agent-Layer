@@ -206,6 +206,45 @@ class AgentSearchItem(BaseModel):
     source: str = "8004scan"
 
 
+class AgentServiceSummary(BaseModel):
+    protocol: str
+    endpoint: str | None = None
+    version: str | None = None
+    tools_count: int = 0
+    prompt_count: int = 0
+    resource_count: int = 0
+    skill_count: int = 0
+    tools: list[str] = []
+    skills: list[str] = []
+
+
+class AgentStructuredProfile(BaseModel):
+    agent_id: str
+    chain_id: int
+    token_id: str
+    contract_address: str
+    chain_type: str = "evm"
+    is_testnet: bool | None = None
+    name: str | None = None
+    description: str | None = None
+    owner_address: str
+    creator_address: str | None = None
+    agent_wallet: str | None = None
+    image_url: str | None = None
+    supported_protocols: list[str] = []
+    x402_supported: bool = False
+    services: list[AgentServiceSummary] = []
+    tags: list[str] = []
+    categories: list[str] = []
+    total_score: float | None = None
+    rank: int | None = None
+    star_count: int = 0
+    watch_count: int = 0
+    available_tools_count: int = 0
+    available_skills_count: int = 0
+    source: str = "8004scan"
+
+
 class SearchResult(BaseModel):
     title: str
     url: str
