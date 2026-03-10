@@ -49,7 +49,13 @@ export const ProductPage = () => {
           <a href="#about-agent-layer" className="pp-nav-item">About</a>
         </nav>
 
-        <a href="#" className="pp-btn-cta">Download</a>
+        <a href="#" className="pp-btn-cta">
+          Install
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M7 1V9M7 9L4 6M7 9L10 6" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M1 13H13" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </a>
       </header>
 
       <main className="pp-main">
