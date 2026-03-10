@@ -27,7 +27,7 @@ const USE_CASES = [
   },
 ]
 
-export const UseCasesPage = () => {
+export const UseCasesPage = ({ onInstallClick }) => {
   return (
     <div className="uc-page">
 
@@ -45,7 +45,10 @@ export const UseCasesPage = () => {
           <a href="#about-agent-layer" className="uc-nav-item">About</a>
         </nav>
 
-        <a href="#" className="uc-btn-cta">
+        <a href="#" className="uc-btn-cta" onClick={(event) => {
+          event.preventDefault()
+          onInstallClick()
+        }}>
           Install
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M7 1V9M7 9L4 6M7 9L10 6" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />

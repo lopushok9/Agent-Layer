@@ -336,16 +336,6 @@
     text-decoration: underline;
 }
 
-.separator {
-    width: 1px;
-    height: 12px;
-    background-color: #dadce0;
-    display: inline-block;
-    margin: 0 4px;
-}
-
-
-
 /* Footer Bar */
 .footer-bar {
     display: flex;

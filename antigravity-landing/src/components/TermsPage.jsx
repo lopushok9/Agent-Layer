@@ -23,7 +23,7 @@ const SECTIONS = [
   },
 ]
 
-export const TermsPage = () => {
+export const TermsPage = ({ onInstallClick }) => {
   return (
     <div className="tm-page">
       <header className="tm-header">
@@ -39,7 +39,10 @@ export const TermsPage = () => {
           <a href="#about-agent-layer" className="tm-nav-item">About</a>
         </nav>
 
-        <a href="#" className="tm-btn-cta">
+        <a href="#" className="tm-btn-cta" onClick={(event) => {
+          event.preventDefault()
+          onInstallClick()
+        }}>
           Install
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M7 1V9M7 9L4 6M7 9L10 6" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />

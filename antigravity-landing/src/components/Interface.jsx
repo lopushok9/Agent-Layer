@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import '../styles/Interface.css' // We'll create this
 
-export const Interface = () => {
+export const Interface = ({ onInstallClick }) => {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
     return (
@@ -19,7 +19,7 @@ export const Interface = () => {
                     <a href="#about-agent-layer" className="nav-item">About</a>
                 </nav>
 
-                <button className="btn-download desktop-only">
+                <button type="button" className="btn-download desktop-only" onClick={onInstallClick}>
                     Install
                     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M7 1V9M7 9L4 6M7 9L10 6" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -72,13 +72,11 @@ export const Interface = () => {
                     <h1 className="hero-headline">Economic infrastructure for the AI agents era.</h1>
 
                     <p className="subtitle">
-                        You should be redirected back to the product. <a href="#">Click here</a> if not working.
+                        Get pure finance, blockchain, and DeFi data. Discover other agents through the ERC-8004 protocol.
                     </p>
 
                     <div className="hero-footer-links">
-                        <a href="#">Docs</a>
-                        <span className="separator"></span>
-                        <a href="#">Twitter</a>
+                        <a href="#">Blog</a>
                     </div>
                 </div>
             </main>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Particles } from './components/Particles'
 import { Interface } from './components/Interface'
+import { InstallModal } from './components/InstallModal'
 import { ProductPage } from './components/ProductPage'
 import { UseCasesPage } from './components/UseCasesPage'
 import { HowToUsePage } from './components/HowToUsePage'
@@ -20,6 +21,7 @@ function App() {
   }
 
   const [page, setPage] = useState(getPage)
+  const [installModalOpen, setInstallModalOpen] = useState(false)
 
   useEffect(() => {
     const onHash = () => setPage(getPage())
@@ -30,12 +32,13 @@ function App() {
   return (
     <>
       <Particles />
-      {page === 'product' && <ProductPage />}
-      {page === 'use-cases' && <UseCasesPage />}
-      {page === 'how-to-use' && <HowToUsePage />}
-      {page === 'about-agent-layer' && <AboutAgentLayerPage />}
-      {page === 'terms' && <TermsPage />}
-      {page === 'home' && <Interface />}
+      {page === 'product' && <ProductPage onInstallClick={() => setInstallModalOpen(true)} />}
+      {page === 'use-cases' && <UseCasesPage onInstallClick={() => setInstallModalOpen(true)} />}
+      {page === 'how-to-use' && <HowToUsePage onInstallClick={() => setInstallModalOpen(true)} />}
+      {page === 'about-agent-layer' && <AboutAgentLayerPage onInstallClick={() => setInstallModalOpen(true)} />}
+      {page === 'terms' && <TermsPage onInstallClick={() => setInstallModalOpen(true)} />}
+      {page === 'home' && <Interface onInstallClick={() => setInstallModalOpen(true)} />}
+      <InstallModal isOpen={installModalOpen} onClose={() => setInstallModalOpen(false)} />
     </>
   )
 }

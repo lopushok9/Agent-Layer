@@ -18,7 +18,7 @@ const PILLARS = [
   },
 ]
 
-export const AboutAgentLayerPage = () => {
+export const AboutAgentLayerPage = ({ onInstallClick }) => {
   return (
     <div className="ab-page">
       <header className="ab-header">
@@ -34,7 +34,10 @@ export const AboutAgentLayerPage = () => {
           <a href="#about-agent-layer" className="ab-nav-item ab-nav-active">About</a>
         </nav>
 
-        <a href="#" className="ab-btn-cta">
+        <a href="#" className="ab-btn-cta" onClick={(event) => {
+          event.preventDefault()
+          onInstallClick()
+        }}>
           Install
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M7 1V9M7 9L4 6M7 9L10 6" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
