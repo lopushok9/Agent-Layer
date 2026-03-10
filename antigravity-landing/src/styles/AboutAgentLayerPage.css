@@ -27,6 +27,14 @@
   text-decoration: none;
 }
 
+.ab-brand-mark {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  display: block;
+  object-fit: cover;
+}
+
 .ab-brand-text {
   font-size: 14px;
   font-weight: 500;

@@ -8,12 +8,7 @@ export const Interface = () => {
         <div className="interface">
             <header className="header">
                 <div className="brand-block">
-                    {/* Brand Icon */}
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M12 2L2 7L12 12L22 7L12 2Z" fill="#111213" />
-                        <path d="M2 17L12 22L22 17" stroke="#111213" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        <path d="M2 12L12 17L22 12" stroke="#111213" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
+                    <img src="/apple-touch-icon.png" alt="AgentLayer logo" className="brand-mark" />
                     <span className="brand-text">AgentLayer</span>
                 </div>
 
@@ -46,11 +41,7 @@ export const Interface = () => {
             <div className={`mobile-menu-overlay ${mobileMenuOpen ? 'open' : ''}`}>
                 <div className="mobile-menu-header">
                     <div className="brand-block-menu">
-                        <svg className="google-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M12 2L2 7L12 12L22 7L12 2Z" fill="#111213" />
-                            <path d="M2 17L12 22L22 17" stroke="#111213" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                            <path d="M2 12L12 17L22 12" stroke="#111213" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
+                        <img src="/apple-touch-icon.png" alt="AgentLayer logo" className="brand-mark brand-mark-menu" />
                         <span className="brand-text-menu">AgentLayer</span>
                         <span className="brand-subtext-menu">Antigravity</span>
                     </div>
@@ -75,12 +66,6 @@ export const Interface = () => {
             <main className="hero">
                 <div className="hero-content">
                     <div className="hero-logo-row">
-                        <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <rect width="32" height="32" rx="8" fill="#111213" />
-                            <path d="M16 6L6 11L16 16L26 11L16 6Z" fill="white" />
-                            <path d="M6 21L16 26L26 21" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                            <path d="M6 16L16 21L26 16" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
                         <span className="hero-brand-text">AgentLayer</span>
                     </div>
 

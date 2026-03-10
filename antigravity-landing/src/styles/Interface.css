@@ -73,8 +73,18 @@
     gap: 10px;
 }
 
-.google-icon {
-    /* Representing the "G" style icon from screen */
+.brand-mark {
+    width: 64px;
+    height: 64px;
+    border-radius: 16px;
+    display: block;
+    object-fit: cover;
+}
+
+.brand-mark-menu {
+    width: 56px;
+    height: 56px;
+    border-radius: 14px;
 }
 
 .brand-text-menu {
@@ -259,6 +269,14 @@
     gap: 12px;
     margin-bottom: 22px;
     /* 18-22px margin-top for text implies spacing here */
+}
+
+.hero-brand-mark {
+    width: 112px;
+    height: 112px;
+    border-radius: 28px;
+    display: block;
+    object-fit: cover;
 }
 
 .hero-brand-text {

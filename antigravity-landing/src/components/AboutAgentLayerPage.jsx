@@ -23,11 +23,7 @@ export const AboutAgentLayerPage = () => {
     <div className="ab-page">
       <header className="ab-header">
         <a href="#" className="ab-brand">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-            <path d="M12 2L2 7L12 12L22 7L12 2Z" fill="#111213" />
-            <path d="M2 17L12 22L22 17" stroke="#111213" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M2 12L12 17L22 12" stroke="#111213" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          <img src="/apple-touch-icon.png" alt="AgentLayer logo" className="ab-brand-mark" />
           <span className="ab-brand-text">AgentLayer</span>
         </a>
 

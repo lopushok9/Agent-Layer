@@ -28,6 +28,14 @@
   text-decoration: none;
 }
 
+.htu-brand-mark {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  display: block;
+  object-fit: cover;
+}
+
 .htu-brand-text {
   font-size: 14px;
   font-weight: 500;
