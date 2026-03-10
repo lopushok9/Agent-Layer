@@ -78,17 +78,13 @@ export const TermsPage = () => {
             <h2 className="tm-footer-title">finance</h2>
             <div className="tm-footer-links">
               <div className="tm-link-col">
-                <a href="#">Download</a>
                 <a href="#product">Product</a>
-                <a href="#">Docs</a>
-                <a href="#">Changelog</a>
-                <a href="#">Press</a>
-                <a href="#">Releases</a>
+                <a href="#use-cases">Use Cases</a>
+                <a href="#how-to-use">How to use</a>
               </div>
               <div className="tm-link-col">
+                <a href="https://github.com" target="_blank" rel="noreferrer">GitHub</a>
                 <a href="#">Blog</a>
-                <a href="#how-to-use">How to use</a>
-                <a href="#use-cases">Use Cases</a>
               </div>
             </div>
           </div>

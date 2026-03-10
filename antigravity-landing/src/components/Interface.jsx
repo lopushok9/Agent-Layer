@@ -21,7 +21,7 @@ export const Interface = () => {
                     <a href="#product" className="nav-item">Product</a>
                     <a href="#use-cases" className="nav-item">Use Cases</a>
                     <a href="#how-to-use" className="nav-item">How to use</a>
-                    <a href="#" className="nav-item">Resources</a>
+                    <a href="#about-agent-layer" className="nav-item">About</a>
                 </nav>
 
                 <button className="btn-download desktop-only">
@@ -67,7 +67,7 @@ export const Interface = () => {
                         <a href="#product" className="mobile-nav-link">Product</a>
                         <a href="#use-cases" className="mobile-nav-link">Use Cases</a>
                         <a href="#how-to-use" className="mobile-nav-link">How to use</a>
-                        <a href="#" className="mobile-nav-link">Resources</a>
+                        <a href="#about-agent-layer" className="mobile-nav-link">About</a>
                     </nav>
                 </div>
             </div>
@@ -84,7 +84,7 @@ export const Interface = () => {
                         <span className="hero-brand-text">AgentLayer</span>
                     </div>
 
-                    <h1 className="hero-headline">You have successfully authenticated.</h1>
+                    <h1 className="hero-headline">Economic infrastructure for the AI agents era.</h1>
 
                     <p className="subtitle">
                         You should be redirected back to the product. <a href="#">Click here</a> if not working.
@@ -104,17 +104,13 @@ export const Interface = () => {
                     <h2 className="finance-title">finance</h2>
                     <div className="extended-links">
                         <div className="link-column">
-                            <a href="#">Download</a>
-                            <a href="#">Product</a>
-                            <a href="#">Docs</a>
-                            <a href="#">Changelog</a>
-                            <a href="#">Press</a>
-                            <a href="#">Releases</a>
+                            <a href="#product">Product</a>
+                            <a href="#use-cases">Use Cases</a>
+                            <a href="#how-to-use">How to use</a>
                         </div>
                         <div className="link-column">
+                            <a href="https://github.com" target="_blank" rel="noreferrer">GitHub</a>
                             <a href="#">Blog</a>
-                            <a href="#">Pricing</a>
-                            <a href="#">Use Cases</a>
                         </div>
                     </div>
                 </div>

@@ -46,7 +46,7 @@ export const UseCasesPage = () => {
           <a href="#product" className="uc-nav-item">Product</a>
           <a href="#use-cases" className="uc-nav-item uc-nav-active">Use Cases</a>
           <a href="#how-to-use" className="uc-nav-item">How to use</a>
-          <a href="#" className="uc-nav-item">Resources</a>
+          <a href="#about-agent-layer" className="uc-nav-item">About</a>
         </nav>
 
         <a href="#" className="uc-btn-cta">Download</a>
@@ -93,17 +93,13 @@ export const UseCasesPage = () => {
             <h2 className="uc-footer-title">finance</h2>
             <div className="uc-footer-links">
               <div className="uc-link-col">
-                <a href="#">Download</a>
-                <a href="#">Product</a>
-                <a href="#">Docs</a>
-                <a href="#">Changelog</a>
-                <a href="#">Press</a>
-                <a href="#">Releases</a>
+                <a href="#product">Product</a>
+                <a href="#use-cases">Use Cases</a>
+                <a href="#how-to-use">How to use</a>
               </div>
               <div className="uc-link-col">
+                <a href="https://github.com" target="_blank" rel="noreferrer">GitHub</a>
                 <a href="#">Blog</a>
-                <a href="#">Pricing</a>
-                <a href="#use-cases">Use Cases</a>
               </div>
             </div>
           </div>

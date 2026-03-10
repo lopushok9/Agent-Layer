@@ -50,7 +50,7 @@ export const ProductPage = () => {
           <a href="#product" className="pp-nav-item pp-nav-active">Product</a>
           <a href="#use-cases" className="pp-nav-item">Use Cases</a>
           <a href="#how-to-use" className="pp-nav-item">How to use</a>
-          <a href="#" className="pp-nav-item">Resources</a>
+          <a href="#about-agent-layer" className="pp-nav-item">About</a>
         </nav>
 
         <a href="#" className="pp-btn-cta">Download</a>
@@ -101,17 +101,13 @@ export const ProductPage = () => {
             <h2 className="pp-footer-title">finance</h2>
             <div className="pp-footer-links">
               <div className="pp-link-col">
-                <a href="#">Download</a>
-                <a href="#">Product</a>
-                <a href="#">Docs</a>
-                <a href="#">Changelog</a>
-                <a href="#">Press</a>
-                <a href="#">Releases</a>
+                <a href="#product">Product</a>
+                <a href="#use-cases">Use Cases</a>
+                <a href="#how-to-use">How to use</a>
               </div>
               <div className="pp-link-col">
+                <a href="https://github.com" target="_blank" rel="noreferrer">GitHub</a>
                 <a href="#">Blog</a>
-                <a href="#">Pricing</a>
-                <a href="#">Use Cases</a>
               </div>
             </div>
           </div>

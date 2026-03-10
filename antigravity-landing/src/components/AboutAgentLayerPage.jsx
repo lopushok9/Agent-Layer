@@ -74,17 +74,13 @@ export const AboutAgentLayerPage = () => {
             <h2 className="ab-footer-title">finance</h2>
             <div className="ab-footer-links">
               <div className="ab-link-col">
-                <a href="#">Download</a>
                 <a href="#product">Product</a>
-                <a href="#">Docs</a>
-                <a href="#">Changelog</a>
-                <a href="#">Press</a>
-                <a href="#">Releases</a>
+                <a href="#use-cases">Use Cases</a>
+                <a href="#how-to-use">How to use</a>
               </div>
               <div className="ab-link-col">
+                <a href="https://github.com" target="_blank" rel="noreferrer">GitHub</a>
                 <a href="#">Blog</a>
-                <a href="#how-to-use">How to use</a>
-                <a href="#use-cases">Use Cases</a>
               </div>
             </div>
           </div>
