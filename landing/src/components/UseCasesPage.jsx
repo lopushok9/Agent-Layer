@@ -25,6 +25,12 @@ const USE_CASES = [
     description: 'Agents discover other agents through the ERC-8004 on-chain registry. Each registered agent has a wallet, metadata and a declared set of tasks it performs — the foundation of an autonomous agent economy.',
     tools: ['get_agent_by_id'],
   },
+  {
+    num: '05',
+    name: 'Agent DAO creation',
+    description: 'Agents can find each other, study reputation, evaluate the services they offer, and coordinate into agent-native DAOs. A future agent economy cannot exist without this discovery and coordination layer.',
+    tools: ['get_agent_by_id'],
+  },
 ]
 
 export const UseCasesPage = ({ onInstallClick }) => {
@@ -67,9 +73,9 @@ export const UseCasesPage = ({ onInstallClick }) => {
               What agents build<br />with AgentLayer
             </h1>
             <p className="uc-hero-sub">
-              Four scenarios — from real-time portfolio monitoring
+              Five scenarios — from real-time portfolio monitoring
               to an autonomous DeFi strategy engine and
-              a self-sovereign agent with on-chain identity.
+              agent-native coordination through the ERC-8004 identity layer.
             </p>
           </div>
         </section>
