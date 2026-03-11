@@ -37,16 +37,16 @@ export const ProductPage = ({ onInstallClick }) => {
 
       {/* Header */}
       <header className="pp-header">
-        <a href="#" className="pp-brand">
+        <a href="#" className="pp-brand" target="_blank" rel="noreferrer">
           <img src="/apple-touch-icon.png" alt="AgentLayer logo" className="pp-brand-mark" />
           <span className="pp-brand-text">AgentLayer</span>
         </a>
 
         <nav className="pp-nav">
-          <a href="#product" className="pp-nav-item pp-nav-active">Product</a>
-          <a href="#use-cases" className="pp-nav-item">Use Cases</a>
-          <a href="#how-to-use" className="pp-nav-item">How to use</a>
-          <a href="#about-agent-layer" className="pp-nav-item">About</a>
+          <a href="#product" className="pp-nav-item pp-nav-active" target="_blank" rel="noreferrer">Product</a>
+          <a href="#use-cases" className="pp-nav-item" target="_blank" rel="noreferrer">Use Cases</a>
+          <a href="#how-to-use" className="pp-nav-item" target="_blank" rel="noreferrer">How to use</a>
+          <a href="#about-agent-layer" className="pp-nav-item" target="_blank" rel="noreferrer">About</a>
         </nav>
 
         <a href="#" className="pp-btn-cta" onClick={(event) => {
@@ -106,13 +106,13 @@ export const ProductPage = ({ onInstallClick }) => {
             <h2 className="pp-footer-title">finance</h2>
             <div className="pp-footer-links">
               <div className="pp-link-col">
-                <a href="#product">Product</a>
-                <a href="#use-cases">Use Cases</a>
-                <a href="#how-to-use">How to use</a>
+                <a href="#product" target="_blank" rel="noreferrer">Product</a>
+                <a href="#use-cases" target="_blank" rel="noreferrer">Use Cases</a>
+                <a href="#how-to-use" target="_blank" rel="noreferrer">How to use</a>
               </div>
               <div className="pp-link-col">
-                <a href="https://github.com" target="_blank" rel="noreferrer">GitHub</a>
-                <a href="#">Blog</a>
+                <a href="https://github.com/lopushok9/Agent-Layer" target="_blank" rel="noreferrer">GitHub</a>
+                <a href="#" target="_blank" rel="noreferrer">Blog</a>
               </div>
             </div>
           </div>
@@ -124,8 +124,8 @@ export const ProductPage = ({ onInstallClick }) => {
           <div className="pp-footer-bottom">
             <div className="pp-footer-brand">Agent Layer</div>
             <div className="pp-footer-bottom-links">
-              <a href="#about-agent-layer">About Agent Layer</a>
-              <a href="#terms">Terms</a>
+              <a href="#about-agent-layer" target="_blank" rel="noreferrer">About Agent Layer</a>
+              <a href="#terms" target="_blank" rel="noreferrer">Terms</a>
             </div>
           </div>
         </div>

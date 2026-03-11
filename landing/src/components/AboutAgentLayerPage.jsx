@@ -22,16 +22,16 @@ export const AboutAgentLayerPage = ({ onInstallClick }) => {
   return (
     <div className="ab-page">
       <header className="ab-header">
-        <a href="#" className="ab-brand">
+        <a href="#" className="ab-brand" target="_blank" rel="noreferrer">
           <img src="/apple-touch-icon.png" alt="AgentLayer logo" className="ab-brand-mark" />
           <span className="ab-brand-text">AgentLayer</span>
         </a>
 
         <nav className="ab-nav">
-          <a href="#product" className="ab-nav-item">Product</a>
-          <a href="#use-cases" className="ab-nav-item">Use Cases</a>
-          <a href="#how-to-use" className="ab-nav-item">How to use</a>
-          <a href="#about-agent-layer" className="ab-nav-item ab-nav-active">About</a>
+          <a href="#product" className="ab-nav-item" target="_blank" rel="noreferrer">Product</a>
+          <a href="#use-cases" className="ab-nav-item" target="_blank" rel="noreferrer">Use Cases</a>
+          <a href="#how-to-use" className="ab-nav-item" target="_blank" rel="noreferrer">How to use</a>
+          <a href="#about-agent-layer" className="ab-nav-item ab-nav-active" target="_blank" rel="noreferrer">About</a>
         </nav>
 
         <a href="#" className="ab-btn-cta" onClick={(event) => {
@@ -79,13 +79,13 @@ export const AboutAgentLayerPage = ({ onInstallClick }) => {
             <h2 className="ab-footer-title">finance</h2>
             <div className="ab-footer-links">
               <div className="ab-link-col">
-                <a href="#product">Product</a>
-                <a href="#use-cases">Use Cases</a>
-                <a href="#how-to-use">How to use</a>
+                <a href="#product" target="_blank" rel="noreferrer">Product</a>
+                <a href="#use-cases" target="_blank" rel="noreferrer">Use Cases</a>
+                <a href="#how-to-use" target="_blank" rel="noreferrer">How to use</a>
               </div>
               <div className="ab-link-col">
-                <a href="https://github.com" target="_blank" rel="noreferrer">GitHub</a>
-                <a href="#">Blog</a>
+                <a href="https://github.com/lopushok9/Agent-Layer" target="_blank" rel="noreferrer">GitHub</a>
+                <a href="#" target="_blank" rel="noreferrer">Blog</a>
               </div>
             </div>
           </div>
@@ -97,8 +97,8 @@ export const AboutAgentLayerPage = ({ onInstallClick }) => {
           <div className="ab-footer-bottom">
             <div className="ab-footer-brand">Agent Layer</div>
             <div className="ab-footer-bottom-links">
-              <a href="#about-agent-layer" className="ab-footer-active-link">About Agent Layer</a>
-              <a href="#terms">Terms</a>
+              <a href="#about-agent-layer" className="ab-footer-active-link" target="_blank" rel="noreferrer">About Agent Layer</a>
+              <a href="#terms" target="_blank" rel="noreferrer">Terms</a>
             </div>
           </div>
         </div>
