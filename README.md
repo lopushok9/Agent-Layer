@@ -26,7 +26,7 @@ Connect from OpenClaw or any MCP client — no setup required:
 
 ## What It Does
 
-AI agents need financial data. This server provides it: prices, yields, gas, wallet balances, transaction history, protocol analytics, and on-chain agent identity — all through 16 structured MCP tools with built-in caching, fallback chains, and rate limiting.
+AI agents need financial data. This server provides it: prices, yields, gas, wallet balances, transaction history, protocol analytics, and on-chain agent identity — all through 19 structured MCP tools with built-in caching, fallback chains, and rate limiting.
 
 No parsing HTML. No fighting APIs. Just clean JSON that agents can reason about.
 
@@ -52,6 +52,9 @@ No parsing HTML. No fighting APIs. Just clean JSON that agents can reason about.
 | `get_gas_prices` | Current gas estimates (slow/standard/fast) per chain |
 | `search_crypto` | AI-powered search across crypto news and research |
 | `get_agent_by_id` | ERC-8004 on-chain agent identity: owner, wallet, metadata |
+| `list_erc8004_chains` | Lists chains indexed by the 8004 explorer |
+| `search_erc8004_agents` | Searches ERC-8004 agents by query and chain |
+| `get_erc8004_agent_profile` | Returns a normalized agent profile by chain and token ID |
 
 ---
 
