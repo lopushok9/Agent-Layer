@@ -6,7 +6,7 @@ from fastmcp import FastMCP
 
 from cache import Cache
 from config import settings
-from tools import prices, sentiment, defi, onchain, gas, search, agents, wallet
+from tools import prices, sentiment, defi, onchain, gas, search, agents
 
 logging.basicConfig(
     level=logging.INFO,
@@ -32,7 +32,11 @@ onchain.register(mcp, cache)
 gas.register(mcp, cache)
 search.register(mcp, cache)
 agents.register(mcp, cache)
-wallet.register(mcp, cache)
+
+# Turnkey wallet tools are intentionally disabled for now.
+# We are likely migrating to a different operational wallet backend,
+# so the code remains in the repository but is not exposed via MCP.
+# wallet.register(mcp, cache)
 
 if __name__ == "__main__":
     import os
