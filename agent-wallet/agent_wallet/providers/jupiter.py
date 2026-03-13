@@ -1,4 +1,4 @@
-"""Minimal Jupiter swap provider for Solana token routing."""
+"""Jupiter providers for swap routing, prices, portfolio, and lend/earn flows."""
 
 from __future__ import annotations
 
@@ -14,6 +14,14 @@ def _headers() -> dict[str, str]:
     if settings.jupiter_api_key.strip():
         headers["x-api-key"] = settings.jupiter_api_key.strip()
     return headers
+
+
+def _require_api_key(provider_name: str) -> None:
+    if not settings.jupiter_api_key.strip():
+        raise ProviderError(
+            provider_name,
+            "Jupiter API key is required for this endpoint. Set JUPITER_API_KEY first.",
+        )
 
 
 async def fetch_quote(
@@ -50,6 +58,46 @@ async def fetch_quote(
     return data
 
 
+async def fetch_ultra_order(
+    *,
+    input_mint: str,
+    output_mint: str,
+    amount_raw: int,
+    taker: str | None = None,
+    slippage_bps: int = 50,
+    swap_mode: str = "ExactIn",
+) -> dict[str, Any]:
+    """Fetch a Jupiter Ultra order for an exact-in swap."""
+    client = get_client()
+    params = {
+        "inputMint": input_mint,
+        "outputMint": output_mint,
+        "amount": str(amount_raw),
+        "swapMode": swap_mode,
+        "slippageBps": str(slippage_bps),
+    }
+    if taker:
+        params["taker"] = taker
+    response = await client.get(
+        f"{settings.jupiter_ultra_api_base_url.rstrip('/')}/order",
+        params=params,
+        headers=_headers(),
+    )
+    if response.status_code != 200:
+        raise ProviderError("jupiter-ultra", f"HTTP {response.status_code}: {response.text[:300]}")
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ProviderError("jupiter-ultra", "Unexpected order response from Jupiter Ultra.")
+    if data.get("error") or data.get("errorCode"):
+        raise ProviderError(
+            "jupiter-ultra",
+            str(data.get("error") or data.get("errorCode") or "Unknown Ultra error."),
+        )
+    if "outAmount" not in data:
+        raise ProviderError("jupiter-ultra", "Unexpected order response from Jupiter Ultra.")
+    return data
+
+
 async def build_swap_transaction(
     *,
     user_public_key: str,
@@ -78,6 +126,35 @@ async def build_swap_transaction(
     return data
 
 
+async def execute_ultra_order(
+    *,
+    signed_transaction_base64: str,
+    request_id: str,
+) -> dict[str, Any]:
+    """Execute a signed Jupiter Ultra order."""
+    client = get_client()
+    body = {
+        "signedTransaction": signed_transaction_base64,
+        "requestId": request_id,
+    }
+    response = await client.post(
+        f"{settings.jupiter_ultra_api_base_url.rstrip('/')}/execute",
+        json=body,
+        headers=_headers(),
+    )
+    if response.status_code != 200:
+        raise ProviderError("jupiter-ultra", f"HTTP {response.status_code}: {response.text[:300]}")
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ProviderError("jupiter-ultra", "Unexpected execute response from Jupiter Ultra.")
+    if data.get("error") or data.get("errorCode"):
+        raise ProviderError(
+            "jupiter-ultra",
+            str(data.get("error") or data.get("errorCode") or "Unknown Ultra execute error."),
+        )
+    return data
+
+
 async def fetch_prices(
     *,
     mints: list[str],
@@ -102,4 +179,169 @@ async def fetch_prices(
     data = response.json()
     if not isinstance(data, dict):
         raise ProviderError("jupiter", "Unexpected price response from Jupiter.")
+    return data
+
+
+async def fetch_portfolio_platforms() -> dict[str, Any]:
+    """Fetch the list of supported Jupiter Portfolio platforms."""
+    client = get_client()
+    response = await client.get(
+        f"{settings.jupiter_portfolio_api_base_url.rstrip('/')}/platforms",
+        headers=_headers(),
+    )
+    if response.status_code != 200:
+        raise ProviderError(
+            "jupiter-portfolio",
+            f"HTTP {response.status_code}: {response.text[:300]}",
+        )
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ProviderError("jupiter-portfolio", "Unexpected portfolio platforms response.")
+    return data
+
+
+async def fetch_portfolio_positions(
+    *,
+    address: str,
+    platforms: list[str] | None = None,
+) -> dict[str, Any]:
+    """Fetch Jupiter Portfolio positions for a wallet address."""
+    client = get_client()
+    params: dict[str, str] = {"address": address}
+    if platforms:
+        params["platforms"] = ",".join(platforms)
+    response = await client.get(
+        f"{settings.jupiter_portfolio_api_base_url.rstrip('/')}/positions",
+        params=params,
+        headers=_headers(),
+    )
+    if response.status_code != 200:
+        raise ProviderError(
+            "jupiter-portfolio",
+            f"HTTP {response.status_code}: {response.text[:300]}",
+        )
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ProviderError("jupiter-portfolio", "Unexpected portfolio positions response.")
+    return data
+
+
+async def fetch_staked_jup(*, address: str) -> dict[str, Any]:
+    """Fetch staked JUP information for a wallet address."""
+    client = get_client()
+    response = await client.get(
+        f"{settings.jupiter_portfolio_api_base_url.rstrip('/')}/staked-jup",
+        params={"address": address},
+        headers=_headers(),
+    )
+    if response.status_code != 200:
+        raise ProviderError(
+            "jupiter-portfolio",
+            f"HTTP {response.status_code}: {response.text[:300]}",
+        )
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ProviderError("jupiter-portfolio", "Unexpected staked JUP response.")
+    return data
+
+
+async def fetch_earn_tokens() -> dict[str, Any]:
+    """Fetch supported Jupiter Earn vault tokens."""
+    _require_api_key("jupiter-lend")
+    client = get_client()
+    response = await client.get(
+        f"{settings.jupiter_lend_api_base_url.rstrip('/')}/earn/tokens",
+        headers=_headers(),
+    )
+    if response.status_code != 200:
+        raise ProviderError("jupiter-lend", f"HTTP {response.status_code}: {response.text[:300]}")
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ProviderError("jupiter-lend", "Unexpected Earn tokens response.")
+    return data
+
+
+async def fetch_earn_positions(*, users: list[str]) -> dict[str, Any]:
+    """Fetch Jupiter Earn positions for one or more users."""
+    _require_api_key("jupiter-lend")
+    client = get_client()
+    response = await client.get(
+        f"{settings.jupiter_lend_api_base_url.rstrip('/')}/earn/positions",
+        params={"users": ",".join(users)},
+        headers=_headers(),
+    )
+    if response.status_code != 200:
+        raise ProviderError("jupiter-lend", f"HTTP {response.status_code}: {response.text[:300]}")
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ProviderError("jupiter-lend", "Unexpected Earn positions response.")
+    return data
+
+
+async def fetch_earn_earnings(*, user: str, positions: list[str]) -> dict[str, Any]:
+    """Fetch Jupiter Earn earnings for a user and position list."""
+    _require_api_key("jupiter-lend")
+    client = get_client()
+    response = await client.get(
+        f"{settings.jupiter_lend_api_base_url.rstrip('/')}/earn/earnings",
+        params={"user": user, "positions": ",".join(positions)},
+        headers=_headers(),
+    )
+    if response.status_code != 200:
+        raise ProviderError("jupiter-lend", f"HTTP {response.status_code}: {response.text[:300]}")
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ProviderError("jupiter-lend", "Unexpected Earn earnings response.")
+    return data
+
+
+async def build_earn_deposit_transaction(
+    *,
+    asset: str,
+    user_address: str,
+    amount_raw: str,
+) -> dict[str, Any]:
+    """Build an unsigned Jupiter Earn deposit transaction."""
+    _require_api_key("jupiter-lend")
+    client = get_client()
+    response = await client.post(
+        f"{settings.jupiter_lend_api_base_url.rstrip('/')}/earn/deposit",
+        json={
+            "asset": asset,
+            "userAddress": user_address,
+            "amount": amount_raw,
+        },
+        headers=_headers(),
+    )
+    if response.status_code != 200:
+        raise ProviderError("jupiter-lend", f"HTTP {response.status_code}: {response.text[:300]}")
+    data = response.json()
+    if not isinstance(data, dict) or "transaction" not in data:
+        raise ProviderError("jupiter-lend", "Unexpected Earn deposit response.")
+    return data
+
+
+async def build_earn_withdraw_transaction(
+    *,
+    asset: str,
+    user_address: str,
+    amount_raw: str,
+) -> dict[str, Any]:
+    """Build an unsigned Jupiter Earn withdraw transaction."""
+    _require_api_key("jupiter-lend")
+    client = get_client()
+    response = await client.post(
+        f"{settings.jupiter_lend_api_base_url.rstrip('/')}/earn/withdraw",
+        json={
+            "asset": asset,
+            "userAddress": user_address,
+            "amount": amount_raw,
+        },
+        headers=_headers(),
+    )
+    if response.status_code != 200:
+        raise ProviderError("jupiter-lend", f"HTTP {response.status_code}: {response.text[:300]}")
+    data = response.json()
+    if not isinstance(data, dict) or "transaction" not in data:
+        raise ProviderError("jupiter-lend", "Unexpected Earn withdraw response.")
     return data

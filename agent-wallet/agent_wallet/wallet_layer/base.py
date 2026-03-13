@@ -50,6 +50,89 @@ class AgentWalletBackend(ABC):
     async def get_token_prices(self, mints: list[str]) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support token price lookup.")
 
+    async def get_staking_validators(
+        self,
+        limit: int = 20,
+        include_delinquent: bool = False,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support staking validator lookup.")
+
+    async def get_stake_account(self, stake_account: str) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support stake account lookup.")
+
+    async def get_jupiter_portfolio(
+        self,
+        address: str | None = None,
+        platforms: list[str] | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Jupiter portfolio lookup.")
+
+    async def get_jupiter_portfolio_platforms(self) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Jupiter portfolio platforms.")
+
+    async def get_jupiter_staked_jup(self, address: str | None = None) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Jupiter staked JUP lookup.")
+
+    async def get_jupiter_earn_tokens(self) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Jupiter Earn token lookup.")
+
+    async def get_jupiter_earn_positions(
+        self,
+        users: list[str] | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Jupiter Earn positions.")
+
+    async def get_jupiter_earn_earnings(
+        self,
+        user: str | None = None,
+        positions: list[str] | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Jupiter Earn earnings.")
+
+    async def preview_jupiter_earn_deposit(
+        self,
+        asset: str,
+        amount_raw: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Jupiter Earn deposit previews.")
+
+    async def prepare_jupiter_earn_deposit(
+        self,
+        asset: str,
+        amount_raw: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Jupiter Earn deposit preparation.")
+
+    async def execute_jupiter_earn_deposit(
+        self,
+        asset: str,
+        amount_raw: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Jupiter Earn deposits.")
+
+    async def preview_jupiter_earn_withdraw(
+        self,
+        asset: str,
+        amount_raw: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Jupiter Earn withdraw previews.")
+
+    async def prepare_jupiter_earn_withdraw(
+        self,
+        asset: str,
+        amount_raw: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(
+            f"{self.name} does not support Jupiter Earn withdraw preparation."
+        )
+
+    async def execute_jupiter_earn_withdraw(
+        self,
+        asset: str,
+        amount_raw: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Jupiter Earn withdrawals.")
+
     async def preview_close_empty_token_accounts(
         self,
         limit: int = 8,
@@ -146,3 +229,57 @@ class AgentWalletBackend(ABC):
 
     async def request_testnet_airdrop(self, amount_native: float) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support testnet airdrops.")
+
+    async def preview_native_stake(
+        self,
+        vote_account: str,
+        amount_native: float,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support native staking previews.")
+
+    async def prepare_native_stake(
+        self,
+        vote_account: str,
+        amount_native: float,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support native staking preparation.")
+
+    async def execute_native_stake(
+        self,
+        vote_account: str,
+        amount_native: float,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support native staking.")
+
+    async def preview_deactivate_stake(self, stake_account: str) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support stake deactivation previews.")
+
+    async def prepare_deactivate_stake(self, stake_account: str) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support stake deactivation preparation.")
+
+    async def execute_deactivate_stake(self, stake_account: str) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support stake deactivation.")
+
+    async def preview_withdraw_stake(
+        self,
+        stake_account: str,
+        amount_native: float,
+        recipient: str | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support stake withdraw previews.")
+
+    async def prepare_withdraw_stake(
+        self,
+        stake_account: str,
+        amount_native: float,
+        recipient: str | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support stake withdraw preparation.")
+
+    async def execute_withdraw_stake(
+        self,
+        stake_account: str,
+        amount_native: float,
+        recipient: str | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support stake withdraw.")

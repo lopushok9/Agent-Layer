@@ -22,7 +22,10 @@ class Settings(BaseSettings):
     solana_agent_keypair_path: str = ""
 
     jupiter_api_base_url: str = "https://lite-api.jup.ag/swap/v1"
+    jupiter_ultra_api_base_url: str = "https://lite-api.jup.ag/ultra/v1"
     jupiter_price_api_base_url: str = "https://lite-api.jup.ag/price/v3"
+    jupiter_portfolio_api_base_url: str = "https://api.jup.ag/portfolio/v1"
+    jupiter_lend_api_base_url: str = "https://api.jup.ag/lend/v1"
     jupiter_api_key: str = ""
 
     http_timeout: float = 10.0

@@ -35,7 +35,13 @@ def _apply_config_overrides(config: dict[str, Any]) -> None:
         ),
         "openclawHome": ("OPENCLAW_HOME", config.get("openclawHome")),
         "jupiterBaseUrl": ("JUPITER_API_BASE_URL", config.get("jupiterBaseUrl")),
+        "jupiterUltraBaseUrl": ("JUPITER_ULTRA_API_BASE_URL", config.get("jupiterUltraBaseUrl")),
         "jupiterPriceBaseUrl": ("JUPITER_PRICE_API_BASE_URL", config.get("jupiterPriceBaseUrl")),
+        "jupiterPortfolioBaseUrl": (
+            "JUPITER_PORTFOLIO_API_BASE_URL",
+            config.get("jupiterPortfolioBaseUrl"),
+        ),
+        "jupiterLendBaseUrl": ("JUPITER_LEND_API_BASE_URL", config.get("jupiterLendBaseUrl")),
         "jupiterApiKey": ("JUPITER_API_KEY", config.get("jupiterApiKey")),
     }
     for _, (env_name, value) in env_map.items():

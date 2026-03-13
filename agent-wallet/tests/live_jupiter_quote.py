@@ -32,11 +32,12 @@ async def main() -> None:
     )
     assert preview["asset_type"] == "swap"
     assert preview["estimated_output_amount_ui"] > 0
-    assert preview["source"] == "jupiter"
+    assert preview["source"] in {"jupiter-ultra", "jupiter-metis"}
 
     print(
         json.dumps(
             {
+                "source": preview["source"],
                 "input_mint": preview["input_mint"],
                 "output_mint": preview["output_mint"],
                 "estimated_output_amount_ui": preview["estimated_output_amount_ui"],

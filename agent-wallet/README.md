@@ -32,15 +32,28 @@ Current safe tools:
 - `get_wallet_balance`
 - `get_wallet_portfolio`
 - `get_solana_token_prices`
+- `get_solana_staking_validators`
+- `get_solana_stake_account`
+- `get_jupiter_portfolio_platforms`
+- `get_jupiter_portfolio`
+- `get_jupiter_staked_jup`
+- `get_jupiter_earn_tokens`
+- `get_jupiter_earn_positions`
+- `get_jupiter_earn_earnings`
 - `sign_wallet_message`
 - `transfer_sol`
+- `stake_sol_native`
 - `transfer_spl_token`
 - `swap_solana_tokens`
+- `jupiter_earn_deposit`
+- `jupiter_earn_withdraw`
 - `close_empty_token_accounts`
+- `deactivate_solana_stake`
+- `withdraw_solana_stake`
 - `request_devnet_airdrop`
 
 The signing tool requires explicit `user_confirmed=true`.
-Transfer and swap tools support `preview`, `prepare`, and `execute` modes. The safe operational path is still preview-first. `prepare` signs a transaction without broadcasting it. `execute` works only when the backend has a signer and `sign_only=false`.
+Transfer, native staking, swap, and Jupiter Earn write tools support `preview`, `prepare`, and `execute` modes. The safe operational path is still preview-first. `prepare` signs a transaction without broadcasting it. `execute` works only when the backend has a signer and `sign_only=false`.
 
 Policy defaults:
 
@@ -103,6 +116,38 @@ Recommended host-side runtime flow:
 
 This keeps wallet creation and custody in the host/runtime layer while the agent only sees the safe tool surface.
 
+## Jupiter coverage
+
+Current Jupiter integration now includes:
+
+- `Ultra Swap` as the default swap path, with legacy `Metis` fallback
+- `Price API` token lookup
+- `Portfolio API` position and staked JUP reads
+- `Lend / Earn` read tools
+- `Lend / Earn` deposit and withdraw transaction flows via unsigned Jupiter transactions
+
+Operational notes:
+
+- Jupiter `Portfolio` and `Earn` are treated as mainnet-only features in this backend.
+- `Earn` endpoints require `JUPITER_API_KEY`.
+- `jupiter_earn_deposit` and `jupiter_earn_withdraw` currently accept `amount_raw` in base units to avoid rounding errors at the agent layer.
+
+## Native staking coverage
+
+Current native Solana staking integration now includes:
+
+- validator discovery via Solana `getVoteAccounts`
+- stake account inspection with activation status
+- native `stake SOL` flow via the Solana Stake Program
+- native stake deactivation
+- native stake withdraw
+
+Operational notes:
+
+- this path uses Solana RPC and the Stake Program directly, without third-party DeFi APIs
+- stake creation allocates a new stake account controlled by the connected wallet as staker and withdrawer
+- preview and prepare were live-checked on devnet against a real wallet context
+
 ## Official OpenClaw plugin
 
 For the official OpenClaw agent, the repository now includes a workspace extension at:
@@ -150,6 +195,8 @@ The package now supports:
 - transfer preview
 - Jupiter token price lookup
 - native SOL transfer execution
+- native SOL staking preview, preparation, and execution
+- native stake deactivation and withdraw flows
 - SPL token transfer preview and execution by mint address
 - Jupiter-based swap preview and execution on mainnet
 - zero-balance token account cleanup

@@ -22,7 +22,7 @@ The production-ready static build is generated in `dist/`.
 
 ## Vercel Deployment
 
-The repository already includes [vercel.json](/Users/yuriytsygankov/Documents/openclaw_skill/antigravity-landing/vercel.json) with explicit settings:
+The repository already includes `vercel.json` with explicit settings:
 
 - framework: `vite`
 - build command: `npm run build`

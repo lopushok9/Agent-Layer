@@ -33,7 +33,7 @@ The codebase is split into three main layers:
 
 ## Runtime Entry Point
 
-The server starts from [server.py](/Users/yuriytsygankov/Documents/openclaw_skill/mcp-server/server.py).
+The server starts from `server.py`.
 
 It creates one `FastMCP` instance, one shared in-memory cache, and registers all active tool groups.
 
@@ -46,7 +46,7 @@ Supported transports:
 
 ### Prices
 
-Defined in [tools/prices.py](/Users/yuriytsygankov/Documents/openclaw_skill/mcp-server/tools/prices.py)
+Defined in `tools/prices.py`
 
 - `get_crypto_prices`
 - `get_market_overview`
@@ -65,7 +65,7 @@ Important behavior:
 
 ### DeFi
 
-Defined in [tools/defi.py](/Users/yuriytsygankov/Documents/openclaw_skill/mcp-server/tools/defi.py)
+Defined in `tools/defi.py`
 
 - `get_defi_yields`
 - `get_protocol_tvl`
@@ -81,7 +81,7 @@ Main sources:
 
 ### On-Chain
 
-Defined in [tools/onchain.py](/Users/yuriytsygankov/Documents/openclaw_skill/mcp-server/tools/onchain.py)
+Defined in `tools/onchain.py`
 
 - `get_wallet_balance`
 - `get_wallet_portfolio`
@@ -103,7 +103,7 @@ Important behavior:
 
 ### Gas
 
-Defined in [tools/gas.py](/Users/yuriytsygankov/Documents/openclaw_skill/mcp-server/tools/gas.py)
+Defined in `tools/gas.py`
 
 - `get_gas_prices`
 
@@ -114,7 +114,7 @@ Main sources:
 
 ### Search
 
-Defined in [tools/search.py](/Users/yuriytsygankov/Documents/openclaw_skill/mcp-server/tools/search.py)
+Defined in `tools/search.py`
 
 - `search_crypto`
 
@@ -124,7 +124,7 @@ Main source:
 
 ### Sentiment
 
-Defined in [tools/sentiment.py](/Users/yuriytsygankov/Documents/openclaw_skill/mcp-server/tools/sentiment.py)
+Defined in `tools/sentiment.py`
 
 - `get_fear_greed_index`
 
@@ -134,7 +134,7 @@ Main source:
 
 ### ERC-8004 Agents
 
-Defined in [tools/agents.py](/Users/yuriytsygankov/Documents/openclaw_skill/mcp-server/tools/agents.py)
+Defined in `tools/agents.py`
 
 - `get_agent_by_id`
 - `list_erc8004_chains`
@@ -155,8 +155,8 @@ Important behavior:
 
 There is also a Turnkey-based wallet execution backend in:
 
-- [tools/wallet.py](/Users/yuriytsygankov/Documents/openclaw_skill/mcp-server/tools/wallet.py)
-- [providers/turnkey.py](/Users/yuriytsygankov/Documents/openclaw_skill/mcp-server/providers/turnkey.py)
+- `tools/wallet.py`
+- `providers/turnkey.py`
 
 This functionality is currently kept in the repository but disabled in MCP registration.
 
@@ -169,7 +169,7 @@ Reason:
 
 ### Configuration
 
-[config.py](/Users/yuriytsygankov/Documents/openclaw_skill/mcp-server/config.py)
+`config.py`
 
 Contains:
 
@@ -182,7 +182,7 @@ Contains:
 
 ### Cache
 
-[cache.py](/Users/yuriytsygankov/Documents/openclaw_skill/mcp-server/cache.py)
+`cache.py`
 
 Features:
 
@@ -192,7 +192,7 @@ Features:
 
 ### Rate Limiting
 
-[rate_limiter.py](/Users/yuriytsygankov/Documents/openclaw_skill/mcp-server/rate_limiter.py)
+`rate_limiter.py`
 
 Features:
 
@@ -201,7 +201,7 @@ Features:
 
 ### HTTP Client
 
-[http_client.py](/Users/yuriytsygankov/Documents/openclaw_skill/mcp-server/http_client.py)
+`http_client.py`
 
 Features:
 
@@ -211,7 +211,7 @@ Features:
 
 ### Validation
 
-[validation.py](/Users/yuriytsygankov/Documents/openclaw_skill/mcp-server/validation.py)
+`validation.py`
 
 Features:
 
@@ -222,7 +222,7 @@ Features:
 
 ### Response Models
 
-[models.py](/Users/yuriytsygankov/Documents/openclaw_skill/mcp-server/models.py)
+`models.py`
 
 Pydantic models define the normalized response contracts used by the tools.
 

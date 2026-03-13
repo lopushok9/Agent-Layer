@@ -201,6 +201,73 @@ async def fetch_recent_prioritization_fees(
     }
 
 
+async def fetch_minimum_balance_for_rent_exemption(
+    space: int,
+    rpc_url: str,
+    commitment: str = "confirmed",
+) -> dict[str, Any]:
+    """Fetch rent-exempt minimum lamports for an account size."""
+    data = await rpc_call(
+        "getMinimumBalanceForRentExemption",
+        [space, {"commitment": commitment}],
+        rpc_url=rpc_url,
+    )
+    value = int(data.get("result") or 0)
+    return {
+        "space": space,
+        "lamports": value,
+        "source": "solana-rpc",
+    }
+
+
+async def fetch_vote_accounts(
+    rpc_url: str,
+    commitment: str = "confirmed",
+) -> dict[str, Any]:
+    """Fetch current and delinquent vote accounts."""
+    data = await rpc_call(
+        "getVoteAccounts",
+        [{"commitment": commitment}],
+        rpc_url=rpc_url,
+    )
+    value = data.get("result", {}) or {}
+    return {
+        "current": value.get("current", []) or [],
+        "delinquent": value.get("delinquent", []) or [],
+        "source": "solana-rpc",
+    }
+
+
+async def fetch_stake_activation(
+    stake_account: str,
+    rpc_url: str,
+    commitment: str = "confirmed",
+) -> dict[str, Any]:
+    """Fetch activation status for a stake account."""
+    try:
+        data = await rpc_call(
+            "getStakeActivation",
+            [stake_account, {"commitment": commitment}],
+            rpc_url=rpc_url,
+        )
+    except ProviderError as exc:
+        if "Method not found" in str(exc):
+            return {
+                "state": "unknown",
+                "active": None,
+                "inactive": None,
+                "source": "solana-rpc",
+            }
+        raise
+    value = data.get("result", {}) or {}
+    return {
+        "state": value.get("state"),
+        "active": value.get("active"),
+        "inactive": value.get("inactive"),
+        "source": "solana-rpc",
+    }
+
+
 async def send_transaction(
     transaction_base64: str,
     rpc_url: str,

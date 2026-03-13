@@ -1,5 +1,5 @@
 {
-  "name": "openclaw-agent-wallet-plugin",
+  "name": "agent-wallet",
   "version": "0.1.0",
   "private": true,
   "type": "module",

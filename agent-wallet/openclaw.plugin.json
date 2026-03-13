@@ -52,9 +52,21 @@
         "type": "string",
         "description": "Optional Jupiter Swap API base URL for quote and swap building."
       },
+      "jupiterUltraBaseUrl": {
+        "type": "string",
+        "description": "Optional Jupiter Ultra API base URL for managed swap execution."
+      },
       "jupiterPriceBaseUrl": {
         "type": "string",
         "description": "Optional Jupiter Price API base URL for token price lookup."
+      },
+      "jupiterPortfolioBaseUrl": {
+        "type": "string",
+        "description": "Optional Jupiter Portfolio API base URL for Jupiter-specific positions and staking data."
+      },
+      "jupiterLendBaseUrl": {
+        "type": "string",
+        "description": "Optional Jupiter Lend API base URL for Earn read and deposit/withdraw flows."
       },
       "jupiterApiKey": {
         "type": "string",

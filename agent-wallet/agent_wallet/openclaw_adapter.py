@@ -129,6 +129,143 @@ class OpenClawWalletAdapter:
                 read_only=True,
                 risk_level="low",
             ),
+            AgentToolSpec(
+                name="get_solana_staking_validators",
+                description="List native Solana staking validators by vote account, commission, and activated stake.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of validators to return. Defaults to 20.",
+                        },
+                        "include_delinquent": {
+                            "type": "boolean",
+                            "description": "If true, include delinquent validators after current ones.",
+                        },
+                    },
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+            AgentToolSpec(
+                name="get_solana_stake_account",
+                description="Inspect a native Solana stake account and its activation status.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "stake_account": {
+                            "type": "string",
+                            "description": "Stake account address to inspect.",
+                        }
+                    },
+                    "required": ["stake_account"],
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+            AgentToolSpec(
+                name="get_jupiter_portfolio_platforms",
+                description="List the Jupiter Portfolio platforms available for filtering position queries.",
+                input_schema={
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+            AgentToolSpec(
+                name="get_jupiter_portfolio",
+                description=(
+                    "Get Jupiter Portfolio positions for a Solana wallet address on mainnet."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "address": {
+                            "type": "string",
+                            "description": "Optional Solana wallet address override. If omitted, use the configured wallet.",
+                        },
+                        "platforms": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Optional list of Jupiter platform ids to filter positions.",
+                        },
+                    },
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+            AgentToolSpec(
+                name="get_jupiter_staked_jup",
+                description="Get Jupiter staked JUP information for a Solana wallet address on mainnet.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "address": {
+                            "type": "string",
+                            "description": "Optional Solana wallet address override. If omitted, use the configured wallet.",
+                        }
+                    },
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+            AgentToolSpec(
+                name="get_jupiter_earn_tokens",
+                description="List Jupiter Earn vault tokens currently supported on Solana mainnet.",
+                input_schema={
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+            AgentToolSpec(
+                name="get_jupiter_earn_positions",
+                description="Get Jupiter Earn positions for one or more Solana wallet addresses on mainnet.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "users": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Optional list of Solana wallet addresses. If omitted, use the configured wallet address.",
+                        }
+                    },
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+            AgentToolSpec(
+                name="get_jupiter_earn_earnings",
+                description="Get Jupiter Earn earnings for a wallet and one or more position addresses on mainnet.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "user": {
+                            "type": "string",
+                            "description": "Optional Solana wallet address override. If omitted, use the configured wallet.",
+                        },
+                        "positions": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "List of Jupiter Earn position addresses.",
+                        },
+                    },
+                    "required": ["positions"],
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
         ]
 
         if capabilities.can_sign_message:
@@ -206,6 +343,55 @@ class OpenClawWalletAdapter:
                             },
                         },
                         "required": ["recipient", "amount", "mode", "purpose"],
+                        "additionalProperties": False,
+                    },
+                    read_only=False,
+                    requires_explicit_user_intent=True,
+                    risk_level="high",
+                )
+            )
+
+            tools.append(
+                AgentToolSpec(
+                    name="stake_sol_native",
+                    description=(
+                        "Preview, prepare, or execute native SOL staking to a validator vote account "
+                        "through the Solana Stake Program."
+                    ),
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "vote_account": {
+                                "type": "string",
+                                "description": "Validator vote account address.",
+                            },
+                            "amount": {
+                                "type": "number",
+                                "description": "Amount of SOL to stake, excluding rent reserve.",
+                            },
+                            "mode": {
+                                "type": "string",
+                                "enum": ["preview", "prepare", "execute"],
+                                "description": "preview returns a staking summary, prepare signs without broadcasting, execute attempts to send.",
+                            },
+                            "purpose": {
+                                "type": "string",
+                                "description": "Short explanation of why the staking action is being made.",
+                            },
+                            "user_intent": {
+                                "type": "boolean",
+                                "description": "Must be true for prepare mode.",
+                            },
+                            "user_confirmed": {
+                                "type": "boolean",
+                                "description": "Must be true for execute mode.",
+                            },
+                            "mainnet_confirmed": {
+                                "type": "boolean",
+                                "description": "Must be true for execute mode on mainnet.",
+                            },
+                        },
+                        "required": ["vote_account", "amount", "mode", "purpose"],
                         "additionalProperties": False,
                     },
                     read_only=False,
@@ -330,6 +516,104 @@ class OpenClawWalletAdapter:
 
             tools.append(
                 AgentToolSpec(
+                    name="jupiter_earn_deposit",
+                    description=(
+                        "Preview, prepare, or execute a Jupiter Earn deposit using a raw base-unit amount. "
+                        "Use preview first, then execute only after explicit user approval."
+                    ),
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "asset": {
+                                "type": "string",
+                                "description": "Solana mint address for the Earn asset.",
+                            },
+                            "amount_raw": {
+                                "type": "string",
+                                "description": "Deposit amount in raw base units as an integer string.",
+                            },
+                            "mode": {
+                                "type": "string",
+                                "enum": ["preview", "prepare", "execute"],
+                                "description": "preview returns a summary, prepare signs without broadcasting, execute attempts to submit the Earn deposit transaction.",
+                            },
+                            "purpose": {
+                                "type": "string",
+                                "description": "Short explanation of why the Earn deposit is being made.",
+                            },
+                            "user_intent": {
+                                "type": "boolean",
+                                "description": "Must be true for prepare mode.",
+                            },
+                            "user_confirmed": {
+                                "type": "boolean",
+                                "description": "Must be true for execute mode.",
+                            },
+                            "mainnet_confirmed": {
+                                "type": "boolean",
+                                "description": "Must be true for execute mode on mainnet.",
+                            },
+                        },
+                        "required": ["asset", "amount_raw", "mode", "purpose"],
+                        "additionalProperties": False,
+                    },
+                    read_only=False,
+                    requires_explicit_user_intent=True,
+                    risk_level="high",
+                )
+            )
+
+            tools.append(
+                AgentToolSpec(
+                    name="jupiter_earn_withdraw",
+                    description=(
+                        "Preview, prepare, or execute a Jupiter Earn withdraw using a raw base-unit amount. "
+                        "Use preview first, then execute only after explicit user approval."
+                    ),
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "asset": {
+                                "type": "string",
+                                "description": "Solana mint address for the Earn asset.",
+                            },
+                            "amount_raw": {
+                                "type": "string",
+                                "description": "Withdraw amount in raw base units as an integer string.",
+                            },
+                            "mode": {
+                                "type": "string",
+                                "enum": ["preview", "prepare", "execute"],
+                                "description": "preview returns a summary, prepare signs without broadcasting, execute attempts to submit the Earn withdraw transaction.",
+                            },
+                            "purpose": {
+                                "type": "string",
+                                "description": "Short explanation of why the Earn withdraw is being made.",
+                            },
+                            "user_intent": {
+                                "type": "boolean",
+                                "description": "Must be true for prepare mode.",
+                            },
+                            "user_confirmed": {
+                                "type": "boolean",
+                                "description": "Must be true for execute mode.",
+                            },
+                            "mainnet_confirmed": {
+                                "type": "boolean",
+                                "description": "Must be true for execute mode on mainnet.",
+                            },
+                        },
+                        "required": ["asset", "amount_raw", "mode", "purpose"],
+                        "additionalProperties": False,
+                    },
+                    read_only=False,
+                    requires_explicit_user_intent=True,
+                    risk_level="high",
+                )
+            )
+
+            tools.append(
+                AgentToolSpec(
                     name="close_empty_token_accounts",
                     description=(
                         "Preview or execute closing zero-balance SPL token accounts owned by the wallet. "
@@ -370,6 +654,102 @@ class OpenClawWalletAdapter:
                     read_only=False,
                     requires_explicit_user_intent=True,
                     risk_level="medium",
+                )
+            )
+
+            tools.append(
+                AgentToolSpec(
+                    name="deactivate_solana_stake",
+                    description=(
+                        "Preview, prepare, or execute deactivation for a native Solana stake account."
+                    ),
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "stake_account": {
+                                "type": "string",
+                                "description": "Stake account address to deactivate.",
+                            },
+                            "mode": {
+                                "type": "string",
+                                "enum": ["preview", "prepare", "execute"],
+                                "description": "preview returns a summary, prepare signs without broadcasting, execute attempts to send.",
+                            },
+                            "purpose": {
+                                "type": "string",
+                                "description": "Short explanation of why the deactivation is being made.",
+                            },
+                            "user_intent": {
+                                "type": "boolean",
+                                "description": "Must be true for prepare mode.",
+                            },
+                            "user_confirmed": {
+                                "type": "boolean",
+                                "description": "Must be true for execute mode.",
+                            },
+                            "mainnet_confirmed": {
+                                "type": "boolean",
+                                "description": "Must be true for execute mode on mainnet.",
+                            },
+                        },
+                        "required": ["stake_account", "mode", "purpose"],
+                        "additionalProperties": False,
+                    },
+                    read_only=False,
+                    requires_explicit_user_intent=True,
+                    risk_level="high",
+                )
+            )
+
+            tools.append(
+                AgentToolSpec(
+                    name="withdraw_solana_stake",
+                    description=(
+                        "Preview, prepare, or execute withdrawal from a native Solana stake account."
+                    ),
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "stake_account": {
+                                "type": "string",
+                                "description": "Stake account address to withdraw from.",
+                            },
+                            "amount": {
+                                "type": "number",
+                                "description": "Amount of SOL to withdraw.",
+                            },
+                            "recipient": {
+                                "type": "string",
+                                "description": "Optional destination wallet address. Defaults to the connected wallet.",
+                            },
+                            "mode": {
+                                "type": "string",
+                                "enum": ["preview", "prepare", "execute"],
+                                "description": "preview returns a summary, prepare signs without broadcasting, execute attempts to send.",
+                            },
+                            "purpose": {
+                                "type": "string",
+                                "description": "Short explanation of why the withdraw is being made.",
+                            },
+                            "user_intent": {
+                                "type": "boolean",
+                                "description": "Must be true for prepare mode.",
+                            },
+                            "user_confirmed": {
+                                "type": "boolean",
+                                "description": "Must be true for execute mode.",
+                            },
+                            "mainnet_confirmed": {
+                                "type": "boolean",
+                                "description": "Must be true for execute mode on mainnet.",
+                            },
+                        },
+                        "required": ["stake_account", "amount", "mode", "purpose"],
+                        "additionalProperties": False,
+                    },
+                    read_only=False,
+                    requires_explicit_user_intent=True,
+                    risk_level="high",
                 )
             )
 
@@ -442,6 +822,80 @@ class OpenClawWalletAdapter:
                 data = await self.backend.get_token_prices(mints=mints)
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
 
+            if tool_name == "get_solana_staking_validators":
+                limit = args.get("limit", 20)
+                include_delinquent = args.get("include_delinquent", False)
+                if not isinstance(limit, int) or limit <= 0:
+                    raise WalletBackendError("limit must be a positive integer.")
+                if not isinstance(include_delinquent, bool):
+                    raise WalletBackendError("include_delinquent must be a boolean.")
+                data = await self.backend.get_staking_validators(
+                    limit=limit,
+                    include_delinquent=include_delinquent,
+                )
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_solana_stake_account":
+                stake_account = args.get("stake_account")
+                if not isinstance(stake_account, str) or not stake_account.strip():
+                    raise WalletBackendError("stake_account is required.")
+                data = await self.backend.get_stake_account(stake_account.strip())
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_jupiter_portfolio_platforms":
+                data = await self.backend.get_jupiter_portfolio_platforms()
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_jupiter_portfolio":
+                address = args.get("address")
+                platforms = args.get("platforms")
+                if address is not None and not isinstance(address, str):
+                    raise WalletBackendError("address must be a string when provided.")
+                if platforms is not None:
+                    if not isinstance(platforms, list) or not all(
+                        isinstance(item, str) for item in platforms
+                    ):
+                        raise WalletBackendError("platforms must be an array of strings.")
+                data = await self.backend.get_jupiter_portfolio(
+                    address=address,
+                    platforms=platforms,
+                )
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_jupiter_staked_jup":
+                address = args.get("address")
+                if address is not None and not isinstance(address, str):
+                    raise WalletBackendError("address must be a string when provided.")
+                data = await self.backend.get_jupiter_staked_jup(address=address)
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_jupiter_earn_tokens":
+                data = await self.backend.get_jupiter_earn_tokens()
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_jupiter_earn_positions":
+                users = args.get("users")
+                if users is not None:
+                    if not isinstance(users, list) or not all(isinstance(item, str) for item in users):
+                        raise WalletBackendError("users must be an array of strings.")
+                data = await self.backend.get_jupiter_earn_positions(users=users)
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_jupiter_earn_earnings":
+                user = args.get("user")
+                positions = args.get("positions")
+                if user is not None and not isinstance(user, str):
+                    raise WalletBackendError("user must be a string when provided.")
+                if not isinstance(positions, list) or not positions:
+                    raise WalletBackendError("positions must be a non-empty array of strings.")
+                if not all(isinstance(item, str) for item in positions):
+                    raise WalletBackendError("Each position must be a string.")
+                data = await self.backend.get_jupiter_earn_earnings(
+                    user=user,
+                    positions=positions,
+                )
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
             if tool_name == "sign_wallet_message":
                 user_confirmed = args.get("user_confirmed")
                 if user_confirmed is not True:
@@ -507,6 +961,50 @@ class OpenClawWalletAdapter:
 
                 result = await self.backend.send_native_transfer(
                     recipient=recipient.strip(),
+                    amount_native=float(amount),
+                )
+                return AgentToolResult(tool=tool_name, ok=True, data=result)
+
+            if tool_name == "stake_sol_native":
+                vote_account = args.get("vote_account")
+                amount = args.get("amount")
+                mode = args.get("mode")
+                purpose = args.get("purpose")
+                user_intent = args.get("user_intent", False)
+                user_confirmed = args.get("user_confirmed", False)
+                mainnet_confirmed = args.get("mainnet_confirmed", False)
+
+                if not isinstance(vote_account, str) or not vote_account.strip():
+                    raise WalletBackendError("vote_account is required.")
+                if not isinstance(amount, (int, float)) or amount <= 0:
+                    raise WalletBackendError("amount must be a positive number.")
+                if mode not in {"preview", "prepare", "execute"}:
+                    raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
+                if not isinstance(purpose, str) or not purpose.strip():
+                    raise WalletBackendError("purpose is required.")
+
+                if mode == "preview":
+                    preview = await self.backend.preview_native_stake(
+                        vote_account=vote_account.strip(),
+                        amount_native=float(amount),
+                    )
+                    return AgentToolResult(tool=tool_name, ok=True, data=preview)
+
+                if mode == "prepare":
+                    self._require_prepare_intent(user_intent)
+                    prepared = await self.backend.prepare_native_stake(
+                        vote_account=vote_account.strip(),
+                        amount_native=float(amount),
+                    )
+                    return AgentToolResult(tool=tool_name, ok=True, data=prepared)
+
+                self._require_execute_confirmation(
+                    user_confirmed=user_confirmed,
+                    mainnet_confirmed=mainnet_confirmed,
+                    action_label="Native staking",
+                )
+                result = await self.backend.execute_native_stake(
+                    vote_account=vote_account.strip(),
                     amount_native=float(amount),
                 )
                 return AgentToolResult(tool=tool_name, ok=True, data=result)
@@ -632,6 +1130,94 @@ class OpenClawWalletAdapter:
                 )
                 return AgentToolResult(tool=tool_name, ok=True, data=result)
 
+            if tool_name == "jupiter_earn_deposit":
+                asset = args.get("asset")
+                amount_raw = args.get("amount_raw")
+                mode = args.get("mode")
+                purpose = args.get("purpose")
+                user_intent = args.get("user_intent", False)
+                user_confirmed = args.get("user_confirmed", False)
+                mainnet_confirmed = args.get("mainnet_confirmed", False)
+
+                if not isinstance(asset, str) or not asset.strip():
+                    raise WalletBackendError("asset is required.")
+                if not isinstance(amount_raw, str) or not amount_raw.strip():
+                    raise WalletBackendError("amount_raw is required.")
+                if mode not in {"preview", "prepare", "execute"}:
+                    raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
+                if not isinstance(purpose, str) or not purpose.strip():
+                    raise WalletBackendError("purpose is required.")
+
+                if mode == "preview":
+                    preview = await self.backend.preview_jupiter_earn_deposit(
+                        asset=asset.strip(),
+                        amount_raw=amount_raw.strip(),
+                    )
+                    return AgentToolResult(tool=tool_name, ok=True, data=preview)
+
+                if mode == "prepare":
+                    self._require_prepare_intent(user_intent)
+                    prepared = await self.backend.prepare_jupiter_earn_deposit(
+                        asset=asset.strip(),
+                        amount_raw=amount_raw.strip(),
+                    )
+                    return AgentToolResult(tool=tool_name, ok=True, data=prepared)
+
+                self._require_execute_confirmation(
+                    user_confirmed=user_confirmed,
+                    mainnet_confirmed=mainnet_confirmed,
+                    action_label="Jupiter Earn deposit",
+                )
+                result = await self.backend.execute_jupiter_earn_deposit(
+                    asset=asset.strip(),
+                    amount_raw=amount_raw.strip(),
+                )
+                return AgentToolResult(tool=tool_name, ok=True, data=result)
+
+            if tool_name == "jupiter_earn_withdraw":
+                asset = args.get("asset")
+                amount_raw = args.get("amount_raw")
+                mode = args.get("mode")
+                purpose = args.get("purpose")
+                user_intent = args.get("user_intent", False)
+                user_confirmed = args.get("user_confirmed", False)
+                mainnet_confirmed = args.get("mainnet_confirmed", False)
+
+                if not isinstance(asset, str) or not asset.strip():
+                    raise WalletBackendError("asset is required.")
+                if not isinstance(amount_raw, str) or not amount_raw.strip():
+                    raise WalletBackendError("amount_raw is required.")
+                if mode not in {"preview", "prepare", "execute"}:
+                    raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
+                if not isinstance(purpose, str) or not purpose.strip():
+                    raise WalletBackendError("purpose is required.")
+
+                if mode == "preview":
+                    preview = await self.backend.preview_jupiter_earn_withdraw(
+                        asset=asset.strip(),
+                        amount_raw=amount_raw.strip(),
+                    )
+                    return AgentToolResult(tool=tool_name, ok=True, data=preview)
+
+                if mode == "prepare":
+                    self._require_prepare_intent(user_intent)
+                    prepared = await self.backend.prepare_jupiter_earn_withdraw(
+                        asset=asset.strip(),
+                        amount_raw=amount_raw.strip(),
+                    )
+                    return AgentToolResult(tool=tool_name, ok=True, data=prepared)
+
+                self._require_execute_confirmation(
+                    user_confirmed=user_confirmed,
+                    mainnet_confirmed=mainnet_confirmed,
+                    action_label="Jupiter Earn withdraw",
+                )
+                result = await self.backend.execute_jupiter_earn_withdraw(
+                    asset=asset.strip(),
+                    amount_raw=amount_raw.strip(),
+                )
+                return AgentToolResult(tool=tool_name, ok=True, data=result)
+
             if tool_name == "close_empty_token_accounts":
                 limit = args.get("limit", 8)
                 mode = args.get("mode")
@@ -657,6 +1243,88 @@ class OpenClawWalletAdapter:
                 )
 
                 result = await self.backend.close_empty_token_accounts(limit=limit)
+                return AgentToolResult(tool=tool_name, ok=True, data=result)
+
+            if tool_name == "deactivate_solana_stake":
+                stake_account = args.get("stake_account")
+                mode = args.get("mode")
+                purpose = args.get("purpose")
+                user_intent = args.get("user_intent", False)
+                user_confirmed = args.get("user_confirmed", False)
+                mainnet_confirmed = args.get("mainnet_confirmed", False)
+
+                if not isinstance(stake_account, str) or not stake_account.strip():
+                    raise WalletBackendError("stake_account is required.")
+                if mode not in {"preview", "prepare", "execute"}:
+                    raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
+                if not isinstance(purpose, str) or not purpose.strip():
+                    raise WalletBackendError("purpose is required.")
+
+                if mode == "preview":
+                    preview = await self.backend.preview_deactivate_stake(stake_account.strip())
+                    return AgentToolResult(tool=tool_name, ok=True, data=preview)
+
+                if mode == "prepare":
+                    self._require_prepare_intent(user_intent)
+                    prepared = await self.backend.prepare_deactivate_stake(stake_account.strip())
+                    return AgentToolResult(tool=tool_name, ok=True, data=prepared)
+
+                self._require_execute_confirmation(
+                    user_confirmed=user_confirmed,
+                    mainnet_confirmed=mainnet_confirmed,
+                    action_label="Stake deactivation",
+                )
+                result = await self.backend.execute_deactivate_stake(stake_account.strip())
+                return AgentToolResult(tool=tool_name, ok=True, data=result)
+
+            if tool_name == "withdraw_solana_stake":
+                stake_account = args.get("stake_account")
+                amount = args.get("amount")
+                recipient = args.get("recipient")
+                mode = args.get("mode")
+                purpose = args.get("purpose")
+                user_intent = args.get("user_intent", False)
+                user_confirmed = args.get("user_confirmed", False)
+                mainnet_confirmed = args.get("mainnet_confirmed", False)
+
+                if not isinstance(stake_account, str) or not stake_account.strip():
+                    raise WalletBackendError("stake_account is required.")
+                if not isinstance(amount, (int, float)) or amount <= 0:
+                    raise WalletBackendError("amount must be a positive number.")
+                if recipient is not None and not isinstance(recipient, str):
+                    raise WalletBackendError("recipient must be a string when provided.")
+                if mode not in {"preview", "prepare", "execute"}:
+                    raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
+                if not isinstance(purpose, str) or not purpose.strip():
+                    raise WalletBackendError("purpose is required.")
+
+                if mode == "preview":
+                    preview = await self.backend.preview_withdraw_stake(
+                        stake_account=stake_account.strip(),
+                        amount_native=float(amount),
+                        recipient=recipient.strip() if isinstance(recipient, str) else None,
+                    )
+                    return AgentToolResult(tool=tool_name, ok=True, data=preview)
+
+                if mode == "prepare":
+                    self._require_prepare_intent(user_intent)
+                    prepared = await self.backend.prepare_withdraw_stake(
+                        stake_account=stake_account.strip(),
+                        amount_native=float(amount),
+                        recipient=recipient.strip() if isinstance(recipient, str) else None,
+                    )
+                    return AgentToolResult(tool=tool_name, ok=True, data=prepared)
+
+                self._require_execute_confirmation(
+                    user_confirmed=user_confirmed,
+                    mainnet_confirmed=mainnet_confirmed,
+                    action_label="Stake withdraw",
+                )
+                result = await self.backend.execute_withdraw_stake(
+                    stake_account=stake_account.strip(),
+                    amount_native=float(amount),
+                    recipient=recipient.strip() if isinstance(recipient, str) else None,
+                )
                 return AgentToolResult(tool=tool_name, ok=True, data=result)
 
             raise WalletBackendError(f"Unsupported wallet tool: {tool_name}")

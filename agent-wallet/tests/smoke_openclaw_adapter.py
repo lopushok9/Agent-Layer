@@ -74,6 +74,151 @@ class FakeBackend(AgentWalletBackend):
             "source": "jupiter",
         }
 
+    async def get_staking_validators(
+        self,
+        limit: int = 20,
+        include_delinquent: bool = False,
+    ) -> dict:
+        validators = [
+            {
+                "votePubkey": "FakeVote11111111111111111111111111111111111111",
+                "nodePubkey": "FakeNode11111111111111111111111111111111111111",
+                "commission": 7,
+                "activatedStake": 1234567890,
+                "status": "current",
+            }
+        ]
+        return {
+            "chain": "solana",
+            "network": "devnet",
+            "limit": limit,
+            "include_delinquent": include_delinquent,
+            "validator_count": min(limit, len(validators)),
+            "validators": validators[:limit],
+            "source": "solana-rpc",
+        }
+
+    async def get_stake_account(self, stake_account: str) -> dict:
+        return {
+            "chain": "solana",
+            "network": "devnet",
+            "stake_account": stake_account,
+            "lamports": 1100000000,
+            "balance_native": 1.1,
+            "rent_exempt_reserve_lamports": 2282880,
+            "rent_exempt_reserve_native": 0.00228288,
+            "estimated_withdrawable_lamports": 1000000000,
+            "estimated_withdrawable_native": 1.0,
+            "account_type": "delegated",
+            "authorized_staker": "Fake11111111111111111111111111111111111111111",
+            "authorized_withdrawer": "Fake11111111111111111111111111111111111111111",
+            "lockup": {},
+            "delegation": {
+                "voter": "FakeVote11111111111111111111111111111111111111",
+                "stake": "1000000000",
+            },
+            "activation": {
+                "state": "active",
+                "active": 1000000000,
+                "inactive": 0,
+            },
+            "raw_account": {"owner": "Stake11111111111111111111111111111111111111"},
+            "source": "solana-rpc",
+        }
+
+    async def get_jupiter_portfolio_platforms(self) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "platform_count": 2,
+            "platforms": [
+                {"id": "jupiter", "name": "Jupiter"},
+                {"id": "sanctum", "name": "Sanctum"},
+            ],
+            "raw": {"platforms": [{"id": "jupiter"}, {"id": "sanctum"}]},
+            "source": "jupiter-portfolio",
+        }
+
+    async def get_jupiter_portfolio(
+        self,
+        address: str | None = None,
+        platforms: list[str] | None = None,
+    ) -> dict:
+        owner = address or "Fake11111111111111111111111111111111111111111"
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "address": owner,
+            "platforms": platforms or [],
+            "position_count": 1,
+            "positions": [
+                {
+                    "owner": owner,
+                    "platform": "sanctum",
+                    "positionType": "staking",
+                }
+            ],
+            "raw": {"positions": [{"owner": owner, "platform": "sanctum"}]},
+            "source": "jupiter-portfolio",
+        }
+
+    async def get_jupiter_staked_jup(self, address: str | None = None) -> dict:
+        owner = address or "Fake11111111111111111111111111111111111111111"
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "address": owner,
+            "raw": {"address": owner, "stakedAmount": "123456"},
+            "source": "jupiter-portfolio",
+        }
+
+    async def get_jupiter_earn_tokens(self) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "token_count": 1,
+            "tokens": [
+                {
+                    "asset": "So11111111111111111111111111111111111111112",
+                    "symbol": "SOL",
+                    "decimals": 9,
+                }
+            ],
+            "raw": {"tokens": [{"asset": "So11111111111111111111111111111111111111112"}]},
+            "source": "jupiter-lend",
+        }
+
+    async def get_jupiter_earn_positions(self, users: list[str] | None = None) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "users": users or ["Fake11111111111111111111111111111111111111111"],
+            "position_count": 1,
+            "positions": [
+                {
+                    "address": "FakeEarnPosition1111111111111111111111111111111",
+                    "asset": "So11111111111111111111111111111111111111112",
+                    "valueUsd": 100.0,
+                }
+            ],
+            "raw": {"positions": [{"address": "FakeEarnPosition1111111111111111111111111111111"}]},
+            "source": "jupiter-lend",
+        }
+
+    async def get_jupiter_earn_earnings(
+        self,
+        user: str | None = None,
+        positions: list[str] | None = None,
+    ) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "user": user or "Fake11111111111111111111111111111111111111111",
+            "positions": positions or [],
+            "raw": {"totalEarningsUsd": 1.23},
+            "source": "jupiter-lend",
+        }
+
     def get_capabilities(self) -> WalletCapabilities:
         return WalletCapabilities(
             backend=self.name,
@@ -150,6 +295,92 @@ class FakeBackend(AgentWalletBackend):
             "confirmed": False,
             "sign_only": False,
             "source": "fake",
+        }
+
+    async def preview_native_stake(
+        self,
+        vote_account: str,
+        amount_native: float,
+    ) -> dict:
+        return {
+            "chain": "solana",
+            "network": "devnet",
+            "mode": "preview",
+            "asset_type": "native-stake",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "stake_account_address": None,
+            "vote_account": vote_account,
+            "validator": {"votePubkey": vote_account, "commission": 7},
+            "amount_native": amount_native,
+            "stake_lamports": 1000000000,
+            "rent_exempt_lamports": 2282880,
+            "total_lamports": 1002282880,
+            "estimated_fee_lamports": 10000,
+            "estimated_fee_native": 0.00001,
+            "balance_native_before": 5.0,
+            "estimated_balance_native_after": 3.99,
+            "latest_blockhash": "FakeBlockhash11111111111111111111111111111111",
+            "last_valid_block_height": 12345,
+            "sign_only": False,
+            "can_send": True,
+            "source": "solana-rpc",
+        }
+
+    async def prepare_native_stake(
+        self,
+        vote_account: str,
+        amount_native: float,
+    ) -> dict:
+        return {
+            "chain": "solana",
+            "network": "devnet",
+            "mode": "prepare",
+            "asset_type": "native-stake",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "stake_account_address": "FakeStake1111111111111111111111111111111111111",
+            "vote_account": vote_account,
+            "amount_native": amount_native,
+            "stake_lamports": 1000000000,
+            "rent_exempt_lamports": 2282880,
+            "total_lamports": 1002282880,
+            "estimated_fee_lamports": 10000,
+            "validator": {"votePubkey": vote_account, "commission": 7},
+            "transaction_base64": "ZmFrZS1zdGFrZS10eA==",
+            "transaction_encoding": "base64",
+            "transaction_format": "legacy",
+            "signed": True,
+            "broadcasted": False,
+            "confirmed": False,
+            "latest_blockhash": "FakeBlockhash11111111111111111111111111111111",
+            "last_valid_block_height": 12345,
+            "sign_only": False,
+            "source": "solana-rpc",
+        }
+
+    async def execute_native_stake(
+        self,
+        vote_account: str,
+        amount_native: float,
+    ) -> dict:
+        return {
+            "chain": "solana",
+            "network": "devnet",
+            "mode": "execute",
+            "asset_type": "native-stake",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "stake_account_address": "FakeStake1111111111111111111111111111111111111",
+            "vote_account": vote_account,
+            "amount_native": amount_native,
+            "stake_lamports": 1000000000,
+            "rent_exempt_lamports": 2282880,
+            "total_lamports": 1002282880,
+            "signature": "fake-stake-signature",
+            "broadcasted": True,
+            "confirmed": True,
+            "confirmation_status": "confirmed",
+            "slot": 1100,
+            "sign_only": False,
+            "source": "solana-rpc",
         }
 
     async def preview_spl_transfer(
@@ -290,6 +521,138 @@ class FakeBackend(AgentWalletBackend):
             "source": "fake",
         }
 
+    async def preview_deactivate_stake(self, stake_account: str) -> dict:
+        return {
+            "chain": "solana",
+            "network": "devnet",
+            "mode": "preview",
+            "asset_type": "deactivate-stake",
+            "authority": "Fake11111111111111111111111111111111111111111",
+            "stake_account": stake_account,
+            "activation": {"state": "active", "active": 1000000000, "inactive": 0},
+            "delegation": {"voter": "FakeVote11111111111111111111111111111111111111"},
+            "latest_blockhash": "FakeBlockhash11111111111111111111111111111111",
+            "last_valid_block_height": 12345,
+            "sign_only": False,
+            "can_send": True,
+            "source": "solana-rpc",
+        }
+
+    async def prepare_deactivate_stake(self, stake_account: str) -> dict:
+        return {
+            "chain": "solana",
+            "network": "devnet",
+            "mode": "prepare",
+            "asset_type": "deactivate-stake",
+            "authority": "Fake11111111111111111111111111111111111111111",
+            "stake_account": stake_account,
+            "transaction_base64": "ZmFrZS1kZWFjdGl2YXRlLXN0YWtlLXR4",
+            "transaction_encoding": "base64",
+            "transaction_format": "legacy",
+            "signed": True,
+            "broadcasted": False,
+            "confirmed": False,
+            "latest_blockhash": "FakeBlockhash11111111111111111111111111111111",
+            "last_valid_block_height": 12345,
+            "sign_only": False,
+            "source": "solana-rpc",
+        }
+
+    async def execute_deactivate_stake(self, stake_account: str) -> dict:
+        return {
+            "chain": "solana",
+            "network": "devnet",
+            "mode": "execute",
+            "asset_type": "deactivate-stake",
+            "authority": "Fake11111111111111111111111111111111111111111",
+            "stake_account": stake_account,
+            "signature": "fake-deactivate-stake-signature",
+            "broadcasted": True,
+            "confirmed": True,
+            "confirmation_status": "confirmed",
+            "slot": 1101,
+            "sign_only": False,
+            "source": "solana-rpc",
+        }
+
+    async def preview_withdraw_stake(
+        self,
+        stake_account: str,
+        amount_native: float,
+        recipient: str | None = None,
+    ) -> dict:
+        return {
+            "chain": "solana",
+            "network": "devnet",
+            "mode": "preview",
+            "asset_type": "withdraw-stake",
+            "authority": "Fake11111111111111111111111111111111111111111",
+            "stake_account": stake_account,
+            "recipient": recipient or "Fake11111111111111111111111111111111111111111",
+            "amount_native": amount_native,
+            "amount_lamports": 500000000,
+            "activation": {"state": "inactive", "active": 0, "inactive": 1000000000},
+            "estimated_withdrawable_lamports": 1000000000,
+            "latest_blockhash": "FakeBlockhash11111111111111111111111111111111",
+            "last_valid_block_height": 12345,
+            "sign_only": False,
+            "can_send": True,
+            "source": "solana-rpc",
+        }
+
+    async def prepare_withdraw_stake(
+        self,
+        stake_account: str,
+        amount_native: float,
+        recipient: str | None = None,
+    ) -> dict:
+        return {
+            "chain": "solana",
+            "network": "devnet",
+            "mode": "prepare",
+            "asset_type": "withdraw-stake",
+            "authority": "Fake11111111111111111111111111111111111111111",
+            "stake_account": stake_account,
+            "recipient": recipient or "Fake11111111111111111111111111111111111111111",
+            "amount_native": amount_native,
+            "amount_lamports": 500000000,
+            "transaction_base64": "ZmFrZS13aXRoZHJhdy1zdGFrZS10eA==",
+            "transaction_encoding": "base64",
+            "transaction_format": "legacy",
+            "signed": True,
+            "broadcasted": False,
+            "confirmed": False,
+            "latest_blockhash": "FakeBlockhash11111111111111111111111111111111",
+            "last_valid_block_height": 12345,
+            "sign_only": False,
+            "source": "solana-rpc",
+        }
+
+    async def execute_withdraw_stake(
+        self,
+        stake_account: str,
+        amount_native: float,
+        recipient: str | None = None,
+    ) -> dict:
+        return {
+            "chain": "solana",
+            "network": "devnet",
+            "mode": "execute",
+            "asset_type": "withdraw-stake",
+            "authority": "Fake11111111111111111111111111111111111111111",
+            "stake_account": stake_account,
+            "recipient": recipient or "Fake11111111111111111111111111111111111111111",
+            "amount_native": amount_native,
+            "amount_lamports": 500000000,
+            "signature": "fake-withdraw-stake-signature",
+            "broadcasted": True,
+            "confirmed": True,
+            "confirmation_status": "confirmed",
+            "slot": 1102,
+            "sign_only": False,
+            "source": "solana-rpc",
+        }
+
     async def close_empty_token_accounts(self, limit: int = 8) -> dict:
         return {
             "chain": "solana",
@@ -372,6 +735,110 @@ class FakeBackend(AgentWalletBackend):
             "source": "fake",
         }
 
+    async def preview_jupiter_earn_deposit(self, asset: str, amount_raw: str) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "preview",
+            "asset_type": "jupiter-earn-deposit",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "asset": asset,
+            "amount_raw": amount_raw,
+            "token": {"asset": asset, "symbol": "SOL"},
+            "sign_only": False,
+            "can_send": True,
+            "source": "jupiter-lend",
+        }
+
+    async def prepare_jupiter_earn_deposit(self, asset: str, amount_raw: str) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "prepare",
+            "asset_type": "jupiter-earn-deposit",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "asset": asset,
+            "amount_raw": amount_raw,
+            "transaction_base64": "ZmFrZS1lYXJuLWRlcG9zaXQtdHg=",
+            "transaction_encoding": "base64",
+            "transaction_format": "versioned",
+            "signed": True,
+            "broadcasted": False,
+            "confirmed": False,
+            "sign_only": False,
+            "source": "jupiter-lend",
+        }
+
+    async def execute_jupiter_earn_deposit(self, asset: str, amount_raw: str) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "execute",
+            "asset_type": "jupiter-earn-deposit",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "asset": asset,
+            "amount_raw": amount_raw,
+            "signature": "fake-earn-deposit-signature",
+            "broadcasted": True,
+            "confirmed": True,
+            "confirmation_status": "confirmed",
+            "slot": 1200,
+            "sign_only": False,
+            "source": "jupiter-lend",
+        }
+
+    async def preview_jupiter_earn_withdraw(self, asset: str, amount_raw: str) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "preview",
+            "asset_type": "jupiter-earn-withdraw",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "asset": asset,
+            "amount_raw": amount_raw,
+            "positions": [{"address": "FakeEarnPosition1111111111111111111111111111111"}],
+            "sign_only": False,
+            "can_send": True,
+            "source": "jupiter-lend",
+        }
+
+    async def prepare_jupiter_earn_withdraw(self, asset: str, amount_raw: str) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "prepare",
+            "asset_type": "jupiter-earn-withdraw",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "asset": asset,
+            "amount_raw": amount_raw,
+            "transaction_base64": "ZmFrZS1lYXJuLXdpdGhkcmF3LXR4",
+            "transaction_encoding": "base64",
+            "transaction_format": "versioned",
+            "signed": True,
+            "broadcasted": False,
+            "confirmed": False,
+            "sign_only": False,
+            "source": "jupiter-lend",
+        }
+
+    async def execute_jupiter_earn_withdraw(self, asset: str, amount_raw: str) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "execute",
+            "asset_type": "jupiter-earn-withdraw",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "asset": asset,
+            "amount_raw": amount_raw,
+            "signature": "fake-earn-withdraw-signature",
+            "broadcasted": True,
+            "confirmed": True,
+            "confirmation_status": "confirmed",
+            "slot": 1300,
+            "sign_only": False,
+            "source": "jupiter-lend",
+        }
+
     async def request_testnet_airdrop(self, amount_native: float) -> dict:
         return {
             "chain": "solana",
@@ -391,9 +858,9 @@ async def main() -> None:
     adapter = OpenClawWalletAdapter(FakeBackend())
     bundle = build_openclaw_plugin_bundle(FakeBackend())
 
-    assert len(adapter.list_tools()) == 11
+    assert len(adapter.list_tools()) == 24
     assert bundle["manifest"]["id"] == "agent-wallet"
-    assert len(bundle["tools"]) == 11
+    assert len(bundle["tools"]) == 24
     assert "Wallet Operator" in bundle["instructions"]
 
     capabilities = await adapter.invoke("get_wallet_capabilities")
@@ -413,6 +880,39 @@ async def main() -> None:
         {"mints": ["So11111111111111111111111111111111111111112"]},
     )
     assert prices.ok and prices.data["count"] == 1
+
+    validators = await adapter.invoke("get_solana_staking_validators")
+    assert validators.ok and validators.data["validator_count"] == 1
+
+    stake_account = await adapter.invoke(
+        "get_solana_stake_account",
+        {"stake_account": "FakeStake1111111111111111111111111111111111111"},
+    )
+    assert stake_account.ok and stake_account.data["account_type"] == "delegated"
+
+    portfolio_platforms = await adapter.invoke("get_jupiter_portfolio_platforms")
+    assert portfolio_platforms.ok and portfolio_platforms.data["platform_count"] == 2
+
+    jupiter_portfolio = await adapter.invoke(
+        "get_jupiter_portfolio",
+        {"platforms": ["sanctum"]},
+    )
+    assert jupiter_portfolio.ok and jupiter_portfolio.data["position_count"] == 1
+
+    staked_jup = await adapter.invoke("get_jupiter_staked_jup")
+    assert staked_jup.ok and staked_jup.data["raw"]["stakedAmount"] == "123456"
+
+    earn_tokens = await adapter.invoke("get_jupiter_earn_tokens")
+    assert earn_tokens.ok and earn_tokens.data["token_count"] == 1
+
+    earn_positions = await adapter.invoke("get_jupiter_earn_positions")
+    assert earn_positions.ok and earn_positions.data["position_count"] == 1
+
+    earn_earnings = await adapter.invoke(
+        "get_jupiter_earn_earnings",
+        {"positions": ["FakeEarnPosition1111111111111111111111111111111"]},
+    )
+    assert earn_earnings.ok and earn_earnings.data["raw"]["totalEarningsUsd"] == 1.23
 
     denied = await adapter.invoke(
         "sign_wallet_message",
@@ -484,6 +984,41 @@ async def main() -> None:
         },
     )
     assert executed_transfer.ok and executed_transfer.data["confirmed"] is True
+
+    stake_preview = await adapter.invoke(
+        "stake_sol_native",
+        {
+            "vote_account": "FakeVote11111111111111111111111111111111111111",
+            "amount": 1.0,
+            "mode": "preview",
+            "purpose": "test native stake preview",
+        },
+    )
+    assert stake_preview.ok and stake_preview.data["asset_type"] == "native-stake"
+
+    stake_prepare = await adapter.invoke(
+        "stake_sol_native",
+        {
+            "vote_account": "FakeVote11111111111111111111111111111111111111",
+            "amount": 1.0,
+            "mode": "prepare",
+            "purpose": "test native stake prepare",
+            "user_intent": True,
+        },
+    )
+    assert stake_prepare.ok and stake_prepare.data["transaction_format"] == "legacy"
+
+    stake_execute = await adapter.invoke(
+        "stake_sol_native",
+        {
+            "vote_account": "FakeVote11111111111111111111111111111111111111",
+            "amount": 1.0,
+            "mode": "execute",
+            "purpose": "test native stake execute",
+            "user_confirmed": True,
+        },
+    )
+    assert stake_execute.ok and stake_execute.data["confirmed"] is True
 
     spl_preview = await adapter.invoke(
         "transfer_spl_token",
@@ -591,6 +1126,76 @@ async def main() -> None:
     )
     assert executed_swap.ok and executed_swap.data["confirmed"] is True
 
+    earn_deposit_preview = await adapter.invoke(
+        "jupiter_earn_deposit",
+        {
+            "asset": "So11111111111111111111111111111111111111112",
+            "amount_raw": "1000000",
+            "mode": "preview",
+            "purpose": "test earn deposit preview",
+        },
+    )
+    assert earn_deposit_preview.ok and earn_deposit_preview.data["asset_type"] == "jupiter-earn-deposit"
+
+    earn_deposit_prepare = await adapter.invoke(
+        "jupiter_earn_deposit",
+        {
+            "asset": "So11111111111111111111111111111111111111112",
+            "amount_raw": "1000000",
+            "mode": "prepare",
+            "purpose": "test earn deposit prepare",
+            "user_intent": True,
+        },
+    )
+    assert earn_deposit_prepare.ok and earn_deposit_prepare.data["transaction_format"] == "versioned"
+
+    earn_deposit_execute = await adapter.invoke(
+        "jupiter_earn_deposit",
+        {
+            "asset": "So11111111111111111111111111111111111111112",
+            "amount_raw": "1000000",
+            "mode": "execute",
+            "purpose": "test earn deposit execute",
+            "user_confirmed": True,
+        },
+    )
+    assert earn_deposit_execute.ok and earn_deposit_execute.data["confirmed"] is True
+
+    earn_withdraw_preview = await adapter.invoke(
+        "jupiter_earn_withdraw",
+        {
+            "asset": "So11111111111111111111111111111111111111112",
+            "amount_raw": "500000",
+            "mode": "preview",
+            "purpose": "test earn withdraw preview",
+        },
+    )
+    assert earn_withdraw_preview.ok and earn_withdraw_preview.data["asset_type"] == "jupiter-earn-withdraw"
+
+    earn_withdraw_prepare = await adapter.invoke(
+        "jupiter_earn_withdraw",
+        {
+            "asset": "So11111111111111111111111111111111111111112",
+            "amount_raw": "500000",
+            "mode": "prepare",
+            "purpose": "test earn withdraw prepare",
+            "user_intent": True,
+        },
+    )
+    assert earn_withdraw_prepare.ok and earn_withdraw_prepare.data["transaction_format"] == "versioned"
+
+    earn_withdraw_execute = await adapter.invoke(
+        "jupiter_earn_withdraw",
+        {
+            "asset": "So11111111111111111111111111111111111111112",
+            "amount_raw": "500000",
+            "mode": "execute",
+            "purpose": "test earn withdraw execute",
+            "user_confirmed": True,
+        },
+    )
+    assert earn_withdraw_execute.ok and earn_withdraw_execute.data["confirmed"] is True
+
     close_preview = await adapter.invoke(
         "close_empty_token_accounts",
         {
@@ -622,6 +1227,73 @@ async def main() -> None:
         },
     )
     assert executed_close.ok and executed_close.data["confirmed"] is True
+
+    deactivate_preview = await adapter.invoke(
+        "deactivate_solana_stake",
+        {
+            "stake_account": "FakeStake1111111111111111111111111111111111111",
+            "mode": "preview",
+            "purpose": "test deactivate stake preview",
+        },
+    )
+    assert deactivate_preview.ok and deactivate_preview.data["asset_type"] == "deactivate-stake"
+
+    deactivate_prepare = await adapter.invoke(
+        "deactivate_solana_stake",
+        {
+            "stake_account": "FakeStake1111111111111111111111111111111111111",
+            "mode": "prepare",
+            "purpose": "test deactivate stake prepare",
+            "user_intent": True,
+        },
+    )
+    assert deactivate_prepare.ok and deactivate_prepare.data["transaction_format"] == "legacy"
+
+    deactivate_execute = await adapter.invoke(
+        "deactivate_solana_stake",
+        {
+            "stake_account": "FakeStake1111111111111111111111111111111111111",
+            "mode": "execute",
+            "purpose": "test deactivate stake execute",
+            "user_confirmed": True,
+        },
+    )
+    assert deactivate_execute.ok and deactivate_execute.data["confirmed"] is True
+
+    withdraw_preview = await adapter.invoke(
+        "withdraw_solana_stake",
+        {
+            "stake_account": "FakeStake1111111111111111111111111111111111111",
+            "amount": 0.5,
+            "mode": "preview",
+            "purpose": "test withdraw stake preview",
+        },
+    )
+    assert withdraw_preview.ok and withdraw_preview.data["asset_type"] == "withdraw-stake"
+
+    withdraw_prepare = await adapter.invoke(
+        "withdraw_solana_stake",
+        {
+            "stake_account": "FakeStake1111111111111111111111111111111111111",
+            "amount": 0.5,
+            "mode": "prepare",
+            "purpose": "test withdraw stake prepare",
+            "user_intent": True,
+        },
+    )
+    assert withdraw_prepare.ok and withdraw_prepare.data["transaction_format"] == "legacy"
+
+    withdraw_execute = await adapter.invoke(
+        "withdraw_solana_stake",
+        {
+            "stake_account": "FakeStake1111111111111111111111111111111111111",
+            "amount": 0.5,
+            "mode": "execute",
+            "purpose": "test withdraw stake execute",
+            "user_confirmed": True,
+        },
+    )
+    assert withdraw_execute.ok and withdraw_execute.data["confirmed"] is True
 
     airdrop = await adapter.invoke("request_devnet_airdrop", {"amount": 1.0})
     assert airdrop.ok and airdrop.data["mode"] == "airdrop"
@@ -684,6 +1356,32 @@ async def main() -> None:
         },
     )
     assert denied_mainnet_swap.ok is False
+
+    denied_mainnet_earn_deposit = await mainnet_adapter.invoke(
+        "jupiter_earn_deposit",
+        {
+            "asset": "So11111111111111111111111111111111111111112",
+            "amount_raw": "1000000",
+            "mode": "execute",
+            "purpose": "mainnet earn deposit execute without extra confirm",
+            "user_confirmed": True,
+            "mainnet_confirmed": False,
+        },
+    )
+    assert denied_mainnet_earn_deposit.ok is False
+
+    denied_mainnet_native_stake = await mainnet_adapter.invoke(
+        "stake_sol_native",
+        {
+            "vote_account": "FakeVote11111111111111111111111111111111111111",
+            "amount": 1.0,
+            "mode": "execute",
+            "purpose": "mainnet native stake execute without extra confirm",
+            "user_confirmed": True,
+            "mainnet_confirmed": False,
+        },
+    )
+    assert denied_mainnet_native_stake.ok is False
 
     allowed_mainnet_balance = await mainnet_adapter.invoke("get_wallet_balance")
     assert allowed_mainnet_balance.ok is True
