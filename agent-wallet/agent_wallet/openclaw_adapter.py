@@ -17,6 +17,9 @@ If the wallet backend is sign-only, do not describe the action as broadcast on-c
 If the backend supports signing but should not broadcast, prefer prepare mode instead of execute mode.
 For transfers, prefer preview mode first. Only use execute mode after explicit user approval.
 On mainnet, execute mode requires an additional mainnet confirmation step.
+Before any mainnet execute, restate the network, operation type, asset, amount, and destination, validator, or stake account.
+If the preview result includes a confirmation_summary or mainnet_warning, surface it before asking for confirmation.
+Never skip the explicit mainnet_confirmed=true step for writes on mainnet.
 """.strip()
 
 
@@ -50,6 +53,64 @@ class OpenClawWalletAdapter:
             raise WalletBackendError(
                 f"{action_label} execution on mainnet requires mainnet_confirmed=true."
             )
+
+    def _build_confirmation_summary(
+        self,
+        *,
+        action_label: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        summary: dict[str, Any] = {
+            "operation": action_label,
+            "network": str(payload.get("network") or getattr(self.backend, "network", "unknown")),
+        }
+        for key in (
+            "amount_native",
+            "amount_ui",
+            "input_amount_ui",
+            "estimated_output_amount_ui",
+            "amount_raw",
+            "mint",
+            "asset",
+            "input_mint",
+            "output_mint",
+            "from_address",
+            "to_address",
+            "recipient",
+            "vote_account",
+            "stake_account",
+            "stake_account_address",
+        ):
+            value = payload.get(key)
+            if value is not None:
+                summary[key] = value
+        return summary
+
+    def _annotate_sensitive_payload(
+        self,
+        payload: dict[str, Any],
+        *,
+        action_label: str,
+        mode: str,
+    ) -> dict[str, Any]:
+        annotated = dict(payload)
+        network = str(annotated.get("network") or getattr(self.backend, "network", "unknown")).strip().lower()
+        annotated["network"] = network
+        annotated["confirmation_summary"] = self._build_confirmation_summary(
+            action_label=action_label,
+            payload=annotated,
+        )
+        annotated["confirmation_requirements"] = {
+            "prepare_requires_user_intent": mode == "prepare",
+            "execute_requires_user_confirmed": mode == "execute",
+            "execute_requires_mainnet_confirmed": mode == "execute" and network == "mainnet",
+        }
+        if network == "mainnet" and mode in {"preview", "prepare", "execute"}:
+            annotated["mainnet_warning"] = (
+                "Mainnet operation. Confirm the network, asset, amount, and destination, validator, or stake account "
+                "before execute. Execute requires mainnet_confirmed=true."
+            )
+        return annotated
 
     def list_tools(self) -> list[AgentToolSpec]:
         """Return wallet tools suitable for agent registration."""
@@ -789,6 +850,9 @@ class OpenClawWalletAdapter:
         try:
             if tool_name == "get_wallet_capabilities":
                 data = self.backend.get_capabilities().to_dict()
+                data["network"] = str(getattr(self.backend, "network", "unknown"))
+                data["address"] = await self.backend.get_address()
+                data["is_mainnet"] = self._is_mainnet()
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
 
             if tool_name == "get_wallet_address":
@@ -796,7 +860,12 @@ class OpenClawWalletAdapter:
                 return AgentToolResult(
                     tool=tool_name,
                     ok=True,
-                    data={"address": address, "configured": bool(address)},
+                    data={
+                        "address": address,
+                        "configured": bool(address),
+                        "network": str(getattr(self.backend, "network", "unknown")),
+                        "is_mainnet": self._is_mainnet(),
+                    },
                 )
 
             if tool_name == "get_wallet_balance":
@@ -943,7 +1012,15 @@ class OpenClawWalletAdapter:
                         recipient=recipient.strip(),
                         amount_native=float(amount),
                     )
-                    return AgentToolResult(tool=tool_name, ok=True, data=preview)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            preview,
+                            action_label="SOL transfer",
+                            mode="preview",
+                        ),
+                    )
 
                 if mode == "prepare":
                     self._require_prepare_intent(user_intent)
@@ -951,7 +1028,15 @@ class OpenClawWalletAdapter:
                         recipient=recipient.strip(),
                         amount_native=float(amount),
                     )
-                    return AgentToolResult(tool=tool_name, ok=True, data=prepared)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            prepared,
+                            action_label="SOL transfer",
+                            mode="prepare",
+                        ),
+                    )
 
                 self._require_execute_confirmation(
                     user_confirmed=user_confirmed,
@@ -963,7 +1048,15 @@ class OpenClawWalletAdapter:
                     recipient=recipient.strip(),
                     amount_native=float(amount),
                 )
-                return AgentToolResult(tool=tool_name, ok=True, data=result)
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=self._annotate_sensitive_payload(
+                        result,
+                        action_label="SOL transfer",
+                        mode="execute",
+                    ),
+                )
 
             if tool_name == "stake_sol_native":
                 vote_account = args.get("vote_account")
@@ -988,7 +1081,15 @@ class OpenClawWalletAdapter:
                         vote_account=vote_account.strip(),
                         amount_native=float(amount),
                     )
-                    return AgentToolResult(tool=tool_name, ok=True, data=preview)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            preview,
+                            action_label="Native staking",
+                            mode="preview",
+                        ),
+                    )
 
                 if mode == "prepare":
                     self._require_prepare_intent(user_intent)
@@ -996,7 +1097,15 @@ class OpenClawWalletAdapter:
                         vote_account=vote_account.strip(),
                         amount_native=float(amount),
                     )
-                    return AgentToolResult(tool=tool_name, ok=True, data=prepared)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            prepared,
+                            action_label="Native staking",
+                            mode="prepare",
+                        ),
+                    )
 
                 self._require_execute_confirmation(
                     user_confirmed=user_confirmed,
@@ -1007,7 +1116,15 @@ class OpenClawWalletAdapter:
                     vote_account=vote_account.strip(),
                     amount_native=float(amount),
                 )
-                return AgentToolResult(tool=tool_name, ok=True, data=result)
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=self._annotate_sensitive_payload(
+                        result,
+                        action_label="Native staking",
+                        mode="execute",
+                    ),
+                )
 
             if tool_name == "request_devnet_airdrop":
                 amount = args.get("amount")
@@ -1047,7 +1164,15 @@ class OpenClawWalletAdapter:
                         amount_ui=float(amount),
                         decimals=decimals,
                     )
-                    return AgentToolResult(tool=tool_name, ok=True, data=preview)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            preview,
+                            action_label="SPL token transfer",
+                            mode="preview",
+                        ),
+                    )
 
                 if mode == "prepare":
                     self._require_prepare_intent(user_intent)
@@ -1057,7 +1182,15 @@ class OpenClawWalletAdapter:
                         amount_ui=float(amount),
                         decimals=decimals,
                     )
-                    return AgentToolResult(tool=tool_name, ok=True, data=prepared)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            prepared,
+                            action_label="SPL token transfer",
+                            mode="prepare",
+                        ),
+                    )
 
                 self._require_execute_confirmation(
                     user_confirmed=user_confirmed,
@@ -1071,7 +1204,15 @@ class OpenClawWalletAdapter:
                     amount_ui=float(amount),
                     decimals=decimals,
                 )
-                return AgentToolResult(tool=tool_name, ok=True, data=result)
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=self._annotate_sensitive_payload(
+                        result,
+                        action_label="SPL token transfer",
+                        mode="execute",
+                    ),
+                )
 
             if tool_name == "swap_solana_tokens":
                 input_mint = args.get("input_mint")
@@ -1104,7 +1245,15 @@ class OpenClawWalletAdapter:
                         amount_ui=float(amount),
                         slippage_bps=slippage_bps,
                     )
-                    return AgentToolResult(tool=tool_name, ok=True, data=preview)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            preview,
+                            action_label="Swap",
+                            mode="preview",
+                        ),
+                    )
 
                 if mode == "prepare":
                     self._require_prepare_intent(user_intent)
@@ -1114,7 +1263,15 @@ class OpenClawWalletAdapter:
                         amount_ui=float(amount),
                         slippage_bps=slippage_bps,
                     )
-                    return AgentToolResult(tool=tool_name, ok=True, data=prepared)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            prepared,
+                            action_label="Swap",
+                            mode="prepare",
+                        ),
+                    )
 
                 self._require_execute_confirmation(
                     user_confirmed=user_confirmed,
@@ -1128,7 +1285,15 @@ class OpenClawWalletAdapter:
                     amount_ui=float(amount),
                     slippage_bps=slippage_bps,
                 )
-                return AgentToolResult(tool=tool_name, ok=True, data=result)
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=self._annotate_sensitive_payload(
+                        result,
+                        action_label="Swap",
+                        mode="execute",
+                    ),
+                )
 
             if tool_name == "jupiter_earn_deposit":
                 asset = args.get("asset")
@@ -1153,7 +1318,15 @@ class OpenClawWalletAdapter:
                         asset=asset.strip(),
                         amount_raw=amount_raw.strip(),
                     )
-                    return AgentToolResult(tool=tool_name, ok=True, data=preview)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            preview,
+                            action_label="Jupiter Earn deposit",
+                            mode="preview",
+                        ),
+                    )
 
                 if mode == "prepare":
                     self._require_prepare_intent(user_intent)
@@ -1161,7 +1334,15 @@ class OpenClawWalletAdapter:
                         asset=asset.strip(),
                         amount_raw=amount_raw.strip(),
                     )
-                    return AgentToolResult(tool=tool_name, ok=True, data=prepared)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            prepared,
+                            action_label="Jupiter Earn deposit",
+                            mode="prepare",
+                        ),
+                    )
 
                 self._require_execute_confirmation(
                     user_confirmed=user_confirmed,
@@ -1172,7 +1353,15 @@ class OpenClawWalletAdapter:
                     asset=asset.strip(),
                     amount_raw=amount_raw.strip(),
                 )
-                return AgentToolResult(tool=tool_name, ok=True, data=result)
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=self._annotate_sensitive_payload(
+                        result,
+                        action_label="Jupiter Earn deposit",
+                        mode="execute",
+                    ),
+                )
 
             if tool_name == "jupiter_earn_withdraw":
                 asset = args.get("asset")
@@ -1197,7 +1386,15 @@ class OpenClawWalletAdapter:
                         asset=asset.strip(),
                         amount_raw=amount_raw.strip(),
                     )
-                    return AgentToolResult(tool=tool_name, ok=True, data=preview)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            preview,
+                            action_label="Jupiter Earn withdraw",
+                            mode="preview",
+                        ),
+                    )
 
                 if mode == "prepare":
                     self._require_prepare_intent(user_intent)
@@ -1205,7 +1402,15 @@ class OpenClawWalletAdapter:
                         asset=asset.strip(),
                         amount_raw=amount_raw.strip(),
                     )
-                    return AgentToolResult(tool=tool_name, ok=True, data=prepared)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            prepared,
+                            action_label="Jupiter Earn withdraw",
+                            mode="prepare",
+                        ),
+                    )
 
                 self._require_execute_confirmation(
                     user_confirmed=user_confirmed,
@@ -1216,7 +1421,15 @@ class OpenClawWalletAdapter:
                     asset=asset.strip(),
                     amount_raw=amount_raw.strip(),
                 )
-                return AgentToolResult(tool=tool_name, ok=True, data=result)
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=self._annotate_sensitive_payload(
+                        result,
+                        action_label="Jupiter Earn withdraw",
+                        mode="execute",
+                    ),
+                )
 
             if tool_name == "close_empty_token_accounts":
                 limit = args.get("limit", 8)
@@ -1234,7 +1447,15 @@ class OpenClawWalletAdapter:
 
                 if mode == "preview":
                     preview = await self.backend.preview_close_empty_token_accounts(limit=limit)
-                    return AgentToolResult(tool=tool_name, ok=True, data=preview)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            preview,
+                            action_label="Close token accounts",
+                            mode="preview",
+                        ),
+                    )
 
                 self._require_execute_confirmation(
                     user_confirmed=user_confirmed,
@@ -1243,7 +1464,15 @@ class OpenClawWalletAdapter:
                 )
 
                 result = await self.backend.close_empty_token_accounts(limit=limit)
-                return AgentToolResult(tool=tool_name, ok=True, data=result)
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=self._annotate_sensitive_payload(
+                        result,
+                        action_label="Close token accounts",
+                        mode="execute",
+                    ),
+                )
 
             if tool_name == "deactivate_solana_stake":
                 stake_account = args.get("stake_account")
@@ -1262,12 +1491,28 @@ class OpenClawWalletAdapter:
 
                 if mode == "preview":
                     preview = await self.backend.preview_deactivate_stake(stake_account.strip())
-                    return AgentToolResult(tool=tool_name, ok=True, data=preview)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            preview,
+                            action_label="Stake deactivation",
+                            mode="preview",
+                        ),
+                    )
 
                 if mode == "prepare":
                     self._require_prepare_intent(user_intent)
                     prepared = await self.backend.prepare_deactivate_stake(stake_account.strip())
-                    return AgentToolResult(tool=tool_name, ok=True, data=prepared)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            prepared,
+                            action_label="Stake deactivation",
+                            mode="prepare",
+                        ),
+                    )
 
                 self._require_execute_confirmation(
                     user_confirmed=user_confirmed,
@@ -1275,7 +1520,15 @@ class OpenClawWalletAdapter:
                     action_label="Stake deactivation",
                 )
                 result = await self.backend.execute_deactivate_stake(stake_account.strip())
-                return AgentToolResult(tool=tool_name, ok=True, data=result)
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=self._annotate_sensitive_payload(
+                        result,
+                        action_label="Stake deactivation",
+                        mode="execute",
+                    ),
+                )
 
             if tool_name == "withdraw_solana_stake":
                 stake_account = args.get("stake_account")
@@ -1304,7 +1557,15 @@ class OpenClawWalletAdapter:
                         amount_native=float(amount),
                         recipient=recipient.strip() if isinstance(recipient, str) else None,
                     )
-                    return AgentToolResult(tool=tool_name, ok=True, data=preview)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            preview,
+                            action_label="Stake withdraw",
+                            mode="preview",
+                        ),
+                    )
 
                 if mode == "prepare":
                     self._require_prepare_intent(user_intent)
@@ -1313,7 +1574,15 @@ class OpenClawWalletAdapter:
                         amount_native=float(amount),
                         recipient=recipient.strip() if isinstance(recipient, str) else None,
                     )
-                    return AgentToolResult(tool=tool_name, ok=True, data=prepared)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            prepared,
+                            action_label="Stake withdraw",
+                            mode="prepare",
+                        ),
+                    )
 
                 self._require_execute_confirmation(
                     user_confirmed=user_confirmed,
@@ -1325,7 +1594,15 @@ class OpenClawWalletAdapter:
                     amount_native=float(amount),
                     recipient=recipient.strip() if isinstance(recipient, str) else None,
                 )
-                return AgentToolResult(tool=tool_name, ok=True, data=result)
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=self._annotate_sensitive_payload(
+                        result,
+                        action_label="Stake withdraw",
+                        mode="execute",
+                    ),
+                )
 
             raise WalletBackendError(f"Unsupported wallet tool: {tool_name}")
         except Exception as exc:

@@ -50,6 +50,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--user-id", default=_default_user_id())
     parser.add_argument("--backend", default="solana_local")
     parser.add_argument("--network", default="devnet")
+    parser.add_argument("--rpc-url", default="")
+    parser.add_argument("--rpc-urls", default="")
     parser.add_argument("--sign-only", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--encrypt-user-wallets", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument(
@@ -94,6 +96,12 @@ def main() -> None:
         "packageRoot": str(Path(args.package_root).expanduser().resolve()),
         "pythonBin": args.python_bin,
     }
+    if args.rpc_url.strip():
+        plugin_config["rpcUrl"] = args.rpc_url.strip()
+    if args.rpc_urls.strip():
+        plugin_config["rpcUrls"] = [
+            item.strip() for item in args.rpc_urls.split(",") if item.strip()
+        ]
     if args.write_master_key:
         plugin_config["masterKey"] = "set-a-real-secret-here"
 

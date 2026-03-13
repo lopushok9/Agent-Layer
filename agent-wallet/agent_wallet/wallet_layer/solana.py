@@ -72,6 +72,15 @@ def _decode_secret_material(secret_material: str) -> bytes:
         raise WalletBackendError("Solana secret must be base58 or JSON keypair bytes.") from exc
 
 
+def _coerce_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 class SolanaLocalKeypairSigner:
     """Local signer compatible with agent-style wallet backends."""
 
@@ -117,7 +126,7 @@ class SolanaWalletBackend(AgentWalletBackend):
 
     def __init__(
         self,
-        rpc_url: str,
+        rpc_url: str | list[str],
         commitment: str = "confirmed",
         network: str = "mainnet",
         signer: SolanaLocalKeypairSigner | None = None,
@@ -133,7 +142,8 @@ class SolanaWalletBackend(AgentWalletBackend):
                 "Configured Solana public key does not match the private key provided for signing."
             )
 
-        self.rpc_url = rpc_url
+        self.rpc_urls = rpc_url if isinstance(rpc_url, list) else [rpc_url]
+        self.rpc_url = self.rpc_urls[0]
         self.commitment = commitment
         self.network = network
         self.signer = signer
@@ -164,7 +174,7 @@ class SolanaWalletBackend(AgentWalletBackend):
             )
         return await solana_rpc.fetch_balance(
             validate_solana_address(wallet_address),
-            rpc_url=self.rpc_url,
+            rpc_url=self.rpc_urls,
             commitment=self.commitment,
         )
 
@@ -235,7 +245,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         if limit <= 0:
             raise WalletBackendError("limit must be greater than zero.")
         vote_accounts = await solana_rpc.fetch_vote_accounts(
-            rpc_url=self.rpc_url,
+            rpc_url=self.rpc_urls,
             commitment=self.commitment,
         )
         validators: list[dict[str, Any]] = []
@@ -268,13 +278,13 @@ class SolanaWalletBackend(AgentWalletBackend):
         account_info, balance, activation = await asyncio.gather(
             solana_rpc.fetch_account_info(
                 stake_account,
-                rpc_url=self.rpc_url,
+                rpc_url=self.rpc_urls,
                 encoding="jsonParsed",
             ),
             self.get_balance(stake_account),
             solana_rpc.fetch_stake_activation(
                 stake_account,
-                rpc_url=self.rpc_url,
+                rpc_url=self.rpc_urls,
                 commitment=self.commitment,
             ),
         )
@@ -316,6 +326,57 @@ class SolanaWalletBackend(AgentWalletBackend):
 
     async def get_stake_account(self, stake_account: str) -> dict[str, Any]:
         return await self._fetch_stake_account_snapshot(stake_account)
+
+    def _build_swap_fee_summary(
+        self,
+        *,
+        swap_provider: str,
+        quote_response: dict[str, Any],
+        prioritization_fee_lamports: Any = None,
+        compute_unit_limit: Any = None,
+        signature_fee_lamports: Any = None,
+        rent_fee_lamports: Any = None,
+    ) -> dict[str, Any]:
+        fee_bps = _coerce_int(quote_response.get("feeBps"))
+        resolved_signature_fee = _coerce_int(signature_fee_lamports)
+        resolved_priority_fee = _coerce_int(prioritization_fee_lamports)
+        resolved_rent_fee = _coerce_int(rent_fee_lamports)
+
+        if resolved_signature_fee is None and swap_provider == "jupiter-metis":
+            resolved_signature_fee = SOLANA_BASE_FEE_LAMPORTS
+        if resolved_signature_fee is None:
+            resolved_signature_fee = _coerce_int(quote_response.get("signatureFeeLamports"))
+        if resolved_priority_fee is None:
+            resolved_priority_fee = _coerce_int(quote_response.get("prioritizationFeeLamports"))
+        if resolved_rent_fee is None:
+            resolved_rent_fee = _coerce_int(quote_response.get("rentFeeLamports"))
+
+        known_lamport_parts = [
+            value
+            for value in (resolved_signature_fee, resolved_priority_fee, resolved_rent_fee)
+            if isinstance(value, int)
+        ]
+        total_known_lamports = sum(known_lamport_parts)
+
+        return {
+            "swap_provider": swap_provider,
+            "network_fee_lamports": total_known_lamports,
+            "network_fee_sol": total_known_lamports / solana_rpc.LAMPORTS_PER_SOL,
+            "signature_fee_lamports": resolved_signature_fee or 0,
+            "prioritization_fee_lamports": resolved_priority_fee or 0,
+            "rent_fee_lamports": resolved_rent_fee or 0,
+            "route_fee_bps": fee_bps,
+            "compute_unit_limit": _coerce_int(compute_unit_limit),
+            "quoted_output_includes_route_fees": True,
+        }
+
+    def _format_swap_fee_label(self, fee_summary: dict[str, Any]) -> str:
+        network_fee_sol = float(fee_summary.get("network_fee_sol") or 0)
+        route_fee_bps = fee_summary.get("route_fee_bps")
+        parts = [f"network fee ~{network_fee_sol:.6f} SOL"]
+        if isinstance(route_fee_bps, int):
+            parts.append(f"route fee {route_fee_bps} bps (already reflected in quoted output)")
+        return "; ".join(parts)
 
     def _require_mainnet_jupiter(self, feature: str) -> None:
         if self.network != "mainnet":
@@ -498,12 +559,12 @@ class SolanaWalletBackend(AgentWalletBackend):
             self.get_staking_validators(limit=200, include_delinquent=True),
             self.get_balance(owner),
             solana_rpc.fetch_latest_blockhash(
-                rpc_url=self.rpc_url,
+                rpc_url=self.rpc_urls,
                 commitment=self.commitment,
             ),
             solana_rpc.fetch_minimum_balance_for_rent_exemption(
                 STAKE_STATE_V2_SIZE,
-                rpc_url=self.rpc_url,
+                rpc_url=self.rpc_urls,
                 commitment=self.commitment,
             ),
         )
@@ -609,6 +670,13 @@ class SolanaWalletBackend(AgentWalletBackend):
         message = Message.new_with_blockhash(instructions, owner_pubkey, blockhash)
         transaction = Transaction([wallet_keypair, stake_keypair], message, blockhash)
 
+        fee_summary = self._build_swap_fee_summary(
+            swap_provider=swap_provider,
+            quote_response=preview["quote_response"],
+            prioritization_fee_lamports=prioritization_fee_lamports,
+            compute_unit_limit=compute_unit_limit,
+        )
+
         return {
             "chain": "solana",
             "network": self.network,
@@ -647,7 +715,7 @@ class SolanaWalletBackend(AgentWalletBackend):
             )
         submitted = await solana_rpc.send_transaction(
             transaction_base64=str(prepared["transaction_base64"]),
-            rpc_url=self.rpc_url,
+            rpc_url=self.rpc_urls,
         )
         signature = submitted.get("signature")
         status = None
@@ -655,7 +723,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         if isinstance(signature, str) and signature:
             status = await solana_rpc.wait_for_confirmation(
                 signature=signature,
-                rpc_url=self.rpc_url,
+                rpc_url=self.rpc_urls,
             )
             confirmed = status is not None
         return {
@@ -688,7 +756,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         snapshot, latest_blockhash = await asyncio.gather(
             self.get_stake_account(stake_account),
             solana_rpc.fetch_latest_blockhash(
-                rpc_url=self.rpc_url,
+                rpc_url=self.rpc_urls,
                 commitment=self.commitment,
             ),
         )
@@ -759,7 +827,7 @@ class SolanaWalletBackend(AgentWalletBackend):
             )
         submitted = await solana_rpc.send_transaction(
             transaction_base64=str(prepared["transaction_base64"]),
-            rpc_url=self.rpc_url,
+            rpc_url=self.rpc_urls,
         )
         signature = submitted.get("signature")
         status = None
@@ -767,7 +835,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         if isinstance(signature, str) and signature:
             status = await solana_rpc.wait_for_confirmation(
                 signature=signature,
-                rpc_url=self.rpc_url,
+                rpc_url=self.rpc_urls,
             )
             confirmed = status is not None
         return {
@@ -803,7 +871,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         snapshot, latest_blockhash = await asyncio.gather(
             self.get_stake_account(stake_account),
             solana_rpc.fetch_latest_blockhash(
-                rpc_url=self.rpc_url,
+                rpc_url=self.rpc_urls,
                 commitment=self.commitment,
             ),
         )
@@ -911,7 +979,7 @@ class SolanaWalletBackend(AgentWalletBackend):
             )
         submitted = await solana_rpc.send_transaction(
             transaction_base64=str(prepared["transaction_base64"]),
-            rpc_url=self.rpc_url,
+            rpc_url=self.rpc_urls,
         )
         signature = submitted.get("signature")
         status = None
@@ -919,7 +987,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         if isinstance(signature, str) and signature:
             status = await solana_rpc.wait_for_confirmation(
                 signature=signature,
-                rpc_url=self.rpc_url,
+                rpc_url=self.rpc_urls,
             )
             confirmed = status is not None
         return {
@@ -994,7 +1062,7 @@ class SolanaWalletBackend(AgentWalletBackend):
             )
         submitted = await solana_rpc.send_transaction(
             transaction_base64=str(prepared["transaction_base64"]),
-            rpc_url=self.rpc_url,
+            rpc_url=self.rpc_urls,
         )
         signature = submitted.get("signature")
         status = None
@@ -1002,7 +1070,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         if isinstance(signature, str) and signature:
             status = await solana_rpc.wait_for_confirmation(
                 signature=signature,
-                rpc_url=self.rpc_url,
+                rpc_url=self.rpc_urls,
             )
             confirmed = status is not None
         return {
@@ -1167,7 +1235,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         recipient = validate_solana_address(recipient)
         balance = await self.get_balance(sender)
         latest_blockhash = await solana_rpc.fetch_latest_blockhash(
-            rpc_url=self.rpc_url,
+            rpc_url=self.rpc_urls,
             commitment=self.commitment,
         )
 
@@ -1217,7 +1285,7 @@ class SolanaWalletBackend(AgentWalletBackend):
 
         submitted = await solana_rpc.send_transaction(
             transaction_base64=str(prepared["transaction_base64"]),
-            rpc_url=self.rpc_url,
+            rpc_url=self.rpc_urls,
         )
         signature = submitted.get("signature")
         status = None
@@ -1225,7 +1293,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         if isinstance(signature, str) and signature:
             status = await solana_rpc.wait_for_confirmation(
                 signature=signature,
-                rpc_url=self.rpc_url,
+                rpc_url=self.rpc_urls,
             )
             confirmed = status is not None
 
@@ -1310,7 +1378,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         submitted = await solana_rpc.request_airdrop(
             address=address,
             lamports=lamports,
-            rpc_url=self.rpc_url,
+            rpc_url=self.rpc_urls,
             commitment=self.commitment,
         )
         signature = submitted.get("signature")
@@ -1319,7 +1387,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         if isinstance(signature, str) and signature:
             status = await solana_rpc.wait_for_confirmation(
                 signature=signature,
-                rpc_url=self.rpc_url,
+                rpc_url=self.rpc_urls,
             )
             confirmed = status is not None
 
@@ -1340,13 +1408,13 @@ class SolanaWalletBackend(AgentWalletBackend):
     async def _resolve_mint_decimals(self, mint: str) -> int:
         if mint == NATIVE_SOL_MINT:
             return 9
-        token_info = await solana_rpc.fetch_token_supply_info(mint, rpc_url=self.rpc_url)
+        token_info = await solana_rpc.fetch_token_supply_info(mint, rpc_url=self.rpc_urls)
         return int(token_info.get("decimals") or 0)
 
     async def _resolve_token_program_id(self, mint: str) -> str:
         if mint == NATIVE_SOL_MINT:
             return TOKEN_PROGRAM_ID
-        account_info = await solana_rpc.fetch_account_info(mint, rpc_url=self.rpc_url)
+        account_info = await solana_rpc.fetch_account_info(mint, rpc_url=self.rpc_urls)
         if account_info is None:
             raise WalletBackendError("Mint account was not found on Solana RPC.")
         owner = account_info.get("owner")
@@ -1364,12 +1432,12 @@ class SolanaWalletBackend(AgentWalletBackend):
         token_accounts_legacy, token_accounts_2022 = await asyncio.gather(
             solana_rpc.fetch_token_accounts_by_owner(
                 owner,
-                rpc_url=self.rpc_url,
+                rpc_url=self.rpc_urls,
                 token_program_id=TOKEN_PROGRAM_ID,
             ),
             solana_rpc.fetch_token_accounts_by_owner(
                 owner,
-                rpc_url=self.rpc_url,
+                rpc_url=self.rpc_urls,
                 token_program_id=TOKEN_2022_PROGRAM_ID,
             ),
         )
@@ -1464,11 +1532,11 @@ class SolanaWalletBackend(AgentWalletBackend):
             )
         )
 
-        sender_ata_exists = await solana_rpc.account_exists(sender_ata, rpc_url=self.rpc_url)
+        sender_ata_exists = await solana_rpc.account_exists(sender_ata, rpc_url=self.rpc_urls)
         if not sender_ata_exists:
             raise WalletBackendError("Sender token account does not exist for this mint.")
 
-        token_info = await solana_rpc.fetch_token_supply_info(mint, rpc_url=self.rpc_url)
+        token_info = await solana_rpc.fetch_token_supply_info(mint, rpc_url=self.rpc_urls)
         resolved_decimals = int(
             decimals if decimals is not None else (token_info.get("decimals") or 0)
         )
@@ -1478,15 +1546,15 @@ class SolanaWalletBackend(AgentWalletBackend):
 
         sender_balance = await solana_rpc.fetch_token_account_balance(
             sender_ata,
-            rpc_url=self.rpc_url,
+            rpc_url=self.rpc_urls,
         )
         sender_raw_balance = int(sender_balance.get("amount") or 0)
         if raw_amount > sender_raw_balance:
             raise WalletBackendError("Insufficient token balance for this transfer preview.")
 
-        recipient_ata_exists = await solana_rpc.account_exists(recipient_ata, rpc_url=self.rpc_url)
+        recipient_ata_exists = await solana_rpc.account_exists(recipient_ata, rpc_url=self.rpc_urls)
         latest_blockhash = await solana_rpc.fetch_latest_blockhash(
-            rpc_url=self.rpc_url,
+            rpc_url=self.rpc_urls,
             commitment=self.commitment,
         )
 
@@ -1535,7 +1603,7 @@ class SolanaWalletBackend(AgentWalletBackend):
 
         submitted = await solana_rpc.send_transaction(
             transaction_base64=str(prepared["transaction_base64"]),
-            rpc_url=self.rpc_url,
+            rpc_url=self.rpc_urls,
         )
         signature = submitted.get("signature")
         status = None
@@ -1543,7 +1611,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         if isinstance(signature, str) and signature:
             status = await solana_rpc.wait_for_confirmation(
                 signature=signature,
-                rpc_url=self.rpc_url,
+                rpc_url=self.rpc_urls,
             )
             confirmed = status is not None
 
@@ -1771,7 +1839,7 @@ class SolanaWalletBackend(AgentWalletBackend):
             )
 
         latest_blockhash = await solana_rpc.fetch_latest_blockhash(
-            rpc_url=self.rpc_url,
+            rpc_url=self.rpc_urls,
             commitment=self.commitment,
         )
         blockhash = Hash.from_string(str(latest_blockhash["blockhash"]))
@@ -1780,7 +1848,7 @@ class SolanaWalletBackend(AgentWalletBackend):
 
         submitted = await solana_rpc.send_transaction(
             transaction_base64=encode_transaction_base64(bytes(transaction)),
-            rpc_url=self.rpc_url,
+            rpc_url=self.rpc_urls,
         )
         signature = submitted.get("signature")
         status = None
@@ -1788,7 +1856,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         if isinstance(signature, str) and signature:
             status = await solana_rpc.wait_for_confirmation(
                 signature=signature,
-                rpc_url=self.rpc_url,
+                rpc_url=self.rpc_urls,
             )
             confirmed = status is not None
 
@@ -1858,6 +1926,10 @@ class SolanaWalletBackend(AgentWalletBackend):
             or quote.get("minOutAmount")
             or 0
         )
+        fee_summary = self._build_swap_fee_summary(
+            swap_provider=quote_source,
+            quote_response=quote,
+        )
         return {
             "chain": "solana",
             "network": self.network,
@@ -1878,6 +1950,8 @@ class SolanaWalletBackend(AgentWalletBackend):
             "route_plan": quote.get("routePlan", []),
             "context_slot": quote.get("contextSlot"),
             "time_taken_seconds": quote.get("timeTaken"),
+            "fee_summary": fee_summary,
+            "estimated_total_fee_label": self._format_swap_fee_label(fee_summary),
             "quote_response": quote,
             "swap_provider": quote_source,
             "can_send": self.get_capabilities().can_send_transaction,
@@ -1912,7 +1986,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         else:
             submitted = await solana_rpc.send_transaction(
                 transaction_base64=str(prepared["transaction_base64"]),
-                rpc_url=self.rpc_url,
+                rpc_url=self.rpc_urls,
             )
             onchain_signature = submitted.get("signature")
         status = None
@@ -1920,7 +1994,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         if isinstance(onchain_signature, str) and onchain_signature:
             status = await solana_rpc.wait_for_confirmation(
                 signature=onchain_signature,
-                rpc_url=self.rpc_url,
+                rpc_url=self.rpc_urls,
             )
             confirmed = status is not None
 
@@ -1944,6 +2018,8 @@ class SolanaWalletBackend(AgentWalletBackend):
             "last_valid_block_height": prepared["last_valid_block_height"],
             "prioritization_fee_lamports": prepared["prioritization_fee_lamports"],
             "compute_unit_limit": prepared["compute_unit_limit"],
+            "fee_summary": prepared.get("fee_summary"),
+            "estimated_total_fee_label": prepared.get("estimated_total_fee_label"),
             "request_id": prepared.get("request_id"),
             "swap_provider": prepared.get("swap_provider"),
             "execute_response": submitted,
@@ -2011,6 +2087,12 @@ class SolanaWalletBackend(AgentWalletBackend):
             unsigned_transaction.message,
             [signature],
         )
+        fee_summary = self._build_swap_fee_summary(
+            swap_provider=swap_provider,
+            quote_response=preview["quote_response"],
+            prioritization_fee_lamports=prioritization_fee_lamports,
+            compute_unit_limit=compute_unit_limit,
+        )
 
         return {
             "chain": "solana",
@@ -2033,6 +2115,8 @@ class SolanaWalletBackend(AgentWalletBackend):
             "last_valid_block_height": last_valid_block_height,
             "prioritization_fee_lamports": prioritization_fee_lamports,
             "compute_unit_limit": compute_unit_limit,
+            "fee_summary": fee_summary,
+            "estimated_total_fee_label": self._format_swap_fee_label(fee_summary),
             "request_id": request_id,
             "swap_provider": swap_provider,
             "source": swap_provider,

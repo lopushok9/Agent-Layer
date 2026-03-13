@@ -14,12 +14,19 @@ def _parse_bool(value: Any) -> str:
     return "true" if value is True else "false"
 
 
+def _parse_csv(value: Any) -> str:
+    if isinstance(value, list):
+        return ",".join(str(item).strip() for item in value if str(item).strip())
+    return str(value).strip()
+
+
 def _apply_config_overrides(config: dict[str, Any]) -> None:
     env_map: dict[str, tuple[str, Any]] = {
         "backend": ("AGENT_WALLET_BACKEND", config.get("backend")),
         "signOnly": ("AGENT_WALLET_SIGN_ONLY", _parse_bool(config.get("signOnly"))),
         "network": ("SOLANA_NETWORK", config.get("network")),
         "rpcUrl": ("SOLANA_RPC_URL", config.get("rpcUrl")),
+        "rpcUrls": ("SOLANA_RPC_URLS", _parse_csv(config.get("rpcUrls"))),
         "publicKey": ("SOLANA_AGENT_PUBLIC_KEY", config.get("publicKey")),
         "privateKey": ("SOLANA_AGENT_PRIVATE_KEY", config.get("privateKey")),
         "keypairPath": ("SOLANA_AGENT_KEYPAIR_PATH", config.get("keypairPath")),
@@ -32,6 +39,10 @@ def _apply_config_overrides(config: dict[str, Any]) -> None:
         "migratePlaintextUserWallets": (
             "AGENT_WALLET_MIGRATE_PLAINTEXT_USER_WALLETS",
             _parse_bool(config.get("migratePlaintextUserWallets")),
+        ),
+        "refuseMainnetWalletRecreation": (
+            "AGENT_WALLET_REFUSE_MAINNET_WALLET_RECREATION",
+            _parse_bool(config.get("refuseMainnetWalletRecreation")),
         ),
         "openclawHome": ("OPENCLAW_HOME", config.get("openclawHome")),
         "jupiterBaseUrl": ("JUPITER_API_BASE_URL", config.get("jupiterBaseUrl")),

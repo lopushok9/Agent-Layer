@@ -24,6 +24,7 @@ It provides:
 - runtime instructions for safe wallet usage
 - a single `invoke()` method for safe dispatch
 - OpenClaw-style plugin manifest and skill bundle
+- explicit network-aware results so the host and agent can see `devnet` vs `mainnet`
 
 Current safe tools:
 
@@ -61,6 +62,7 @@ Policy defaults:
 - `prepare` requires `user_intent=true`
 - `execute` requires `user_confirmed=true`
 - on Solana `mainnet`, `execute` also requires `mainnet_confirmed=true`
+- on Solana `mainnet`, preview and prepare responses include a `confirmation_summary` and `mainnet_warning` to force a clearer final confirmation step
 
 ## Install
 
@@ -78,6 +80,11 @@ Copy `.env.example` to `.env` and choose one of two modes:
 
 2. Signing:
    set `SOLANA_AGENT_PRIVATE_KEY` or `SOLANA_AGENT_KEYPAIR_PATH`
+
+For production `mainnet`, prefer a dedicated RPC instead of the public Solana endpoint. You can now configure either:
+
+- `SOLANA_RPC_URL` for one primary endpoint
+- `SOLANA_RPC_URLS` as a comma-separated ordered failover list
 
 For OpenClaw install/runtime, the intended creation flow is:
 
@@ -98,6 +105,12 @@ Per-user wallets are now encrypted at rest by default. Set:
 
 If a legacy plaintext per-user wallet already exists, the helper will migrate it in place on the next successful load when a master key is available.
 
+Mainnet hardening:
+
+- per-user wallets now pin the expected wallet address in a sidecar file
+- if a pinned `mainnet` wallet file disappears, the runtime refuses to silently create a replacement wallet
+- this reduces the risk of a user unknowingly switching to a fresh address and losing access to funds at the original address
+
 Operational helpers for the host runtime are also available in `agent_wallet.user_wallets`:
 
 - `get_user_wallet_storage_info(...)`
@@ -115,6 +128,27 @@ Recommended host-side runtime flow:
 5. Tool execution is delegated to `context.plugin_bundle["invoke"]`
 
 This keeps wallet creation and custody in the host/runtime layer while the agent only sees the safe tool surface.
+
+## Network switching
+
+The wallet backend is already network-scoped:
+
+- `devnet` and `mainnet` use different wallet files
+- per-user wallets are stored as `solana-<network>-agent.json`
+- switching networks does not mix balances or stake accounts across clusters
+
+For a local OpenClaw install, use:
+
+```bash
+python agent-wallet/scripts/switch_openclaw_wallet_network.py --network devnet
+python agent-wallet/scripts/switch_openclaw_wallet_network.py --network mainnet
+```
+
+Useful flags:
+
+- `--show-only` shows which wallet path will be used without changing config
+- `--sign-only` or `--no-sign-only` updates the execution mode together with the network
+- `--rpc-url` overrides the RPC endpoint for the selected network
 
 ## Jupiter coverage
 
@@ -179,6 +213,7 @@ Recommended devnet setup:
 AGENT_WALLET_BACKEND=solana_local
 AGENT_WALLET_MASTER_KEY=change-this-in-production
 SOLANA_NETWORK=devnet
+SOLANA_RPC_URLS=https://api.devnet.solana.com
 SOLANA_AUTO_CREATE_WALLET=true
 AGENT_WALLET_SIGN_ONLY=false
 ```
@@ -199,5 +234,6 @@ The package now supports:
 - native stake deactivation and withdraw flows
 - SPL token transfer preview and execution by mint address
 - Jupiter-based swap preview and execution on mainnet
+- compact swap `fee_summary` in preview/prepare/execute, including known network fees and route fee bps when Jupiter provides them
 - zero-balance token account cleanup
 - devnet/testnet faucet airdrop

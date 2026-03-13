@@ -486,6 +486,18 @@ class FakeBackend(AgentWalletBackend):
             "minimum_output_amount_ui": 12.0,
             "slippage_bps": slippage_bps,
             "price_impact_pct": "0.01",
+            "fee_summary": {
+                "swap_provider": "jupiter-ultra",
+                "network_fee_lamports": 9000,
+                "network_fee_sol": 0.000009,
+                "signature_fee_lamports": 5000,
+                "prioritization_fee_lamports": 4000,
+                "rent_fee_lamports": 0,
+                "route_fee_bps": 10,
+                "compute_unit_limit": 250000,
+                "quoted_output_includes_route_fees": True,
+            },
+            "estimated_total_fee_label": "network fee ~0.000009 SOL; route fee 10 bps (already reflected in quoted output)",
             "route_plan": [{"swapInfo": {"label": "fake-route"}}],
             "sign_only": False,
             "can_send": True,
@@ -705,6 +717,18 @@ class FakeBackend(AgentWalletBackend):
             "confirmed": True,
             "confirmation_status": "confirmed",
             "slot": 999,
+            "fee_summary": {
+                "swap_provider": "jupiter-ultra",
+                "network_fee_lamports": 9000,
+                "network_fee_sol": 0.000009,
+                "signature_fee_lamports": 5000,
+                "prioritization_fee_lamports": 4000,
+                "rent_fee_lamports": 0,
+                "route_fee_bps": 10,
+                "compute_unit_limit": 250000,
+                "quoted_output_includes_route_fees": True,
+            },
+            "estimated_total_fee_label": "network fee ~0.000009 SOL; route fee 10 bps (already reflected in quoted output)",
             "source": "fake",
         }
 
@@ -732,6 +756,18 @@ class FakeBackend(AgentWalletBackend):
             "signed": True,
             "broadcasted": False,
             "confirmed": False,
+            "fee_summary": {
+                "swap_provider": "jupiter-ultra",
+                "network_fee_lamports": 9000,
+                "network_fee_sol": 0.000009,
+                "signature_fee_lamports": 5000,
+                "prioritization_fee_lamports": 4000,
+                "rent_fee_lamports": 0,
+                "route_fee_bps": 10,
+                "compute_unit_limit": 250000,
+                "quoted_output_includes_route_fees": True,
+            },
+            "estimated_total_fee_label": "network fee ~0.000009 SOL; route fee 10 bps (already reflected in quoted output)",
             "source": "fake",
         }
 
@@ -865,9 +901,12 @@ async def main() -> None:
 
     capabilities = await adapter.invoke("get_wallet_capabilities")
     assert capabilities.ok and capabilities.data["backend"] == "fake_wallet"
+    assert capabilities.data["network"] == "devnet"
+    assert capabilities.data["is_mainnet"] is False
 
     address = await adapter.invoke("get_wallet_address")
     assert address.ok and address.data["configured"] is True
+    assert address.data["network"] == "devnet"
 
     balance = await adapter.invoke("get_wallet_balance")
     assert balance.ok and balance.data["balance_native"] == 1.25
@@ -936,6 +975,8 @@ async def main() -> None:
         },
     )
     assert preview.ok and preview.data["mode"] == "preview"
+    assert preview.data["confirmation_summary"]["operation"] == "SOL transfer"
+    assert preview.data["confirmation_requirements"]["execute_requires_user_confirmed"] is False
 
     denied_transfer = await adapter.invoke(
         "transfer_sol",
@@ -1083,6 +1124,9 @@ async def main() -> None:
         },
     )
     assert swap_preview.ok and swap_preview.data["asset_type"] == "swap"
+    assert swap_preview.data["fee_summary"]["network_fee_lamports"] == 9000
+    assert swap_preview.data["fee_summary"]["route_fee_bps"] == 10
+    assert "network fee" in swap_preview.data["estimated_total_fee_label"]
 
     denied_swap = await adapter.invoke(
         "swap_solana_tokens",
@@ -1111,6 +1155,8 @@ async def main() -> None:
         },
     )
     assert prepared_swap.ok and prepared_swap.data["transaction_format"] == "versioned"
+    assert prepared_swap.data["fee_summary"]["signature_fee_lamports"] == 5000
+    assert "route fee 10 bps" in prepared_swap.data["estimated_total_fee_label"]
 
     executed_swap = await adapter.invoke(
         "swap_solana_tokens",
@@ -1328,6 +1374,8 @@ async def main() -> None:
         },
     )
     assert allowed_mainnet_prepare.ok is True
+    assert "mainnet_warning" in allowed_mainnet_prepare.data
+    assert allowed_mainnet_prepare.data["confirmation_summary"]["network"] == "mainnet"
 
     allowed_mainnet_execute = await mainnet_adapter.invoke(
         "transfer_sol",
@@ -1341,6 +1389,7 @@ async def main() -> None:
         },
     )
     assert allowed_mainnet_execute.ok is True
+    assert allowed_mainnet_execute.data["confirmation_requirements"]["execute_requires_mainnet_confirmed"] is True
 
     denied_mainnet_swap = await mainnet_adapter.invoke(
         "swap_solana_tokens",

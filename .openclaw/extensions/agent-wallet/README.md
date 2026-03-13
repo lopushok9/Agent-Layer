@@ -31,10 +31,15 @@ Recommended config:
           "userId": "openclaw-local-user",
           "backend": "solana_local",
           "network": "devnet",
+          "rpcUrls": [
+            "https://your-primary-rpc.example",
+            "https://api.devnet.solana.com"
+          ],
           "signOnly": false,
           "masterKey": "change-this",
           "encryptUserWallets": true,
           "migratePlaintextUserWallets": true,
+          "refuseMainnetWalletRecreation": true,
           "packageRoot": "/absolute/path/to/agent-wallet",
           "pythonBin": "/absolute/path/to/python"
         }
@@ -51,6 +56,7 @@ Important:
 - Helper scripts in `agent-wallet/scripts/` are generic patch/finalize utilities and no longer assume a specific local username, path, or temporary master key.
 - Optional Jupiter overrides are available via `jupiterBaseUrl`, `jupiterUltraBaseUrl`, `jupiterPriceBaseUrl`, `jupiterPortfolioBaseUrl`, `jupiterLendBaseUrl`, and `jupiterApiKey`.
 - Jupiter `Portfolio` and `Earn` features are treated as mainnet-only in the backend. `Earn` read/write endpoints require a valid `jupiterApiKey`.
+- Mainnet wallets are pinned by address. If a pinned mainnet wallet file disappears, the runtime refuses to silently create a replacement wallet.
 
 ## OpenClaw UX
 
@@ -64,6 +70,7 @@ The intended user-facing flow inside OpenClaw is:
    `prepare` is for explicit signing intent without broadcast.
 4. Execute only with approval:
    `execute` requires explicit confirmation, and `mainnet_confirmed=true` on mainnet.
+5. On mainnet, restate the network, asset, amount, and destination, validator, or stake account before execute.
 
 For staking specifically, the normal agent flow should be:
 
@@ -72,3 +79,20 @@ For staking specifically, the normal agent flow should be:
 3. `stake_sol_native` in `execute`
 4. `get_solana_stake_account`
 5. later, `deactivate_solana_stake` and `withdraw_solana_stake`
+
+## Switching networks
+
+The extension is already network-aware:
+
+- `plugins.entries.agent-wallet.config.network` selects `mainnet`, `devnet`, or `testnet`
+- each network uses a separate wallet file for the same `userId`
+- switching networks does not merge balances across clusters
+
+Recommended local switch helper:
+
+```bash
+python agent-wallet/scripts/switch_openclaw_wallet_network.py --network devnet
+python agent-wallet/scripts/switch_openclaw_wallet_network.py --network mainnet
+```
+
+Use `--show-only` first if you want to inspect the target wallet path before changing the config.

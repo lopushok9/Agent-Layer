@@ -194,7 +194,7 @@ const toolDefinitions = [
   },
   {
     name: "transfer_sol",
-    description: "Preview, prepare, or execute a native SOL transfer.",
+    description: "Preview, prepare, or execute a native SOL transfer. On mainnet, restate the network, amount, and recipient before execute.",
     optional: true,
     parameters: {
       type: "object",
@@ -213,7 +213,7 @@ const toolDefinitions = [
   },
   {
     name: "transfer_spl_token",
-    description: "Preview, prepare, or execute an SPL token transfer by mint address.",
+    description: "Preview, prepare, or execute an SPL token transfer by mint address. On mainnet, restate the network, token, amount, and recipient before execute.",
     optional: true,
     parameters: {
       type: "object",
@@ -234,7 +234,7 @@ const toolDefinitions = [
   },
   {
     name: "swap_solana_tokens",
-    description: "Preview, prepare, or execute a Solana token swap via Jupiter.",
+    description: "Preview, prepare, or execute a Solana token swap via Jupiter. On mainnet, restate the network, input token, output token, and amount before execute.",
     optional: true,
     parameters: {
       type: "object",
@@ -255,7 +255,7 @@ const toolDefinitions = [
   },
   {
     name: "close_empty_token_accounts",
-    description: "Preview or execute closing zero-balance token accounts.",
+    description: "Preview or execute closing zero-balance token accounts. On mainnet, restate the network and selected accounts before execute.",
     optional: true,
     parameters: {
       type: "object",

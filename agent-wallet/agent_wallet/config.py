@@ -12,9 +12,11 @@ class Settings(BaseSettings):
     agent_wallet_master_key: str = ""
     agent_wallet_encrypt_user_wallets: bool = True
     agent_wallet_migrate_plaintext_user_wallets: bool = True
+    agent_wallet_refuse_mainnet_wallet_recreation: bool = True
 
     solana_network: str = "mainnet"
     solana_rpc_url: str = ""
+    solana_rpc_urls: str = ""
     solana_commitment: str = "confirmed"
     solana_auto_create_wallet: bool = False
     solana_agent_public_key: str = ""
@@ -60,6 +62,29 @@ def resolve_solana_rpc_url(network: str, configured: str) -> str:
     return mapping.get(network.strip().lower(), mapping["mainnet"])
 
 
+def resolve_solana_rpc_urls(
+    network: str,
+    configured: str,
+    configured_list: str = "",
+) -> list[str]:
+    """Resolve the ordered list of Solana RPC URLs to try."""
+    candidates: list[str] = []
+    for raw in (configured_list or "").split(","):
+        value = raw.strip()
+        if value and value not in candidates:
+            candidates.append(value)
+
+    primary = resolve_solana_rpc_url(network, configured)
+    if primary and primary not in candidates:
+        candidates.insert(0, primary)
+
+    official = resolve_solana_rpc_url(network, "")
+    if official and official not in candidates:
+        candidates.append(official)
+
+    return candidates
+
+
 def _env_bool(name: str, default: bool) -> bool:
     raw = os.getenv(name)
     if raw is None:
@@ -85,4 +110,12 @@ def allow_plaintext_user_wallet_migration() -> bool:
     return _env_bool(
         "AGENT_WALLET_MIGRATE_PLAINTEXT_USER_WALLETS",
         settings.agent_wallet_migrate_plaintext_user_wallets,
+    )
+
+
+def refuse_mainnet_wallet_recreation() -> bool:
+    """Return whether mainnet wallets may be recreated when a pinned address exists."""
+    return _env_bool(
+        "AGENT_WALLET_REFUSE_MAINNET_WALLET_RECREATION",
+        settings.agent_wallet_refuse_mainnet_wallet_recreation,
     )

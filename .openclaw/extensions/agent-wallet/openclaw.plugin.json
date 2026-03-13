@@ -24,6 +24,11 @@
         "type": "string",
         "description": "Optional Solana RPC URL override."
       },
+      "rpcUrls": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Optional ordered list of Solana RPC URLs for automatic failover."
+      },
       "publicKey": {
         "type": "string",
         "description": "Read-only wallet public key."
@@ -61,6 +66,10 @@
       "migratePlaintextUserWallets": {
         "type": "boolean",
         "description": "If true, legacy plaintext wallets are migrated in place after successful load."
+      },
+      "refuseMainnetWalletRecreation": {
+        "type": "boolean",
+        "description": "If true, refuse to silently create a new mainnet wallet when a pinned address already exists."
       },
       "openclawHome": {
         "type": "string",

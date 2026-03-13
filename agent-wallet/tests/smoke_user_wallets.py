@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -16,10 +17,13 @@ from agent_wallet.user_wallets import (  # noqa: E402
     normalize_user_id,
     resolve_user_wallet_path,
 )
+from agent_wallet.wallet_layer.base import WalletBackendError  # noqa: E402
 
 
 def main() -> None:
     temp_home = Path("/tmp/openclaw-user-wallet-smoke")
+    if temp_home.exists():
+        shutil.rmtree(temp_home)
     os.environ["OPENCLAW_HOME"] = str(temp_home)
     os.environ["AGENT_WALLET_MASTER_KEY"] = "test-master-key-for-smoke-user-wallets"
     os.environ["AGENT_WALLET_ENCRYPT_USER_WALLETS"] = "true"
@@ -45,6 +49,7 @@ def main() -> None:
     assert backend.address == first["address"]
     assert backend.sign_only is True
     assert "users" in first["path"]
+    assert Path(f"{first['path']}.pin.json").exists()
 
     legacy_path = resolve_user_wallet_path("legacy@example.com", "devnet")
     legacy = create_solana_wallet_file(legacy_path)
@@ -54,6 +59,17 @@ def main() -> None:
     assert migrated["address"] == legacy["address"]
     assert migrated["storage_format"] == "encrypted"
     assert is_encrypted_wallet_payload(legacy_path.read_text(encoding="utf-8"))
+
+    mainnet = ensure_user_solana_wallet("mainnet@example.com", network="mainnet")
+    mainnet_path = Path(mainnet["path"])
+    assert Path(f"{mainnet['path']}.pin.json").exists()
+    mainnet_path.unlink()
+    try:
+        ensure_user_solana_wallet("mainnet@example.com", network="mainnet")
+    except WalletBackendError as exc:
+        assert "Refusing to create a new mainnet wallet" in str(exc)
+    else:
+        raise AssertionError("Expected mainnet wallet recreation to be refused.")
 
     print("smoke_user_wallets: ok")
 

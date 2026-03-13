@@ -31,6 +31,7 @@ def main() -> None:
     config = {
         "backend": "solana_local",
         "network": "devnet",
+        "rpcUrls": ["https://primary.devnet.invalid", "https://api.devnet.solana.com"],
         "signOnly": False,
         "masterKey": "test-master-key-for-cli-smoke",
         "encryptUserWallets": True,

@@ -28,6 +28,34 @@ def _fallback_for_rpc_url(rpc_url: str) -> str:
     return SOLANA_RPC_FALLBACK
 
 
+def _normalize_rpc_urls(rpc_url: str | list[str]) -> list[str]:
+    if isinstance(rpc_url, list):
+        raw_values = rpc_url
+    else:
+        raw_values = [part.strip() for part in str(rpc_url).split(",")]
+
+    candidates: list[str] = []
+    for raw in raw_values:
+        value = str(raw).strip()
+        if value and value not in candidates:
+            candidates.append(value)
+
+    fallback = _fallback_for_rpc_url(candidates[0] if candidates else "")
+    if fallback and fallback not in candidates:
+        candidates.append(fallback)
+    return candidates
+
+
+def _retry_after_seconds(response: httpx.Response) -> float:
+    header = response.headers.get("retry-after", "").strip()
+    if not header:
+        return 0.0
+    try:
+        return max(float(header), 0.0)
+    except ValueError:
+        return 0.0
+
+
 async def _do_rpc_call(rpc_url: str, method: str, params: list[Any]) -> dict[str, Any]:
     client = get_client()
     payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
@@ -36,6 +64,19 @@ async def _do_rpc_call(rpc_url: str, method: str, params: list[Any]) -> dict[str
     for attempt in range(3):
         try:
             response = await client.post(rpc_url, json=payload)
+            if response.status_code == 429:
+                wait_seconds = max(_retry_after_seconds(response), 0.5 * (attempt + 1))
+                last_exc = ProviderError("solana-rpc", f"Rate limited on {rpc_url}")
+                if attempt == 2:
+                    raise last_exc
+                await asyncio.sleep(wait_seconds)
+                continue
+            if response.status_code in {403, 500, 502, 503, 504}:
+                last_exc = ProviderError("solana-rpc", f"HTTP {response.status_code} on {rpc_url}")
+                if attempt == 2:
+                    raise last_exc
+                await asyncio.sleep(0.5 * (attempt + 1))
+                continue
             break
         except (httpx.TimeoutException, httpx.ConnectError) as exc:
             last_exc = exc
@@ -57,23 +98,24 @@ async def _do_rpc_call(rpc_url: str, method: str, params: list[Any]) -> dict[str
 async def rpc_call(
     method: str,
     params: list[Any],
-    rpc_url: str,
+    rpc_url: str | list[str],
 ) -> dict[str, Any]:
-    """Execute a Solana RPC call with official mainnet fallback."""
-    fallback_url = _fallback_for_rpc_url(rpc_url)
-    try:
-        return await _do_rpc_call(rpc_url, method, params)
-    except Exception as exc:
-        if rpc_url == fallback_url:
-            raise
-        log.warning("Primary Solana RPC failed: %s -- trying fallback", exc)
+    """Execute a Solana RPC call with ordered failover across configured endpoints."""
+    candidates = _normalize_rpc_urls(rpc_url)
+    errors: list[str] = []
+    for index, candidate in enumerate(candidates):
         try:
-            return await _do_rpc_call(fallback_url, method, params)
-        except Exception as fallback_exc:
+            return await _do_rpc_call(candidate, method, params)
+        except Exception as exc:
+            errors.append(f"{candidate}: {exc}")
+            if index < len(candidates) - 1:
+                log.warning("Solana RPC failed on %s: %s -- trying next endpoint", candidate, exc)
+                continue
             raise ProviderError(
                 "solana-rpc",
-                f"Both primary and fallback Solana RPC failed: {fallback_exc}",
-            ) from fallback_exc
+                "All Solana RPC endpoints failed: " + " | ".join(errors),
+            ) from exc
+    raise ProviderError("solana-rpc", "No Solana RPC endpoints are configured.")
 
 
 async def fetch_balance(

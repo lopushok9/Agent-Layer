@@ -16,6 +16,11 @@
         "type": "string",
         "description": "Solana RPC URL."
       },
+      "rpcUrls": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Optional ordered list of Solana RPC URLs for automatic failover."
+      },
       "network": {
         "type": "string",
         "description": "Solana cluster: mainnet, devnet, or testnet."
@@ -47,6 +52,10 @@
       "encryptUserWallets": {
         "type": "boolean",
         "description": "If true, newly created per-user wallet files are encrypted at rest."
+      },
+      "refuseMainnetWalletRecreation": {
+        "type": "boolean",
+        "description": "If true, refuse to silently create a new mainnet wallet when a pinned address already exists."
       },
       "jupiterBaseUrl": {
         "type": "string",
