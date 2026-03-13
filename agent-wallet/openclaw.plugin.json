@@ -1,0 +1,65 @@
+{
+  "id": "agent-wallet",
+  "name": "Agent Wallet",
+  "description": "Plugin-friendly wallet backend for OpenClaw agents with safe wallet tools and runtime instructions.",
+  "version": "0.1.0",
+  "skills": ["skills/wallet-operator"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "backend": {
+        "type": "string",
+        "description": "Wallet backend identifier. Current supported value: solana_local."
+      },
+      "rpcUrl": {
+        "type": "string",
+        "description": "Solana RPC URL."
+      },
+      "network": {
+        "type": "string",
+        "description": "Solana cluster: mainnet, devnet, or testnet."
+      },
+      "publicKey": {
+        "type": "string",
+        "description": "Read-only wallet public key."
+      },
+      "privateKey": {
+        "type": "string",
+        "description": "Optional signing key material. Prefer environment variables instead of inline secrets."
+      },
+      "keypairPath": {
+        "type": "string",
+        "description": "Path to Solana CLI JSON keypair file."
+      },
+      "autoCreateWallet": {
+        "type": "boolean",
+        "description": "Create a local wallet file automatically on first start if none exists."
+      },
+      "signOnly": {
+        "type": "boolean",
+        "description": "If true, the wallet may sign but should not broadcast transactions automatically."
+      },
+      "masterKey": {
+        "type": "string",
+        "description": "Master secret for encrypting per-user wallet files. Prefer an environment secret instead of inline config."
+      },
+      "encryptUserWallets": {
+        "type": "boolean",
+        "description": "If true, newly created per-user wallet files are encrypted at rest."
+      },
+      "jupiterBaseUrl": {
+        "type": "string",
+        "description": "Optional Jupiter Swap API base URL for quote and swap building."
+      },
+      "jupiterPriceBaseUrl": {
+        "type": "string",
+        "description": "Optional Jupiter Price API base URL for token price lookup."
+      },
+      "jupiterApiKey": {
+        "type": "string",
+        "description": "Optional Jupiter API key if your deployment uses a keyed endpoint."
+      }
+    }
+  }
+}
