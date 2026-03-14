@@ -9,6 +9,9 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from agent_wallet.file_ops import atomic_write_text, chmod_if_exists
+from security_utils import write_redacted_backup
+
 OPTIONAL_TOOLS = [
     "sign_wallet_message",
     "transfer_sol",
@@ -74,7 +77,7 @@ def main() -> None:
     backup_path = config_path.with_name(
         f"{config_path.name}.bak.agent-wallet.{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
     )
-    backup_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    write_redacted_backup(backup_path, data)
 
     plugins = data.setdefault("plugins", {})
     plugins["enabled"] = True
@@ -103,7 +106,9 @@ def main() -> None:
             item.strip() for item in args.rpc_urls.split(",") if item.strip()
         ]
     if args.write_master_key:
-        plugin_config["masterKey"] = "set-a-real-secret-here"
+        raise SystemExit(
+            "Refusing to write masterKey into config. Provide AGENT_WALLET_MASTER_KEY via protected environment injection instead."
+        )
 
     entries[args.plugin_id] = {
         "enabled": True,
@@ -116,7 +121,8 @@ def main() -> None:
         if tool_name not in also_allow:
             also_allow.append(tool_name)
 
-    config_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    atomic_write_text(config_path, json.dumps(data, indent=2) + "\n", mode=0o600)
+    chmod_if_exists(config_path, 0o600)
 
     print(
         json.dumps(

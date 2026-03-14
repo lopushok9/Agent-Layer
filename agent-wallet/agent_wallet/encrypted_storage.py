@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_wallet.config import resolve_wallet_master_key
+from agent_wallet.file_ops import atomic_write_text
 from agent_wallet.wallet_layer.base import WalletBackendError
 
 ENCRYPTED_WALLET_KIND = "openclaw-agent-wallet-secret"
@@ -136,6 +137,4 @@ def write_encrypted_wallet_file(
         master_key=master_key,
         metadata=metadata,
     )
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(payload, encoding="utf-8")
-    path.chmod(0o600)
+    atomic_write_text(path, payload, mode=0o600)
