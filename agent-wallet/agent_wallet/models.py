@@ -56,3 +56,4 @@ class OpenClawWalletSessionMetadata(BaseModel):
     created_now: bool
     sign_only: bool
     tool_names: list[str]
+    approval_token_required_for_execute: bool = True
