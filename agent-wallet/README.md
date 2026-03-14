@@ -54,12 +54,13 @@ Current safe tools:
 - `request_devnet_airdrop`
 
 The signing tool requires explicit `user_confirmed=true`.
-Transfer, native staking, swap, and Jupiter Earn write tools support `preview`, `prepare`, and `execute` modes. The safe operational path is still preview-first. `prepare` signs a transaction without broadcasting it. `execute` works only when the backend has a signer and `sign_only=false`.
+Transfer, native staking, swap, and Jupiter Earn write tools support `preview`, `prepare`, and `execute` modes. The safe operational path is still preview-first. `prepare` now returns an unsigned execution plan only and never exposes signed transaction bytes to the agent. `execute` works only when the backend has a signer and `sign_only=false`.
 
 Policy defaults:
 
 - read-only tools are always allowed
 - `prepare` requires `user_intent=true`
+- `prepare` does not return signed transaction bytes
 - `execute` requires `user_confirmed=true`
 - on Solana `mainnet`, `execute` also requires `mainnet_confirmed=true`
 - on Solana `mainnet`, preview and prepare responses include a `confirmation_summary` and `mainnet_warning` to force a clearer final confirmation step
