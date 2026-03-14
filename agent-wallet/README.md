@@ -60,9 +60,11 @@ Policy defaults:
 
 - read-only tools are always allowed
 - `prepare` requires `user_intent=true`
-- `execute` requires `user_confirmed=true`
-- on Solana `mainnet`, `execute` also requires `mainnet_confirmed=true`
+- `execute` requires a host-issued `approval_token` bound to the exact operation summary shown in preview
+- on Solana `mainnet`, the approval token must include explicit mainnet confirmation
 - on Solana `mainnet`, preview and prepare responses include a `confirmation_summary` and `mainnet_warning` to force a clearer final confirmation step
+
+The CLI now exposes `issue-approval` so the host can mint short-lived approval tokens after the user approves the exact previewed action.
 
 ## Install
 

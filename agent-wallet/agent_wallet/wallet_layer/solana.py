@@ -21,6 +21,10 @@ from agent_wallet.solana_tx import (
     encode_transaction_base64,
     serialize_legacy_transaction,
 )
+from agent_wallet.transaction_policy import (
+    verify_provider_earn_transaction,
+    verify_provider_swap_transaction,
+)
 from agent_wallet.validation import validate_solana_address, validate_solana_mint
 from agent_wallet.wallet_layer.base import (
     AgentWalletBackend,
@@ -1030,13 +1034,20 @@ class SolanaWalletBackend(AgentWalletBackend):
             ) from exc
 
         unsigned_transaction = VersionedTransaction.from_bytes(base64.b64decode(transaction_base64))
+        owner = await self.get_address()
+        if not owner:
+            raise WalletBackendError("No Solana wallet address configured for Jupiter Earn signing.")
+        verification = verify_provider_earn_transaction(
+            unsigned_transaction.message,
+            wallet_address=owner,
+            asset_mint=asset,
+        )
         keypair = Keypair.from_bytes(self.signer.export_keypair_bytes())
         signature = keypair.sign_message(to_bytes_versioned(unsigned_transaction.message))
         signed_transaction = VersionedTransaction.populate(
             unsigned_transaction.message,
             [signature],
         )
-        owner = await self.get_address()
         return {
             "chain": "solana",
             "network": self.network,
@@ -1051,6 +1062,7 @@ class SolanaWalletBackend(AgentWalletBackend):
             "signed": True,
             "broadcasted": False,
             "confirmed": False,
+            "verification": verification,
             "sign_only": self.sign_only,
             "source": "jupiter-lend",
         }
@@ -2081,6 +2093,12 @@ class SolanaWalletBackend(AgentWalletBackend):
             prioritization_fee_lamports = swap_build.get("prioritizationFeeLamports")
             compute_unit_limit = swap_build.get("computeUnitLimit")
 
+        verification = verify_provider_swap_transaction(
+            unsigned_transaction.message,
+            wallet_address=sender,
+            input_mint=str(preview["input_mint"]),
+            output_mint=str(preview["output_mint"]),
+        )
         keypair = Keypair.from_bytes(self.signer.export_keypair_bytes())
         signature = keypair.sign_message(to_bytes_versioned(unsigned_transaction.message))
         signed_transaction = VersionedTransaction.populate(
@@ -2117,6 +2135,7 @@ class SolanaWalletBackend(AgentWalletBackend):
             "compute_unit_limit": compute_unit_limit,
             "fee_summary": fee_summary,
             "estimated_total_fee_label": self._format_swap_fee_label(fee_summary),
+            "verification": verification,
             "request_id": request_id,
             "swap_provider": swap_provider,
             "source": swap_provider,

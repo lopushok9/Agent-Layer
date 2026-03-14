@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from agent_wallet.approval import issue_approval_token
 from agent_wallet.models import OpenClawWalletSessionMetadata
 from agent_wallet.openclaw_adapter import OpenClawWalletAdapter
 from agent_wallet.plugin_bundle import build_openclaw_plugin_bundle
@@ -22,6 +23,25 @@ class OpenClawWalletRuntimeContext:
     backend: AgentWalletBackend
     adapter: OpenClawWalletAdapter
     plugin_bundle: dict[str, Any]
+
+    def issue_execute_approval(
+        self,
+        *,
+        tool_name: str,
+        confirmation_summary: dict[str, Any],
+        mainnet_confirmed: bool = False,
+        ttl_seconds: int | None = None,
+        issued_by: str = "host",
+    ) -> str:
+        """Issue a host approval token bound to an exact execute operation."""
+        return issue_approval_token(
+            tool_name=tool_name,
+            network=str(getattr(self.backend, "network", "mainnet")),
+            summary=confirmation_summary,
+            mainnet_confirmed=mainnet_confirmed,
+            ttl_seconds=ttl_seconds,
+            issued_by=issued_by,
+        )
 
     def session_metadata(self) -> OpenClawWalletSessionMetadata:
         """Return serializable metadata for host runtime/session storage."""
