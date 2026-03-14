@@ -159,6 +159,7 @@ Current Jupiter integration now includes:
 - `Portfolio API` position and staked JUP reads
 - `Lend / Earn` read tools
 - `Lend / Earn` deposit and withdraw transaction flows via unsigned Jupiter transactions
+- stricter pre-sign verification for provider-built swap / Earn transactions, including wallet binding and program-id allowlists
 
 Operational notes:
 
