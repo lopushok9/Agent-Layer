@@ -670,13 +670,6 @@ class SolanaWalletBackend(AgentWalletBackend):
         message = Message.new_with_blockhash(instructions, owner_pubkey, blockhash)
         transaction = Transaction([wallet_keypair, stake_keypair], message, blockhash)
 
-        fee_summary = self._build_swap_fee_summary(
-            swap_provider=swap_provider,
-            quote_response=preview["quote_response"],
-            prioritization_fee_lamports=prioritization_fee_lamports,
-            compute_unit_limit=compute_unit_limit,
-        )
-
         return {
             "chain": "solana",
             "network": self.network,
