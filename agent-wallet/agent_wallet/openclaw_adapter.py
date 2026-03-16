@@ -22,6 +22,18 @@ If the preview result includes a confirmation_summary or mainnet_warning, surfac
 Never skip the explicit mainnet_confirmed=true step for writes on mainnet.
 """.strip()
 
+# Temporarily disabled Jupiter surfaces. Keep implementation in place for later re-enable.
+TEMPORARILY_DISABLED_TOOLS = {
+    "get_jupiter_portfolio_platforms",
+    "get_jupiter_portfolio",
+    "get_jupiter_staked_jup",
+    "get_jupiter_earn_tokens",
+    "get_jupiter_earn_positions",
+    "get_jupiter_earn_earnings",
+    "jupiter_earn_deposit",
+    "jupiter_earn_withdraw",
+}
+
 
 class OpenClawWalletAdapter:
     """Expose wallet backend primitives as safe agent-facing tools."""
@@ -838,6 +850,7 @@ class OpenClawWalletAdapter:
                 )
             )
 
+        tools = [tool for tool in tools if tool.name not in TEMPORARILY_DISABLED_TOOLS]
         return tools
 
     def get_runtime_instructions(self) -> str:
@@ -848,6 +861,11 @@ class OpenClawWalletAdapter:
         """Dispatch an agent-facing tool call to the wallet backend."""
         args = arguments or {}
         try:
+            if tool_name in TEMPORARILY_DISABLED_TOOLS:
+                raise WalletBackendError(
+                    f"{tool_name} is temporarily disabled. The code remains in the repo but this tool is currently turned off."
+                )
+
             if tool_name == "get_wallet_capabilities":
                 data = self.backend.get_capabilities().to_dict()
                 data["network"] = str(getattr(self.backend, "network", "unknown"))
