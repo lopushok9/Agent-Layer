@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     agent_wallet_backend: str = "none"
     agent_wallet_sign_only: bool = False
     agent_wallet_master_key: str = ""
+    agent_wallet_approval_secret: str = ""
+    agent_wallet_approval_ttl_seconds: int = 600
     agent_wallet_encrypt_user_wallets: bool = True
     agent_wallet_migrate_plaintext_user_wallets: bool = True
     agent_wallet_refuse_mainnet_wallet_recreation: bool = True
@@ -95,6 +97,11 @@ def _env_bool(name: str, default: bool) -> bool:
 def resolve_wallet_master_key() -> str:
     """Resolve the master key used for encrypting per-user wallet files."""
     return os.getenv("AGENT_WALLET_MASTER_KEY", settings.agent_wallet_master_key).strip()
+
+
+def resolve_approval_secret() -> str:
+    """Resolve the secret used for host-issued approval tokens."""
+    return os.getenv("AGENT_WALLET_APPROVAL_SECRET", settings.agent_wallet_approval_secret).strip()
 
 
 def use_encrypted_user_wallets() -> bool:
