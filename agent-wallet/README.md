@@ -103,6 +103,7 @@ That provisions a wallet per user under:
 
 Per-user wallets are now encrypted at rest by default. Set:
 
+- `AGENT_WALLET_BOOT_KEY` if you want `master_key`, `approval_secret`, and `private_key` to be loaded from an encrypted `sealed_keys.json` instead of plain environment variables
 - `AGENT_WALLET_MASTER_KEY` to a strong deployment secret injected via environment or secret manager
 - `AGENT_WALLET_APPROVAL_SECRET` to a separate strong deployment secret injected via environment or secret manager
 - `AGENT_WALLET_PER_USER_KEY_DERIVATION=true` to derive a unique encryption key per `user_id + network`
@@ -110,6 +111,18 @@ Per-user wallets are now encrypted at rest by default. Set:
 - `AGENT_WALLET_MIGRATE_PLAINTEXT_USER_WALLETS=true`
 
 Do not store `masterKey`, `privateKey`, or approval secrets in plugin config JSON or pass them via CLI arguments.
+When `AGENT_WALLET_BOOT_KEY` is set, the runtime will also read secrets from `~/.openclaw/sealed_keys.json` before falling back to empty defaults, while still letting direct environment variables override the sealed values for compatibility and break-glass recovery.
+Create or update that sealed file with:
+
+```bash
+AGENT_WALLET_BOOT_KEY=... \
+AGENT_WALLET_MASTER_KEY=... \
+AGENT_WALLET_APPROVAL_SECRET=... \
+python scripts/install_openclaw_sealed_keys.py
+```
+
+Add `SOLANA_AGENT_PRIVATE_KEY=...` as well if you want the local signer secret to live in the sealed bundle instead of plain env.
+If you already run `python scripts/install_openclaw_local_config.py` with `AGENT_WALLET_BOOT_KEY` and one or more of those secret env vars set, the installer now creates or updates `sealed_keys.json` automatically in the same pass.
 
 If a legacy plaintext per-user wallet already exists, the helper will migrate it in place on the next successful load when a master key is available.
 If per-user key derivation is enabled, existing encrypted wallets created under the global master key are also migrated in place on the next successful load.

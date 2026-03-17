@@ -9,6 +9,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     agent_wallet_backend: str = "none"
     agent_wallet_sign_only: bool = False
+    agent_wallet_boot_key: str = ""
     agent_wallet_master_key: str = ""
     agent_wallet_approval_secret: str = ""
     agent_wallet_approval_ttl_seconds: int = 600
@@ -100,14 +101,51 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def resolve_boot_key() -> str:
+    """Resolve the boot key used to unlock sealed secrets from disk."""
+    return os.getenv("AGENT_WALLET_BOOT_KEY", settings.agent_wallet_boot_key).strip()
+
+
+def _resolve_sealed_secret(*names: str) -> str:
+    boot_key = resolve_boot_key()
+    if not boot_key:
+        return ""
+    from agent_wallet.sealed_keys import unseal_keys
+
+    secrets = unseal_keys(boot_key)
+    for name in names:
+        value = secrets.get(name)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
 def resolve_wallet_master_key() -> str:
     """Resolve the master key used for encrypting per-user wallet files."""
-    return os.getenv("AGENT_WALLET_MASTER_KEY", settings.agent_wallet_master_key).strip()
+    direct = os.getenv("AGENT_WALLET_MASTER_KEY", settings.agent_wallet_master_key).strip()
+    if direct:
+        return direct
+    return _resolve_sealed_secret("master_key", "masterKey")
 
 
 def resolve_approval_secret() -> str:
     """Resolve the secret used for host-issued approval tokens."""
-    return os.getenv("AGENT_WALLET_APPROVAL_SECRET", settings.agent_wallet_approval_secret).strip()
+    direct = os.getenv("AGENT_WALLET_APPROVAL_SECRET", settings.agent_wallet_approval_secret).strip()
+    if direct:
+        return direct
+    return _resolve_sealed_secret("approval_secret", "approvalSecret")
+
+
+def resolve_solana_private_key() -> str:
+    """Resolve the Solana signing key from env/config or the sealed secret store."""
+    direct = os.getenv("SOLANA_AGENT_PRIVATE_KEY", settings.solana_agent_private_key).strip()
+    if direct:
+        return direct
+    return _resolve_sealed_secret(
+        "solana_agent_private_key",
+        "private_key",
+        "privateKey",
+    )
 
 
 def use_encrypted_user_wallets() -> bool:

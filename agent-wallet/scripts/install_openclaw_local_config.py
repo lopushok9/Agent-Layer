@@ -9,7 +9,10 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from agent_wallet.file_ops import atomic_write_text, chmod_if_exists
+from agent_wallet.sealed_keys import resolve_sealed_keys_path, seal_keys, unseal_keys
 from security_utils import write_redacted_backup
 
 OPTIONAL_TOOLS = [
@@ -69,6 +72,32 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _collect_sealed_secret_updates() -> dict[str, str]:
+    updates: dict[str, str] = {}
+    master_key = os.getenv("AGENT_WALLET_MASTER_KEY", "").strip()
+    approval_secret = os.getenv("AGENT_WALLET_APPROVAL_SECRET", "").strip()
+    private_key = os.getenv("SOLANA_AGENT_PRIVATE_KEY", "").strip()
+    if master_key:
+        updates["master_key"] = master_key
+    if approval_secret:
+        updates["approval_secret"] = approval_secret
+    if private_key:
+        updates["private_key"] = private_key
+    return updates
+
+
+def _maybe_install_sealed_keys() -> str | None:
+    boot_key = os.getenv("AGENT_WALLET_BOOT_KEY", "").strip()
+    if not boot_key:
+        return None
+    updates = _collect_sealed_secret_updates()
+    if not updates:
+        return None
+    sealed_path = resolve_sealed_keys_path()
+    existing = unseal_keys(boot_key) if sealed_path.exists() else {}
+    return str(seal_keys(boot_key, {**existing, **updates}))
+
+
 def main() -> None:
     args = build_parser().parse_args()
     config_path = Path(args.config_path).expanduser()
@@ -123,6 +152,7 @@ def main() -> None:
 
     atomic_write_text(config_path, json.dumps(data, indent=2) + "\n", mode=0o600)
     chmod_if_exists(config_path, 0o600)
+    sealed_keys_path = _maybe_install_sealed_keys()
 
     print(
         json.dumps(
@@ -135,6 +165,7 @@ def main() -> None:
                 "package_root": plugin_config["packageRoot"],
                 "plugin_id": args.plugin_id,
                 "user_id": args.user_id,
+                "sealed_keys_path": sealed_keys_path,
             },
             indent=2,
         )

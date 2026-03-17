@@ -128,12 +128,12 @@ def refuse_recreation_if_pinned(path: Path, *, network: str) -> None:
 
 def ensure_solana_wallet_ready() -> dict[str, str] | None:
     """Ensure that a Solana wallet exists when auto-create is enabled."""
-    from agent_wallet.config import default_solana_wallet_path, settings
+    from agent_wallet.config import default_solana_wallet_path, resolve_solana_private_key, settings
 
     if settings.agent_wallet_backend.strip().lower() not in {"solana", "solana_local", "solana-local"}:
         return None
 
-    if settings.solana_agent_private_key.strip():
+    if resolve_solana_private_key():
         return {"address": "", "path": ""}
 
     configured_path = settings.solana_agent_keypair_path.strip()

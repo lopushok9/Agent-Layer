@@ -6,13 +6,13 @@ from pathlib import Path
 
 from agent_wallet.bootstrap import ensure_solana_wallet_ready, ensure_wallet_pin
 from agent_wallet.encrypted_storage import load_wallet_secret_material
-from agent_wallet.config import resolve_solana_rpc_urls, settings
+from agent_wallet.config import resolve_solana_private_key, resolve_solana_rpc_urls, settings
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendError
 from agent_wallet.wallet_layer.solana import SolanaLocalKeypairSigner, SolanaWalletBackend
 
 
 def _load_keypair_material() -> str | None:
-    secret = settings.solana_agent_private_key.strip()
+    secret = resolve_solana_private_key()
     if secret:
         return secret
 
