@@ -31,6 +31,43 @@ def _load_backend(wallet_path: Path) -> SolanaWalletBackend:
     )
 
 
+async def _owner_has_token_account(owner: str, token_account: str) -> bool:
+    accounts = await solana_rpc.fetch_token_accounts_by_owner(owner, rpc_url=DEVNET_RPC)
+    return any(str(entry.get("pubkey") or "") == token_account for entry in accounts)
+
+
+async def _wait_for_token_account(owner: str, token_account: str) -> None:
+    for _ in range(20):
+        if await _owner_has_token_account(owner, token_account):
+            return
+        await asyncio.sleep(1)
+    raise RuntimeError("Recipient token account was not observed on devnet RPC in time.")
+
+
+async def _wait_until_close_candidate(
+    backend: SolanaWalletBackend,
+    token_account: str,
+) -> dict[str, object]:
+    for _ in range(20):
+        preview = await backend.preview_close_empty_token_accounts(limit=4)
+        candidate_accounts = [item["token_account"] for item in preview["accounts"]]
+        if token_account in candidate_accounts:
+            return preview
+        await asyncio.sleep(1)
+    raise RuntimeError("Recipient WSOL token account was not offered as a close candidate.")
+
+
+async def _wait_until_token_account_closed(owner: str, token_account: str) -> None:
+    for _ in range(20):
+        exists = await solana_rpc.account_exists(token_account, rpc_url=DEVNET_RPC)
+        if not exists:
+            return
+        if not await _owner_has_token_account(owner, token_account):
+            return
+        await asyncio.sleep(1)
+    raise RuntimeError("Recipient token account still exists after close transaction.")
+
+
 async def main() -> None:
     sender_backend = _load_backend(DEFAULT_TEST_HOME / "wallets" / "solana-devnet-agent.json")
     recipient_backend = _load_backend(DEFAULT_TEST_HOME / "wallets" / "live-recipient.json")
@@ -57,10 +94,7 @@ async def main() -> None:
         )
         if not seeded["confirmed"]:
             raise RuntimeError("Failed to seed recipient with WSOL for close-account test.")
-        for _ in range(10):
-            if await solana_rpc.account_exists(recipient_ata, rpc_url=DEVNET_RPC):
-                break
-            await asyncio.sleep(1)
+        await _wait_for_token_account(recipient_address, recipient_ata)
 
     recipient_balance = await solana_rpc.fetch_token_account_balance(recipient_ata, rpc_url=DEVNET_RPC)
     ui_amount = float(recipient_balance.get("ui_amount") or 0)
@@ -72,32 +106,16 @@ async def main() -> None:
         )
         if not drained["confirmed"]:
             raise RuntimeError("Failed to drain recipient WSOL balance before close test.")
+        await _wait_until_close_candidate(recipient_backend, recipient_ata)
 
-    preview = None
-    for _ in range(10):
-        preview = await recipient_backend.preview_close_empty_token_accounts(limit=4)
-        candidate_accounts = [item["token_account"] for item in preview["accounts"]]
-        if recipient_ata in candidate_accounts:
-            break
-        await asyncio.sleep(1)
-    if preview is None:
-        raise RuntimeError("Close preview was not produced.")
+    preview = await _wait_until_close_candidate(recipient_backend, recipient_ata)
     candidate_accounts = [item["token_account"] for item in preview["accounts"]]
-    if recipient_ata not in candidate_accounts:
-        raise RuntimeError("Recipient WSOL token account was not offered as a close candidate.")
 
     closed = await recipient_backend.close_empty_token_accounts(limit=4)
     if not closed["confirmed"]:
         raise RuntimeError("Close empty token accounts transaction was not confirmed.")
 
-    still_exists = True
-    for _ in range(10):
-        still_exists = await solana_rpc.account_exists(recipient_ata, rpc_url=DEVNET_RPC)
-        if not still_exists:
-            break
-        await asyncio.sleep(1)
-    if still_exists:
-        raise RuntimeError("Recipient token account still exists after close transaction.")
+    await _wait_until_token_account_closed(recipient_address, recipient_ata)
 
     print(
         json.dumps(

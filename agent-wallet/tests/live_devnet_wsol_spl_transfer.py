@@ -103,17 +103,30 @@ async def _wrap_sol(
     }
 
 
-async def _wait_for_token_balance(token_account: str, minimum_ui_amount: float) -> dict[str, object]:
-    for _ in range(10):
-        exists = await solana_rpc.account_exists(token_account, rpc_url=DEVNET_RPC)
-        if exists:
-            balance = await solana_rpc.fetch_token_account_balance(
-                token_account,
-                rpc_url=DEVNET_RPC,
-            )
-            ui_amount = balance.get("ui_amount")
+async def _wait_for_owner_token_balance(
+    owner_address: str,
+    token_account: str,
+    minimum_ui_amount: float,
+) -> dict[str, object]:
+    for _ in range(20):
+        accounts = await solana_rpc.fetch_token_accounts_by_owner(
+            owner=owner_address,
+            rpc_url=DEVNET_RPC,
+        )
+        for entry in accounts:
+            if str(entry.get("pubkey") or "") != token_account:
+                continue
+            parsed = (((entry.get("account") or {}).get("data") or {}).get("parsed") or {})
+            info = parsed.get("info") or {}
+            token_amount = info.get("tokenAmount") or {}
+            ui_amount = token_amount.get("uiAmount")
             if ui_amount is not None and float(ui_amount) >= minimum_ui_amount:
-                return balance
+                return {
+                    "amount": token_amount.get("amount"),
+                    "decimals": token_amount.get("decimals"),
+                    "ui_amount": ui_amount,
+                    "source": "getTokenAccountsByOwner",
+                }
         await asyncio.sleep(1)
     raise RuntimeError("Recipient token account balance did not update as expected.")
 
@@ -148,6 +161,19 @@ async def main() -> None:
             Pubkey.from_string(WSOL_MINT),
         )
     )
+    recipient_accounts_before = await solana_rpc.fetch_token_accounts_by_owner(
+        recipient_address,
+        rpc_url=DEVNET_RPC,
+    )
+    recipient_ui_before = 0.0
+    for entry in recipient_accounts_before:
+        if str(entry.get("pubkey") or "") != recipient_ata:
+            continue
+        parsed = (((entry.get("account") or {}).get("data") or {}).get("parsed") or {})
+        info = parsed.get("info") or {}
+        token_amount = info.get("tokenAmount") or {}
+        recipient_ui_before = float(token_amount.get("uiAmount") or 0)
+        break
 
     wrap_result = await _wrap_sol(
         sender_keypair=sender_keypair,
@@ -169,9 +195,10 @@ async def main() -> None:
     )
     assert sent["confirmed"] is True
 
-    recipient_balance = await _wait_for_token_balance(
+    recipient_balance = await _wait_for_owner_token_balance(
+        owner_address=recipient_address,
         token_account=recipient_ata,
-        minimum_ui_amount=0.005,
+        minimum_ui_amount=recipient_ui_before + 0.005,
     )
     ui_amount = recipient_balance.get("ui_amount")
 
