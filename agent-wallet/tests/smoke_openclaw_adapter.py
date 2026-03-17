@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from agent_wallet.approval import issue_approval_token
 from agent_wallet.openclaw_adapter import OpenClawWalletAdapter
 from agent_wallet.plugin_bundle import build_openclaw_plugin_bundle
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletCapabilities
@@ -729,6 +731,15 @@ class FakeBackend(AgentWalletBackend):
                 "quoted_output_includes_route_fees": True,
             },
             "estimated_total_fee_label": "network fee ~0.000009 SOL; route fee 10 bps (already reflected in quoted output)",
+            "verification": {
+                "wallet_address": "Fake11111111111111111111111111111111111111111",
+                "program_ids": ["ComputeBudget111111111111111111111111111111"],
+                "non_core_program_ids": [],
+                "account_key_count": 3,
+                "instruction_count": 1,
+                "input_mint": input_mint,
+                "output_mint": output_mint,
+            },
             "source": "fake",
         }
 
@@ -768,6 +779,15 @@ class FakeBackend(AgentWalletBackend):
                 "quoted_output_includes_route_fees": True,
             },
             "estimated_total_fee_label": "network fee ~0.000009 SOL; route fee 10 bps (already reflected in quoted output)",
+            "verification": {
+                "wallet_address": "Fake11111111111111111111111111111111111111111",
+                "program_ids": ["ComputeBudget111111111111111111111111111111"],
+                "non_core_program_ids": [],
+                "account_key_count": 3,
+                "instruction_count": 1,
+                "input_mint": input_mint,
+                "output_mint": output_mint,
+            },
             "source": "fake",
         }
 
@@ -890,7 +910,25 @@ class FakeBackend(AgentWalletBackend):
         }
 
 
+def _issue_execute_approval(
+    *,
+    tool_name: str,
+    preview: dict,
+    network: str,
+    mainnet_confirmed: bool = False,
+) -> str:
+    return issue_approval_token(
+        tool_name=tool_name,
+        network=network,
+        summary=preview["confirmation_summary"],
+        mainnet_confirmed=mainnet_confirmed,
+        ttl_seconds=300,
+        issued_by="smoke-test",
+    )
+
+
 async def main() -> None:
+    os.environ["AGENT_WALLET_APPROVAL_SECRET"] = "smoke-approval-secret"
     adapter = OpenClawWalletAdapter(FakeBackend())
     bundle = build_openclaw_plugin_bundle(FakeBackend())
     tool_names = {tool.name for tool in adapter.list_tools()}
@@ -960,7 +998,7 @@ async def main() -> None:
     )
     assert preview.ok and preview.data["mode"] == "preview"
     assert preview.data["confirmation_summary"]["operation"] == "SOL transfer"
-    assert preview.data["confirmation_requirements"]["execute_requires_user_confirmed"] is False
+    assert preview.data["confirmation_requirements"]["execute_requires_approval_token"] is False
 
     denied_transfer = await adapter.invoke(
         "transfer_sol",
@@ -969,7 +1007,6 @@ async def main() -> None:
             "amount": 0.25,
             "mode": "execute",
             "purpose": "test transfer execute",
-            "user_confirmed": False,
         },
     )
     assert denied_transfer.ok is False
@@ -1005,7 +1042,11 @@ async def main() -> None:
             "amount": 0.25,
             "mode": "execute",
             "purpose": "test transfer execute",
-            "user_confirmed": True,
+            "approval_token": _issue_execute_approval(
+                tool_name="transfer_sol",
+                preview=preview.data,
+                network="devnet",
+            ),
         },
     )
     assert executed_transfer.ok and executed_transfer.data["confirmed"] is True
@@ -1040,7 +1081,11 @@ async def main() -> None:
             "amount": 1.0,
             "mode": "execute",
             "purpose": "test native stake execute",
-            "user_confirmed": True,
+            "approval_token": _issue_execute_approval(
+                tool_name="stake_sol_native",
+                preview=stake_preview.data,
+                network="devnet",
+            ),
         },
     )
     assert stake_execute.ok and stake_execute.data["confirmed"] is True
@@ -1065,7 +1110,6 @@ async def main() -> None:
             "amount": 0.25,
             "mode": "execute",
             "purpose": "test SPL transfer execute",
-            "user_confirmed": False,
         },
     )
     assert denied_spl_transfer.ok is False
@@ -1091,7 +1135,11 @@ async def main() -> None:
             "amount": 0.25,
             "mode": "execute",
             "purpose": "test SPL transfer execute",
-            "user_confirmed": True,
+            "approval_token": _issue_execute_approval(
+                tool_name="transfer_spl_token",
+                preview=spl_preview.data,
+                network="devnet",
+            ),
         },
     )
     assert executed_spl_transfer.ok and executed_spl_transfer.data["confirmed"] is True
@@ -1121,7 +1169,6 @@ async def main() -> None:
             "slippage_bps": 50,
             "mode": "execute",
             "purpose": "test swap execute",
-            "user_confirmed": False,
         },
     )
     assert denied_swap.ok is False
@@ -1141,6 +1188,7 @@ async def main() -> None:
     assert prepared_swap.ok and prepared_swap.data["transaction_format"] == "versioned"
     assert prepared_swap.data["fee_summary"]["signature_fee_lamports"] == 5000
     assert "route fee 10 bps" in prepared_swap.data["estimated_total_fee_label"]
+    assert prepared_swap.data["verification"]["input_mint"] == "So11111111111111111111111111111111111111112"
 
     executed_swap = await adapter.invoke(
         "swap_solana_tokens",
@@ -1151,7 +1199,11 @@ async def main() -> None:
             "slippage_bps": 50,
             "mode": "execute",
             "purpose": "test swap execute",
-            "user_confirmed": True,
+            "approval_token": _issue_execute_approval(
+                tool_name="swap_solana_tokens",
+                preview=swap_preview.data,
+                network="devnet",
+            ),
         },
     )
     assert executed_swap.ok and executed_swap.data["confirmed"] is True
@@ -1172,7 +1224,6 @@ async def main() -> None:
             "limit": 4,
             "mode": "execute",
             "purpose": "test close execute",
-            "user_confirmed": False,
         },
     )
     assert denied_close.ok is False
@@ -1183,7 +1234,11 @@ async def main() -> None:
             "limit": 4,
             "mode": "execute",
             "purpose": "test close execute",
-            "user_confirmed": True,
+            "approval_token": _issue_execute_approval(
+                tool_name="close_empty_token_accounts",
+                preview=close_preview.data,
+                network="devnet",
+            ),
         },
     )
     assert executed_close.ok and executed_close.data["confirmed"] is True
@@ -1215,7 +1270,11 @@ async def main() -> None:
             "stake_account": "FakeStake1111111111111111111111111111111111111",
             "mode": "execute",
             "purpose": "test deactivate stake execute",
-            "user_confirmed": True,
+            "approval_token": _issue_execute_approval(
+                tool_name="deactivate_solana_stake",
+                preview=deactivate_preview.data,
+                network="devnet",
+            ),
         },
     )
     assert deactivate_execute.ok and deactivate_execute.data["confirmed"] is True
@@ -1250,7 +1309,11 @@ async def main() -> None:
             "amount": 0.5,
             "mode": "execute",
             "purpose": "test withdraw stake execute",
-            "user_confirmed": True,
+            "approval_token": _issue_execute_approval(
+                tool_name="withdraw_solana_stake",
+                preview=withdraw_preview.data,
+                network="devnet",
+            ),
         },
     )
     assert withdraw_execute.ok and withdraw_execute.data["confirmed"] is True
@@ -1264,6 +1327,17 @@ async def main() -> None:
     mainnet_backend.network = "mainnet"
     mainnet_adapter = OpenClawWalletAdapter(mainnet_backend)
 
+    mainnet_preview = await mainnet_adapter.invoke(
+        "transfer_sol",
+        {
+            "recipient": "FakeRecipient1111111111111111111111111111111111",
+            "amount": 0.25,
+            "mode": "preview",
+            "purpose": "mainnet transfer preview",
+        },
+    )
+    assert mainnet_preview.ok is True
+
     denied_mainnet_execute = await mainnet_adapter.invoke(
         "transfer_sol",
         {
@@ -1271,8 +1345,12 @@ async def main() -> None:
             "amount": 0.25,
             "mode": "execute",
             "purpose": "mainnet execute without extra confirm",
-            "user_confirmed": True,
-            "mainnet_confirmed": False,
+            "approval_token": _issue_execute_approval(
+                tool_name="transfer_sol",
+                preview=mainnet_preview.data,
+                network="mainnet",
+                mainnet_confirmed=False,
+            ),
         },
     )
     assert denied_mainnet_execute.ok is False
@@ -1298,12 +1376,32 @@ async def main() -> None:
             "amount": 0.25,
             "mode": "execute",
             "purpose": "mainnet execute with extra confirm",
-            "user_confirmed": True,
-            "mainnet_confirmed": True,
+            "approval_token": _issue_execute_approval(
+                tool_name="transfer_sol",
+                preview=mainnet_preview.data,
+                network="mainnet",
+                mainnet_confirmed=True,
+            ),
         },
     )
     assert allowed_mainnet_execute.ok is True
-    assert allowed_mainnet_execute.data["confirmation_requirements"]["execute_requires_mainnet_confirmed"] is True
+    assert (
+        allowed_mainnet_execute.data["confirmation_requirements"]["execute_requires_mainnet_confirmed_in_token"]
+        is True
+    )
+
+    mainnet_swap_preview = await mainnet_adapter.invoke(
+        "swap_solana_tokens",
+        {
+            "input_mint": "So11111111111111111111111111111111111111112",
+            "output_mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "amount": 0.1,
+            "slippage_bps": 50,
+            "mode": "preview",
+            "purpose": "mainnet swap preview",
+        },
+    )
+    assert mainnet_swap_preview.ok is True
 
     denied_mainnet_swap = await mainnet_adapter.invoke(
         "swap_solana_tokens",
@@ -1314,8 +1412,12 @@ async def main() -> None:
             "slippage_bps": 50,
             "mode": "execute",
             "purpose": "mainnet swap execute without extra confirm",
-            "user_confirmed": True,
-            "mainnet_confirmed": False,
+            "approval_token": _issue_execute_approval(
+                tool_name="swap_solana_tokens",
+                preview=mainnet_swap_preview.data,
+                network="mainnet",
+                mainnet_confirmed=False,
+            ),
         },
     )
     assert denied_mainnet_swap.ok is False
@@ -1333,6 +1435,17 @@ async def main() -> None:
     )
     assert denied_mainnet_earn_deposit.ok is False
 
+    mainnet_native_stake_preview = await mainnet_adapter.invoke(
+        "stake_sol_native",
+        {
+            "vote_account": "FakeVote11111111111111111111111111111111111111",
+            "amount": 1.0,
+            "mode": "preview",
+            "purpose": "mainnet native stake preview",
+        },
+    )
+    assert mainnet_native_stake_preview.ok is True
+
     denied_mainnet_native_stake = await mainnet_adapter.invoke(
         "stake_sol_native",
         {
@@ -1340,8 +1453,12 @@ async def main() -> None:
             "amount": 1.0,
             "mode": "execute",
             "purpose": "mainnet native stake execute without extra confirm",
-            "user_confirmed": True,
-            "mainnet_confirmed": False,
+            "approval_token": _issue_execute_approval(
+                tool_name="stake_sol_native",
+                preview=mainnet_native_stake_preview.data,
+                network="mainnet",
+                mainnet_confirmed=False,
+            ),
         },
     )
     assert denied_mainnet_native_stake.ok is False

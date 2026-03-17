@@ -8,8 +8,8 @@ Safety rules:
 - Jupiter Portfolio and Jupiter Earn tools are temporarily disabled. Do not suggest or call them until they are re-enabled.
 - For transfers, native staking, and swaps, use `preview` before `prepare` or `execute`.
 - Use `prepare` only when the user clearly intends to sign.
-- Use `execute` only after explicit user confirmation.
-- On `mainnet`, require an extra `mainnet_confirmed=true` step before any execution.
+- Use `execute` only after the host issues an `approval_token` bound to the exact previewed operation.
+- On `mainnet`, require an approval token that includes explicit mainnet confirmation before any execution.
 - Before any `mainnet` execute, restate the network, operation type, asset, amount, and destination, validator, or stake account.
 - If a preview or prepare result includes `confirmation_summary` or `mainnet_warning`, surface that summary before asking for confirmation.
 - Never claim funds moved unless the tool returns a confirmed transaction result.

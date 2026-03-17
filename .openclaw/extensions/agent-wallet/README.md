@@ -36,6 +36,7 @@ Recommended config:
           ],
           "signOnly": false,
           "masterKey": "change-this",
+          "approvalSecret": "change-this-too",
           "encryptUserWallets": true,
           "migratePlaintextUserWallets": true,
           "refuseMainnetWalletRecreation": true,
@@ -68,7 +69,7 @@ The intended user-facing flow inside OpenClaw is:
 3. Prepare only with intent:
    `prepare` is for explicit signing intent without broadcast.
 4. Execute only with approval:
-   `execute` requires explicit confirmation, and `mainnet_confirmed=true` on mainnet.
+   `execute` requires a host-issued `approval_token` bound to the exact previewed operation. On `mainnet`, that token must include explicit mainnet confirmation.
 5. On mainnet, restate the network, asset, amount, and destination, validator, or stake account before execute.
 
 For staking specifically, the normal agent flow should be:

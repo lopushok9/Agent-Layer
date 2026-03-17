@@ -59,6 +59,13 @@
           "sensitive": true
         }
       },
+      "approvalSecret": {
+        "type": "string",
+        "description": "Host secret used to issue approval tokens for execute mode.",
+        "uiHints": {
+          "sensitive": true
+        }
+      },
       "encryptUserWallets": {
         "type": "boolean",
         "description": "If true, per-user wallets are encrypted at rest."

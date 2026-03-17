@@ -56,15 +56,15 @@ Temporarily disabled but kept in the codebase for later re-enable:
 - `jupiter_earn_deposit`
 - `jupiter_earn_withdraw`
 
-The signing tool requires explicit `user_confirmed=true`.
+The signing tool still requires explicit `user_confirmed=true`.
 Transfer, native staking, and swap tools support `preview`, `prepare`, and `execute` modes. The safe operational path is still preview-first. `prepare` signs a transaction without broadcasting it. `execute` works only when the backend has a signer and `sign_only=false`.
 
 Policy defaults:
 
 - read-only tools are always allowed
 - `prepare` requires `user_intent=true`
-- `execute` requires `user_confirmed=true`
-- on Solana `mainnet`, `execute` also requires `mainnet_confirmed=true`
+- `execute` requires a host-issued `approval_token` bound to the exact previewed operation
+- on Solana `mainnet`, that `approval_token` must include explicit mainnet confirmation
 - on Solana `mainnet`, preview and prepare responses include a `confirmation_summary` and `mainnet_warning` to force a clearer final confirmation step
 
 ## Install
@@ -103,6 +103,7 @@ That provisions a wallet per user under:
 Per-user wallets are now encrypted at rest by default. Set:
 
 - `AGENT_WALLET_MASTER_KEY` to a strong deployment secret
+- `AGENT_WALLET_APPROVAL_SECRET` to a separate strong deployment secret for execute approvals
 - `AGENT_WALLET_ENCRYPT_USER_WALLETS=true`
 - `AGENT_WALLET_MIGRATE_PLAINTEXT_USER_WALLETS=true`
 
@@ -211,6 +212,7 @@ Recommended devnet setup:
 ```bash
 AGENT_WALLET_BACKEND=solana_local
 AGENT_WALLET_MASTER_KEY=change-this-in-production
+AGENT_WALLET_APPROVAL_SECRET=change-this-too
 SOLANA_NETWORK=devnet
 SOLANA_RPC_URLS=https://api.devnet.solana.com
 SOLANA_AUTO_CREATE_WALLET=true

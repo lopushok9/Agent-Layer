@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from agent_wallet.approval import verify_approval_token
 from agent_wallet.models import AgentToolResult, AgentToolSpec
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendError
 
@@ -16,10 +17,11 @@ Never claim that funds were moved unless a transfer tool explicitly returns a co
 If the wallet backend is sign-only, do not describe the action as broadcast on-chain.
 If the backend supports signing but should not broadcast, prefer prepare mode instead of execute mode.
 For transfers, prefer preview mode first. Only use execute mode after explicit user approval.
-On mainnet, execute mode requires an additional mainnet confirmation step.
+Execute mode requires a host-issued approval token bound to the exact operation being performed.
+On mainnet, execute mode requires an approval token that includes an explicit mainnet confirmation.
 Before any mainnet execute, restate the network, operation type, asset, amount, and destination, validator, or stake account.
 If the preview result includes a confirmation_summary or mainnet_warning, surface it before asking for confirmation.
-Never skip the explicit mainnet_confirmed=true step for writes on mainnet.
+Never bypass the approval token requirement for wallet writes.
 """.strip()
 
 # Keep the backend implementation in place, but hide these agent-facing tools for now.
@@ -50,21 +52,25 @@ class OpenClawWalletAdapter:
                 "Prepare mode requires explicit user intent confirmation."
             )
 
-    def _require_execute_confirmation(
+    def _require_execute_approval(
         self,
         *,
-        user_confirmed: Any,
-        mainnet_confirmed: Any,
+        approval_token: Any,
+        tool_name: str,
+        summary: dict[str, Any],
         action_label: str,
     ) -> None:
-        if user_confirmed is not True:
+        if not isinstance(approval_token, str) or not approval_token.strip():
             raise WalletBackendError(
-                f"{action_label} execution requires explicit user confirmation."
+                f"{action_label} execution requires a host-issued approval_token."
             )
-        if self._is_mainnet() and mainnet_confirmed is not True:
-            raise WalletBackendError(
-                f"{action_label} execution on mainnet requires mainnet_confirmed=true."
-            )
+        verify_approval_token(
+            approval_token.strip(),
+            tool_name=tool_name,
+            network=str(getattr(self.backend, "network", "unknown")),
+            summary=summary,
+            require_mainnet_confirmation=self._is_mainnet(),
+        )
 
     def _build_confirmation_summary(
         self,
@@ -114,13 +120,18 @@ class OpenClawWalletAdapter:
         )
         annotated["confirmation_requirements"] = {
             "prepare_requires_user_intent": mode == "prepare",
-            "execute_requires_user_confirmed": mode == "execute",
-            "execute_requires_mainnet_confirmed": mode == "execute" and network == "mainnet",
+            "execute_requires_approval_token": mode == "execute",
+            "execute_requires_mainnet_confirmed_in_token": mode == "execute" and network == "mainnet",
         }
+        if mode == "preview":
+            annotated["approval_hint"] = {
+                "host_must_issue_token_for": annotated["confirmation_summary"],
+                "tool_name": None,
+            }
         if network == "mainnet" and mode in {"preview", "prepare", "execute"}:
             annotated["mainnet_warning"] = (
                 "Mainnet operation. Confirm the network, asset, amount, and destination, validator, or stake account "
-                "before execute. Execute requires mainnet_confirmed=true."
+                "before execute. Execute requires a host-issued approval token with mainnet confirmation."
             )
         return annotated
 
@@ -406,13 +417,9 @@ class OpenClawWalletAdapter:
                                 "type": "boolean",
                                 "description": "Must be true for prepare mode.",
                             },
-                            "user_confirmed": {
-                                "type": "boolean",
-                                "description": "Must be true for execute mode.",
-                            },
-                            "mainnet_confirmed": {
-                                "type": "boolean",
-                                "description": "Must be true for execute mode on mainnet.",
+                            "approval_token": {
+                                "type": "string",
+                                "description": "Host-issued approval token required for execute mode.",
                             },
                         },
                         "required": ["recipient", "amount", "mode", "purpose"],
@@ -455,13 +462,9 @@ class OpenClawWalletAdapter:
                                 "type": "boolean",
                                 "description": "Must be true for prepare mode.",
                             },
-                            "user_confirmed": {
-                                "type": "boolean",
-                                "description": "Must be true for execute mode.",
-                            },
-                            "mainnet_confirmed": {
-                                "type": "boolean",
-                                "description": "Must be true for execute mode on mainnet.",
+                            "approval_token": {
+                                "type": "string",
+                                "description": "Host-issued approval token required for execute mode.",
                             },
                         },
                         "required": ["vote_account", "amount", "mode", "purpose"],
@@ -512,13 +515,9 @@ class OpenClawWalletAdapter:
                                 "type": "boolean",
                                 "description": "Must be true for prepare mode.",
                             },
-                            "user_confirmed": {
-                                "type": "boolean",
-                                "description": "Must be true for execute mode.",
-                            },
-                            "mainnet_confirmed": {
-                                "type": "boolean",
-                                "description": "Must be true for execute mode on mainnet.",
+                            "approval_token": {
+                                "type": "string",
+                                "description": "Host-issued approval token required for execute mode.",
                             },
                         },
                         "required": ["recipient", "mint", "amount", "mode", "purpose"],
@@ -569,13 +568,9 @@ class OpenClawWalletAdapter:
                                 "type": "boolean",
                                 "description": "Must be true for prepare mode.",
                             },
-                            "user_confirmed": {
-                                "type": "boolean",
-                                "description": "Must be true for execute mode.",
-                            },
-                            "mainnet_confirmed": {
-                                "type": "boolean",
-                                "description": "Must be true for execute mode on mainnet.",
+                            "approval_token": {
+                                "type": "string",
+                                "description": "Host-issued approval token required for execute mode.",
                             },
                         },
                         "required": ["input_mint", "output_mint", "amount", "mode", "purpose"],
@@ -618,13 +613,9 @@ class OpenClawWalletAdapter:
                                 "type": "boolean",
                                 "description": "Must be true for prepare mode.",
                             },
-                            "user_confirmed": {
-                                "type": "boolean",
-                                "description": "Must be true for execute mode.",
-                            },
-                            "mainnet_confirmed": {
-                                "type": "boolean",
-                                "description": "Must be true for execute mode on mainnet.",
+                            "approval_token": {
+                                "type": "string",
+                                "description": "Host-issued approval token required for execute mode.",
                             },
                         },
                         "required": ["asset", "amount_raw", "mode", "purpose"],
@@ -667,13 +658,9 @@ class OpenClawWalletAdapter:
                                 "type": "boolean",
                                 "description": "Must be true for prepare mode.",
                             },
-                            "user_confirmed": {
-                                "type": "boolean",
-                                "description": "Must be true for execute mode.",
-                            },
-                            "mainnet_confirmed": {
-                                "type": "boolean",
-                                "description": "Must be true for execute mode on mainnet.",
+                            "approval_token": {
+                                "type": "string",
+                                "description": "Host-issued approval token required for execute mode.",
                             },
                         },
                         "required": ["asset", "amount_raw", "mode", "purpose"],
@@ -712,13 +699,9 @@ class OpenClawWalletAdapter:
                                 "type": "boolean",
                                 "description": "Reserved for parity with other sensitive actions.",
                             },
-                            "user_confirmed": {
-                                "type": "boolean",
-                                "description": "Must be true for execute mode.",
-                            },
-                            "mainnet_confirmed": {
-                                "type": "boolean",
-                                "description": "Must be true for execute mode on mainnet.",
+                            "approval_token": {
+                                "type": "string",
+                                "description": "Host-issued approval token required for execute mode.",
                             },
                         },
                         "required": ["mode", "purpose"],
@@ -756,13 +739,9 @@ class OpenClawWalletAdapter:
                                 "type": "boolean",
                                 "description": "Must be true for prepare mode.",
                             },
-                            "user_confirmed": {
-                                "type": "boolean",
-                                "description": "Must be true for execute mode.",
-                            },
-                            "mainnet_confirmed": {
-                                "type": "boolean",
-                                "description": "Must be true for execute mode on mainnet.",
+                            "approval_token": {
+                                "type": "string",
+                                "description": "Host-issued approval token required for execute mode.",
                             },
                         },
                         "required": ["stake_account", "mode", "purpose"],
@@ -808,13 +787,9 @@ class OpenClawWalletAdapter:
                                 "type": "boolean",
                                 "description": "Must be true for prepare mode.",
                             },
-                            "user_confirmed": {
-                                "type": "boolean",
-                                "description": "Must be true for execute mode.",
-                            },
-                            "mainnet_confirmed": {
-                                "type": "boolean",
-                                "description": "Must be true for execute mode on mainnet.",
+                            "approval_token": {
+                                "type": "string",
+                                "description": "Host-issued approval token required for execute mode.",
                             },
                         },
                         "required": ["stake_account", "amount", "mode", "purpose"],
@@ -1012,8 +987,7 @@ class OpenClawWalletAdapter:
                 mode = args.get("mode")
                 purpose = args.get("purpose")
                 user_intent = args.get("user_intent", False)
-                user_confirmed = args.get("user_confirmed", False)
-                mainnet_confirmed = args.get("mainnet_confirmed", False)
+                approval_token = args.get("approval_token")
 
                 if not isinstance(recipient, str) or not recipient.strip():
                     raise WalletBackendError("recipient is required.")
@@ -1055,9 +1029,17 @@ class OpenClawWalletAdapter:
                         ),
                     )
 
-                self._require_execute_confirmation(
-                    user_confirmed=user_confirmed,
-                    mainnet_confirmed=mainnet_confirmed,
+                execute_preview = await self.backend.preview_native_transfer(
+                    recipient=recipient.strip(),
+                    amount_native=float(amount),
+                )
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=self._build_confirmation_summary(
+                        action_label="SOL transfer",
+                        payload=execute_preview,
+                    ),
                     action_label="SOL transfer",
                 )
 
@@ -1081,8 +1063,7 @@ class OpenClawWalletAdapter:
                 mode = args.get("mode")
                 purpose = args.get("purpose")
                 user_intent = args.get("user_intent", False)
-                user_confirmed = args.get("user_confirmed", False)
-                mainnet_confirmed = args.get("mainnet_confirmed", False)
+                approval_token = args.get("approval_token")
 
                 if not isinstance(vote_account, str) or not vote_account.strip():
                     raise WalletBackendError("vote_account is required.")
@@ -1124,9 +1105,17 @@ class OpenClawWalletAdapter:
                         ),
                     )
 
-                self._require_execute_confirmation(
-                    user_confirmed=user_confirmed,
-                    mainnet_confirmed=mainnet_confirmed,
+                execute_preview = await self.backend.preview_native_stake(
+                    vote_account=vote_account.strip(),
+                    amount_native=float(amount),
+                )
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=self._build_confirmation_summary(
+                        action_label="Native staking",
+                        payload=execute_preview,
+                    ),
                     action_label="Native staking",
                 )
                 result = await self.backend.execute_native_stake(
@@ -1158,8 +1147,7 @@ class OpenClawWalletAdapter:
                 mode = args.get("mode")
                 purpose = args.get("purpose")
                 user_intent = args.get("user_intent", False)
-                user_confirmed = args.get("user_confirmed", False)
-                mainnet_confirmed = args.get("mainnet_confirmed", False)
+                approval_token = args.get("approval_token")
 
                 if not isinstance(recipient, str) or not recipient.strip():
                     raise WalletBackendError("recipient is required.")
@@ -1209,9 +1197,19 @@ class OpenClawWalletAdapter:
                         ),
                     )
 
-                self._require_execute_confirmation(
-                    user_confirmed=user_confirmed,
-                    mainnet_confirmed=mainnet_confirmed,
+                execute_preview = await self.backend.preview_spl_transfer(
+                    recipient=recipient.strip(),
+                    mint=mint.strip(),
+                    amount_ui=float(amount),
+                    decimals=decimals,
+                )
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=self._build_confirmation_summary(
+                        action_label="SPL token transfer",
+                        payload=execute_preview,
+                    ),
                     action_label="SPL token transfer",
                 )
 
@@ -1239,8 +1237,7 @@ class OpenClawWalletAdapter:
                 mode = args.get("mode")
                 purpose = args.get("purpose")
                 user_intent = args.get("user_intent", False)
-                user_confirmed = args.get("user_confirmed", False)
-                mainnet_confirmed = args.get("mainnet_confirmed", False)
+                approval_token = args.get("approval_token")
 
                 if not isinstance(input_mint, str) or not input_mint.strip():
                     raise WalletBackendError("input_mint is required.")
@@ -1290,9 +1287,19 @@ class OpenClawWalletAdapter:
                         ),
                     )
 
-                self._require_execute_confirmation(
-                    user_confirmed=user_confirmed,
-                    mainnet_confirmed=mainnet_confirmed,
+                execute_preview = await self.backend.preview_swap(
+                    input_mint=input_mint.strip(),
+                    output_mint=output_mint.strip(),
+                    amount_ui=float(amount),
+                    slippage_bps=slippage_bps,
+                )
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=self._build_confirmation_summary(
+                        action_label="Swap",
+                        payload=execute_preview,
+                    ),
                     action_label="Swap",
                 )
 
@@ -1318,8 +1325,7 @@ class OpenClawWalletAdapter:
                 mode = args.get("mode")
                 purpose = args.get("purpose")
                 user_intent = args.get("user_intent", False)
-                user_confirmed = args.get("user_confirmed", False)
-                mainnet_confirmed = args.get("mainnet_confirmed", False)
+                approval_token = args.get("approval_token")
 
                 if not isinstance(asset, str) or not asset.strip():
                     raise WalletBackendError("asset is required.")
@@ -1361,9 +1367,17 @@ class OpenClawWalletAdapter:
                         ),
                     )
 
-                self._require_execute_confirmation(
-                    user_confirmed=user_confirmed,
-                    mainnet_confirmed=mainnet_confirmed,
+                execute_preview = await self.backend.preview_jupiter_earn_deposit(
+                    asset=asset.strip(),
+                    amount_raw=amount_raw.strip(),
+                )
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=self._build_confirmation_summary(
+                        action_label="Jupiter Earn deposit",
+                        payload=execute_preview,
+                    ),
                     action_label="Jupiter Earn deposit",
                 )
                 result = await self.backend.execute_jupiter_earn_deposit(
@@ -1386,8 +1400,7 @@ class OpenClawWalletAdapter:
                 mode = args.get("mode")
                 purpose = args.get("purpose")
                 user_intent = args.get("user_intent", False)
-                user_confirmed = args.get("user_confirmed", False)
-                mainnet_confirmed = args.get("mainnet_confirmed", False)
+                approval_token = args.get("approval_token")
 
                 if not isinstance(asset, str) or not asset.strip():
                     raise WalletBackendError("asset is required.")
@@ -1429,9 +1442,17 @@ class OpenClawWalletAdapter:
                         ),
                     )
 
-                self._require_execute_confirmation(
-                    user_confirmed=user_confirmed,
-                    mainnet_confirmed=mainnet_confirmed,
+                execute_preview = await self.backend.preview_jupiter_earn_withdraw(
+                    asset=asset.strip(),
+                    amount_raw=amount_raw.strip(),
+                )
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=self._build_confirmation_summary(
+                        action_label="Jupiter Earn withdraw",
+                        payload=execute_preview,
+                    ),
                     action_label="Jupiter Earn withdraw",
                 )
                 result = await self.backend.execute_jupiter_earn_withdraw(
@@ -1452,8 +1473,7 @@ class OpenClawWalletAdapter:
                 limit = args.get("limit", 8)
                 mode = args.get("mode")
                 purpose = args.get("purpose")
-                user_confirmed = args.get("user_confirmed", False)
-                mainnet_confirmed = args.get("mainnet_confirmed", False)
+                approval_token = args.get("approval_token")
 
                 if not isinstance(limit, int) or limit <= 0:
                     raise WalletBackendError("limit must be a positive integer.")
@@ -1474,9 +1494,14 @@ class OpenClawWalletAdapter:
                         ),
                     )
 
-                self._require_execute_confirmation(
-                    user_confirmed=user_confirmed,
-                    mainnet_confirmed=mainnet_confirmed,
+                execute_preview = await self.backend.preview_close_empty_token_accounts(limit=limit)
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=self._build_confirmation_summary(
+                        action_label="Close token accounts",
+                        payload=execute_preview,
+                    ),
                     action_label="Close token accounts",
                 )
 
@@ -1496,8 +1521,7 @@ class OpenClawWalletAdapter:
                 mode = args.get("mode")
                 purpose = args.get("purpose")
                 user_intent = args.get("user_intent", False)
-                user_confirmed = args.get("user_confirmed", False)
-                mainnet_confirmed = args.get("mainnet_confirmed", False)
+                approval_token = args.get("approval_token")
 
                 if not isinstance(stake_account, str) or not stake_account.strip():
                     raise WalletBackendError("stake_account is required.")
@@ -1531,9 +1555,14 @@ class OpenClawWalletAdapter:
                         ),
                     )
 
-                self._require_execute_confirmation(
-                    user_confirmed=user_confirmed,
-                    mainnet_confirmed=mainnet_confirmed,
+                execute_preview = await self.backend.preview_deactivate_stake(stake_account.strip())
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=self._build_confirmation_summary(
+                        action_label="Stake deactivation",
+                        payload=execute_preview,
+                    ),
                     action_label="Stake deactivation",
                 )
                 result = await self.backend.execute_deactivate_stake(stake_account.strip())
@@ -1554,8 +1583,7 @@ class OpenClawWalletAdapter:
                 mode = args.get("mode")
                 purpose = args.get("purpose")
                 user_intent = args.get("user_intent", False)
-                user_confirmed = args.get("user_confirmed", False)
-                mainnet_confirmed = args.get("mainnet_confirmed", False)
+                approval_token = args.get("approval_token")
 
                 if not isinstance(stake_account, str) or not stake_account.strip():
                     raise WalletBackendError("stake_account is required.")
@@ -1601,9 +1629,18 @@ class OpenClawWalletAdapter:
                         ),
                     )
 
-                self._require_execute_confirmation(
-                    user_confirmed=user_confirmed,
-                    mainnet_confirmed=mainnet_confirmed,
+                execute_preview = await self.backend.preview_withdraw_stake(
+                    stake_account=stake_account.strip(),
+                    amount_native=float(amount),
+                    recipient=recipient.strip() if isinstance(recipient, str) else None,
+                )
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=self._build_confirmation_summary(
+                        action_label="Stake withdraw",
+                        payload=execute_preview,
+                    ),
                     action_label="Stake withdraw",
                 )
                 result = await self.backend.execute_withdraw_stake(

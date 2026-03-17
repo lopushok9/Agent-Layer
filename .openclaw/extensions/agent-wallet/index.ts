@@ -194,7 +194,7 @@ const toolDefinitions = [
   },
   {
     name: "transfer_sol",
-    description: "Preview, prepare, or execute a native SOL transfer. On mainnet, restate the network, amount, and recipient before execute.",
+    description: "Preview, prepare, or execute a native SOL transfer. Execute requires a host-issued approval token bound to the previewed operation.",
     optional: true,
     parameters: {
       type: "object",
@@ -204,8 +204,7 @@ const toolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        user_confirmed: { type: "boolean" },
-        mainnet_confirmed: { type: "boolean" },
+        approval_token: { type: "string" },
       },
       required: ["recipient", "amount", "mode", "purpose"],
       additionalProperties: false,
@@ -213,7 +212,7 @@ const toolDefinitions = [
   },
   {
     name: "transfer_spl_token",
-    description: "Preview, prepare, or execute an SPL token transfer by mint address. On mainnet, restate the network, token, amount, and recipient before execute.",
+    description: "Preview, prepare, or execute an SPL token transfer by mint address. Execute requires a host-issued approval token bound to the previewed operation.",
     optional: true,
     parameters: {
       type: "object",
@@ -225,8 +224,7 @@ const toolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        user_confirmed: { type: "boolean" },
-        mainnet_confirmed: { type: "boolean" },
+        approval_token: { type: "string" },
       },
       required: ["recipient", "mint", "amount", "mode", "purpose"],
       additionalProperties: false,
@@ -234,7 +232,7 @@ const toolDefinitions = [
   },
   {
     name: "swap_solana_tokens",
-    description: "Preview, prepare, or execute a Solana token swap via Jupiter. On mainnet, restate the network, input token, output token, and amount before execute.",
+    description: "Preview, prepare, or execute a Solana token swap via Jupiter. Execute requires a host-issued approval token bound to the previewed operation.",
     optional: true,
     parameters: {
       type: "object",
@@ -246,8 +244,7 @@ const toolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        user_confirmed: { type: "boolean" },
-        mainnet_confirmed: { type: "boolean" },
+        approval_token: { type: "string" },
       },
       required: ["input_mint", "output_mint", "amount", "mode", "purpose"],
       additionalProperties: false,
@@ -255,7 +252,7 @@ const toolDefinitions = [
   },
   {
     name: "close_empty_token_accounts",
-    description: "Preview or execute closing zero-balance token accounts. On mainnet, restate the network and selected accounts before execute.",
+    description: "Preview or execute closing zero-balance token accounts. Execute requires a host-issued approval token bound to the previewed operation.",
     optional: true,
     parameters: {
       type: "object",
@@ -263,8 +260,7 @@ const toolDefinitions = [
         limit: { type: "integer" },
         mode: { type: "string", enum: ["preview", "execute"] },
         purpose: { type: "string" },
-        user_confirmed: { type: "boolean" },
-        mainnet_confirmed: { type: "boolean" },
+        approval_token: { type: "string" },
       },
       required: ["limit", "mode", "purpose"],
       additionalProperties: false,

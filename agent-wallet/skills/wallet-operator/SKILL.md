@@ -49,8 +49,8 @@ Use wallet tools only when the user explicitly asks for wallet information or si
 12. Use `stake_sol_native` in `preview` mode before discussing or attempting execution.
 13. If the wallet backend is sign-only, prefer `prepare` mode instead of `execute` for transfers, staking, and swaps.
 14. `prepare` mode requires explicit user intent confirmation.
-15. `execute` mode requires explicit user confirmation.
-16. On mainnet, `execute` also requires a separate mainnet confirmation.
+15. `execute` mode requires a host-issued `approval_token` bound to the exact previewed operation.
+16. On mainnet, `execute` also requires an approval token that includes explicit mainnet confirmation.
 17. Never imply that a transfer, stake, or swap action was broadcast unless the tool explicitly returns a confirmed execution result.
 18. Do not imply that signing a message sends an on-chain transaction.
 19. If the wallet backend is sign-only, state clearly that no broadcast happened.

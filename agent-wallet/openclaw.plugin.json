@@ -49,6 +49,10 @@
         "type": "string",
         "description": "Master secret for encrypting per-user wallet files. Prefer an environment secret instead of inline config."
       },
+      "approvalSecret": {
+        "type": "string",
+        "description": "Host secret used to mint approval tokens for execute mode. Prefer an environment secret instead of inline config."
+      },
       "encryptUserWallets": {
         "type": "boolean",
         "description": "If true, newly created per-user wallet files are encrypted at rest."
