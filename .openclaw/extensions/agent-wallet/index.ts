@@ -194,7 +194,7 @@ const toolDefinitions = [
   },
   {
     name: "transfer_sol",
-    description: "Preview, prepare, or execute a native SOL transfer. Execute requires a host-issued approval token bound to the previewed operation.",
+    description: "Preview, prepare, or execute a native SOL transfer. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
     optional: true,
     parameters: {
       type: "object",
@@ -212,7 +212,7 @@ const toolDefinitions = [
   },
   {
     name: "transfer_spl_token",
-    description: "Preview, prepare, or execute an SPL token transfer by mint address. Execute requires a host-issued approval token bound to the previewed operation.",
+    description: "Preview, prepare, or execute an SPL token transfer by mint address. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
     optional: true,
     parameters: {
       type: "object",
@@ -232,7 +232,7 @@ const toolDefinitions = [
   },
   {
     name: "swap_solana_tokens",
-    description: "Preview, prepare, or execute a Solana token swap via Jupiter. Execute requires a host-issued approval token bound to the previewed operation.",
+    description: "Preview, prepare, or execute a Solana token swap via Jupiter. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
     optional: true,
     parameters: {
       type: "object",

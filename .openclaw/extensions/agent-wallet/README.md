@@ -67,7 +67,7 @@ The intended user-facing flow inside OpenClaw is:
 2. Preview next:
    transfers, swaps, staking, stake deactivation, and stake withdrawals should start in `preview`.
 3. Prepare only with intent:
-   `prepare` is for explicit signing intent without broadcast.
+   `prepare` is for explicit execution planning intent and returns no signed transaction bytes.
 4. Execute only with approval:
    `execute` requires a host-issued `approval_token` bound to the exact previewed operation. On `mainnet`, that token must include explicit mainnet confirmation.
 5. On mainnet, restate the network, asset, amount, and destination, validator, or stake account before execute.

@@ -1033,7 +1033,9 @@ async def main() -> None:
             "user_intent": True,
         },
     )
-    assert prepared_transfer.ok and prepared_transfer.data["transaction_format"] == "legacy"
+    assert prepared_transfer.ok and prepared_transfer.data["execution_plan_only"] is True
+    assert prepared_transfer.data["signed"] is False
+    assert "transaction_base64" not in prepared_transfer.data
 
     executed_transfer = await adapter.invoke(
         "transfer_sol",
@@ -1072,7 +1074,9 @@ async def main() -> None:
             "user_intent": True,
         },
     )
-    assert stake_prepare.ok and stake_prepare.data["transaction_format"] == "legacy"
+    assert stake_prepare.ok and stake_prepare.data["execution_plan_only"] is True
+    assert stake_prepare.data["signed"] is False
+    assert "transaction_base64" not in stake_prepare.data
 
     stake_execute = await adapter.invoke(
         "stake_sol_native",
@@ -1125,7 +1129,9 @@ async def main() -> None:
             "user_intent": True,
         },
     )
-    assert prepared_spl_transfer.ok and prepared_spl_transfer.data["transaction_format"] == "legacy"
+    assert prepared_spl_transfer.ok and prepared_spl_transfer.data["execution_plan_only"] is True
+    assert prepared_spl_transfer.data["signed"] is False
+    assert "transaction_base64" not in prepared_spl_transfer.data
 
     executed_spl_transfer = await adapter.invoke(
         "transfer_spl_token",
@@ -1185,10 +1191,12 @@ async def main() -> None:
             "user_intent": True,
         },
     )
-    assert prepared_swap.ok and prepared_swap.data["transaction_format"] == "versioned"
+    assert prepared_swap.ok and prepared_swap.data["execution_plan_only"] is True
+    assert prepared_swap.data["signed"] is False
+    assert "transaction_base64" not in prepared_swap.data
     assert prepared_swap.data["fee_summary"]["signature_fee_lamports"] == 5000
     assert "route fee 10 bps" in prepared_swap.data["estimated_total_fee_label"]
-    assert prepared_swap.data["verification"]["input_mint"] == "So11111111111111111111111111111111111111112"
+    assert "verification" not in prepared_swap.data
 
     executed_swap = await adapter.invoke(
         "swap_solana_tokens",
@@ -1262,7 +1270,9 @@ async def main() -> None:
             "user_intent": True,
         },
     )
-    assert deactivate_prepare.ok and deactivate_prepare.data["transaction_format"] == "legacy"
+    assert deactivate_prepare.ok and deactivate_prepare.data["execution_plan_only"] is True
+    assert deactivate_prepare.data["signed"] is False
+    assert "transaction_base64" not in deactivate_prepare.data
 
     deactivate_execute = await adapter.invoke(
         "deactivate_solana_stake",
@@ -1300,7 +1310,9 @@ async def main() -> None:
             "user_intent": True,
         },
     )
-    assert withdraw_prepare.ok and withdraw_prepare.data["transaction_format"] == "legacy"
+    assert withdraw_prepare.ok and withdraw_prepare.data["execution_plan_only"] is True
+    assert withdraw_prepare.data["signed"] is False
+    assert "transaction_base64" not in withdraw_prepare.data
 
     withdraw_execute = await adapter.invoke(
         "withdraw_solana_stake",

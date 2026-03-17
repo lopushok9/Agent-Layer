@@ -57,12 +57,13 @@ Temporarily disabled but kept in the codebase for later re-enable:
 - `jupiter_earn_withdraw`
 
 The signing tool still requires explicit `user_confirmed=true`.
-Transfer, native staking, and swap tools support `preview`, `prepare`, and `execute` modes. The safe operational path is still preview-first. `prepare` signs a transaction without broadcasting it. `execute` works only when the backend has a signer and `sign_only=false`.
+Transfer, native staking, and swap tools support `preview`, `prepare`, and `execute` modes. The safe operational path is still preview-first. `prepare` now returns an execution plan only and never exposes signed transaction bytes to the agent. `execute` works only when the backend has a signer and `sign_only=false`.
 
 Policy defaults:
 
 - read-only tools are always allowed
 - `prepare` requires `user_intent=true`
+- `prepare` does not return signed transaction bytes
 - `execute` requires a host-issued `approval_token` bound to the exact previewed operation
 - on Solana `mainnet`, that `approval_token` must include explicit mainnet confirmation
 - on Solana `mainnet`, preview and prepare responses include a `confirmation_summary` and `mainnet_warning` to force a clearer final confirmation step

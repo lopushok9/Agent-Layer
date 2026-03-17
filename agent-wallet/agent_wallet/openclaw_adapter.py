@@ -15,8 +15,9 @@ Treat any signing request as sensitive.
 Before signing a message, make sure the user intent is explicit and the purpose is clear.
 Never claim that funds were moved unless a transfer tool explicitly returns a confirmed transaction result.
 If the wallet backend is sign-only, do not describe the action as broadcast on-chain.
-If the backend supports signing but should not broadcast, prefer prepare mode instead of execute mode.
+If the backend supports signing but should not broadcast, prefer preview and host-mediated execution planning instead of returning signed transactions to the agent.
 For transfers, prefer preview mode first. Only use execute mode after explicit user approval.
+Prepare mode must never expose signed transaction bytes to the agent.
 Execute mode requires a host-issued approval token bound to the exact operation being performed.
 On mainnet, execute mode requires an approval token that includes an explicit mainnet confirmation.
 Before any mainnet execute, restate the network, operation type, asset, amount, and destination, validator, or stake account.
@@ -103,6 +104,36 @@ class OpenClawWalletAdapter:
             if value is not None:
                 summary[key] = value
         return summary
+
+    def _build_prepare_plan(
+        self,
+        *,
+        preview_payload: dict[str, Any],
+        action_label: str,
+    ) -> dict[str, Any]:
+        plan = dict(preview_payload)
+        plan["mode"] = "prepare"
+        plan["prepared"] = False
+        plan["signed"] = False
+        plan["broadcasted"] = False
+        plan["confirmed"] = False
+        plan["execution_plan_only"] = True
+        plan["prepare_note"] = (
+            "Signed transaction bytes are intentionally not returned by prepare mode. "
+            "Use this as an execution plan and perform final signing or broadcast only through execute or a host-controlled path."
+        )
+        for key in (
+            "transaction_base64",
+            "transaction_encoding",
+            "transaction_format",
+            "signature",
+            "last_valid_block_height",
+            "latest_blockhash",
+            "request_id",
+            "verification",
+        ):
+            plan.pop(key, None)
+        return plan
 
     def _annotate_sensitive_payload(
         self,
@@ -407,7 +438,7 @@ class OpenClawWalletAdapter:
                             "mode": {
                                 "type": "string",
                                 "enum": ["preview", "prepare", "execute"],
-                                "description": "preview returns a transfer summary, prepare signs without broadcasting, execute attempts to send.",
+                                "description": "preview returns a transfer summary, prepare returns an execution plan without signed transaction bytes, execute attempts to send.",
                             },
                             "purpose": {
                                 "type": "string",
@@ -452,7 +483,7 @@ class OpenClawWalletAdapter:
                             "mode": {
                                 "type": "string",
                                 "enum": ["preview", "prepare", "execute"],
-                                "description": "preview returns a staking summary, prepare signs without broadcasting, execute attempts to send.",
+                                "description": "preview returns a staking summary, prepare returns an execution plan without signed transaction bytes, execute attempts to send.",
                             },
                             "purpose": {
                                 "type": "string",
@@ -505,7 +536,7 @@ class OpenClawWalletAdapter:
                             "mode": {
                                 "type": "string",
                                 "enum": ["preview", "prepare", "execute"],
-                                "description": "preview returns a transfer summary, prepare signs without broadcasting, execute attempts to send.",
+                                "description": "preview returns a transfer summary, prepare returns an execution plan without signed transaction bytes, execute attempts to send.",
                             },
                             "purpose": {
                                 "type": "string",
@@ -558,7 +589,7 @@ class OpenClawWalletAdapter:
                             "mode": {
                                 "type": "string",
                                 "enum": ["preview", "prepare", "execute"],
-                                "description": "preview returns a quote, prepare signs without broadcasting, execute attempts to swap.",
+                                "description": "preview returns a quote, prepare returns an execution plan without signed transaction bytes, execute attempts to swap.",
                             },
                             "purpose": {
                                 "type": "string",
@@ -603,7 +634,7 @@ class OpenClawWalletAdapter:
                             "mode": {
                                 "type": "string",
                                 "enum": ["preview", "prepare", "execute"],
-                                "description": "preview returns a summary, prepare signs without broadcasting, execute attempts to submit the Earn deposit transaction.",
+                                "description": "preview returns a summary, prepare returns an execution plan without signed transaction bytes, execute attempts to submit the Earn deposit transaction.",
                             },
                             "purpose": {
                                 "type": "string",
@@ -648,7 +679,7 @@ class OpenClawWalletAdapter:
                             "mode": {
                                 "type": "string",
                                 "enum": ["preview", "prepare", "execute"],
-                                "description": "preview returns a summary, prepare signs without broadcasting, execute attempts to submit the Earn withdraw transaction.",
+                                "description": "preview returns a summary, prepare returns an execution plan without signed transaction bytes, execute attempts to submit the Earn withdraw transaction.",
                             },
                             "purpose": {
                                 "type": "string",
@@ -729,7 +760,7 @@ class OpenClawWalletAdapter:
                             "mode": {
                                 "type": "string",
                                 "enum": ["preview", "prepare", "execute"],
-                                "description": "preview returns a summary, prepare signs without broadcasting, execute attempts to send.",
+                                "description": "preview returns a summary, prepare returns an execution plan without signed transaction bytes, execute attempts to send.",
                             },
                             "purpose": {
                                 "type": "string",
@@ -777,7 +808,7 @@ class OpenClawWalletAdapter:
                             "mode": {
                                 "type": "string",
                                 "enum": ["preview", "prepare", "execute"],
-                                "description": "preview returns a summary, prepare signs without broadcasting, execute attempts to send.",
+                                "description": "preview returns a summary, prepare returns an execution plan without signed transaction bytes, execute attempts to send.",
                             },
                             "purpose": {
                                 "type": "string",
@@ -1015,7 +1046,7 @@ class OpenClawWalletAdapter:
 
                 if mode == "prepare":
                     self._require_prepare_intent(user_intent)
-                    prepared = await self.backend.prepare_native_transfer(
+                    preview = await self.backend.preview_native_transfer(
                         recipient=recipient.strip(),
                         amount_native=float(amount),
                     )
@@ -1023,7 +1054,10 @@ class OpenClawWalletAdapter:
                         tool=tool_name,
                         ok=True,
                         data=self._annotate_sensitive_payload(
-                            prepared,
+                            self._build_prepare_plan(
+                                preview_payload=preview,
+                                action_label="SOL transfer",
+                            ),
                             action_label="SOL transfer",
                             mode="prepare",
                         ),
@@ -1091,7 +1125,7 @@ class OpenClawWalletAdapter:
 
                 if mode == "prepare":
                     self._require_prepare_intent(user_intent)
-                    prepared = await self.backend.prepare_native_stake(
+                    preview = await self.backend.preview_native_stake(
                         vote_account=vote_account.strip(),
                         amount_native=float(amount),
                     )
@@ -1099,7 +1133,10 @@ class OpenClawWalletAdapter:
                         tool=tool_name,
                         ok=True,
                         data=self._annotate_sensitive_payload(
-                            prepared,
+                            self._build_prepare_plan(
+                                preview_payload=preview,
+                                action_label="Native staking",
+                            ),
                             action_label="Native staking",
                             mode="prepare",
                         ),
@@ -1181,7 +1218,7 @@ class OpenClawWalletAdapter:
 
                 if mode == "prepare":
                     self._require_prepare_intent(user_intent)
-                    prepared = await self.backend.prepare_spl_transfer(
+                    preview = await self.backend.preview_spl_transfer(
                         recipient=recipient.strip(),
                         mint=mint.strip(),
                         amount_ui=float(amount),
@@ -1191,7 +1228,10 @@ class OpenClawWalletAdapter:
                         tool=tool_name,
                         ok=True,
                         data=self._annotate_sensitive_payload(
-                            prepared,
+                            self._build_prepare_plan(
+                                preview_payload=preview,
+                                action_label="SPL token transfer",
+                            ),
                             action_label="SPL token transfer",
                             mode="prepare",
                         ),
@@ -1271,7 +1311,7 @@ class OpenClawWalletAdapter:
 
                 if mode == "prepare":
                     self._require_prepare_intent(user_intent)
-                    prepared = await self.backend.prepare_swap(
+                    preview = await self.backend.preview_swap(
                         input_mint=input_mint.strip(),
                         output_mint=output_mint.strip(),
                         amount_ui=float(amount),
@@ -1281,7 +1321,10 @@ class OpenClawWalletAdapter:
                         tool=tool_name,
                         ok=True,
                         data=self._annotate_sensitive_payload(
-                            prepared,
+                            self._build_prepare_plan(
+                                preview_payload=preview,
+                                action_label="Swap",
+                            ),
                             action_label="Swap",
                             mode="prepare",
                         ),
@@ -1353,7 +1396,7 @@ class OpenClawWalletAdapter:
 
                 if mode == "prepare":
                     self._require_prepare_intent(user_intent)
-                    prepared = await self.backend.prepare_jupiter_earn_deposit(
+                    preview = await self.backend.preview_jupiter_earn_deposit(
                         asset=asset.strip(),
                         amount_raw=amount_raw.strip(),
                     )
@@ -1361,7 +1404,10 @@ class OpenClawWalletAdapter:
                         tool=tool_name,
                         ok=True,
                         data=self._annotate_sensitive_payload(
-                            prepared,
+                            self._build_prepare_plan(
+                                preview_payload=preview,
+                                action_label="Jupiter Earn deposit",
+                            ),
                             action_label="Jupiter Earn deposit",
                             mode="prepare",
                         ),
@@ -1428,7 +1474,7 @@ class OpenClawWalletAdapter:
 
                 if mode == "prepare":
                     self._require_prepare_intent(user_intent)
-                    prepared = await self.backend.prepare_jupiter_earn_withdraw(
+                    preview = await self.backend.preview_jupiter_earn_withdraw(
                         asset=asset.strip(),
                         amount_raw=amount_raw.strip(),
                     )
@@ -1436,7 +1482,10 @@ class OpenClawWalletAdapter:
                         tool=tool_name,
                         ok=True,
                         data=self._annotate_sensitive_payload(
-                            prepared,
+                            self._build_prepare_plan(
+                                preview_payload=preview,
+                                action_label="Jupiter Earn withdraw",
+                            ),
                             action_label="Jupiter Earn withdraw",
                             mode="prepare",
                         ),
@@ -1544,12 +1593,15 @@ class OpenClawWalletAdapter:
 
                 if mode == "prepare":
                     self._require_prepare_intent(user_intent)
-                    prepared = await self.backend.prepare_deactivate_stake(stake_account.strip())
+                    preview = await self.backend.preview_deactivate_stake(stake_account.strip())
                     return AgentToolResult(
                         tool=tool_name,
                         ok=True,
                         data=self._annotate_sensitive_payload(
-                            prepared,
+                            self._build_prepare_plan(
+                                preview_payload=preview,
+                                action_label="Stake deactivation",
+                            ),
                             action_label="Stake deactivation",
                             mode="prepare",
                         ),
@@ -1614,7 +1666,7 @@ class OpenClawWalletAdapter:
 
                 if mode == "prepare":
                     self._require_prepare_intent(user_intent)
-                    prepared = await self.backend.prepare_withdraw_stake(
+                    preview = await self.backend.preview_withdraw_stake(
                         stake_account=stake_account.strip(),
                         amount_native=float(amount),
                         recipient=recipient.strip() if isinstance(recipient, str) else None,
@@ -1623,7 +1675,10 @@ class OpenClawWalletAdapter:
                         tool=tool_name,
                         ok=True,
                         data=self._annotate_sensitive_payload(
-                            prepared,
+                            self._build_prepare_plan(
+                                preview_payload=preview,
+                                action_label="Stake withdraw",
+                            ),
                             action_label="Stake withdraw",
                             mode="prepare",
                         ),
