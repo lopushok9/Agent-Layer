@@ -6,13 +6,36 @@ from typing import Any
 
 from agent_wallet.wallet_layer.base import WalletBackendError
 
+SYSTEM_PROGRAM_ID = "11111111111111111111111111111111"
+COMPUTE_BUDGET_PROGRAM_ID = "ComputeBudget111111111111111111111111111111"
+TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+ATA_PROGRAM_ID = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+MEMO_PROGRAM_ID = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
+JUPITER_V6_PROGRAM_ID = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5Nt7NQYjN"
+JUPITER_ULTRA_EXACT_OUT_PROGRAM_ID = "j1o2qRpjcyUwEvwtcfhEQefh773ZgjxcVRry7LDqg5X"
+JUPITER_DCA_PROGRAM_ID = "DCA265Vj8a7wYymQG8LqM3m7A4QeV9hiC7VYh4S6Jsa"
+
 CORE_PROGRAM_IDS = {
-    "11111111111111111111111111111111",
-    "ComputeBudget111111111111111111111111111111",
-    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-    "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-    "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
-    "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
+    SYSTEM_PROGRAM_ID,
+    COMPUTE_BUDGET_PROGRAM_ID,
+    TOKEN_PROGRAM_ID,
+    TOKEN_2022_PROGRAM_ID,
+    ATA_PROGRAM_ID,
+    MEMO_PROGRAM_ID,
+}
+SWAP_ALLOWED_PROGRAMS = CORE_PROGRAM_IDS | {
+    JUPITER_V6_PROGRAM_ID,
+    JUPITER_ULTRA_EXACT_OUT_PROGRAM_ID,
+    JUPITER_DCA_PROGRAM_ID,
+}
+RECOGNIZED_JUPITER_SWAP_PROGRAMS = {
+    JUPITER_V6_PROGRAM_ID,
+    JUPITER_ULTRA_EXACT_OUT_PROGRAM_ID,
+    JUPITER_DCA_PROGRAM_ID,
+}
+FORBIDDEN_PROGRAMS = {
+    "TokenSwap11111111111111111111111111111111",
 }
 
 
@@ -38,6 +61,23 @@ def _program_ids(message: Any) -> list[str]:
             raise WalletBackendError("Provider transaction contains an invalid program id index.")
         values.append(keys[index])
     return values
+
+
+def _assert_program_allowlist(program_ids: list[str], *, allowed_programs: set[str], label: str) -> None:
+    if not program_ids:
+        raise WalletBackendError(f"{label} transaction does not include any instructions.")
+
+    forbidden = [pid for pid in program_ids if pid in FORBIDDEN_PROGRAMS]
+    if forbidden:
+        raise WalletBackendError(
+            f"{label} transaction uses forbidden program ids: {', '.join(sorted(set(forbidden)))}"
+        )
+
+    unknown = [pid for pid in program_ids if pid not in allowed_programs]
+    if unknown:
+        raise WalletBackendError(
+            f"{label} transaction uses unknown program ids: {', '.join(sorted(set(unknown)))}"
+        )
 
 
 def _assert_basic_wallet_binding(message: Any, *, wallet_address: str) -> list[str]:
@@ -74,8 +114,11 @@ def verify_provider_swap_transaction(
             "Provider swap transaction does not reference the expected output mint."
         )
     program_ids = _program_ids(message)
-    if not program_ids:
-        raise WalletBackendError("Provider swap transaction does not include any instructions.")
+    _assert_program_allowlist(program_ids, allowed_programs=SWAP_ALLOWED_PROGRAMS, label="Swap")
+    if not any(pid in RECOGNIZED_JUPITER_SWAP_PROGRAMS for pid in program_ids):
+        raise WalletBackendError(
+            "Provider swap transaction is missing a recognized Jupiter swap program."
+        )
     return {
         "wallet_address": wallet_address,
         "program_ids": program_ids,
@@ -84,4 +127,5 @@ def verify_provider_swap_transaction(
         "instruction_count": len(_compiled_instructions(message)),
         "input_mint": input_mint,
         "output_mint": output_mint,
+        "verified": True,
     }
