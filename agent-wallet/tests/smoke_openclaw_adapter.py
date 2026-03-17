@@ -893,11 +893,19 @@ class FakeBackend(AgentWalletBackend):
 async def main() -> None:
     adapter = OpenClawWalletAdapter(FakeBackend())
     bundle = build_openclaw_plugin_bundle(FakeBackend())
+    tool_names = {tool.name for tool in adapter.list_tools()}
+    bundle_tool_names = {tool["name"] for tool in bundle["tools"]}
 
-    assert len(adapter.list_tools()) == 24
+    assert len(tool_names) == 16
     assert bundle["manifest"]["id"] == "agent-wallet"
-    assert len(bundle["tools"]) == 24
+    assert len(bundle_tool_names) == 16
     assert "Wallet Operator" in bundle["instructions"]
+    assert "get_jupiter_portfolio" not in tool_names
+    assert "get_jupiter_earn_tokens" not in tool_names
+    assert "jupiter_earn_deposit" not in tool_names
+    assert "jupiter_earn_withdraw" not in tool_names
+    assert "get_jupiter_portfolio" not in bundle_tool_names
+    assert "jupiter_earn_deposit" not in bundle_tool_names
 
     capabilities = await adapter.invoke("get_wallet_capabilities")
     assert capabilities.ok and capabilities.data["backend"] == "fake_wallet"
@@ -928,30 +936,6 @@ async def main() -> None:
         {"stake_account": "FakeStake1111111111111111111111111111111111111"},
     )
     assert stake_account.ok and stake_account.data["account_type"] == "delegated"
-
-    portfolio_platforms = await adapter.invoke("get_jupiter_portfolio_platforms")
-    assert portfolio_platforms.ok and portfolio_platforms.data["platform_count"] == 2
-
-    jupiter_portfolio = await adapter.invoke(
-        "get_jupiter_portfolio",
-        {"platforms": ["sanctum"]},
-    )
-    assert jupiter_portfolio.ok and jupiter_portfolio.data["position_count"] == 1
-
-    staked_jup = await adapter.invoke("get_jupiter_staked_jup")
-    assert staked_jup.ok and staked_jup.data["raw"]["stakedAmount"] == "123456"
-
-    earn_tokens = await adapter.invoke("get_jupiter_earn_tokens")
-    assert earn_tokens.ok and earn_tokens.data["token_count"] == 1
-
-    earn_positions = await adapter.invoke("get_jupiter_earn_positions")
-    assert earn_positions.ok and earn_positions.data["position_count"] == 1
-
-    earn_earnings = await adapter.invoke(
-        "get_jupiter_earn_earnings",
-        {"positions": ["FakeEarnPosition1111111111111111111111111111111"]},
-    )
-    assert earn_earnings.ok and earn_earnings.data["raw"]["totalEarningsUsd"] == 1.23
 
     denied = await adapter.invoke(
         "sign_wallet_message",
@@ -1171,76 +1155,6 @@ async def main() -> None:
         },
     )
     assert executed_swap.ok and executed_swap.data["confirmed"] is True
-
-    earn_deposit_preview = await adapter.invoke(
-        "jupiter_earn_deposit",
-        {
-            "asset": "So11111111111111111111111111111111111111112",
-            "amount_raw": "1000000",
-            "mode": "preview",
-            "purpose": "test earn deposit preview",
-        },
-    )
-    assert earn_deposit_preview.ok and earn_deposit_preview.data["asset_type"] == "jupiter-earn-deposit"
-
-    earn_deposit_prepare = await adapter.invoke(
-        "jupiter_earn_deposit",
-        {
-            "asset": "So11111111111111111111111111111111111111112",
-            "amount_raw": "1000000",
-            "mode": "prepare",
-            "purpose": "test earn deposit prepare",
-            "user_intent": True,
-        },
-    )
-    assert earn_deposit_prepare.ok and earn_deposit_prepare.data["transaction_format"] == "versioned"
-
-    earn_deposit_execute = await adapter.invoke(
-        "jupiter_earn_deposit",
-        {
-            "asset": "So11111111111111111111111111111111111111112",
-            "amount_raw": "1000000",
-            "mode": "execute",
-            "purpose": "test earn deposit execute",
-            "user_confirmed": True,
-        },
-    )
-    assert earn_deposit_execute.ok and earn_deposit_execute.data["confirmed"] is True
-
-    earn_withdraw_preview = await adapter.invoke(
-        "jupiter_earn_withdraw",
-        {
-            "asset": "So11111111111111111111111111111111111111112",
-            "amount_raw": "500000",
-            "mode": "preview",
-            "purpose": "test earn withdraw preview",
-        },
-    )
-    assert earn_withdraw_preview.ok and earn_withdraw_preview.data["asset_type"] == "jupiter-earn-withdraw"
-
-    earn_withdraw_prepare = await adapter.invoke(
-        "jupiter_earn_withdraw",
-        {
-            "asset": "So11111111111111111111111111111111111111112",
-            "amount_raw": "500000",
-            "mode": "prepare",
-            "purpose": "test earn withdraw prepare",
-            "user_intent": True,
-        },
-    )
-    assert earn_withdraw_prepare.ok and earn_withdraw_prepare.data["transaction_format"] == "versioned"
-
-    earn_withdraw_execute = await adapter.invoke(
-        "jupiter_earn_withdraw",
-        {
-            "asset": "So11111111111111111111111111111111111111112",
-            "amount_raw": "500000",
-            "mode": "execute",
-            "purpose": "test earn withdraw execute",
-            "user_confirmed": True,
-        },
-    )
-    assert earn_withdraw_execute.ok and earn_withdraw_execute.data["confirmed"] is True
 
     close_preview = await adapter.invoke(
         "close_empty_token_accounts",
