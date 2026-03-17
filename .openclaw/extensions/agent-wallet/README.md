@@ -35,8 +35,6 @@ Recommended config:
             "https://api.devnet.solana.com"
           ],
           "signOnly": false,
-          "masterKey": "change-this",
-          "approvalSecret": "change-this-too",
           "encryptUserWallets": true,
           "migratePlaintextUserWallets": true,
           "refuseMainnetWalletRecreation": true,
@@ -48,6 +46,8 @@ Recommended config:
   }
 }
 ```
+
+Inject sensitive values like `AGENT_WALLET_MASTER_KEY`, `AGENT_WALLET_APPROVAL_SECRET`, or any signer private key via protected environment variables, not `openclaw.json`.
 
 Important:
 

@@ -103,10 +103,12 @@ That provisions a wallet per user under:
 
 Per-user wallets are now encrypted at rest by default. Set:
 
-- `AGENT_WALLET_MASTER_KEY` to a strong deployment secret
-- `AGENT_WALLET_APPROVAL_SECRET` to a separate strong deployment secret for execute approvals
+- `AGENT_WALLET_MASTER_KEY` to a strong deployment secret injected via environment or secret manager
+- `AGENT_WALLET_APPROVAL_SECRET` to a separate strong deployment secret injected via environment or secret manager
 - `AGENT_WALLET_ENCRYPT_USER_WALLETS=true`
 - `AGENT_WALLET_MIGRATE_PLAINTEXT_USER_WALLETS=true`
+
+Do not store `masterKey`, `privateKey`, or approval secrets in plugin config JSON or pass them via CLI arguments.
 
 If a legacy plaintext per-user wallet already exists, the helper will migrate it in place on the next successful load when a master key is available.
 
@@ -206,7 +208,7 @@ Public-safe helper scripts are available in `agent-wallet/scripts/`:
 - `install_openclaw_local_config.py`
 - `finalize_openclaw_local_wallet_config.py`
 
-Both scripts now use CLI arguments and generic defaults instead of hardcoded local usernames, paths, or temporary master keys.
+Both scripts now use generic defaults instead of hardcoded local usernames or paths. Sensitive secrets must be supplied via protected environment variables, not config JSON or CLI arguments.
 
 Recommended devnet setup:
 

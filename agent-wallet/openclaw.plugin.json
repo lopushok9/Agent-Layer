@@ -31,7 +31,7 @@
       },
       "privateKey": {
         "type": "string",
-        "description": "Optional signing key material. Prefer environment variables instead of inline secrets."
+        "description": "Deprecated insecure config path. Inject signing key material via environment variables instead of plugin config."
       },
       "keypairPath": {
         "type": "string",
@@ -47,11 +47,11 @@
       },
       "masterKey": {
         "type": "string",
-        "description": "Master secret for encrypting per-user wallet files. Prefer an environment secret instead of inline config."
+        "description": "Deprecated insecure config path. Inject the wallet master secret via environment or a secret manager instead of plugin config."
       },
       "approvalSecret": {
         "type": "string",
-        "description": "Host secret used to mint approval tokens for execute mode. Prefer an environment secret instead of inline config."
+        "description": "Deprecated insecure config path. Inject the approval secret via environment or a secret manager instead of plugin config."
       },
       "encryptUserWallets": {
         "type": "boolean",

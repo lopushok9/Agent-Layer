@@ -8,6 +8,9 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+from agent_wallet.file_ops import atomic_write_text, chmod_if_exists
+from security_utils import write_redacted_backup
+
 
 def _default_config_path() -> Path:
     return Path(os.path.expanduser("~/.openclaw/openclaw.json"))
@@ -78,7 +81,7 @@ def main() -> None:
     backup_path = config_path.with_name(
         f"{config_path.name}.bak.agent-wallet-switch.{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
     )
-    backup_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    write_redacted_backup(backup_path, data)
 
     plugin_config["network"] = args.network
     if args.rpc_url.strip():
@@ -90,7 +93,8 @@ def main() -> None:
     if args.sign_only is not None:
         plugin_config["signOnly"] = args.sign_only
 
-    config_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    atomic_write_text(config_path, json.dumps(data, indent=2) + "\n", mode=0o600)
+    chmod_if_exists(config_path, 0o600)
 
     result["backup_path"] = str(backup_path)
     result["sign_only"] = plugin_config.get("signOnly")

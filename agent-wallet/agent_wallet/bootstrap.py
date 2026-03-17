@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from agent_wallet.config import refuse_mainnet_wallet_recreation
+from agent_wallet.file_ops import atomic_write_text
 from agent_wallet.wallet_layer.base import WalletBackendError
 from agent_wallet.wallet_layer.base58 import b58encode
 
@@ -38,9 +39,7 @@ def generate_solana_wallet_material() -> dict[str, str]:
 def create_solana_wallet_file(path: Path) -> dict[str, str]:
     """Create a new local Solana wallet file in Solana CLI JSON format."""
     material = generate_solana_wallet_material()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(material["secret_material"], encoding="utf-8")
-    path.chmod(0o600)
+    atomic_write_text(path, material["secret_material"], mode=0o600)
     return {
         "address": material["address"],
         "path": str(path),
@@ -88,9 +87,7 @@ def write_wallet_pin(path: Path, *, address: str, network: str) -> dict[str, str
         "wallet_file": path.name,
     }
     pin_path = resolve_wallet_pin_path(path)
-    pin_path.parent.mkdir(parents=True, exist_ok=True)
-    pin_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    pin_path.chmod(0o600)
+    atomic_write_text(pin_path, json.dumps(payload, indent=2), mode=0o600)
     return {
         "address": address,
         "network": payload["network"],

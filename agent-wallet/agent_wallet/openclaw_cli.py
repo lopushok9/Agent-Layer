@@ -9,6 +9,8 @@ import os
 import sys
 from typing import Any
 
+from agent_wallet.wallet_layer.base import WalletBackendError
+
 
 def _parse_bool(value: Any) -> str:
     return "true" if value is True else "false"
@@ -20,7 +22,21 @@ def _parse_csv(value: Any) -> str:
     return str(value).strip()
 
 
+SECRET_CONFIG_KEYS = {"privateKey", "masterKey", "approvalSecret"}
+
+
+def _reject_secret_config_json(config: dict[str, Any]) -> None:
+    present = sorted(key for key in SECRET_CONFIG_KEYS if str(config.get(key) or "").strip())
+    if present:
+        joined = ", ".join(present)
+        raise WalletBackendError(
+            f"Sensitive keys are not allowed in --config-json: {joined}. "
+            "Pass secrets via protected environment injection instead."
+        )
+
+
 def _apply_config_overrides(config: dict[str, Any]) -> None:
+    _reject_secret_config_json(config)
     env_map: dict[str, tuple[str, Any]] = {
         "backend": ("AGENT_WALLET_BACKEND", config.get("backend")),
         "signOnly": ("AGENT_WALLET_SIGN_ONLY", _parse_bool(config.get("signOnly"))),
@@ -28,11 +44,8 @@ def _apply_config_overrides(config: dict[str, Any]) -> None:
         "rpcUrl": ("SOLANA_RPC_URL", config.get("rpcUrl")),
         "rpcUrls": ("SOLANA_RPC_URLS", _parse_csv(config.get("rpcUrls"))),
         "publicKey": ("SOLANA_AGENT_PUBLIC_KEY", config.get("publicKey")),
-        "privateKey": ("SOLANA_AGENT_PRIVATE_KEY", config.get("privateKey")),
         "keypairPath": ("SOLANA_AGENT_KEYPAIR_PATH", config.get("keypairPath")),
         "autoCreateWallet": ("SOLANA_AUTO_CREATE_WALLET", _parse_bool(config.get("autoCreateWallet"))),
-        "masterKey": ("AGENT_WALLET_MASTER_KEY", config.get("masterKey")),
-        "approvalSecret": ("AGENT_WALLET_APPROVAL_SECRET", config.get("approvalSecret")),
         "encryptUserWallets": (
             "AGENT_WALLET_ENCRYPT_USER_WALLETS",
             _parse_bool(config.get("encryptUserWallets")),

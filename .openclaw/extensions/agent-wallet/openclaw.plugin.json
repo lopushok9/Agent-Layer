@@ -35,7 +35,7 @@
       },
       "privateKey": {
         "type": "string",
-        "description": "Optional signing key material. Prefer environment variables or encrypted per-user wallets.",
+        "description": "Deprecated insecure config path. Inject signing key material via environment variables or encrypted per-user wallets instead.",
         "uiHints": {
           "sensitive": true
         }
@@ -54,14 +54,14 @@
       },
       "masterKey": {
         "type": "string",
-        "description": "Master secret for encrypted per-user wallet storage.",
+        "description": "Deprecated insecure config path. Inject the wallet master secret via environment or a secret manager instead.",
         "uiHints": {
           "sensitive": true
         }
       },
       "approvalSecret": {
         "type": "string",
-        "description": "Host secret used to issue approval tokens for execute mode.",
+        "description": "Deprecated insecure config path. Inject the approval secret via environment or a secret manager instead.",
         "uiHints": {
           "sensitive": true
         }
