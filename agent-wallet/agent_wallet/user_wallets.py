@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 from pathlib import Path
 
@@ -15,15 +16,19 @@ from agent_wallet.bootstrap import (
 )
 from agent_wallet.config import (
     allow_plaintext_user_wallet_migration,
+    require_encrypted_mainnet,
     resolve_openclaw_home,
     resolve_solana_rpc_urls,
     resolve_wallet_master_key,
     settings,
+    use_per_user_key_derivation,
     use_encrypted_user_wallets,
 )
 from agent_wallet.encrypted_storage import (
+    _derive_user_scoped_key,
+    decrypt_secret_material,
     encrypt_secret_material,
-    load_wallet_secret_material,
+    is_encrypted_wallet_payload,
     write_encrypted_wallet_file,
 )
 from agent_wallet.wallet_layer.base import WalletBackendError
@@ -56,44 +61,143 @@ def _user_wallet_metadata(user_id: str, address: str, network: str | None = None
     }
 
 
+def _resolve_effective_network(network: str | None = None) -> str:
+    return (network or settings.solana_network).strip().lower() or "mainnet"
+
+
+def _resolve_user_wallet_master_key(
+    user_id: str,
+    network: str,
+    *,
+    raw_master_key: str | None = None,
+) -> str:
+    effective_master_key = (
+        raw_master_key.strip() if raw_master_key is not None else resolve_wallet_master_key()
+    )
+    if not effective_master_key:
+        raise WalletBackendError(
+            "AGENT_WALLET_MASTER_KEY is required for encrypted per-user wallets."
+        )
+    if use_per_user_key_derivation():
+        return _derive_user_scoped_key(
+            effective_master_key,
+            user_id=user_id,
+            network=network,
+        )
+    return effective_master_key
+
+
+def _candidate_user_wallet_master_keys(
+    user_id: str,
+    network: str,
+    *,
+    raw_master_key: str | None = None,
+) -> list[tuple[str, str]]:
+    effective_master_key = (
+        raw_master_key.strip() if raw_master_key is not None else resolve_wallet_master_key()
+    )
+    if not effective_master_key:
+        return []
+
+    candidates: list[tuple[str, str]] = []
+    if use_per_user_key_derivation():
+        candidates.append(
+            (
+                "per-user-derived",
+                _derive_user_scoped_key(
+                    effective_master_key,
+                    user_id=user_id,
+                    network=network,
+                ),
+            )
+        )
+    candidates.append(("global-master", effective_master_key))
+    return candidates
+
+
+def _load_user_wallet_secret_material(
+    path: Path,
+    *,
+    user_id: str,
+    network: str,
+    raw_master_key: str | None = None,
+) -> tuple[str, str, str | None]:
+    raw_text = path.read_text(encoding="utf-8").strip()
+    if not is_encrypted_wallet_payload(raw_text):
+        return raw_text, "plaintext", None
+
+    last_exc: WalletBackendError | None = None
+    for key_scope, candidate in _candidate_user_wallet_master_keys(
+        user_id,
+        network,
+        raw_master_key=raw_master_key,
+    ):
+        try:
+            return (
+                decrypt_secret_material(raw_text, master_key=candidate),
+                "encrypted",
+                key_scope,
+            )
+        except WalletBackendError as exc:
+            last_exc = exc
+    if last_exc is not None:
+        raise last_exc
+    raise WalletBackendError(
+        "AGENT_WALLET_MASTER_KEY is required for encrypted per-user wallets."
+    )
+
+
 def ensure_user_solana_wallet(user_id: str, network: str | None = None) -> dict[str, str]:
     """Provision a per-user Solana wallet if it does not exist yet."""
-    effective_network = (network or settings.solana_network).strip().lower() or "mainnet"
+    effective_network = _resolve_effective_network(network)
     path = resolve_user_wallet_path(user_id, network=effective_network)
     if path.exists():
-        secret_material, storage_format = load_wallet_secret_material(path)
+        secret_material, storage_format, key_scope = _load_user_wallet_secret_material(
+            path,
+            user_id=user_id,
+            network=effective_network,
+        )
         signer = SolanaLocalKeypairSigner.from_secret_material(secret_material)
         ensure_wallet_pin(path, address=signer.address, network=effective_network)
         if storage_format == "plaintext" and use_encrypted_user_wallets():
-            master_key = resolve_wallet_master_key()
-            if master_key and allow_plaintext_user_wallet_migration():
+            if resolve_wallet_master_key() and allow_plaintext_user_wallet_migration():
                 write_encrypted_wallet_file(
                     path,
                     secret_material,
-                    master_key=master_key,
+                    master_key=_resolve_user_wallet_master_key(user_id, effective_network),
                     metadata=_user_wallet_metadata(user_id, signer.address, network=effective_network),
                 )
                 storage_format = "encrypted"
+                key_scope = "per-user-derived" if use_per_user_key_derivation() else "global-master"
+        elif (
+            storage_format == "encrypted"
+            and key_scope == "global-master"
+            and use_per_user_key_derivation()
+            and allow_plaintext_user_wallet_migration()
+        ):
+            write_encrypted_wallet_file(
+                path,
+                secret_material,
+                master_key=_resolve_user_wallet_master_key(user_id, effective_network),
+                metadata=_user_wallet_metadata(user_id, signer.address, network=effective_network),
+            )
+            key_scope = "per-user-derived"
         return {
             "user_id": user_id,
             "address": signer.address,
             "path": str(path),
             "storage_format": storage_format,
+            "key_scope": key_scope or "plaintext",
         }
 
     refuse_recreation_if_pinned(path, network=effective_network)
 
     if use_encrypted_user_wallets():
-        master_key = resolve_wallet_master_key()
-        if not master_key:
-            raise WalletBackendError(
-                "AGENT_WALLET_MASTER_KEY is required to create encrypted per-user wallets."
-            )
         material = generate_solana_wallet_material()
         write_encrypted_wallet_file(
             path,
             material["secret_material"],
-            master_key=master_key,
+            master_key=_resolve_user_wallet_master_key(user_id, effective_network),
             metadata=_user_wallet_metadata(user_id, material["address"], network=effective_network),
         )
         ensure_wallet_pin(path, address=material["address"], network=effective_network)
@@ -102,8 +206,22 @@ def ensure_user_solana_wallet(user_id: str, network: str | None = None) -> dict[
             "address": material["address"],
             "path": str(path),
             "storage_format": "encrypted",
+            "key_scope": "per-user-derived" if use_per_user_key_derivation() else "global-master",
         }
 
+    # -- Plaintext fallback (encryption disabled or master key absent) --
+    if effective_network == "mainnet" and require_encrypted_mainnet():
+        raise WalletBackendError(
+            "Plaintext wallet storage is not allowed on mainnet. "
+            "Set AGENT_WALLET_MASTER_KEY to enable encrypted storage."
+        )
+    logger = logging.getLogger(__name__)
+    logger.warning(
+        "Creating plaintext wallet for user '%s' on %s. "
+        "Set AGENT_WALLET_MASTER_KEY for encrypted storage.",
+        user_id,
+        effective_network,
+    )
     created = create_solana_wallet_file(path)
     ensure_wallet_pin(path, address=created["address"], network=effective_network)
     return {
@@ -111,6 +229,7 @@ def ensure_user_solana_wallet(user_id: str, network: str | None = None) -> dict[
         "address": created["address"],
         "path": created["path"],
         "storage_format": "plaintext",
+        "key_scope": "plaintext",
     }
 
 
@@ -119,7 +238,12 @@ def get_user_wallet_storage_info(user_id: str, network: str | None = None) -> di
     path = resolve_user_wallet_path(user_id, network=network)
     if not path.exists():
         raise WalletBackendError(f"User wallet does not exist yet: {path}")
-    secret_material, storage_format = load_wallet_secret_material(path)
+    effective_network = _resolve_effective_network(network)
+    secret_material, storage_format, key_scope = _load_user_wallet_secret_material(
+        path,
+        user_id=user_id,
+        network=effective_network,
+    )
     signer = SolanaLocalKeypairSigner.from_secret_material(secret_material)
     pin = load_wallet_pin(path)
     return {
@@ -127,7 +251,8 @@ def get_user_wallet_storage_info(user_id: str, network: str | None = None) -> di
         "address": signer.address,
         "path": str(path),
         "storage_format": storage_format,
-        "network": (network or settings.solana_network).strip().lower() or "mainnet",
+        "key_scope": key_scope or "plaintext",
+        "network": effective_network,
         "pinned_address": pin["address"] if pin else signer.address,
     }
 
@@ -147,12 +272,22 @@ def rotate_user_wallet_encryption(
     if not path.exists():
         raise WalletBackendError(f"User wallet does not exist yet: {path}")
 
-    secret_material, storage_format = load_wallet_secret_material(path, master_key=current_master_key)
+    effective_network = _resolve_effective_network(network)
+    secret_material, storage_format, _ = _load_user_wallet_secret_material(
+        path,
+        user_id=user_id,
+        network=effective_network,
+        raw_master_key=current_master_key,
+    )
     signer = SolanaLocalKeypairSigner.from_secret_material(secret_material)
     write_encrypted_wallet_file(
         path,
         secret_material,
-        master_key=new_master_key,
+        master_key=_resolve_user_wallet_master_key(
+            user_id,
+            effective_network,
+            raw_master_key=new_master_key,
+        ),
         metadata=_user_wallet_metadata(user_id, signer.address, network=network),
     )
     return {
@@ -161,7 +296,7 @@ def rotate_user_wallet_encryption(
         "path": str(path),
         "previous_storage_format": storage_format,
         "storage_format": "encrypted",
-        "network": (network or settings.solana_network).strip().lower() or "mainnet",
+        "network": effective_network,
     }
 
 
@@ -180,7 +315,13 @@ def export_user_wallet_backup(
     if not path.exists():
         raise WalletBackendError(f"User wallet does not exist yet: {path}")
 
-    secret_material, storage_format = load_wallet_secret_material(path, master_key=current_master_key)
+    effective_network = _resolve_effective_network(network)
+    secret_material, storage_format, _ = _load_user_wallet_secret_material(
+        path,
+        user_id=user_id,
+        network=effective_network,
+        raw_master_key=current_master_key,
+    )
     signer = SolanaLocalKeypairSigner.from_secret_material(secret_material)
     exported_payload = encrypt_secret_material(
         secret_material,
@@ -197,7 +338,7 @@ def export_user_wallet_backup(
         "storage_format": storage_format,
         "backup_format": "encrypted",
         "backup_payload": exported_payload,
-        "network": (network or settings.solana_network).strip().lower() or "mainnet",
+        "network": effective_network,
     }
 
 
@@ -209,9 +350,13 @@ def create_wallet_backend_for_user(
     rpc_url: str | None = None,
 ) -> SolanaWalletBackend:
     """Create a user-scoped Solana backend for OpenClaw runtime integration."""
-    effective_network = (network or settings.solana_network).strip().lower() or "mainnet"
+    effective_network = _resolve_effective_network(network)
     wallet_info = ensure_user_solana_wallet(user_id, network=effective_network)
-    secret_material, _ = load_wallet_secret_material(Path(wallet_info["path"]))
+    secret_material, _, _ = _load_user_wallet_secret_material(
+        Path(wallet_info["path"]),
+        user_id=user_id,
+        network=effective_network,
+    )
     signer = SolanaLocalKeypairSigner.from_secret_material(secret_material)
     return SolanaWalletBackend(
         rpc_url=resolve_solana_rpc_urls(

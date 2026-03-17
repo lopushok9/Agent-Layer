@@ -107,6 +107,20 @@ async def main() -> None:
     )
     assert allowed.ok is True
     assert allowed.data["confirmed"] is True
+
+    replayed = await adapter.invoke(
+        "transfer_sol",
+        {
+            "recipient": "FakeRecipient1111111111111111111111111111111111",
+            "amount": 0.25,
+            "mode": "execute",
+            "purpose": "smoke replay",
+            "approval_token": token,
+        },
+    )
+    assert replayed.ok is False
+    assert "already been used" in (replayed.error or "")
+
     print("smoke_wallet_approval: ok")
 
 

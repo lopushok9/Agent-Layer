@@ -12,9 +12,15 @@ class Settings(BaseSettings):
     agent_wallet_master_key: str = ""
     agent_wallet_approval_secret: str = ""
     agent_wallet_approval_ttl_seconds: int = 600
+    agent_wallet_per_user_key_derivation: bool = False
     agent_wallet_encrypt_user_wallets: bool = True
     agent_wallet_migrate_plaintext_user_wallets: bool = True
     agent_wallet_refuse_mainnet_wallet_recreation: bool = True
+    agent_wallet_require_encrypted_mainnet: bool = True
+    agent_wallet_max_per_tx_sol: float = 0
+    agent_wallet_max_hourly_sol: float = 0
+    agent_wallet_max_daily_sol: float = 0
+    agent_wallet_max_txs_per_minute: int = 0
 
     solana_network: str = "mainnet"
     solana_rpc_url: str = ""
@@ -120,9 +126,25 @@ def allow_plaintext_user_wallet_migration() -> bool:
     )
 
 
+def use_per_user_key_derivation() -> bool:
+    """Return whether per-user wallet encryption keys are derived from the master key."""
+    return _env_bool(
+        "AGENT_WALLET_PER_USER_KEY_DERIVATION",
+        settings.agent_wallet_per_user_key_derivation,
+    )
+
+
 def refuse_mainnet_wallet_recreation() -> bool:
     """Return whether mainnet wallets may be recreated when a pinned address exists."""
     return _env_bool(
         "AGENT_WALLET_REFUSE_MAINNET_WALLET_RECREATION",
         settings.agent_wallet_refuse_mainnet_wallet_recreation,
+    )
+
+
+def require_encrypted_mainnet() -> bool:
+    """Return whether plaintext wallet creation is forbidden on mainnet."""
+    return _env_bool(
+        "AGENT_WALLET_REQUIRE_ENCRYPTED_MAINNET",
+        settings.agent_wallet_require_encrypted_mainnet,
     )

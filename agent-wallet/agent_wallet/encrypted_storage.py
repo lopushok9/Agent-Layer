@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import json
 from pathlib import Path
 from typing import Any
@@ -13,6 +15,7 @@ from agent_wallet.wallet_layer.base import WalletBackendError
 
 ENCRYPTED_WALLET_KIND = "openclaw-agent-wallet-secret"
 ENCRYPTED_WALLET_VERSION = 1
+USER_SCOPED_KEY_SALT = b"openclaw-agent-wallet-user-key-v1"
 
 
 def _load_secretbox():
@@ -38,6 +41,24 @@ def _derive_key(master_key: str, salt: bytes) -> bytes:
         opslimit=pwhash.argon2id.OPSLIMIT_INTERACTIVE,
         memlimit=pwhash.argon2id.MEMLIMIT_INTERACTIVE,
     )
+
+
+def _derive_user_scoped_key(
+    master_key: str,
+    *,
+    user_id: str,
+    network: str,
+) -> str:
+    """Derive a deterministic per-user key from the global master key."""
+    if not master_key.strip():
+        raise WalletBackendError(
+            "AGENT_WALLET_MASTER_KEY is required for encrypted user wallet storage."
+        )
+    normalized_network = network.strip().lower() or "mainnet"
+    prk = hmac.new(USER_SCOPED_KEY_SALT, master_key.encode("utf-8"), hashlib.sha256).digest()
+    info = f"openclaw-wallet:{user_id}:{normalized_network}".encode("utf-8")
+    okm = hmac.new(prk, info + b"\x01", hashlib.sha256).digest()
+    return okm.hex()
 
 
 def is_encrypted_wallet_payload(raw_text: str) -> bool:

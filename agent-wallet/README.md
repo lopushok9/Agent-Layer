@@ -105,12 +105,14 @@ Per-user wallets are now encrypted at rest by default. Set:
 
 - `AGENT_WALLET_MASTER_KEY` to a strong deployment secret injected via environment or secret manager
 - `AGENT_WALLET_APPROVAL_SECRET` to a separate strong deployment secret injected via environment or secret manager
+- `AGENT_WALLET_PER_USER_KEY_DERIVATION=true` to derive a unique encryption key per `user_id + network`
 - `AGENT_WALLET_ENCRYPT_USER_WALLETS=true`
 - `AGENT_WALLET_MIGRATE_PLAINTEXT_USER_WALLETS=true`
 
 Do not store `masterKey`, `privateKey`, or approval secrets in plugin config JSON or pass them via CLI arguments.
 
 If a legacy plaintext per-user wallet already exists, the helper will migrate it in place on the next successful load when a master key is available.
+If per-user key derivation is enabled, existing encrypted wallets created under the global master key are also migrated in place on the next successful load.
 
 Mainnet hardening:
 

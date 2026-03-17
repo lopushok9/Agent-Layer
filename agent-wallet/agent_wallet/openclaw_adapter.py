@@ -72,6 +72,10 @@ class OpenClawWalletAdapter:
             summary=summary,
             require_mainnet_confirmation=self._is_mainnet(),
         )
+        # Enforce single-use: reject replayed approval tokens.
+        from agent_wallet.nonce_registry import require_single_use
+
+        require_single_use(approval_token.strip())
 
     def _build_confirmation_summary(
         self,
