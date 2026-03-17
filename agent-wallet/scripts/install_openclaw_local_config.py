@@ -98,6 +98,34 @@ def _maybe_install_sealed_keys() -> str | None:
     return str(seal_keys(boot_key, {**existing, **updates}))
 
 
+def _require_hardened_runtime_secrets(backend: str) -> str | None:
+    if backend.strip().lower() in {"", "none"}:
+        return None
+
+    boot_key = os.getenv("AGENT_WALLET_BOOT_KEY", "").strip()
+    if not boot_key:
+        raise SystemExit(
+            "AGENT_WALLET_BOOT_KEY is required. Runtime secrets must be loaded from sealed_keys.json."
+        )
+
+    sealed_path = resolve_sealed_keys_path()
+    if not sealed_path.exists():
+        raise SystemExit(
+            "sealed_keys.json was not created. Provide AGENT_WALLET_MASTER_KEY and "
+            "AGENT_WALLET_APPROVAL_SECRET during install so the installer can seal them."
+        )
+
+    secrets = unseal_keys(boot_key)
+    missing = [name for name in ("master_key", "approval_secret") if not str(secrets.get(name) or "").strip()]
+    if missing:
+        raise SystemExit(
+            "sealed_keys.json is missing required runtime secrets: "
+            + ", ".join(missing)
+            + "."
+        )
+    return str(sealed_path)
+
+
 def main() -> None:
     args = build_parser().parse_args()
     config_path = Path(args.config_path).expanduser()
@@ -136,7 +164,7 @@ def main() -> None:
         ]
     if args.write_master_key:
         raise SystemExit(
-            "Refusing to write masterKey into config. Provide AGENT_WALLET_MASTER_KEY via protected environment injection instead."
+            "Refusing to write masterKey into config. Runtime secrets must live in sealed_keys.json."
         )
 
     entries[args.plugin_id] = {
@@ -152,7 +180,8 @@ def main() -> None:
 
     atomic_write_text(config_path, json.dumps(data, indent=2) + "\n", mode=0o600)
     chmod_if_exists(config_path, 0o600)
-    sealed_keys_path = _maybe_install_sealed_keys()
+    _maybe_install_sealed_keys()
+    sealed_keys_path = _require_hardened_runtime_secrets(args.backend)
 
     print(
         json.dumps(

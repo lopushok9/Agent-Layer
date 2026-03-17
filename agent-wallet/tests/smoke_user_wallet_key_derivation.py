@@ -9,8 +9,18 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agent_wallet.encrypted_storage import _derive_user_scoped_key, load_wallet_secret_material  # noqa: E402
-from agent_wallet.user_wallets import ensure_user_solana_wallet, get_user_wallet_storage_info  # noqa: E402
+from _secret_test_utils import install_test_sealed_secrets  # noqa: E402
+from agent_wallet.bootstrap import generate_solana_wallet_material  # noqa: E402
+from agent_wallet.encrypted_storage import (  # noqa: E402
+    _derive_user_scoped_key,
+    load_wallet_secret_material,
+    write_encrypted_wallet_file,
+)
+from agent_wallet.user_wallets import (  # noqa: E402
+    ensure_user_solana_wallet,
+    get_user_wallet_storage_info,
+    resolve_user_wallet_path,
+)
 from agent_wallet.wallet_layer.base import WalletBackendError  # noqa: E402
 
 
@@ -20,21 +30,31 @@ def main() -> None:
         shutil.rmtree(temp_home)
 
     raw_master_key = "test-master-key-for-user-derivation"
-    os.environ["OPENCLAW_HOME"] = str(temp_home)
-    os.environ["AGENT_WALLET_MASTER_KEY"] = raw_master_key
-    os.environ["AGENT_WALLET_ENCRYPT_USER_WALLETS"] = "true"
+    install_test_sealed_secrets(
+        temp_home,
+        boot_key="test-boot-key-for-user-derivation",
+        master_key=raw_master_key,
+    )
     os.environ["AGENT_WALLET_MIGRATE_PLAINTEXT_USER_WALLETS"] = "true"
-    os.environ["AGENT_WALLET_PER_USER_KEY_DERIVATION"] = "false"
 
-    legacy = ensure_user_solana_wallet("legacy@example.com", network="devnet")
-    legacy_path = Path(legacy["path"])
+    legacy_path = resolve_user_wallet_path("legacy@example.com", network="devnet")
+    legacy_material = generate_solana_wallet_material()
+    write_encrypted_wallet_file(
+        legacy_path,
+        legacy_material["secret_material"],
+        master_key=raw_master_key,
+        metadata={
+            "address": legacy_material["address"],
+            "user_id": "legacy@example.com",
+            "network": "devnet",
+        },
+    )
+
     original_secret, original_format = load_wallet_secret_material(legacy_path, master_key=raw_master_key)
     assert original_format == "encrypted"
-    assert legacy["key_scope"] == "global-master"
 
-    os.environ["AGENT_WALLET_PER_USER_KEY_DERIVATION"] = "true"
     migrated = ensure_user_solana_wallet("legacy@example.com", network="devnet")
-    assert migrated["address"] == legacy["address"]
+    assert migrated["address"] == legacy_material["address"]
     assert migrated["key_scope"] == "per-user-derived"
 
     derived_legacy_key = _derive_user_scoped_key(

@@ -101,17 +101,16 @@ For multi-user OpenClaw integration, use `agent_wallet.user_wallets.create_walle
 That provisions a wallet per user under:
 `~/.openclaw/users/<normalized-user-id>/wallets/solana-<network>-agent.json`
 
-Per-user wallets are now encrypted at rest by default. Set:
+Per-user wallets are now encrypted at rest in one hardened mode:
 
-- `AGENT_WALLET_BOOT_KEY` if you want `master_key`, `approval_secret`, and `private_key` to be loaded from an encrypted `sealed_keys.json` instead of plain environment variables
-- `AGENT_WALLET_MASTER_KEY` to a strong deployment secret injected via environment or secret manager
-- `AGENT_WALLET_APPROVAL_SECRET` to a separate strong deployment secret injected via environment or secret manager
-- `AGENT_WALLET_PER_USER_KEY_DERIVATION=true` to derive a unique encryption key per `user_id + network`
-- `AGENT_WALLET_ENCRYPT_USER_WALLETS=true`
-- `AGENT_WALLET_MIGRATE_PLAINTEXT_USER_WALLETS=true`
+- runtime must have `AGENT_WALLET_BOOT_KEY`
+- runtime secrets live only in `~/.openclaw/sealed_keys.json`
+- per-user HKDF derivation is always on for `user_id + network`
+- per-user wallet files are always encrypted
+- `AGENT_WALLET_MIGRATE_PLAINTEXT_USER_WALLETS=true` controls whether legacy plaintext/global-master wallets are auto-migrated on load
 
-Do not store `masterKey`, `privateKey`, or approval secrets in plugin config JSON or pass them via CLI arguments.
-When `AGENT_WALLET_BOOT_KEY` is set, the runtime will also read secrets from `~/.openclaw/sealed_keys.json` before falling back to empty defaults, while still letting direct environment variables override the sealed values for compatibility and break-glass recovery.
+Do not store `masterKey`, `privateKey`, or approval secrets in plugin config JSON or direct runtime environment variables.
+`AGENT_WALLET_MASTER_KEY`, `AGENT_WALLET_APPROVAL_SECRET`, and `SOLANA_AGENT_PRIVATE_KEY` are now provisioning-only inputs for installer/admin scripts and are rejected by the runtime.
 Create or update that sealed file with:
 
 ```bash
@@ -124,8 +123,8 @@ python scripts/install_openclaw_sealed_keys.py
 Add `SOLANA_AGENT_PRIVATE_KEY=...` as well if you want the local signer secret to live in the sealed bundle instead of plain env.
 If you already run `python scripts/install_openclaw_local_config.py` with `AGENT_WALLET_BOOT_KEY` and one or more of those secret env vars set, the installer now creates or updates `sealed_keys.json` automatically in the same pass.
 
-If a legacy plaintext per-user wallet already exists, the helper will migrate it in place on the next successful load when a master key is available.
-If per-user key derivation is enabled, existing encrypted wallets created under the global master key are also migrated in place on the next successful load.
+If a legacy plaintext per-user wallet already exists, the helper will migrate it in place on the next successful load when a sealed master key is available.
+Existing encrypted wallets created under the old global master-key mode are also migrated in place on the next successful load.
 
 Mainnet hardening:
 
@@ -229,8 +228,7 @@ Recommended devnet setup:
 
 ```bash
 AGENT_WALLET_BACKEND=solana_local
-AGENT_WALLET_MASTER_KEY=change-this-in-production
-AGENT_WALLET_APPROVAL_SECRET=change-this-too
+AGENT_WALLET_BOOT_KEY=change-this-in-production
 SOLANA_NETWORK=devnet
 SOLANA_RPC_URLS=https://api.devnet.solana.com
 SOLANA_AUTO_CREATE_WALLET=true

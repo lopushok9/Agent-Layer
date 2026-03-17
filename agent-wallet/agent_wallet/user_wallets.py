@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import hashlib
-import logging
 import re
 from pathlib import Path
 
 from agent_wallet.bootstrap import (
-    create_solana_wallet_file,
     ensure_wallet_pin,
     generate_solana_wallet_material,
     load_wallet_pin,
@@ -16,13 +14,11 @@ from agent_wallet.bootstrap import (
 )
 from agent_wallet.config import (
     allow_plaintext_user_wallet_migration,
-    require_encrypted_mainnet,
     resolve_openclaw_home,
     resolve_solana_rpc_urls,
     resolve_wallet_master_key,
     settings,
     use_per_user_key_derivation,
-    use_encrypted_user_wallets,
 )
 from agent_wallet.encrypted_storage import (
     _derive_user_scoped_key,
@@ -76,7 +72,7 @@ def _resolve_user_wallet_master_key(
     )
     if not effective_master_key:
         raise WalletBackendError(
-            "AGENT_WALLET_MASTER_KEY is required for encrypted per-user wallets."
+            "Encrypted per-user wallets require AGENT_WALLET_BOOT_KEY and a sealed master_key in sealed_keys.json."
         )
     if use_per_user_key_derivation():
         return _derive_user_scoped_key(
@@ -143,7 +139,7 @@ def _load_user_wallet_secret_material(
     if last_exc is not None:
         raise last_exc
     raise WalletBackendError(
-        "AGENT_WALLET_MASTER_KEY is required for encrypted per-user wallets."
+        "Encrypted per-user wallets require AGENT_WALLET_BOOT_KEY and a sealed master_key in sealed_keys.json."
     )
 
 
@@ -159,20 +155,23 @@ def ensure_user_solana_wallet(user_id: str, network: str | None = None) -> dict[
         )
         signer = SolanaLocalKeypairSigner.from_secret_material(secret_material)
         ensure_wallet_pin(path, address=signer.address, network=effective_network)
-        if storage_format == "plaintext" and use_encrypted_user_wallets():
-            if resolve_wallet_master_key() and allow_plaintext_user_wallet_migration():
-                write_encrypted_wallet_file(
-                    path,
-                    secret_material,
-                    master_key=_resolve_user_wallet_master_key(user_id, effective_network),
-                    metadata=_user_wallet_metadata(user_id, signer.address, network=effective_network),
+        if storage_format == "plaintext":
+            if not allow_plaintext_user_wallet_migration():
+                raise WalletBackendError(
+                    "Legacy plaintext user wallet files are no longer allowed. "
+                    "Enable migration and provide a sealed master_key to upgrade them."
                 )
-                storage_format = "encrypted"
-                key_scope = "per-user-derived" if use_per_user_key_derivation() else "global-master"
+            write_encrypted_wallet_file(
+                path,
+                secret_material,
+                master_key=_resolve_user_wallet_master_key(user_id, effective_network),
+                metadata=_user_wallet_metadata(user_id, signer.address, network=effective_network),
+            )
+            storage_format = "encrypted"
+            key_scope = "per-user-derived"
         elif (
             storage_format == "encrypted"
             and key_scope == "global-master"
-            and use_per_user_key_derivation()
             and allow_plaintext_user_wallet_migration()
         ):
             write_encrypted_wallet_file(
@@ -192,44 +191,20 @@ def ensure_user_solana_wallet(user_id: str, network: str | None = None) -> dict[
 
     refuse_recreation_if_pinned(path, network=effective_network)
 
-    if use_encrypted_user_wallets():
-        material = generate_solana_wallet_material()
-        write_encrypted_wallet_file(
-            path,
-            material["secret_material"],
-            master_key=_resolve_user_wallet_master_key(user_id, effective_network),
-            metadata=_user_wallet_metadata(user_id, material["address"], network=effective_network),
-        )
-        ensure_wallet_pin(path, address=material["address"], network=effective_network)
-        return {
-            "user_id": user_id,
-            "address": material["address"],
-            "path": str(path),
-            "storage_format": "encrypted",
-            "key_scope": "per-user-derived" if use_per_user_key_derivation() else "global-master",
-        }
-
-    # -- Plaintext fallback (encryption disabled or master key absent) --
-    if effective_network == "mainnet" and require_encrypted_mainnet():
-        raise WalletBackendError(
-            "Plaintext wallet storage is not allowed on mainnet. "
-            "Set AGENT_WALLET_MASTER_KEY to enable encrypted storage."
-        )
-    logger = logging.getLogger(__name__)
-    logger.warning(
-        "Creating plaintext wallet for user '%s' on %s. "
-        "Set AGENT_WALLET_MASTER_KEY for encrypted storage.",
-        user_id,
-        effective_network,
+    material = generate_solana_wallet_material()
+    write_encrypted_wallet_file(
+        path,
+        material["secret_material"],
+        master_key=_resolve_user_wallet_master_key(user_id, effective_network),
+        metadata=_user_wallet_metadata(user_id, material["address"], network=effective_network),
     )
-    created = create_solana_wallet_file(path)
-    ensure_wallet_pin(path, address=created["address"], network=effective_network)
+    ensure_wallet_pin(path, address=material["address"], network=effective_network)
     return {
         "user_id": user_id,
-        "address": created["address"],
-        "path": created["path"],
-        "storage_format": "plaintext",
-        "key_scope": "plaintext",
+        "address": material["address"],
+        "path": str(path),
+        "storage_format": "encrypted",
+        "key_scope": "per-user-derived",
     }
 
 

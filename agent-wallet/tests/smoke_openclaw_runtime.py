@@ -9,6 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from _secret_test_utils import install_test_sealed_secrets  # noqa: E402
 from agent_wallet.openclaw_runtime import onboard_openclaw_user_wallet  # noqa: E402
 
 
@@ -16,9 +17,11 @@ def main() -> None:
     temp_home = Path("/tmp/openclaw-runtime-wallet-smoke")
     if temp_home.exists():
         shutil.rmtree(temp_home)
-    os.environ["OPENCLAW_HOME"] = str(temp_home)
-    os.environ["AGENT_WALLET_MASTER_KEY"] = "test-master-key-for-runtime-smoke"
-    os.environ["AGENT_WALLET_ENCRYPT_USER_WALLETS"] = "true"
+    install_test_sealed_secrets(
+        temp_home,
+        boot_key="test-boot-key-for-runtime-smoke",
+        master_key="test-master-key-for-runtime-smoke",
+    )
     os.environ["AGENT_WALLET_MIGRATE_PLAINTEXT_USER_WALLETS"] = "true"
 
     first = onboard_openclaw_user_wallet(

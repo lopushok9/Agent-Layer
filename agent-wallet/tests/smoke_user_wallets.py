@@ -9,6 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from _secret_test_utils import install_test_sealed_secrets  # noqa: E402
 from agent_wallet.bootstrap import create_solana_wallet_file  # noqa: E402
 from agent_wallet.encrypted_storage import is_encrypted_wallet_payload  # noqa: E402
 from agent_wallet.user_wallets import (  # noqa: E402
@@ -24,9 +25,11 @@ def main() -> None:
     temp_home = Path("/tmp/openclaw-user-wallet-smoke")
     if temp_home.exists():
         shutil.rmtree(temp_home)
-    os.environ["OPENCLAW_HOME"] = str(temp_home)
-    os.environ["AGENT_WALLET_MASTER_KEY"] = "test-master-key-for-smoke-user-wallets"
-    os.environ["AGENT_WALLET_ENCRYPT_USER_WALLETS"] = "true"
+    install_test_sealed_secrets(
+        temp_home,
+        boot_key="test-boot-key-for-smoke-user-wallets",
+        master_key="test-master-key-for-smoke-user-wallets",
+    )
     os.environ["AGENT_WALLET_MIGRATE_PLAINTEXT_USER_WALLETS"] = "true"
 
     first = ensure_user_solana_wallet("alice@example.com", network="devnet")

@@ -9,6 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from _secret_test_utils import install_test_sealed_secrets
 from agent_wallet.approval import issue_approval_token
 from agent_wallet.openclaw_adapter import OpenClawWalletAdapter
 from agent_wallet.plugin_bundle import build_openclaw_plugin_bundle
@@ -928,7 +929,11 @@ def _issue_execute_approval(
 
 
 async def main() -> None:
-    os.environ["AGENT_WALLET_APPROVAL_SECRET"] = "smoke-approval-secret"
+    install_test_sealed_secrets(
+        Path("/tmp/openclaw-adapter-smoke"),
+        boot_key="test-boot-key-for-openclaw-adapter-smoke",
+        approval_secret="smoke-approval-secret",
+    )
     adapter = OpenClawWalletAdapter(FakeBackend())
     bundle = build_openclaw_plugin_bundle(FakeBackend())
     tool_names = {tool.name for tool in adapter.list_tools()}

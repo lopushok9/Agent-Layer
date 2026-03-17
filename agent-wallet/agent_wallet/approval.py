@@ -37,7 +37,7 @@ def _approval_secret() -> str:
     secret = resolve_approval_secret().strip()
     if not secret:
         raise WalletBackendError(
-            "AGENT_WALLET_APPROVAL_SECRET is required for execute mode. "
+            "Execute mode requires AGENT_WALLET_BOOT_KEY and a sealed approval_secret. "
             "The host must issue approval tokens after explicit user confirmation."
         )
     return secret

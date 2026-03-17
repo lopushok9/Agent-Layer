@@ -10,10 +10,8 @@ class Settings(BaseSettings):
     agent_wallet_backend: str = "none"
     agent_wallet_sign_only: bool = False
     agent_wallet_boot_key: str = ""
-    agent_wallet_master_key: str = ""
-    agent_wallet_approval_secret: str = ""
     agent_wallet_approval_ttl_seconds: int = 600
-    agent_wallet_per_user_key_derivation: bool = False
+    agent_wallet_per_user_key_derivation: bool = True
     agent_wallet_encrypt_user_wallets: bool = True
     agent_wallet_migrate_plaintext_user_wallets: bool = True
     agent_wallet_refuse_mainnet_wallet_recreation: bool = True
@@ -29,7 +27,6 @@ class Settings(BaseSettings):
     solana_commitment: str = "confirmed"
     solana_auto_create_wallet: bool = False
     solana_agent_public_key: str = ""
-    solana_agent_private_key: str = ""
     solana_agent_keypair_path: str = ""
 
     jupiter_api_base_url: str = "https://lite-api.jup.ag/swap/v1"
@@ -106,6 +103,18 @@ def resolve_boot_key() -> str:
     return os.getenv("AGENT_WALLET_BOOT_KEY", settings.agent_wallet_boot_key).strip()
 
 
+def _reject_legacy_runtime_secret_env(var_name: str) -> None:
+    raw = os.getenv(var_name, "").strip()
+    if not raw:
+        return
+    from agent_wallet.wallet_layer.base import WalletBackendError
+
+    raise WalletBackendError(
+        f"{var_name} is no longer supported for runtime secret loading. "
+        "Store runtime secrets in ~/.openclaw/sealed_keys.json and provide AGENT_WALLET_BOOT_KEY instead."
+    )
+
+
 def _resolve_sealed_secret(*names: str) -> str:
     boot_key = resolve_boot_key()
     if not boot_key:
@@ -122,25 +131,19 @@ def _resolve_sealed_secret(*names: str) -> str:
 
 def resolve_wallet_master_key() -> str:
     """Resolve the master key used for encrypting per-user wallet files."""
-    direct = os.getenv("AGENT_WALLET_MASTER_KEY", settings.agent_wallet_master_key).strip()
-    if direct:
-        return direct
+    _reject_legacy_runtime_secret_env("AGENT_WALLET_MASTER_KEY")
     return _resolve_sealed_secret("master_key", "masterKey")
 
 
 def resolve_approval_secret() -> str:
     """Resolve the secret used for host-issued approval tokens."""
-    direct = os.getenv("AGENT_WALLET_APPROVAL_SECRET", settings.agent_wallet_approval_secret).strip()
-    if direct:
-        return direct
+    _reject_legacy_runtime_secret_env("AGENT_WALLET_APPROVAL_SECRET")
     return _resolve_sealed_secret("approval_secret", "approvalSecret")
 
 
 def resolve_solana_private_key() -> str:
     """Resolve the Solana signing key from env/config or the sealed secret store."""
-    direct = os.getenv("SOLANA_AGENT_PRIVATE_KEY", settings.solana_agent_private_key).strip()
-    if direct:
-        return direct
+    _reject_legacy_runtime_secret_env("SOLANA_AGENT_PRIVATE_KEY")
     return _resolve_sealed_secret(
         "solana_agent_private_key",
         "private_key",
@@ -149,11 +152,8 @@ def resolve_solana_private_key() -> str:
 
 
 def use_encrypted_user_wallets() -> bool:
-    """Return whether newly created per-user wallet files should be encrypted."""
-    return _env_bool(
-        "AGENT_WALLET_ENCRYPT_USER_WALLETS",
-        settings.agent_wallet_encrypt_user_wallets,
-    )
+    """Per-user wallet files are always encrypted in the hardened runtime."""
+    return True
 
 
 def allow_plaintext_user_wallet_migration() -> bool:
@@ -165,11 +165,8 @@ def allow_plaintext_user_wallet_migration() -> bool:
 
 
 def use_per_user_key_derivation() -> bool:
-    """Return whether per-user wallet encryption keys are derived from the master key."""
-    return _env_bool(
-        "AGENT_WALLET_PER_USER_KEY_DERIVATION",
-        settings.agent_wallet_per_user_key_derivation,
-    )
+    """Per-user wallet encryption keys are always derived from the master key."""
+    return True
 
 
 def refuse_mainnet_wallet_recreation() -> bool:

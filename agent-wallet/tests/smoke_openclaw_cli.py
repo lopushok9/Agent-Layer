@@ -9,6 +9,9 @@ import sys
 from pathlib import Path
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PACKAGE_ROOT))
+
+from _secret_test_utils import install_test_sealed_secrets  # noqa: E402
 
 
 def _run(*args: str) -> dict:
@@ -26,14 +29,17 @@ def _run(*args: str) -> dict:
 
 def main() -> None:
     temp_home = Path("/tmp/openclaw-cli-wallet-smoke")
-    os.environ["OPENCLAW_HOME"] = str(temp_home)
+    install_test_sealed_secrets(
+        temp_home,
+        boot_key="test-boot-key-for-cli-smoke",
+        master_key="test-master-key-for-cli-smoke",
+    )
 
     config = {
         "backend": "solana_local",
         "network": "devnet",
         "rpcUrls": ["https://primary.devnet.invalid", "https://api.devnet.solana.com"],
         "signOnly": False,
-        "masterKey": "test-master-key-for-cli-smoke",
         "encryptUserWallets": True,
         "migratePlaintextUserWallets": True,
     }

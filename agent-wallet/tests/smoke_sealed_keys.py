@@ -18,6 +18,7 @@ from agent_wallet.config import (  # noqa: E402
     settings,
 )
 from agent_wallet.sealed_keys import resolve_sealed_keys_path, seal_keys  # noqa: E402
+from agent_wallet.wallet_layer.base import WalletBackendError  # noqa: E402
 from agent_wallet.wallet_layer.factory import create_wallet_backend  # noqa: E402
 
 
@@ -47,9 +48,6 @@ def main() -> None:
     assert mode == 0o600, oct(mode)
 
     settings.agent_wallet_boot_key = ""
-    settings.agent_wallet_master_key = ""
-    settings.agent_wallet_approval_secret = ""
-    settings.solana_agent_private_key = ""
 
     assert resolve_wallet_master_key() == "sealed-master-key"
     assert resolve_approval_secret() == "sealed-approval-secret"
@@ -58,9 +56,17 @@ def main() -> None:
     os.environ["AGENT_WALLET_MASTER_KEY"] = "direct-master-key"
     os.environ["AGENT_WALLET_APPROVAL_SECRET"] = "direct-approval-secret"
     os.environ["SOLANA_AGENT_PRIVATE_KEY"] = "direct-private-key"
-    assert resolve_wallet_master_key() == "direct-master-key"
-    assert resolve_approval_secret() == "direct-approval-secret"
-    assert resolve_solana_private_key() == "direct-private-key"
+    for resolver in (
+        resolve_wallet_master_key,
+        resolve_approval_secret,
+        resolve_solana_private_key,
+    ):
+        try:
+            resolver()
+        except WalletBackendError as exc:
+            assert "no longer supported for runtime secret loading" in str(exc)
+        else:
+            raise AssertionError("Expected legacy runtime env secret to be rejected.")
     os.environ.pop("AGENT_WALLET_MASTER_KEY", None)
     os.environ.pop("AGENT_WALLET_APPROVAL_SECRET", None)
     os.environ.pop("SOLANA_AGENT_PRIVATE_KEY", None)
@@ -72,7 +78,6 @@ def main() -> None:
     settings.solana_rpc_urls = "https://api.devnet.solana.com"
     settings.solana_commitment = "confirmed"
     settings.solana_agent_public_key = material["address"]
-    settings.solana_agent_private_key = ""
     settings.solana_agent_keypair_path = ""
     settings.solana_auto_create_wallet = False
 

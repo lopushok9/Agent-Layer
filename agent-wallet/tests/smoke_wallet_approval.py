@@ -9,6 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from _secret_test_utils import install_test_sealed_secrets  # noqa: E402
 from agent_wallet.approval import issue_approval_token
 from agent_wallet.openclaw_adapter import OpenClawWalletAdapter
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletCapabilities
@@ -61,7 +62,11 @@ class FakeBackend(AgentWalletBackend):
 
 
 async def main() -> None:
-    os.environ["AGENT_WALLET_APPROVAL_SECRET"] = "smoke-approval-secret"
+    install_test_sealed_secrets(
+        Path("/tmp/openclaw-wallet-approval-smoke"),
+        boot_key="test-boot-key-for-wallet-approval-smoke",
+        approval_secret="smoke-approval-secret",
+    )
     adapter = OpenClawWalletAdapter(FakeBackend())
 
     preview = await adapter.invoke(

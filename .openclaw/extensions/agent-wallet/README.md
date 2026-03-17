@@ -47,7 +47,7 @@ Recommended config:
 }
 ```
 
-Inject sensitive values like `AGENT_WALLET_MASTER_KEY`, `AGENT_WALLET_APPROVAL_SECRET`, or any signer private key via protected environment variables, not `openclaw.json`.
+Provide only `AGENT_WALLET_BOOT_KEY` to the runtime. Provision `master_key`, `approval_secret`, and any signer `private_key` into `sealed_keys.json`, not `openclaw.json`.
 
 Important:
 

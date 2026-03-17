@@ -31,7 +31,7 @@ def _load_secretbox():
 def _derive_key(master_key: str, salt: bytes) -> bytes:
     if not master_key.strip():
         raise WalletBackendError(
-            "AGENT_WALLET_MASTER_KEY is required for encrypted user wallet storage."
+            "Encrypted wallet storage requires AGENT_WALLET_BOOT_KEY and a sealed master_key."
         )
     pwhash, secret, _ = _load_secretbox()
     return pwhash.argon2id.kdf(
@@ -52,7 +52,7 @@ def _derive_user_scoped_key(
     """Derive a deterministic per-user key from the global master key."""
     if not master_key.strip():
         raise WalletBackendError(
-            "AGENT_WALLET_MASTER_KEY is required for encrypted user wallet storage."
+            "Encrypted wallet storage requires AGENT_WALLET_BOOT_KEY and a sealed master_key."
         )
     normalized_network = network.strip().lower() or "mainnet"
     prk = hmac.new(USER_SCOPED_KEY_SALT, master_key.encode("utf-8"), hashlib.sha256).digest()

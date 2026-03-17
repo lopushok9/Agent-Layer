@@ -6,10 +6,14 @@ import argparse
 import json
 import os
 import secrets
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from agent_wallet.file_ops import atomic_write_text, chmod_if_exists
+from agent_wallet.sealed_keys import resolve_sealed_keys_path, seal_keys, unseal_keys
 from agent_wallet.user_wallets import resolve_user_wallet_path, rotate_user_wallet_encryption
 from security_utils import write_redacted_backup
 
@@ -51,10 +55,18 @@ def main() -> None:
     existing_master_key = str(plugin_config.get("masterKey") or "").strip()
     if existing_master_key:
         raise SystemExit(
-            "masterKey stored in config is no longer supported. Remove it and supply AGENT_WALLET_MASTER_KEY via protected environment injection."
+            "masterKey stored in config is no longer supported. Remove it and keep runtime secrets in sealed_keys.json."
         )
 
+    boot_key = os.getenv("AGENT_WALLET_BOOT_KEY", "").strip()
+    if not boot_key:
+        raise SystemExit("AGENT_WALLET_BOOT_KEY is required.")
+
+    sealed_keys_path = resolve_sealed_keys_path()
+    sealed_secrets = unseal_keys(boot_key) if sealed_keys_path.exists() else {}
     current_master_key = args.current_master_key.strip() or os.getenv("AGENT_WALLET_CURRENT_MASTER_KEY", "").strip()
+    if not current_master_key:
+        current_master_key = str(sealed_secrets.get("master_key") or "").strip()
     new_master_key_arg = args.new_master_key.strip() or os.getenv("AGENT_WALLET_NEW_MASTER_KEY", "").strip()
     if args.current_master_key.strip() or args.new_master_key.strip():
         raise SystemExit(
@@ -86,6 +98,7 @@ def main() -> None:
     plugin_config.pop("masterKey", None)
     atomic_write_text(config_path, json.dumps(data, indent=2) + "\n", mode=0o600)
     chmod_if_exists(config_path, 0o600)
+    seal_keys(boot_key, {**sealed_secrets, "master_key": new_master_key})
 
     print(
         json.dumps(
@@ -97,6 +110,7 @@ def main() -> None:
                 "rotated_wallet": rotated_wallet,
                 "user_id": user_id,
                 "network": network,
+                "sealed_keys_path": str(resolve_sealed_keys_path()),
             },
             indent=2,
         )
