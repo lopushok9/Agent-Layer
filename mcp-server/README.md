@@ -120,6 +120,8 @@ The server will write them to `/tmp/turnkey/...` at runtime and pass proper fold
 
 Important: these values must be raw hex keys expected by `tkcli` key files (optionally `0x`-prefixed), not PEM blocks.
 
+If `agent-wallet` is deployed in the same Railway service or process environment, it can reuse the same `ALCHEMY_API_KEY` already configured here. In that case you do not need to set `SOLANA_RPC_URL` manually for the wallet runtime unless you want a custom primary/failover list.
+
 ## Connect to Claude Desktop
 
 Add to `claude_desktop_config.json`:

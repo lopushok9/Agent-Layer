@@ -37,43 +37,53 @@ def _reject_secret_config_json(config: dict[str, Any]) -> None:
 
 def _apply_config_overrides(config: dict[str, Any]) -> None:
     _reject_secret_config_json(config)
-    env_map: dict[str, tuple[str, Any]] = {
-        "backend": ("AGENT_WALLET_BACKEND", config.get("backend")),
-        "signOnly": ("AGENT_WALLET_SIGN_ONLY", _parse_bool(config.get("signOnly"))),
-        "network": ("SOLANA_NETWORK", config.get("network")),
-        "rpcUrl": ("SOLANA_RPC_URL", config.get("rpcUrl")),
-        "rpcUrls": ("SOLANA_RPC_URLS", _parse_csv(config.get("rpcUrls"))),
-        "publicKey": ("SOLANA_AGENT_PUBLIC_KEY", config.get("publicKey")),
-        "keypairPath": ("SOLANA_AGENT_KEYPAIR_PATH", config.get("keypairPath")),
-        "autoCreateWallet": ("SOLANA_AUTO_CREATE_WALLET", _parse_bool(config.get("autoCreateWallet"))),
+    rpc_env_locked = bool(os.getenv("SOLANA_RPC_URL", "").strip() or os.getenv("SOLANA_RPC_URLS", "").strip())
+    env_map: dict[str, tuple[str, Any, bool]] = {
+        "backend": ("AGENT_WALLET_BACKEND", config.get("backend"), True),
+        "signOnly": ("AGENT_WALLET_SIGN_ONLY", _parse_bool(config.get("signOnly")), True),
+        "network": ("SOLANA_NETWORK", config.get("network"), True),
+        # Deployment-owned RPC env must win over plugin config.
+        "rpcUrl": ("SOLANA_RPC_URL", config.get("rpcUrl"), False),
+        "rpcUrls": ("SOLANA_RPC_URLS", _parse_csv(config.get("rpcUrls")), False),
+        "publicKey": ("SOLANA_AGENT_PUBLIC_KEY", config.get("publicKey"), True),
+        "keypairPath": ("SOLANA_AGENT_KEYPAIR_PATH", config.get("keypairPath"), True),
+        "autoCreateWallet": ("SOLANA_AUTO_CREATE_WALLET", _parse_bool(config.get("autoCreateWallet")), True),
         "encryptUserWallets": (
             "AGENT_WALLET_ENCRYPT_USER_WALLETS",
             _parse_bool(config.get("encryptUserWallets")),
+            True,
         ),
         "migratePlaintextUserWallets": (
             "AGENT_WALLET_MIGRATE_PLAINTEXT_USER_WALLETS",
             _parse_bool(config.get("migratePlaintextUserWallets")),
+            True,
         ),
         "refuseMainnetWalletRecreation": (
             "AGENT_WALLET_REFUSE_MAINNET_WALLET_RECREATION",
             _parse_bool(config.get("refuseMainnetWalletRecreation")),
+            True,
         ),
-        "openclawHome": ("OPENCLAW_HOME", config.get("openclawHome")),
-        "jupiterBaseUrl": ("JUPITER_API_BASE_URL", config.get("jupiterBaseUrl")),
-        "jupiterUltraBaseUrl": ("JUPITER_ULTRA_API_BASE_URL", config.get("jupiterUltraBaseUrl")),
-        "jupiterPriceBaseUrl": ("JUPITER_PRICE_API_BASE_URL", config.get("jupiterPriceBaseUrl")),
+        "openclawHome": ("OPENCLAW_HOME", config.get("openclawHome"), True),
+        "jupiterBaseUrl": ("JUPITER_API_BASE_URL", config.get("jupiterBaseUrl"), True),
+        "jupiterUltraBaseUrl": ("JUPITER_ULTRA_API_BASE_URL", config.get("jupiterUltraBaseUrl"), True),
+        "jupiterPriceBaseUrl": ("JUPITER_PRICE_API_BASE_URL", config.get("jupiterPriceBaseUrl"), True),
         "jupiterPortfolioBaseUrl": (
             "JUPITER_PORTFOLIO_API_BASE_URL",
             config.get("jupiterPortfolioBaseUrl"),
+            True,
         ),
-        "jupiterLendBaseUrl": ("JUPITER_LEND_API_BASE_URL", config.get("jupiterLendBaseUrl")),
-        "jupiterApiKey": ("JUPITER_API_KEY", config.get("jupiterApiKey")),
+        "jupiterLendBaseUrl": ("JUPITER_LEND_API_BASE_URL", config.get("jupiterLendBaseUrl"), True),
+        "jupiterApiKey": ("JUPITER_API_KEY", config.get("jupiterApiKey"), True),
     }
-    for _, (env_name, value) in env_map.items():
+    for _, (env_name, value, allow_override) in env_map.items():
         if value is None:
             continue
         text = str(value).strip()
         if not text:
+            continue
+        if env_name in {"SOLANA_RPC_URL", "SOLANA_RPC_URLS"} and rpc_env_locked:
+            continue
+        if not allow_override and os.getenv(env_name, "").strip():
             continue
         os.environ[env_name] = text
 

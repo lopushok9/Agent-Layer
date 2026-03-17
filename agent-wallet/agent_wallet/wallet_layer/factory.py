@@ -6,7 +6,11 @@ from pathlib import Path
 
 from agent_wallet.bootstrap import ensure_solana_wallet_ready, ensure_wallet_pin
 from agent_wallet.encrypted_storage import load_wallet_secret_material
-from agent_wallet.config import resolve_solana_private_key, resolve_solana_rpc_urls, settings
+from agent_wallet.config import (
+    resolve_runtime_solana_rpc_urls,
+    resolve_solana_private_key,
+    settings,
+)
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendError
 from agent_wallet.wallet_layer.solana import SolanaLocalKeypairSigner, SolanaWalletBackend
 
@@ -52,7 +56,7 @@ def create_wallet_backend() -> AgentWalletBackend | None:
             )
         configured_address = settings.solana_agent_public_key.strip() or None
         return SolanaWalletBackend(
-            rpc_url=resolve_solana_rpc_urls(
+            rpc_url=resolve_runtime_solana_rpc_urls(
                 settings.solana_network,
                 settings.solana_rpc_url,
                 settings.solana_rpc_urls,

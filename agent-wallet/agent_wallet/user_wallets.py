@@ -15,7 +15,7 @@ from agent_wallet.bootstrap import (
 from agent_wallet.config import (
     allow_plaintext_user_wallet_migration,
     resolve_openclaw_home,
-    resolve_solana_rpc_urls,
+    resolve_runtime_solana_rpc_urls,
     resolve_wallet_master_key,
     settings,
     use_per_user_key_derivation,
@@ -334,7 +334,7 @@ def create_wallet_backend_for_user(
     )
     signer = SolanaLocalKeypairSigner.from_secret_material(secret_material)
     return SolanaWalletBackend(
-        rpc_url=resolve_solana_rpc_urls(
+        rpc_url=resolve_runtime_solana_rpc_urls(
             effective_network,
             rpc_url or settings.solana_rpc_url,
             settings.solana_rpc_urls,

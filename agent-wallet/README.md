@@ -89,6 +89,29 @@ For production `mainnet`, prefer a dedicated RPC instead of the public Solana en
 
 - `SOLANA_RPC_URL` for one primary endpoint
 - `SOLANA_RPC_URLS` as a comma-separated ordered failover list
+- or just `ALCHEMY_API_KEY` / `HELIUS_API_KEY`, which auto-derive a primary Solana RPC for `mainnet` or `devnet`
+
+Production recommendation: treat RPC as deployment-owned config, not wallet logic. Runtime env wins over `openclaw.json` plugin config, so keep `Alchemy/Helius/QuickNode` endpoints in deployment secrets or service env and use plugin `rpcUrl` / `rpcUrls` only as local fallback.
+
+For a self-hosted install where each operator brings their own RPC key, a minimal Solana setup can be just:
+
+```bash
+AGENT_WALLET_BOOT_KEY=...
+ALCHEMY_API_KEY=...
+# or
+HELIUS_API_KEY=...
+```
+
+In that mode, `agent-wallet` will auto-resolve:
+
+- `mainnet` -> `https://solana-mainnet.g.alchemy.com/v2/<ALCHEMY_API_KEY>`
+- `devnet` -> `https://solana-devnet.g.alchemy.com/v2/<ALCHEMY_API_KEY>`
+- `mainnet` -> `https://mainnet.helius-rpc.com/?api-key=<HELIUS_API_KEY>`
+- `devnet` -> `https://devnet.helius-rpc.com/?api-key=<HELIUS_API_KEY>`
+
+and still append the official Solana endpoint as fallback.
+
+For OpenClaw self-hosting, this means users can keep their own Alchemy/Helius key locally in `.env` or shell env. Nothing needs to be proxied or hosted by us.
 
 For OpenClaw install/runtime, the intended creation flow is:
 
@@ -169,7 +192,7 @@ Useful flags:
 
 - `--show-only` shows which wallet path will be used without changing config
 - `--sign-only` or `--no-sign-only` updates the execution mode together with the network
-- `--rpc-url` overrides the RPC endpoint for the selected network
+- `--rpc-url` updates the local fallback RPC endpoint for the selected network
 
 ## Jupiter coverage
 

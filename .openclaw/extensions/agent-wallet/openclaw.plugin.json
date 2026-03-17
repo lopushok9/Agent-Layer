@@ -22,12 +22,12 @@
       },
       "rpcUrl": {
         "type": "string",
-        "description": "Optional Solana RPC URL override."
+        "description": "Optional local fallback Solana RPC URL. Deployment env SOLANA_RPC_URL wins if set."
       },
       "rpcUrls": {
         "type": "array",
         "items": { "type": "string" },
-        "description": "Optional ordered list of Solana RPC URLs for automatic failover."
+        "description": "Optional local fallback ordered list of Solana RPC URLs. Deployment env SOLANA_RPC_URLS wins if set."
       },
       "publicKey": {
         "type": "string",

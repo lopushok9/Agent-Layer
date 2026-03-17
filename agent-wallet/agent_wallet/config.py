@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     jupiter_portfolio_api_base_url: str = "https://api.jup.ag/portfolio/v1"
     jupiter_lend_api_base_url: str = "https://api.jup.ag/lend/v1"
     jupiter_api_key: str = ""
+    alchemy_api_key: str = ""
+    helius_api_key: str = ""
 
     http_timeout: float = 10.0
 
@@ -89,6 +91,55 @@ def resolve_solana_rpc_urls(
         candidates.append(official)
 
     return candidates
+
+
+def resolve_runtime_solana_rpc_urls(
+    network: str,
+    configured: str,
+    configured_list: str = "",
+) -> list[str]:
+    """Resolve Solana RPC URLs with deployment env taking precedence over plugin config."""
+    env_primary = os.getenv("SOLANA_RPC_URL", "").strip()
+    env_list = os.getenv("SOLANA_RPC_URLS", "").strip()
+    if env_primary:
+        return resolve_solana_rpc_urls(
+            network,
+            env_primary,
+            env_list,
+        )
+    if env_list:
+        official = resolve_solana_rpc_url(network, "")
+        candidates = [item.strip() for item in env_list.split(",") if item.strip()]
+        if official and official not in candidates:
+            candidates.append(official)
+        return candidates
+    alchemy_key = os.getenv("ALCHEMY_API_KEY", settings.alchemy_api_key).strip()
+    if alchemy_key:
+        alchemy_base_by_network = {
+            "mainnet": "https://solana-mainnet.g.alchemy.com/v2",
+            "devnet": "https://solana-devnet.g.alchemy.com/v2",
+        }
+        alchemy_base = alchemy_base_by_network.get(network.strip().lower())
+        if alchemy_base:
+            return resolve_solana_rpc_urls(
+                network,
+                f"{alchemy_base}/{alchemy_key}",
+                "",
+            )
+    helius_key = os.getenv("HELIUS_API_KEY", settings.helius_api_key).strip()
+    if helius_key:
+        helius_base_by_network = {
+            "mainnet": "https://mainnet.helius-rpc.com/",
+            "devnet": "https://devnet.helius-rpc.com/",
+        }
+        helius_base = helius_base_by_network.get(network.strip().lower())
+        if helius_base:
+            return resolve_solana_rpc_urls(
+                network,
+                f"{helius_base}?api-key={helius_key}",
+                "",
+            )
+    return resolve_solana_rpc_urls(network, configured, configured_list)
 
 
 def _env_bool(name: str, default: bool) -> bool:

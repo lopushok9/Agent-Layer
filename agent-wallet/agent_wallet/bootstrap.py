@@ -156,21 +156,22 @@ def describe_bootstrap() -> dict[str, str | bool]:
     from agent_wallet.config import (
         default_solana_wallet_path,
         resolve_solana_rpc_url,
-        resolve_solana_rpc_urls,
+        resolve_runtime_solana_rpc_urls,
         settings,
     )
 
     configured_path = settings.solana_agent_keypair_path.strip()
     path = Path(configured_path).expanduser() if configured_path else default_solana_wallet_path(settings.solana_network)
+    rpc_urls = resolve_runtime_solana_rpc_urls(
+        settings.solana_network,
+        settings.solana_rpc_url,
+        settings.solana_rpc_urls,
+    )
     return {
         "backend": settings.agent_wallet_backend,
         "network": settings.solana_network,
-        "rpc_url": resolve_solana_rpc_url(settings.solana_network, settings.solana_rpc_url),
-        "rpc_urls": resolve_solana_rpc_urls(
-            settings.solana_network,
-            settings.solana_rpc_url,
-            settings.solana_rpc_urls,
-        ),
+        "rpc_url": rpc_urls[0] if rpc_urls else resolve_solana_rpc_url(settings.solana_network, ""),
+        "rpc_urls": rpc_urls,
         "auto_create_wallet": settings.solana_auto_create_wallet,
         "keypair_path": str(path),
         "sign_only": settings.agent_wallet_sign_only,

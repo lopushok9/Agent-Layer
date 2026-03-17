@@ -47,6 +47,8 @@ Recommended config:
 }
 ```
 
+For self-hosted installs, prefer `SOLANA_RPC_URL` / `SOLANA_RPC_URLS` in local env and treat the plugin `rpcUrl` / `rpcUrls` fields as fallback only. If the local runtime exposes `ALCHEMY_API_KEY` or `HELIUS_API_KEY`, the wallet can derive the Solana RPC URL automatically for `mainnet` or `devnet`. Local env always takes precedence over `openclaw.json`.
+
 Provide only `AGENT_WALLET_BOOT_KEY` to the runtime. Provision `master_key`, `approval_secret`, and any signer `private_key` into `sealed_keys.json`, not `openclaw.json`.
 
 Important:
