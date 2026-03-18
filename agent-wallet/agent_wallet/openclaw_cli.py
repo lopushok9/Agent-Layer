@@ -17,6 +17,8 @@ def _parse_bool(value: Any) -> str:
 
 
 def _parse_csv(value: Any) -> str:
+    if value is None:
+        return ""
     if isinstance(value, list):
         return ",".join(str(item).strip() for item in value if str(item).strip())
     return str(value).strip()
