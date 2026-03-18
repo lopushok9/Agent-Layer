@@ -75,6 +75,30 @@ cd agent-wallet
 pip install -e .
 ```
 
+If you want a simpler local setup flow, use the installer:
+
+```bash
+python3 scripts/install_agent_wallet.py
+```
+
+If you already use a local coding agent on the same machine, it can run this installer for you. You can simply ask the agent to install the wallet, and it can perform the file setup, Python setup, and OpenClaw config patching steps automatically.
+
+By default it will:
+
+- create `.env` from `.env.example` if missing
+- create `.venv` and install `agent-wallet` into it
+- create a minimal `~/.openclaw/openclaw.json` if needed
+- run `install_openclaw_local_config.py` automatically when the required secret env vars are already present
+- otherwise return a JSON summary with `pending_env` and the exact next configure command
+
+The boundary stays the same: the operator must still provide the root secrets. The installer may be executed by an agent, but `AGENT_WALLET_BOOT_KEY`, `AGENT_WALLET_MASTER_KEY`, and `AGENT_WALLET_APPROVAL_SECRET` should be created or chosen by the user and then supplied to the runtime environment.
+
+For a no-network or pre-existing Python setup, add:
+
+```bash
+python3 scripts/install_agent_wallet.py --skip-python-setup
+```
+
 ## Configuration
 
 Copy `.env.example` to `.env` and choose one of two modes:
