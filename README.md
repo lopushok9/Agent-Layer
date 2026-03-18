@@ -97,6 +97,116 @@ cp .env.example .env
 
 ---
 
+## Local Agent Wallet
+
+This repository also includes a local OpenClaw wallet extension and Python wallet backend in `agent-wallet/` and `.openclaw/extensions/agent-wallet/`.
+
+It is a self-hosted Solana wallet for OpenClaw agents. The agent gets a constrained tool surface for reads, previews, and approved writes, while custody and signing stay local on the operator machine.
+
+### What It Does
+
+- Reads wallet address, native balance, token portfolio, token prices, validators, and stake accounts
+- Supports SOL transfers, SPL transfers, Jupiter swaps, native staking, stake deactivation, stake withdrawal, and devnet airdrops
+- Uses a `preview -> prepare -> execute` flow for risky actions
+- Keeps `prepare` non-custodial: it returns an execution plan only and never leaks signed transaction bytes
+- Requires a host-issued one-time `approval_token` for `execute`
+- Supports `devnet`, `testnet`, and `mainnet`
+
+Agent-facing Jupiter `Portfolio` and `Earn` tools are currently disabled, but the backend code remains in place for a later re-enable.
+
+### Installation Requirements
+
+- Python 3.11+
+- Local OpenClaw install
+- A local secret for `AGENT_WALLET_BOOT_KEY`
+- Solana RPC access:
+  - public RPC works as fallback
+  - for real `mainnet` usage, set your own `ALCHEMY_API_KEY`, `HELIUS_API_KEY`, `SOLANA_RPC_URL`, or `SOLANA_RPC_URLS`
+
+### Install
+
+```bash
+cd agent-wallet
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e .
+cp .env.example .env
+```
+
+Minimal self-hosted runtime configuration:
+
+```bash
+AGENT_WALLET_BOOT_KEY=...
+ALCHEMY_API_KEY=...
+# or
+HELIUS_API_KEY=...
+```
+
+`AGENT_WALLET_BOOT_KEY` is a local secret created by the operator. It is not a blockchain private key and not something we issue or host. It is the unlock key for `~/.openclaw/sealed_keys.json`, which stores the wallet runtime secrets in encrypted form.
+
+Recommended generation:
+
+```bash
+openssl rand -base64 32
+```
+
+Store it in a password manager or local secrets manager. Do not commit it to Git, do not hardcode it in the repository, and do not share it with the agent as general-purpose context.
+
+If you need a custom RPC chain instead of provider shortcuts:
+
+```bash
+SOLANA_RPC_URLS=https://your-primary-rpc.example,https://api.mainnet-beta.solana.com
+```
+
+### Security Model
+
+- Runtime secrets are loaded from `~/.openclaw/sealed_keys.json`
+- Per-user wallet encryption is mandatory
+- Per-user HKDF derivation is mandatory
+- Mainnet wallets are pinned by address and cannot be silently recreated
+- `AGENT_WALLET_MASTER_KEY`, `AGENT_WALLET_APPROVAL_SECRET`, and `SOLANA_AGENT_PRIVATE_KEY` are not accepted as direct runtime env secrets
+- `execute` requires a host-issued approval token bound to the exact operation
+
+### OpenClaw Integration
+
+The extension is designed for a local OpenClaw install:
+
+- TypeScript plugin bridge: `.openclaw/extensions/agent-wallet`
+- Python runtime/backend: `agent-wallet`
+
+Typical local plugin config:
+
+```json
+{
+  "plugins": {
+    "allow": ["agent-wallet"],
+    "entries": {
+      "agent-wallet": {
+        "enabled": true,
+        "config": {
+          "userId": "openclaw-local-user",
+          "backend": "solana_local",
+          "network": "devnet",
+          "signOnly": false,
+          "packageRoot": "/absolute/path/to/agent-wallet",
+          "pythonBin": "/absolute/path/to/python"
+        }
+      }
+    }
+  }
+}
+```
+
+Recommended operational flow:
+
+1. Read with balance, portfolio, validator, and stake tools.
+2. Use `preview` before any write action.
+3. Use `prepare` only to build an execution plan.
+4. Use `execute` only after the host issues an approval token.
+
+For detailed wallet setup and extension docs, see `agent-wallet/README.md` and `.openclaw/extensions/agent-wallet/README.md`.
+
+---
+
 ## Deploy to Railway
 
 1. New Project → Deploy from GitHub

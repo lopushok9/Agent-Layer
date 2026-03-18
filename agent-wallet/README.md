@@ -102,6 +102,45 @@ ALCHEMY_API_KEY=...
 HELIUS_API_KEY=...
 ```
 
+`AGENT_WALLET_BOOT_KEY` is the root local secret for the wallet runtime. It is not a wallet private key, not a Solana keypair, and not something provided by this repository or by OpenClaw. The operator must generate it locally and keep it safe.
+
+What it is used for:
+
+- unlocking `~/.openclaw/sealed_keys.json`
+- decrypting the stored `master_key`, `approval_secret`, and optional signer `private_key`
+- allowing the runtime to start without placing those secrets directly in plain environment variables
+
+What it is not:
+
+- not the on-chain wallet address
+- not the Solana signing key
+- not a key that should be committed to GitHub
+- not something the agent should silently invent and hide from the operator
+
+Recommended generation:
+
+```bash
+openssl rand -base64 32
+```
+
+Alternative:
+
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+Recommended handling:
+
+- store it in a password manager or local secret store
+- export it locally in shell env or deployment env
+- keep a backup, because losing it means the existing `sealed_keys.json` bundle can no longer be decrypted
+
+Example:
+
+```bash
+export AGENT_WALLET_BOOT_KEY='paste-generated-secret-here'
+```
+
 In that mode, `agent-wallet` will auto-resolve:
 
 - `mainnet` -> `https://solana-mainnet.g.alchemy.com/v2/<ALCHEMY_API_KEY>`
