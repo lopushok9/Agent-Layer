@@ -27,7 +27,7 @@ async def _run() -> None:
         data = await solana_rpc.rpc_call(
             "getBalance",
             ["Fake11111111111111111111111111111111111111111"],
-            ["https://primary.example", "https://secondary.example"],
+            [None, "None", "", "https://primary.example", "https://secondary.example"],
         )
     finally:
         solana_rpc._do_rpc_call = original

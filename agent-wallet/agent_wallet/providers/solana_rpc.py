@@ -36,7 +36,11 @@ def _normalize_rpc_urls(rpc_url: str | list[str]) -> list[str]:
 
     candidates: list[str] = []
     for raw in raw_values:
+        if raw is None:
+            continue
         value = str(raw).strip()
+        if value.lower() in {"", "none", "null"}:
+            continue
         if value and value not in candidates:
             candidates.append(value)
 
