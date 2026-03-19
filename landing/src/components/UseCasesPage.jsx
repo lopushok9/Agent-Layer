@@ -127,6 +127,10 @@ export const UseCasesPage = ({ onInstallClick }) => {
           <div className="uc-footer-bottom">
             <div className="uc-footer-brand">Agent Layer</div>
             <div className="uc-footer-bottom-links">
+              <span className="footer-ca" aria-label="Contract address">
+                <span className="footer-ca-label">CA:</span>
+                <span className="footer-ca-value">444DPguaifQZ5NicFicD9Kni6emKexyq<wbr />qG4dEkUaBAGS</span>
+              </span>
               <a href="#about-agent-layer">About Agent Layer</a>
               <a href="#terms">Terms</a>
             </div>

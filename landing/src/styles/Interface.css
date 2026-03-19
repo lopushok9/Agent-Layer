@@ -597,15 +597,26 @@
         margin-top: 0;
         padding: 60px 20px 40px;
         min-height: auto;
+        display: flex;
+        flex-direction: column;
     }
 
     .extended-header {
-        flex-direction: column;
-        gap: 40px;
+        display: contents;
     }
 
+    .finance-title {
+        order: 1;
+    }
+
+    .huge-text-container {
+        order: 2;
+        padding: 20px 0 48px;
+        margin: 0;
+    }
 
     .extended-links {
+        order: 3;
         flex-direction: column;
         gap: 40px;
         width: 100%;
@@ -615,17 +626,13 @@
         gap: 20px;
     }
 
-    .huge-text-container {
-        padding: 60px 0;
-        margin: 0;
-    }
-
     .huge-antigravity {
         font-size: 17vw;
         /* Keep relative mass */
     }
 
     .extended-footer {
+        order: 4;
         flex-direction: column;
         align-items: flex-start;
         gap: 32px;

@@ -46,3 +46,23 @@ body {
   letter-spacing: -0.02em;
   transform: translateY(-0.06em);
 }
+
+.footer-ca {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4em;
+  color: #7c828a;
+  font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  letter-spacing: -0.01em;
+}
+
+.footer-ca-label {
+  opacity: 0.75;
+}
+
+.footer-ca-value {
+  white-space: normal;
+  word-break: normal;
+}

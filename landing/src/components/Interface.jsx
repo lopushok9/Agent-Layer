@@ -50,7 +50,6 @@ export const Interface = ({ onInstallClick }) => {
                             <span className="brand-text-menu">AgentLayer</span>
                             <span className="wordmark-beta" aria-hidden="true">β</span>
                         </span>
-                        <span className="brand-subtext-menu">Antigravity</span>
                     </div>
                     <button className="mobile-menu-close" onClick={() => setMobileMenuOpen(false)} aria-label="Close menu">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -111,13 +110,17 @@ export const Interface = ({ onInstallClick }) => {
                     <h1 className="huge-antigravity">for ai agents</h1>
                 </div>
 
-                <div className="extended-footer">
-                    <div className="footer-brand">Agent Layer</div>
-                    <div className="footer-bottom-links">
-                        <a href="#about-agent-layer">About Agent Layer</a>
-                        <a href="#terms">Terms</a>
+                    <div className="extended-footer">
+                        <div className="footer-brand">Agent Layer</div>
+                        <div className="footer-bottom-links">
+                            <span className="footer-ca" aria-label="Contract address">
+                                <span className="footer-ca-label">CA:</span>
+                                <span className="footer-ca-value">444DPguaifQZ5NicFicD9Kni6emKexyq<wbr />qG4dEkUaBAGS</span>
+                            </span>
+                            <a href="#about-agent-layer">About Agent Layer</a>
+                            <a href="#terms">Terms</a>
+                        </div>
                     </div>
-                </div>
             </div>
 
         </div >

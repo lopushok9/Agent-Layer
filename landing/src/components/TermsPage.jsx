@@ -106,6 +106,10 @@ export const TermsPage = ({ onInstallClick }) => {
           <div className="tm-footer-bottom">
             <div className="tm-footer-brand">Agent Layer</div>
             <div className="tm-footer-bottom-links">
+              <span className="footer-ca" aria-label="Contract address">
+                <span className="footer-ca-label">CA:</span>
+                <span className="footer-ca-value">444DPguaifQZ5NicFicD9Kni6emKexyq<wbr />qG4dEkUaBAGS</span>
+              </span>
               <a href="#about-agent-layer">About Agent Layer</a>
               <a href="#terms" className="tm-footer-active-link">Terms</a>
             </div>
