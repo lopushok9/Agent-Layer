@@ -52,6 +52,7 @@ def main() -> None:
     assert JUPITER_V6_PROGRAM_ID in SWAP_ALLOWED_PROGRAMS
     assert result["sponsored_fee_payer"] is False
     assert result["unknown_program_ids"] == []
+    assert result["has_recognized_jupiter_program"] is True
 
     sponsored = _Message(
         [sponsor, wallet, input_mint, output_mint, JUPITER_V6_PROGRAM_ID],
@@ -81,21 +82,21 @@ def main() -> None:
     )
     assert unknown_result["verified"] is True
     assert unknown_result["unknown_program_ids"] == ["BadProgram1111111111111111111111111111111111"]
+    assert unknown_result["has_recognized_jupiter_program"] is True
 
-    bad_no_jupiter = _Message(
+    no_recognized_jupiter = _Message(
         [wallet, input_mint, output_mint, "ComputeBudget111111111111111111111111111111"],
         [_Instruction(3)],
     )
-    try:
-        verify_provider_swap_transaction(
-            bad_no_jupiter,
-            wallet_address=wallet,
-            input_mint=input_mint,
-            output_mint=output_mint,
-        )
-        raise AssertionError("expected verifier to reject missing Jupiter program")
-    except WalletBackendError as exc:
-        assert "recognized Jupiter swap program" in str(exc)
+    no_recognized_result = verify_provider_swap_transaction(
+        no_recognized_jupiter,
+        wallet_address=wallet,
+        input_mint=input_mint,
+        output_mint=output_mint,
+    )
+    assert no_recognized_result["verified"] is True
+    assert no_recognized_result["has_recognized_jupiter_program"] is False
+    assert no_recognized_result["recognized_jupiter_program_ids"] == []
 
     bad_wallet_not_signer = _Message(
         [sponsor, input_mint, output_mint, wallet, JUPITER_V6_PROGRAM_ID],

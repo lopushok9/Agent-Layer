@@ -146,10 +146,9 @@ def verify_provider_swap_transaction(
         label="Swap",
         reject_unknown=False,
     )
-    if not any(pid in RECOGNIZED_JUPITER_SWAP_PROGRAMS for pid in program_ids):
-        raise WalletBackendError(
-            "Provider swap transaction is missing a recognized Jupiter swap program."
-        )
+    recognized_jupiter_program_ids = [
+        pid for pid in program_ids if pid in RECOGNIZED_JUPITER_SWAP_PROGRAMS
+    ]
     return {
         "wallet_address": wallet_address,
         "fee_payer": binding["fee_payer"],
@@ -159,6 +158,8 @@ def verify_provider_swap_transaction(
         "sponsored_fee_payer": binding["sponsored_fee_payer"],
         "program_ids": program_ids,
         "unknown_program_ids": unknown_program_ids,
+        "recognized_jupiter_program_ids": recognized_jupiter_program_ids,
+        "has_recognized_jupiter_program": bool(recognized_jupiter_program_ids),
         "non_core_program_ids": [pid for pid in program_ids if pid not in CORE_PROGRAM_IDS],
         "account_key_count": len(keys),
         "instruction_count": len(_compiled_instructions(message)),
