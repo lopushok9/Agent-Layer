@@ -34,7 +34,7 @@ export const TermsPage = ({ onInstallClick }) => {
 
         <nav className="tm-nav">
           <a href="#wallet" className="tm-nav-item">Wallet</a>
-          <a href="#product" className="tm-nav-item">Product</a>
+          <a href="#mcp" className="tm-nav-item">MCP</a>
           <a href="#use-cases" className="tm-nav-item">Use Cases</a>
           <a href="#how-to-use" className="tm-nav-item">How to use</a>
           <a href="#about-agent-layer" className="tm-nav-item">About</a>
@@ -85,13 +85,13 @@ export const TermsPage = ({ onInstallClick }) => {
             <div className="tm-footer-links">
               <div className="tm-link-col">
                 <a href="#wallet">Wallet</a>
-                <a href="#product">Product</a>
+                <a href="#mcp">MCP</a>
                 <a href="#use-cases">Use Cases</a>
                 <a href="#how-to-use">How to use</a>
               </div>
               <div className="tm-link-col">
                 <a href="https://github.com/lopushok9/Agent-Layer" target="_blank" rel="noreferrer">GitHub</a>
-                <a href="#" target="_blank" rel="noreferrer">Blog</a>
+                <a href="https://x.com/agentlayer_ai" target="_blank" rel="noreferrer">Blog</a>
               </div>
             </div>
           </div>

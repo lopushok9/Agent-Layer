@@ -306,6 +306,10 @@
     margin: 0;
 }
 
+.hero-subtitle-secondary {
+    margin-top: 4px;
+}
+
 .subtitle a {
     color: #1a73e8;
     /* Google blue */
@@ -583,6 +587,10 @@
     .subtitle {
         max-width: 300px;
         margin-top: 14px;
+    }
+
+    .hero-subtitle-secondary {
+        margin-top: 4px;
     }
 
     .extended-section {

@@ -44,7 +44,7 @@ export const WalletPage = ({ onInstallClick }) => {
 
         <nav className="wp-nav">
           <a href="#wallet" className="wp-nav-item wp-nav-active">Wallet</a>
-          <a href="#product" className="wp-nav-item">Product</a>
+          <a href="#mcp" className="wp-nav-item">MCP</a>
           <a href="#use-cases" className="wp-nav-item">Use Cases</a>
           <a href="#how-to-use" className="wp-nav-item">How to use</a>
           <a href="#about-agent-layer" className="wp-nav-item">About</a>
@@ -103,7 +103,7 @@ export const WalletPage = ({ onInstallClick }) => {
             <div className="wp-footer-links">
               <div className="wp-link-col">
                 <a href="#wallet">Wallet</a>
-                <a href="#product">Product</a>
+                <a href="#mcp">MCP</a>
                 <a href="#use-cases">Use Cases</a>
                 <a href="#how-to-use">How to use</a>
               </div>

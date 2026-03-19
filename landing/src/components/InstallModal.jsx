@@ -73,58 +73,74 @@ export const InstallModal = ({ isOpen, onClose }) => {
           </button>
         </div>
 
-        <p className="install-modal-copy">
-          Connect the AgentLayer MCP server first, then optionally install the local wallet runtime if you want balances, swaps, staking and approval-based execution inside OpenClaw.
-        </p>
+        <div className="install-modal-body">
+          <p className="install-modal-copy">
+            Install the wallet runtime if you want local balances, swaps and staking in OpenClaw. Add the MCP config below to connect AgentLayer market and protocol data.
+          </p>
 
-        <div className="install-modal-grid">
-          <div className="install-modal-code-wrap">
-            <div className="install-modal-code-top">
-              <span className="install-modal-code-label">Step 01 · MCP server</span>
-              <button
-                type="button"
-                className="install-modal-copy-btn"
-                onClick={() => handleCopy(MCP_CONFIG, 'mcp')}
-                aria-label="Copy MCP config"
-              >
-                {copiedKey === 'mcp' ? 'Copied' : 'Copy'}
-              </button>
-            </div>
+          <div className="install-modal-stack">
+            <section className="install-modal-panel">
+              <div className="install-modal-panel-head">
+                <div>
+                  <span className="install-modal-code-label">Step 01 · Wallet</span>
+                  <h3 className="install-modal-panel-title">Local wallet runtime</h3>
+                </div>
+                <button
+                  type="button"
+                  className="install-modal-copy-btn"
+                  onClick={() => handleCopy(WALLET_INSTALL, 'wallet')}
+                  aria-label="Copy wallet install commands"
+                >
+                  {copiedKey === 'wallet' ? 'Copied' : 'Copy'}
+                </button>
+              </div>
 
-            <pre className="install-modal-code">
-              <code>{MCP_CONFIG}</code>
-            </pre>
-
-            <p className="install-modal-panel-note">
-              Add this config to your client, or ask your OpenClaw agent to connect to the MCP endpoint directly.
-            </p>
-          </div>
-
-          <div className="install-modal-code-wrap">
-            <div className="install-modal-code-top">
-              <span className="install-modal-code-label">Step 02 · Wallet runtime</span>
-              <button
-                type="button"
-                className="install-modal-copy-btn"
-                onClick={() => handleCopy(WALLET_INSTALL, 'wallet')}
-                aria-label="Copy wallet install commands"
-              >
-                {copiedKey === 'wallet' ? 'Copied' : 'Copy'}
-              </button>
-            </div>
-
-            <pre className="install-modal-code">
-              <code>{WALLET_INSTALL}</code>
-            </pre>
-
-            <div className="install-modal-steps" aria-label="Wallet install notes">
-              <p className="install-modal-panel-note">
-                The installer creates local config, prepares the Python runtime, and patches OpenClaw for the wallet plugin.
+              <p className="install-modal-panel-copy">
+                Installs the local Solana wallet runtime for OpenClaw with preview-first execution and per-user encrypted storage.
               </p>
-              <p className="install-modal-panel-note">
-                For signing flows, provide <code>AGENT_WALLET_BOOT_KEY</code> and seal runtime secrets locally instead of storing them in config JSON.
+
+              <pre className="install-modal-code">
+                <code>{WALLET_INSTALL}</code>
+              </pre>
+
+              <div className="install-modal-steps" aria-label="Wallet install notes">
+                <p className="install-modal-panel-note">
+                  The installer creates local config, prepares the Python runtime, and patches OpenClaw for the wallet plugin.
+                </p>
+                <p className="install-modal-panel-note">
+                  For signing flows, provide <code>AGENT_WALLET_BOOT_KEY</code> and seal runtime secrets locally instead of storing them in config JSON.
+                </p>
+              </div>
+            </section>
+
+            <section className="install-modal-panel">
+              <div className="install-modal-panel-head">
+                <div>
+                  <span className="install-modal-code-label">Step 02 · MCP</span>
+                  <h3 className="install-modal-panel-title">AgentLayer MCP server</h3>
+                </div>
+                <button
+                  type="button"
+                  className="install-modal-copy-btn"
+                  onClick={() => handleCopy(MCP_CONFIG, 'mcp')}
+                  aria-label="Copy MCP config"
+                >
+                  {copiedKey === 'mcp' ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+
+              <p className="install-modal-panel-copy">
+                Connect the hosted MCP endpoint to expose prices, on-chain data, DeFi metrics and agent discovery tools in your client.
               </p>
-            </div>
+
+              <pre className="install-modal-code">
+                <code>{MCP_CONFIG}</code>
+              </pre>
+
+              <p className="install-modal-panel-note">
+                Add this config to your client, or ask your OpenClaw agent to connect to the MCP endpoint directly.
+              </p>
+            </section>
           </div>
         </div>
 

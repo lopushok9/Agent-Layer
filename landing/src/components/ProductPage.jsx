@@ -44,7 +44,7 @@ export const ProductPage = ({ onInstallClick }) => {
 
         <nav className="pp-nav">
           <a href="#wallet" className="pp-nav-item">Wallet</a>
-          <a href="#product" className="pp-nav-item pp-nav-active">Product</a>
+          <a href="#mcp" className="pp-nav-item pp-nav-active">MCP</a>
           <a href="#use-cases" className="pp-nav-item">Use Cases</a>
           <a href="#how-to-use" className="pp-nav-item">How to use</a>
           <a href="#about-agent-layer" className="pp-nav-item">About</a>
@@ -67,7 +67,7 @@ export const ProductPage = ({ onInstallClick }) => {
         {/* Hero */}
         <section className="pp-hero">
           <div className="pp-hero-inner">
-            <span className="pp-label">Product</span>
+            <span className="pp-label">MCP</span>
             <h1 className="pp-hero-headline">
               Infrastructure for<br />agentic finance
             </h1>
@@ -108,13 +108,13 @@ export const ProductPage = ({ onInstallClick }) => {
             <div className="pp-footer-links">
               <div className="pp-link-col">
                 <a href="#wallet">Wallet</a>
-                <a href="#product">Product</a>
+                <a href="#mcp">MCP</a>
                 <a href="#use-cases">Use Cases</a>
                 <a href="#how-to-use">How to use</a>
               </div>
               <div className="pp-link-col">
                 <a href="https://github.com/lopushok9/Agent-Layer" target="_blank" rel="noreferrer">GitHub</a>
-                <a href="#" target="_blank" rel="noreferrer">Blog</a>
+                <a href="https://x.com/agentlayer_ai" target="_blank" rel="noreferrer">Blog</a>
               </div>
             </div>
           </div>

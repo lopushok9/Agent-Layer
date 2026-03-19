@@ -14,6 +14,7 @@ function App() {
   const getPage = () => {
     const hash = window.location.hash
     if (hash === '#wallet') return 'wallet'
+    if (hash === '#mcp') return 'product'
     if (hash === '#product') return 'product'
     if (hash === '#use-cases') return 'use-cases'
     if (hash === '#how-to-use') return 'how-to-use'

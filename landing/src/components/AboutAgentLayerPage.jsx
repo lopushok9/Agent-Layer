@@ -29,7 +29,7 @@ export const AboutAgentLayerPage = ({ onInstallClick }) => {
 
         <nav className="ab-nav">
           <a href="#wallet" className="ab-nav-item">Wallet</a>
-          <a href="#product" className="ab-nav-item">Product</a>
+          <a href="#mcp" className="ab-nav-item">MCP</a>
           <a href="#use-cases" className="ab-nav-item">Use Cases</a>
           <a href="#how-to-use" className="ab-nav-item">How to use</a>
           <a href="#about-agent-layer" className="ab-nav-item ab-nav-active">About</a>
@@ -81,13 +81,13 @@ export const AboutAgentLayerPage = ({ onInstallClick }) => {
             <div className="ab-footer-links">
               <div className="ab-link-col">
                 <a href="#wallet">Wallet</a>
-                <a href="#product">Product</a>
+                <a href="#mcp">MCP</a>
                 <a href="#use-cases">Use Cases</a>
                 <a href="#how-to-use">How to use</a>
               </div>
               <div className="ab-link-col">
                 <a href="https://github.com/lopushok9/Agent-Layer" target="_blank" rel="noreferrer">GitHub</a>
-                <a href="#" target="_blank" rel="noreferrer">Blog</a>
+                <a href="https://x.com/agentlayer_ai" target="_blank" rel="noreferrer">Blog</a>
               </div>
             </div>
           </div>

@@ -12,11 +12,15 @@
 
 .install-modal {
   width: min(680px, 100%);
+  max-height: min(88vh, 920px);
+  display: flex;
+  flex-direction: column;
   border: 2px solid #111213;
   border-radius: 0;
   background: #ffffff;
   color: #111213;
   box-shadow: 0 24px 80px rgba(17, 18, 19, 0.12);
+  overflow: hidden;
 }
 
 .install-modal-header {
@@ -69,11 +73,16 @@
 
 .install-modal-copy {
   margin: 0;
-  padding: 24px 28px 0;
   max-width: 58ch;
   font-size: 15px;
   line-height: 1.6;
   color: #383b40;
+}
+
+.install-modal-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 24px 28px 0;
 }
 
 .install-modal-code {
@@ -89,30 +98,40 @@
   white-space: pre;
 }
 
-.install-modal-code-wrap {
-  margin: 20px 28px 0;
-}
-
-.install-modal-grid {
+.install-modal-stack {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0;
+  gap: 18px;
+  padding: 20px 0 24px;
 }
 
-.install-modal-grid .install-modal-code-wrap {
-  margin-top: 20px;
+.install-modal-panel {
+  border: 1px solid #111213;
+  padding: 20px;
+  background: linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
 }
 
-.install-modal-grid .install-modal-code-wrap:first-child {
-  border-right: 1px solid rgba(17, 18, 19, 0.12);
-}
-
-.install-modal-code-top {
+.install-modal-panel-head {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 16px;
   margin-bottom: 10px;
+}
+
+.install-modal-panel-title {
+  margin: 6px 0 0;
+  font-size: 28px;
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+  font-weight: 800;
+}
+
+.install-modal-panel-copy {
+  margin: 0 0 16px;
+  max-width: 54ch;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #383b40;
 }
 
 .install-modal-code-label {
@@ -169,6 +188,7 @@
   align-items: flex-end;
   gap: 20px;
   padding: 24px 28px 28px;
+  border-top: 1px solid rgba(17, 18, 19, 0.12);
 }
 
 .install-modal-note {
@@ -224,14 +244,6 @@
     padding: 16px;
   }
 
-  .install-modal-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .install-modal-grid .install-modal-code-wrap:first-child {
-    border-right: 0;
-  }
-
   .install-modal-header,
   .install-modal-footer {
     flex-direction: column;
@@ -239,20 +251,24 @@
   }
 
   .install-modal-copy,
+  .install-modal-body,
   .install-modal-header,
   .install-modal-footer {
     padding-left: 20px;
     padding-right: 20px;
   }
 
-  .install-modal-code-wrap {
-    margin-left: 20px;
-    margin-right: 20px;
+  .install-modal-panel {
+    padding: 18px;
   }
 
-  .install-modal-code-top {
+  .install-modal-panel-head {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .install-modal-panel-title {
+    font-size: 24px;
   }
 
   .install-modal-actions {

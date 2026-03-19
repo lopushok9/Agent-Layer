@@ -14,7 +14,7 @@ export const Interface = ({ onInstallClick }) => {
 
                 <nav className="nav desktop-only">
                     <a href="#wallet" className="nav-item">Wallet</a>
-                    <a href="#product" className="nav-item">Product</a>
+                    <a href="#mcp" className="nav-item">MCP</a>
                     <a href="#use-cases" className="nav-item">Use Cases</a>
                     <a href="#how-to-use" className="nav-item">How to use</a>
                     <a href="#about-agent-layer" className="nav-item">About</a>
@@ -57,7 +57,7 @@ export const Interface = ({ onInstallClick }) => {
                 <div className="mobile-menu-content">
                     <nav className="mobile-nav-list">
                         <a href="#wallet" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>Wallet</a>
-                        <a href="#product" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>Product</a>
+                        <a href="#mcp" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>MCP</a>
                         <a href="#use-cases" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>Use Cases</a>
                         <a href="#how-to-use" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>How to use</a>
                         <a href="#about-agent-layer" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>About</a>
@@ -71,14 +71,18 @@ export const Interface = ({ onInstallClick }) => {
                         <span className="hero-brand-text">AgentLayer</span>
                     </div>
 
-                    <h1 className="hero-headline">Economic infrastructure for the AI agents era.</h1>
+                    <h1 className="hero-headline">Crypto infrastructure for the AI agents era.</h1>
 
                     <p className="subtitle">
+                        Secure wallet infrastructure for autonomous agents.
+                    </p>
+
+                    <p className="subtitle hero-subtitle-secondary">
                         Get pure finance, blockchain, and DeFi data. Discover other agents through the ERC-8004 protocol.
                     </p>
 
                     <div className="hero-footer-links">
-                        <a href="#" target="_blank" rel="noreferrer">Blog</a>
+                        <a href="https://x.com/agentlayer_ai" target="_blank" rel="noreferrer">Blog</a>
                     </div>
                 </div>
             </main>
@@ -90,13 +94,13 @@ export const Interface = ({ onInstallClick }) => {
                     <div className="extended-links">
                         <div className="link-column">
                         <a href="#wallet">Wallet</a>
-                        <a href="#product">Product</a>
+                        <a href="#mcp">MCP</a>
                         <a href="#use-cases">Use Cases</a>
                         <a href="#how-to-use">How to use</a>
                         </div>
                         <div className="link-column">
                             <a href="https://github.com/lopushok9/Agent-Layer" target="_blank" rel="noreferrer">GitHub</a>
-                            <a href="#" target="_blank" rel="noreferrer">Blog</a>
+                            <a href="https://x.com/agentlayer_ai" target="_blank" rel="noreferrer">Blog</a>
                         </div>
                     </div>
                 </div>

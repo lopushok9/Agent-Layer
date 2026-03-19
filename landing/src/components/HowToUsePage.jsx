@@ -13,7 +13,7 @@ export const HowToUsePage = ({ onInstallClick }) => {
 
         <nav className="htu-nav">
           <a href="#wallet" className="htu-nav-item">Wallet</a>
-          <a href="#product" className="htu-nav-item">Product</a>
+          <a href="#mcp" className="htu-nav-item">MCP</a>
           <a href="#use-cases" className="htu-nav-item">Use Cases</a>
           <a href="#how-to-use" className="htu-nav-item htu-nav-active">How to use</a>
           <a href="#about-agent-layer" className="htu-nav-item">About</a>
@@ -120,13 +120,13 @@ export const HowToUsePage = ({ onInstallClick }) => {
             <div className="htu-footer-links">
               <div className="htu-link-col">
                 <a href="#wallet">Wallet</a>
-                <a href="#product">Product</a>
+                <a href="#mcp">MCP</a>
                 <a href="#use-cases">Use Cases</a>
                 <a href="#how-to-use">How to use</a>
               </div>
               <div className="htu-link-col">
                 <a href="https://github.com/lopushok9/Agent-Layer" target="_blank" rel="noreferrer">GitHub</a>
-                <a href="#" target="_blank" rel="noreferrer">Blog</a>
+                <a href="https://x.com/agentlayer_ai" target="_blank" rel="noreferrer">Blog</a>
               </div>
             </div>
           </div>

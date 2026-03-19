@@ -46,7 +46,7 @@ export const UseCasesPage = ({ onInstallClick }) => {
 
         <nav className="uc-nav">
           <a href="#wallet" className="uc-nav-item">Wallet</a>
-          <a href="#product" className="uc-nav-item">Product</a>
+          <a href="#mcp" className="uc-nav-item">MCP</a>
           <a href="#use-cases" className="uc-nav-item uc-nav-active">Use Cases</a>
           <a href="#how-to-use" className="uc-nav-item">How to use</a>
           <a href="#about-agent-layer" className="uc-nav-item">About</a>
@@ -106,13 +106,13 @@ export const UseCasesPage = ({ onInstallClick }) => {
             <div className="uc-footer-links">
               <div className="uc-link-col">
                 <a href="#wallet">Wallet</a>
-                <a href="#product">Product</a>
+                <a href="#mcp">MCP</a>
                 <a href="#use-cases">Use Cases</a>
                 <a href="#how-to-use">How to use</a>
               </div>
               <div className="uc-link-col">
                 <a href="https://github.com/lopushok9/Agent-Layer" target="_blank" rel="noreferrer">GitHub</a>
-                <a href="#" target="_blank" rel="noreferrer">Blog</a>
+                <a href="https://x.com/agentlayer_ai" target="_blank" rel="noreferrer">Blog</a>
               </div>
             </div>
           </div>
