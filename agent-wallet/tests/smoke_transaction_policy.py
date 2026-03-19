@@ -51,6 +51,7 @@ def main() -> None:
     assert result["verified"] is True
     assert JUPITER_V6_PROGRAM_ID in SWAP_ALLOWED_PROGRAMS
     assert result["sponsored_fee_payer"] is False
+    assert result["unknown_program_ids"] == []
 
     sponsored = _Message(
         [sponsor, wallet, input_mint, output_mint, JUPITER_V6_PROGRAM_ID],
@@ -68,20 +69,18 @@ def main() -> None:
     assert sponsored_result["fee_payer"] == sponsor
     assert sponsored_result["wallet_signer_index"] == 1
 
-    bad_unknown = _Message(
-        [wallet, input_mint, output_mint, "BadProgram1111111111111111111111111111111111"],
-        [_Instruction(3)],
+    unknown_but_allowed = _Message(
+        [wallet, input_mint, output_mint, JUPITER_V6_PROGRAM_ID, "BadProgram1111111111111111111111111111111111"],
+        [_Instruction(3), _Instruction(4)],
     )
-    try:
-        verify_provider_swap_transaction(
-            bad_unknown,
-            wallet_address=wallet,
-            input_mint=input_mint,
-            output_mint=output_mint,
-        )
-        raise AssertionError("expected verifier to reject unknown program")
-    except WalletBackendError as exc:
-        assert "unknown program ids" in str(exc)
+    unknown_result = verify_provider_swap_transaction(
+        unknown_but_allowed,
+        wallet_address=wallet,
+        input_mint=input_mint,
+        output_mint=output_mint,
+    )
+    assert unknown_result["verified"] is True
+    assert unknown_result["unknown_program_ids"] == ["BadProgram1111111111111111111111111111111111"]
 
     bad_no_jupiter = _Message(
         [wallet, input_mint, output_mint, "ComputeBudget111111111111111111111111111111"],

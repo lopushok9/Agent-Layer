@@ -73,7 +73,13 @@ def _program_ids(message: Any) -> list[str]:
     return values
 
 
-def _assert_program_allowlist(program_ids: list[str], *, allowed_programs: set[str], label: str) -> None:
+def _assert_program_allowlist(
+    program_ids: list[str],
+    *,
+    allowed_programs: set[str],
+    label: str,
+    reject_unknown: bool = True,
+) -> list[str]:
     if not program_ids:
         raise WalletBackendError(f"{label} transaction does not include any instructions.")
 
@@ -84,10 +90,11 @@ def _assert_program_allowlist(program_ids: list[str], *, allowed_programs: set[s
         )
 
     unknown = [pid for pid in program_ids if pid not in allowed_programs]
-    if unknown:
+    if unknown and reject_unknown:
         raise WalletBackendError(
             f"{label} transaction uses unknown program ids: {', '.join(sorted(set(unknown)))}"
         )
+    return sorted(set(unknown))
 
 
 def _assert_basic_wallet_binding(message: Any, *, wallet_address: str) -> dict[str, Any]:
@@ -133,7 +140,12 @@ def verify_provider_swap_transaction(
             "Provider swap transaction does not reference the expected output mint."
         )
     program_ids = _program_ids(message)
-    _assert_program_allowlist(program_ids, allowed_programs=SWAP_ALLOWED_PROGRAMS, label="Swap")
+    unknown_program_ids = _assert_program_allowlist(
+        program_ids,
+        allowed_programs=SWAP_ALLOWED_PROGRAMS,
+        label="Swap",
+        reject_unknown=False,
+    )
     if not any(pid in RECOGNIZED_JUPITER_SWAP_PROGRAMS for pid in program_ids):
         raise WalletBackendError(
             "Provider swap transaction is missing a recognized Jupiter swap program."
@@ -146,6 +158,7 @@ def verify_provider_swap_transaction(
         "wallet_signer_index": binding["wallet_signer_index"],
         "sponsored_fee_payer": binding["sponsored_fee_payer"],
         "program_ids": program_ids,
+        "unknown_program_ids": unknown_program_ids,
         "non_core_program_ids": [pid for pid in program_ids if pid not in CORE_PROGRAM_IDS],
         "account_key_count": len(keys),
         "instruction_count": len(_compiled_instructions(message)),
