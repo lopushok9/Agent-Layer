@@ -2085,9 +2085,16 @@ class SolanaWalletBackend(AgentWalletBackend):
         )
         keypair = Keypair.from_bytes(self.signer.export_keypair_bytes())
         signature = keypair.sign_message(to_bytes_versioned(unsigned_transaction.message))
+        signatures = list(unsigned_transaction.signatures)
+        wallet_signer_index = int(verification.get("wallet_signer_index") or 0)
+        if wallet_signer_index >= len(signatures):
+            raise WalletBackendError(
+                "Provider swap transaction signer layout is incompatible with local signing."
+            )
+        signatures[wallet_signer_index] = signature
         signed_transaction = VersionedTransaction.populate(
             unsigned_transaction.message,
-            [signature],
+            signatures,
         )
         fee_summary = self._build_swap_fee_summary(
             swap_provider=swap_provider,

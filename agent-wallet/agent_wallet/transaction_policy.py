@@ -52,6 +52,16 @@ def _header_required_signatures(message: Any) -> int:
     return int(getattr(header, "num_required_signatures", 0) or 0)
 
 
+def _required_signer_keys(message: Any) -> list[str]:
+    keys = _account_keys(message)
+    required = _header_required_signatures(message)
+    if required <= 0:
+        raise WalletBackendError("Provider transaction does not require any signers.")
+    if required > len(keys):
+        raise WalletBackendError("Provider transaction signer metadata is inconsistent.")
+    return keys[:required]
+
+
 def _program_ids(message: Any) -> list[str]:
     keys = _account_keys(message)
     values: list[str] = []
@@ -80,21 +90,29 @@ def _assert_program_allowlist(program_ids: list[str], *, allowed_programs: set[s
         )
 
 
-def _assert_basic_wallet_binding(message: Any, *, wallet_address: str) -> list[str]:
+def _assert_basic_wallet_binding(message: Any, *, wallet_address: str) -> dict[str, Any]:
     keys = _account_keys(message)
     if not keys:
         raise WalletBackendError("Provider transaction does not include account keys.")
-    if keys[0] != wallet_address:
+    signer_keys = _required_signer_keys(message)
+    if wallet_address not in signer_keys:
         raise WalletBackendError(
-            "Provider transaction fee payer does not match the connected wallet address."
+            "Provider transaction does not require the connected wallet as an authorized signer."
         )
-    if _header_required_signatures(message) != 1:
+    if len(signer_keys) > 2:
         raise WalletBackendError(
             "Provider transaction requires unexpected additional signers and was rejected."
         )
     if wallet_address not in keys:
         raise WalletBackendError("Provider transaction is not bound to the connected wallet.")
-    return keys
+    return {
+        "account_keys": keys,
+        "fee_payer": keys[0],
+        "required_signer_keys": signer_keys,
+        "required_signature_count": len(signer_keys),
+        "wallet_signer_index": signer_keys.index(wallet_address),
+        "sponsored_fee_payer": keys[0] != wallet_address,
+    }
 
 
 def verify_provider_swap_transaction(
@@ -104,7 +122,8 @@ def verify_provider_swap_transaction(
     input_mint: str,
     output_mint: str,
 ) -> dict[str, Any]:
-    keys = _assert_basic_wallet_binding(message, wallet_address=wallet_address)
+    binding = _assert_basic_wallet_binding(message, wallet_address=wallet_address)
+    keys = binding["account_keys"]
     if input_mint not in keys:
         raise WalletBackendError(
             "Provider swap transaction does not reference the expected input mint."
@@ -121,6 +140,11 @@ def verify_provider_swap_transaction(
         )
     return {
         "wallet_address": wallet_address,
+        "fee_payer": binding["fee_payer"],
+        "required_signer_keys": binding["required_signer_keys"],
+        "required_signature_count": binding["required_signature_count"],
+        "wallet_signer_index": binding["wallet_signer_index"],
+        "sponsored_fee_payer": binding["sponsored_fee_payer"],
         "program_ids": program_ids,
         "non_core_program_ids": [pid for pid in program_ids if pid not in CORE_PROGRAM_IDS],
         "account_key_count": len(keys),

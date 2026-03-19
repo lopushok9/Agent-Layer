@@ -34,6 +34,7 @@ class _Message:
 
 def main() -> None:
     wallet = "Wallet111111111111111111111111111111111111111"
+    sponsor = "Sponsor11111111111111111111111111111111111111"
     input_mint = "So11111111111111111111111111111111111111112"
     output_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 
@@ -49,6 +50,23 @@ def main() -> None:
     )
     assert result["verified"] is True
     assert JUPITER_V6_PROGRAM_ID in SWAP_ALLOWED_PROGRAMS
+    assert result["sponsored_fee_payer"] is False
+
+    sponsored = _Message(
+        [sponsor, wallet, input_mint, output_mint, JUPITER_V6_PROGRAM_ID],
+        [_Instruction(4)],
+        num_required_signatures=2,
+    )
+    sponsored_result = verify_provider_swap_transaction(
+        sponsored,
+        wallet_address=wallet,
+        input_mint=input_mint,
+        output_mint=output_mint,
+    )
+    assert sponsored_result["verified"] is True
+    assert sponsored_result["sponsored_fee_payer"] is True
+    assert sponsored_result["fee_payer"] == sponsor
+    assert sponsored_result["wallet_signer_index"] == 1
 
     bad_unknown = _Message(
         [wallet, input_mint, output_mint, "BadProgram1111111111111111111111111111111111"],
@@ -80,10 +98,26 @@ def main() -> None:
     except WalletBackendError as exc:
         assert "recognized Jupiter swap program" in str(exc)
 
+    bad_wallet_not_signer = _Message(
+        [sponsor, input_mint, output_mint, wallet, JUPITER_V6_PROGRAM_ID],
+        [_Instruction(4)],
+        num_required_signatures=1,
+    )
+    try:
+        verify_provider_swap_transaction(
+            bad_wallet_not_signer,
+            wallet_address=wallet,
+            input_mint=input_mint,
+            output_mint=output_mint,
+        )
+        raise AssertionError("expected verifier to reject wallet-not-signer transaction")
+    except WalletBackendError as exc:
+        assert "authorized signer" in str(exc)
+
     bad_signers = _Message(
-        [wallet, input_mint, output_mint, JUPITER_V6_PROGRAM_ID],
-        [_Instruction(3)],
-        num_required_signatures=2,
+        [sponsor, wallet, "ExtraSigner1111111111111111111111111111111111", input_mint, output_mint, JUPITER_V6_PROGRAM_ID],
+        [_Instruction(5)],
+        num_required_signatures=3,
     )
     try:
         verify_provider_swap_transaction(
