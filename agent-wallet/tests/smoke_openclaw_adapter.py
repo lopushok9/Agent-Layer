@@ -480,11 +480,14 @@ class FakeBackend(AgentWalletBackend):
     ) -> dict:
         return {
             "chain": "solana",
+            "network": self.network,
             "mode": "preview",
             "asset_type": "swap",
+            "owner": "Fake11111111111111111111111111111111111111111",
             "input_mint": input_mint,
             "output_mint": output_mint,
             "input_amount_ui": amount_ui,
+            "input_amount_raw": 100000000,
             "estimated_output_amount_ui": 12.34,
             "minimum_output_amount_ui": 12.0,
             "slippage_bps": slippage_bps,
@@ -706,8 +709,10 @@ class FakeBackend(AgentWalletBackend):
     ) -> dict:
         return {
             "chain": "solana",
+            "network": self.network,
             "mode": "execute",
             "asset_type": "swap",
+            "owner": "Fake11111111111111111111111111111111111111111",
             "input_mint": input_mint,
             "output_mint": output_mint,
             "input_amount_ui": amount_ui,
@@ -753,11 +758,14 @@ class FakeBackend(AgentWalletBackend):
     ) -> dict:
         return {
             "chain": "solana",
+            "network": self.network,
             "mode": "prepare",
             "asset_type": "swap",
+            "owner": "Fake11111111111111111111111111111111111111111",
             "input_mint": input_mint,
             "output_mint": output_mint,
             "input_amount_ui": amount_ui,
+            "input_amount_raw": 100000000,
             "estimated_output_amount_ui": 12.34,
             "minimum_output_amount_ui": 12.0,
             "slippage_bps": slippage_bps,
@@ -909,6 +917,35 @@ class FakeBackend(AgentWalletBackend):
             "slot": 456,
             "source": "fake",
         }
+
+
+class DriftingSwapBackend(FakeBackend):
+    def __init__(self) -> None:
+        self._swap_preview_calls = 0
+
+    async def preview_swap(
+        self,
+        input_mint: str,
+        output_mint: str,
+        amount_ui: float,
+        slippage_bps: int = 50,
+    ) -> dict:
+        self._swap_preview_calls += 1
+        preview = await super().preview_swap(
+            input_mint=input_mint,
+            output_mint=output_mint,
+            amount_ui=amount_ui,
+            slippage_bps=slippage_bps,
+        )
+        if self._swap_preview_calls > 1:
+            preview["estimated_output_amount_ui"] = 11.91
+            preview["minimum_output_amount_ui"] = 11.58
+            preview["route_plan"] = [{"swapInfo": {"label": "drifted-route"}}]
+            preview["quote_response"] = {"routePlan": [{"swapInfo": {"label": "drifted-route"}}]}
+            preview["estimated_total_fee_label"] = (
+                "network fee ~0.000011 SOL; route fee 12 bps (already reflected in quoted output)"
+            )
+        return preview
 
 
 def _issue_execute_approval(
@@ -1220,6 +1257,39 @@ async def main() -> None:
         },
     )
     assert executed_swap.ok and executed_swap.data["confirmed"] is True
+
+    drifting_swap_adapter = OpenClawWalletAdapter(DriftingSwapBackend())
+    drifting_swap_preview = await drifting_swap_adapter.invoke(
+        "swap_solana_tokens",
+        {
+            "input_mint": "So11111111111111111111111111111111111111112",
+            "output_mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "amount": 0.1,
+            "slippage_bps": 50,
+            "mode": "preview",
+            "purpose": "test drifting swap preview",
+        },
+    )
+    assert drifting_swap_preview.ok is True
+
+    drifting_swap_execute = await drifting_swap_adapter.invoke(
+        "swap_solana_tokens",
+        {
+            "input_mint": "So11111111111111111111111111111111111111112",
+            "output_mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "amount": 0.1,
+            "slippage_bps": 50,
+            "mode": "execute",
+            "purpose": "test drifting swap execute",
+            "approval_token": _issue_execute_approval(
+                tool_name="swap_solana_tokens",
+                preview=drifting_swap_preview.data,
+                network="devnet",
+            ),
+        },
+    )
+    assert drifting_swap_execute.ok is True
+    assert drifting_swap_execute.data["confirmed"] is True
 
     close_preview = await adapter.invoke(
         "close_empty_token_accounts",

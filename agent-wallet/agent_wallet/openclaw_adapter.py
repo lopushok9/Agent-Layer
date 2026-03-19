@@ -83,11 +83,33 @@ class OpenClawWalletAdapter:
         action_label: str,
         payload: dict[str, Any],
     ) -> dict[str, Any]:
+        asset_type = str(payload.get("asset_type") or "").strip().lower()
+        if asset_type == "swap":
+            summary: dict[str, Any] = {
+                "operation": action_label,
+                "network": str(payload.get("network") or getattr(self.backend, "network", "unknown")),
+            }
+            for key in (
+                "owner",
+                "input_mint",
+                "output_mint",
+                "input_amount_ui",
+                "input_amount_raw",
+                "slippage_bps",
+            ):
+                value = payload.get(key)
+                if value is not None:
+                    summary[key] = value
+            return summary
+
         summary: dict[str, Any] = {
             "operation": action_label,
             "network": str(payload.get("network") or getattr(self.backend, "network", "unknown")),
         }
         for key in (
+            "owner",
+            "authority",
+            "address",
             "amount_native",
             "amount_ui",
             "input_amount_ui",
