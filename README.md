@@ -103,6 +103,8 @@ This repository also includes a local OpenClaw wallet extension and Python walle
 
 It is a self-hosted Solana wallet for OpenClaw agents. The agent gets a constrained tool surface for reads, previews, and approved writes, while custody and signing stay local on the operator machine.
 
+> AgentLayer Wallet is in beta. Do not use it as your primary wallet, and always account for operational and security risks before using it.
+
 ### What It Does
 
 - Reads wallet address, native balance, token portfolio, token prices, validators, and stake accounts

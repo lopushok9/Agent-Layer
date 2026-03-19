@@ -3,8 +3,8 @@ import '../styles/TermsPage.css'
 const SECTIONS = [
   {
     num: '01',
-    title: 'Informational Use Only',
-    text: 'All content, metrics, and outputs provided through AgentLayer are for informational and technical integration purposes only.',
+    title: 'Beta Version',
+    text: 'AgentLayer Wallet is in beta. Do not use it as your primary wallet, and always account for operational and security risks before using it.',
   },
   {
     num: '02',

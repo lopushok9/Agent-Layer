@@ -73,13 +73,6 @@ export const Interface = ({ onInstallClick }) => {
 
             <main className="hero">
                 <div className="hero-content">
-                    <div className="hero-logo-row">
-                        <span className="wordmark-lockup">
-                            <span className="hero-brand-text">AgentLayer</span>
-                            <span className="wordmark-beta" aria-hidden="true">β</span>
-                        </span>
-                    </div>
-
                     <h1 className="hero-headline">Crypto infrastructure for the AI agents era.</h1>
 
                     <p className="subtitle">
