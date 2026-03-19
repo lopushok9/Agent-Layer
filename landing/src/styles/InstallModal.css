@@ -93,6 +93,20 @@
   margin: 20px 28px 0;
 }
 
+.install-modal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+}
+
+.install-modal-grid .install-modal-code-wrap {
+  margin-top: 20px;
+}
+
+.install-modal-grid .install-modal-code-wrap:first-child {
+  border-right: 1px solid rgba(17, 18, 19, 0.12);
+}
+
 .install-modal-code-top {
   display: flex;
   justify-content: space-between;
@@ -129,6 +143,24 @@
   background: #111213;
   color: #ffffff;
   outline: none;
+}
+
+.install-modal-panel-note {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #5f6368;
+}
+
+.install-modal-panel-note code {
+  font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', monospace;
+  font-size: 0.94em;
+  color: #111213;
+}
+
+.install-modal-steps {
+  display: grid;
+  gap: 0;
 }
 
 .install-modal-footer {
@@ -169,9 +201,35 @@
   outline: none;
 }
 
+.install-modal-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.install-modal-link-secondary {
+  background: #ffffff;
+  color: #111213;
+}
+
+.install-modal-link-secondary:hover,
+.install-modal-link-secondary:focus-visible {
+  background: #111213;
+  color: #ffffff;
+}
+
 @media (max-width: 720px) {
   .install-modal-overlay {
     padding: 16px;
+  }
+
+  .install-modal-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .install-modal-grid .install-modal-code-wrap:first-child {
+    border-right: 0;
   }
 
   .install-modal-header,
@@ -195,6 +253,10 @@
   .install-modal-code-top {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .install-modal-actions {
+    justify-content: stretch;
   }
 
   .install-modal-link,

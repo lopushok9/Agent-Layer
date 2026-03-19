@@ -39,16 +39,17 @@ export const UseCasesPage = ({ onInstallClick }) => {
 
       {/* Header */}
       <header className="uc-header">
-        <a href="#" className="uc-brand" target="_blank" rel="noreferrer">
+        <a href="#" className="uc-brand">
           <img src="/apple-touch-icon.png" alt="AgentLayer logo" className="uc-brand-mark" />
           <span className="uc-brand-text">AgentLayer</span>
         </a>
 
         <nav className="uc-nav">
-          <a href="#product" className="uc-nav-item" target="_blank" rel="noreferrer">Product</a>
-          <a href="#use-cases" className="uc-nav-item uc-nav-active" target="_blank" rel="noreferrer">Use Cases</a>
-          <a href="#how-to-use" className="uc-nav-item" target="_blank" rel="noreferrer">How to use</a>
-          <a href="#about-agent-layer" className="uc-nav-item" target="_blank" rel="noreferrer">About</a>
+          <a href="#wallet" className="uc-nav-item">Wallet</a>
+          <a href="#product" className="uc-nav-item">Product</a>
+          <a href="#use-cases" className="uc-nav-item uc-nav-active">Use Cases</a>
+          <a href="#how-to-use" className="uc-nav-item">How to use</a>
+          <a href="#about-agent-layer" className="uc-nav-item">About</a>
         </nav>
 
         <a href="#" className="uc-btn-cta" onClick={(event) => {
@@ -104,9 +105,10 @@ export const UseCasesPage = ({ onInstallClick }) => {
             <h2 className="uc-footer-title">finance</h2>
             <div className="uc-footer-links">
               <div className="uc-link-col">
-                <a href="#product" target="_blank" rel="noreferrer">Product</a>
-                <a href="#use-cases" target="_blank" rel="noreferrer">Use Cases</a>
-                <a href="#how-to-use" target="_blank" rel="noreferrer">How to use</a>
+                <a href="#wallet">Wallet</a>
+                <a href="#product">Product</a>
+                <a href="#use-cases">Use Cases</a>
+                <a href="#how-to-use">How to use</a>
               </div>
               <div className="uc-link-col">
                 <a href="https://github.com/lopushok9/Agent-Layer" target="_blank" rel="noreferrer">GitHub</a>
@@ -122,8 +124,8 @@ export const UseCasesPage = ({ onInstallClick }) => {
           <div className="uc-footer-bottom">
             <div className="uc-footer-brand">Agent Layer</div>
             <div className="uc-footer-bottom-links">
-              <a href="#about-agent-layer" target="_blank" rel="noreferrer">About Agent Layer</a>
-              <a href="#terms" target="_blank" rel="noreferrer">Terms</a>
+              <a href="#about-agent-layer">About Agent Layer</a>
+              <a href="#terms">Terms</a>
             </div>
           </div>
         </div>

@@ -27,16 +27,17 @@ export const TermsPage = ({ onInstallClick }) => {
   return (
     <div className="tm-page">
       <header className="tm-header">
-        <a href="#" className="tm-brand" target="_blank" rel="noreferrer">
+        <a href="#" className="tm-brand">
           <img src="/apple-touch-icon.png" alt="AgentLayer logo" className="tm-brand-mark" />
           <span className="tm-brand-text">AgentLayer</span>
         </a>
 
         <nav className="tm-nav">
-          <a href="#product" className="tm-nav-item" target="_blank" rel="noreferrer">Product</a>
-          <a href="#use-cases" className="tm-nav-item" target="_blank" rel="noreferrer">Use Cases</a>
-          <a href="#how-to-use" className="tm-nav-item" target="_blank" rel="noreferrer">How to use</a>
-          <a href="#about-agent-layer" className="tm-nav-item" target="_blank" rel="noreferrer">About</a>
+          <a href="#wallet" className="tm-nav-item">Wallet</a>
+          <a href="#product" className="tm-nav-item">Product</a>
+          <a href="#use-cases" className="tm-nav-item">Use Cases</a>
+          <a href="#how-to-use" className="tm-nav-item">How to use</a>
+          <a href="#about-agent-layer" className="tm-nav-item">About</a>
         </nav>
 
         <a href="#" className="tm-btn-cta" onClick={(event) => {
@@ -83,9 +84,10 @@ export const TermsPage = ({ onInstallClick }) => {
             <h2 className="tm-footer-title">finance</h2>
             <div className="tm-footer-links">
               <div className="tm-link-col">
-                <a href="#product" target="_blank" rel="noreferrer">Product</a>
-                <a href="#use-cases" target="_blank" rel="noreferrer">Use Cases</a>
-                <a href="#how-to-use" target="_blank" rel="noreferrer">How to use</a>
+                <a href="#wallet">Wallet</a>
+                <a href="#product">Product</a>
+                <a href="#use-cases">Use Cases</a>
+                <a href="#how-to-use">How to use</a>
               </div>
               <div className="tm-link-col">
                 <a href="https://github.com/lopushok9/Agent-Layer" target="_blank" rel="noreferrer">GitHub</a>
@@ -101,8 +103,8 @@ export const TermsPage = ({ onInstallClick }) => {
           <div className="tm-footer-bottom">
             <div className="tm-footer-brand">Agent Layer</div>
             <div className="tm-footer-bottom-links">
-              <a href="#about-agent-layer" target="_blank" rel="noreferrer">About Agent Layer</a>
-              <a href="#terms" className="tm-footer-active-link" target="_blank" rel="noreferrer">Terms</a>
+              <a href="#about-agent-layer">About Agent Layer</a>
+              <a href="#terms" className="tm-footer-active-link">Terms</a>
             </div>
           </div>
         </div>

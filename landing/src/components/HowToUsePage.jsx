@@ -6,16 +6,17 @@ export const HowToUsePage = ({ onInstallClick }) => {
 
       {/* Header */}
       <header className="htu-header">
-        <a href="#" className="htu-brand" target="_blank" rel="noreferrer">
+        <a href="#" className="htu-brand">
           <img src="/apple-touch-icon.png" alt="AgentLayer logo" className="htu-brand-mark" />
           <span className="htu-brand-text">AgentLayer</span>
         </a>
 
         <nav className="htu-nav">
-          <a href="#product" className="htu-nav-item" target="_blank" rel="noreferrer">Product</a>
-          <a href="#use-cases" className="htu-nav-item" target="_blank" rel="noreferrer">Use Cases</a>
-          <a href="#how-to-use" className="htu-nav-item htu-nav-active" target="_blank" rel="noreferrer">How to use</a>
-          <a href="#about-agent-layer" className="htu-nav-item" target="_blank" rel="noreferrer">About</a>
+          <a href="#wallet" className="htu-nav-item">Wallet</a>
+          <a href="#product" className="htu-nav-item">Product</a>
+          <a href="#use-cases" className="htu-nav-item">Use Cases</a>
+          <a href="#how-to-use" className="htu-nav-item htu-nav-active">How to use</a>
+          <a href="#about-agent-layer" className="htu-nav-item">About</a>
         </nav>
 
         <a href="#" className="htu-btn-cta" onClick={(event) => {
@@ -118,9 +119,10 @@ export const HowToUsePage = ({ onInstallClick }) => {
             <h2 className="htu-footer-title">finance</h2>
             <div className="htu-footer-links">
               <div className="htu-link-col">
-                <a href="#product" target="_blank" rel="noreferrer">Product</a>
-                <a href="#use-cases" target="_blank" rel="noreferrer">Use Cases</a>
-                <a href="#how-to-use" target="_blank" rel="noreferrer">How to use</a>
+                <a href="#wallet">Wallet</a>
+                <a href="#product">Product</a>
+                <a href="#use-cases">Use Cases</a>
+                <a href="#how-to-use">How to use</a>
               </div>
               <div className="htu-link-col">
                 <a href="https://github.com/lopushok9/Agent-Layer" target="_blank" rel="noreferrer">GitHub</a>
@@ -136,8 +138,8 @@ export const HowToUsePage = ({ onInstallClick }) => {
           <div className="htu-footer-bottom">
             <div className="htu-footer-brand">Agent Layer</div>
             <div className="htu-footer-bottom-links">
-              <a href="#about-agent-layer" target="_blank" rel="noreferrer">About Agent Layer</a>
-              <a href="#terms" target="_blank" rel="noreferrer">Terms</a>
+              <a href="#about-agent-layer">About Agent Layer</a>
+              <a href="#terms">Terms</a>
             </div>
           </div>
         </div>

@@ -3,6 +3,7 @@ import { Particles } from './components/Particles'
 import { Interface } from './components/Interface'
 import { InstallModal } from './components/InstallModal'
 import { ProductPage } from './components/ProductPage'
+import { WalletPage } from './components/WalletPage'
 import { UseCasesPage } from './components/UseCasesPage'
 import { HowToUsePage } from './components/HowToUsePage'
 import { AboutAgentLayerPage } from './components/AboutAgentLayerPage'
@@ -12,6 +13,7 @@ import './index.css'
 function App() {
   const getPage = () => {
     const hash = window.location.hash
+    if (hash === '#wallet') return 'wallet'
     if (hash === '#product') return 'product'
     if (hash === '#use-cases') return 'use-cases'
     if (hash === '#how-to-use') return 'how-to-use'
@@ -32,6 +34,7 @@ function App() {
   return (
     <>
       <Particles />
+      {page === 'wallet' && <WalletPage onInstallClick={() => setInstallModalOpen(true)} />}
       {page === 'product' && <ProductPage onInstallClick={() => setInstallModalOpen(true)} />}
       {page === 'use-cases' && <UseCasesPage onInstallClick={() => setInstallModalOpen(true)} />}
       {page === 'how-to-use' && <HowToUsePage onInstallClick={() => setInstallModalOpen(true)} />}

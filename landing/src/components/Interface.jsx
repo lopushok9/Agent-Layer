@@ -13,10 +13,11 @@ export const Interface = ({ onInstallClick }) => {
                 </div>
 
                 <nav className="nav desktop-only">
-                    <a href="#product" className="nav-item" target="_blank" rel="noreferrer">Product</a>
-                    <a href="#use-cases" className="nav-item" target="_blank" rel="noreferrer">Use Cases</a>
-                    <a href="#how-to-use" className="nav-item" target="_blank" rel="noreferrer">How to use</a>
-                    <a href="#about-agent-layer" className="nav-item" target="_blank" rel="noreferrer">About</a>
+                    <a href="#wallet" className="nav-item">Wallet</a>
+                    <a href="#product" className="nav-item">Product</a>
+                    <a href="#use-cases" className="nav-item">Use Cases</a>
+                    <a href="#how-to-use" className="nav-item">How to use</a>
+                    <a href="#about-agent-layer" className="nav-item">About</a>
                 </nav>
 
                 <button type="button" className="btn-download desktop-only" onClick={onInstallClick}>
@@ -55,10 +56,11 @@ export const Interface = ({ onInstallClick }) => {
 
                 <div className="mobile-menu-content">
                     <nav className="mobile-nav-list">
-                        <a href="#product" className="mobile-nav-link" target="_blank" rel="noreferrer">Product</a>
-                        <a href="#use-cases" className="mobile-nav-link" target="_blank" rel="noreferrer">Use Cases</a>
-                        <a href="#how-to-use" className="mobile-nav-link" target="_blank" rel="noreferrer">How to use</a>
-                        <a href="#about-agent-layer" className="mobile-nav-link" target="_blank" rel="noreferrer">About</a>
+                        <a href="#wallet" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>Wallet</a>
+                        <a href="#product" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>Product</a>
+                        <a href="#use-cases" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>Use Cases</a>
+                        <a href="#how-to-use" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>How to use</a>
+                        <a href="#about-agent-layer" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>About</a>
                     </nav>
                 </div>
             </div>
@@ -87,9 +89,10 @@ export const Interface = ({ onInstallClick }) => {
                     <h2 className="finance-title">finance</h2>
                     <div className="extended-links">
                         <div className="link-column">
-                            <a href="#product" target="_blank" rel="noreferrer">Product</a>
-                            <a href="#use-cases" target="_blank" rel="noreferrer">Use Cases</a>
-                            <a href="#how-to-use" target="_blank" rel="noreferrer">How to use</a>
+                        <a href="#wallet">Wallet</a>
+                        <a href="#product">Product</a>
+                        <a href="#use-cases">Use Cases</a>
+                        <a href="#how-to-use">How to use</a>
                         </div>
                         <div className="link-column">
                             <a href="https://github.com/lopushok9/Agent-Layer" target="_blank" rel="noreferrer">GitHub</a>
@@ -105,8 +108,8 @@ export const Interface = ({ onInstallClick }) => {
                 <div className="extended-footer">
                     <div className="footer-brand">Agent Layer</div>
                     <div className="footer-bottom-links">
-                        <a href="#about-agent-layer" target="_blank" rel="noreferrer">About Agent Layer</a>
-                        <a href="#terms" target="_blank" rel="noreferrer">Terms</a>
+                        <a href="#about-agent-layer">About Agent Layer</a>
+                        <a href="#terms">Terms</a>
                     </div>
                 </div>
             </div>
