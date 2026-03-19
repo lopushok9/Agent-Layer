@@ -39,7 +39,10 @@ export const WalletPage = ({ onInstallClick }) => {
       <header className="wp-header">
         <a href="#" className="wp-brand">
           <img src="/apple-touch-icon.png" alt="AgentLayer logo" className="wp-brand-mark" />
-          <span className="wp-brand-text">AgentLayer</span>
+          <span className="wordmark-lockup">
+            <span className="wp-brand-text">AgentLayer</span>
+            <span className="wordmark-beta" aria-hidden="true">β</span>
+          </span>
         </a>
 
         <nav className="wp-nav">

@@ -29,7 +29,10 @@ export const TermsPage = ({ onInstallClick }) => {
       <header className="tm-header">
         <a href="#" className="tm-brand">
           <img src="/apple-touch-icon.png" alt="AgentLayer logo" className="tm-brand-mark" />
-          <span className="tm-brand-text">AgentLayer</span>
+          <span className="wordmark-lockup">
+            <span className="tm-brand-text">AgentLayer</span>
+            <span className="wordmark-beta" aria-hidden="true">β</span>
+          </span>
         </a>
 
         <nav className="tm-nav">

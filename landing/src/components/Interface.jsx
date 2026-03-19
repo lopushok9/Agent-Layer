@@ -9,7 +9,10 @@ export const Interface = ({ onInstallClick }) => {
             <header className="header">
                 <div className="brand-block">
                     <img src="/apple-touch-icon.png" alt="AgentLayer logo" className="brand-mark" />
-                    <span className="brand-text">AgentLayer</span>
+                    <span className="wordmark-lockup">
+                        <span className="brand-text">AgentLayer</span>
+                        <span className="wordmark-beta" aria-hidden="true">β</span>
+                    </span>
                 </div>
 
                 <nav className="nav desktop-only">
@@ -43,7 +46,10 @@ export const Interface = ({ onInstallClick }) => {
                 <div className="mobile-menu-header">
                     <div className="brand-block-menu">
                         <img src="/apple-touch-icon.png" alt="AgentLayer logo" className="brand-mark brand-mark-menu" />
-                        <span className="brand-text-menu">AgentLayer</span>
+                        <span className="wordmark-lockup">
+                            <span className="brand-text-menu">AgentLayer</span>
+                            <span className="wordmark-beta" aria-hidden="true">β</span>
+                        </span>
                         <span className="brand-subtext-menu">Antigravity</span>
                     </div>
                     <button className="mobile-menu-close" onClick={() => setMobileMenuOpen(false)} aria-label="Close menu">
@@ -68,7 +74,10 @@ export const Interface = ({ onInstallClick }) => {
             <main className="hero">
                 <div className="hero-content">
                     <div className="hero-logo-row">
-                        <span className="hero-brand-text">AgentLayer</span>
+                        <span className="wordmark-lockup">
+                            <span className="hero-brand-text">AgentLayer</span>
+                            <span className="wordmark-beta" aria-hidden="true">β</span>
+                        </span>
                     </div>
 
                     <h1 className="hero-headline">Crypto infrastructure for the AI agents era.</h1>

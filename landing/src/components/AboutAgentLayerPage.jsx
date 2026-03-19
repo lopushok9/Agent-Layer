@@ -24,7 +24,10 @@ export const AboutAgentLayerPage = ({ onInstallClick }) => {
       <header className="ab-header">
         <a href="#" className="ab-brand">
           <img src="/apple-touch-icon.png" alt="AgentLayer logo" className="ab-brand-mark" />
-          <span className="ab-brand-text">AgentLayer</span>
+          <span className="wordmark-lockup">
+            <span className="ab-brand-text">AgentLayer</span>
+            <span className="wordmark-beta" aria-hidden="true">β</span>
+          </span>
         </a>
 
         <nav className="ab-nav">

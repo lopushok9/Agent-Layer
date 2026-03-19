@@ -31,3 +31,18 @@ body {
   height: 100%;
   position: relative;
 }
+
+.wordmark-lockup {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.34em;
+}
+
+.wordmark-beta {
+  color: #8b9097;
+  font-size: 0.82em;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  transform: translateY(-0.06em);
+}

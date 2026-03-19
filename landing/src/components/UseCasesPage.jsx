@@ -41,7 +41,10 @@ export const UseCasesPage = ({ onInstallClick }) => {
       <header className="uc-header">
         <a href="#" className="uc-brand">
           <img src="/apple-touch-icon.png" alt="AgentLayer logo" className="uc-brand-mark" />
-          <span className="uc-brand-text">AgentLayer</span>
+          <span className="wordmark-lockup">
+            <span className="uc-brand-text">AgentLayer</span>
+            <span className="wordmark-beta" aria-hidden="true">β</span>
+          </span>
         </a>
 
         <nav className="uc-nav">

@@ -39,7 +39,10 @@ export const ProductPage = ({ onInstallClick }) => {
       <header className="pp-header">
         <a href="#" className="pp-brand">
           <img src="/apple-touch-icon.png" alt="AgentLayer logo" className="pp-brand-mark" />
-          <span className="pp-brand-text">AgentLayer</span>
+          <span className="wordmark-lockup">
+            <span className="pp-brand-text">AgentLayer</span>
+            <span className="wordmark-beta" aria-hidden="true">β</span>
+          </span>
         </a>
 
         <nav className="pp-nav">

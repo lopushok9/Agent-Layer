@@ -8,7 +8,10 @@ export const HowToUsePage = ({ onInstallClick }) => {
       <header className="htu-header">
         <a href="#" className="htu-brand">
           <img src="/apple-touch-icon.png" alt="AgentLayer logo" className="htu-brand-mark" />
-          <span className="htu-brand-text">AgentLayer</span>
+          <span className="wordmark-lockup">
+            <span className="htu-brand-text">AgentLayer</span>
+            <span className="wordmark-beta" aria-hidden="true">β</span>
+          </span>
         </a>
 
         <nav className="htu-nav">
