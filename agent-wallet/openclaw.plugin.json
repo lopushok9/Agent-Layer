@@ -84,6 +84,14 @@
       "jupiterApiKey": {
         "type": "string",
         "description": "Optional Jupiter API key if your deployment uses a keyed endpoint."
+      },
+      "kaminoBaseUrl": {
+        "type": "string",
+        "description": "Optional Kamino REST API base URL for lending reads and transaction building."
+      },
+      "kaminoProgramId": {
+        "type": "string",
+        "description": "Optional Kamino lending program id for market discovery."
       }
     }
   }

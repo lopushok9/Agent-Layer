@@ -1,4 +1,4 @@
-"""Smoke test for temporary Jupiter Portfolio/Earn disable switch."""
+"""Smoke test for temporary Jupiter Portfolio disable switch."""
 
 from __future__ import annotations
 
@@ -56,24 +56,17 @@ async def main() -> None:
     tool_names = {tool.name for tool in adapter.list_tools()}
 
     assert "get_jupiter_portfolio" not in tool_names
-    assert "get_jupiter_earn_tokens" not in tool_names
-    assert "jupiter_earn_deposit" not in tool_names
+    assert "get_jupiter_staked_jup" not in tool_names
+    assert "get_jupiter_earn_tokens" in tool_names
+    assert "jupiter_earn_deposit" in tool_names
 
     blocked_read = await adapter.invoke("get_jupiter_portfolio", {})
     assert blocked_read.ok is False
     assert "temporarily disabled" in (blocked_read.error or "")
 
-    blocked_write = await adapter.invoke(
-        "jupiter_earn_deposit",
-        {
-            "asset": "So11111111111111111111111111111111111111112",
-            "amount_raw": "1000000",
-            "mode": "preview",
-            "purpose": "disabled test",
-        },
-    )
-    assert blocked_write.ok is False
-    assert "temporarily disabled" in (blocked_write.error or "")
+    blocked_staked_jup = await adapter.invoke("get_jupiter_staked_jup", {})
+    assert blocked_staked_jup.ok is False
+    assert "temporarily disabled" in (blocked_staked_jup.error or "")
 
     print("smoke_jupiter_tools_disabled: ok")
 

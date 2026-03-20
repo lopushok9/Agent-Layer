@@ -24,6 +24,26 @@ def _require_api_key(provider_name: str) -> None:
         )
 
 
+def _normalize_named_list_response(
+    data: Any,
+    *,
+    key: str,
+    provider_name: str,
+) -> dict[str, Any]:
+    if isinstance(data, list):
+        return {key: data}
+    if isinstance(data, dict):
+        items = data.get(key)
+        if isinstance(items, list):
+            return data
+        fallback = data.get("data")
+        if isinstance(fallback, list):
+            normalized = dict(data)
+            normalized[key] = fallback
+            return normalized
+    raise ProviderError(provider_name, f"Unexpected {key} response from Jupiter.")
+
+
 async def fetch_quote(
     *,
     input_mint: str,
@@ -255,10 +275,11 @@ async def fetch_earn_tokens() -> dict[str, Any]:
     )
     if response.status_code != 200:
         raise ProviderError("jupiter-lend", f"HTTP {response.status_code}: {response.text[:300]}")
-    data = response.json()
-    if not isinstance(data, dict):
-        raise ProviderError("jupiter-lend", "Unexpected Earn tokens response.")
-    return data
+    return _normalize_named_list_response(
+        response.json(),
+        key="tokens",
+        provider_name="jupiter-lend",
+    )
 
 
 async def fetch_earn_positions(*, users: list[str]) -> dict[str, Any]:
@@ -272,10 +293,11 @@ async def fetch_earn_positions(*, users: list[str]) -> dict[str, Any]:
     )
     if response.status_code != 200:
         raise ProviderError("jupiter-lend", f"HTTP {response.status_code}: {response.text[:300]}")
-    data = response.json()
-    if not isinstance(data, dict):
-        raise ProviderError("jupiter-lend", "Unexpected Earn positions response.")
-    return data
+    return _normalize_named_list_response(
+        response.json(),
+        key="positions",
+        provider_name="jupiter-lend",
+    )
 
 
 async def fetch_earn_earnings(*, user: str, positions: list[str]) -> dict[str, Any]:
@@ -289,10 +311,11 @@ async def fetch_earn_earnings(*, user: str, positions: list[str]) -> dict[str, A
     )
     if response.status_code != 200:
         raise ProviderError("jupiter-lend", f"HTTP {response.status_code}: {response.text[:300]}")
-    data = response.json()
-    if not isinstance(data, dict):
-        raise ProviderError("jupiter-lend", "Unexpected Earn earnings response.")
-    return data
+    return _normalize_named_list_response(
+        response.json(),
+        key="earnings",
+        provider_name="jupiter-lend",
+    )
 
 
 async def build_earn_deposit_transaction(
@@ -308,7 +331,7 @@ async def build_earn_deposit_transaction(
         f"{settings.jupiter_lend_api_base_url.rstrip('/')}/earn/deposit",
         json={
             "asset": asset,
-            "userAddress": user_address,
+            "signer": user_address,
             "amount": amount_raw,
         },
         headers=_headers(),
@@ -334,7 +357,7 @@ async def build_earn_withdraw_transaction(
         f"{settings.jupiter_lend_api_base_url.rstrip('/')}/earn/withdraw",
         json={
             "asset": asset,
-            "userAddress": user_address,
+            "signer": user_address,
             "amount": amount_raw,
         },
         headers=_headers(),

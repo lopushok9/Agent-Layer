@@ -222,6 +222,97 @@ class FakeBackend(AgentWalletBackend):
             "source": "jupiter-lend",
         }
 
+    async def get_kamino_lend_markets(self) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "market_count": 1,
+            "markets": [
+                {
+                    "lendingMarket": "FakeKaminoMarket111111111111111111111111111111",
+                    "name": "Main Market",
+                    "isPrimary": True,
+                }
+            ],
+            "raw": {
+                "markets": [
+                    {
+                        "lendingMarket": "FakeKaminoMarket111111111111111111111111111111",
+                        "name": "Main Market",
+                    }
+                ]
+            },
+            "source": "kamino",
+        }
+
+    async def get_kamino_lend_market_reserves(self, market: str) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "market": market,
+            "reserve_count": 1,
+            "reserves": [
+                {
+                    "reserve": "FakeKaminoReserve1111111111111111111111111111",
+                    "liquidityToken": "USDC",
+                    "supplyApy": "0.05",
+                }
+            ],
+            "raw": {"reserves": [{"reserve": "FakeKaminoReserve1111111111111111111111111111"}]},
+            "source": "kamino",
+        }
+
+    async def get_kamino_lend_user_obligations(
+        self,
+        market: str,
+        user: str | None = None,
+    ) -> dict:
+        owner = user or "Fake11111111111111111111111111111111111111111"
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "market": market,
+            "user": owner,
+            "obligation_count": 1,
+            "obligations": [
+                {
+                    "obligationAddress": "FakeKaminoObligation11111111111111111111111",
+                    "state": {
+                        "owner": owner,
+                        "deposits": [
+                            {
+                                "depositReserve": "FakeKaminoReserve1111111111111111111111111111",
+                                "depositedAmount": "1000",
+                            }
+                        ],
+                        "borrows": [
+                            {
+                                "borrowReserve": "FakeKaminoReserve1111111111111111111111111111",
+                                "borrowedAmountSf": "500",
+                            }
+                        ],
+                    },
+                }
+            ],
+            "raw": {"obligations": [{"obligationAddress": "FakeKaminoObligation11111111111111111111111"}]},
+            "source": "kamino",
+        }
+
+    async def get_kamino_lend_user_rewards(self, user: str | None = None) -> dict:
+        owner = user or "Fake11111111111111111111111111111111111111111"
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "user": owner,
+            "reward_count": 1,
+            "rewards": [{"symbol": "KMNO", "amount": "1.23"}],
+            "avg_base_apy": "0.04",
+            "avg_boosted_apy": "0.05",
+            "avg_max_apy": "0.06",
+            "raw": {"rewards": [{"symbol": "KMNO"}]},
+            "source": "kamino",
+        }
+
     def get_capabilities(self) -> WalletCapabilities:
         return WalletCapabilities(
             backend=self.name,
@@ -904,6 +995,189 @@ class FakeBackend(AgentWalletBackend):
             "source": "jupiter-lend",
         }
 
+    async def preview_kamino_lend_deposit(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "preview",
+            "asset_type": "kamino-lend-deposit",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "market": market,
+            "reserve": reserve,
+            "amount_ui": amount_ui,
+            "reserve_info": {"reserve": reserve, "liquidityToken": "USDC"},
+            "sign_only": False,
+            "can_send": True,
+            "source": "kamino",
+        }
+
+    async def execute_kamino_lend_deposit(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "execute",
+            "asset_type": "kamino-lend-deposit",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "market": market,
+            "reserve": reserve,
+            "amount_ui": amount_ui,
+            "signature": "fake-kamino-deposit-signature",
+            "broadcasted": True,
+            "confirmed": True,
+            "confirmation_status": "confirmed",
+            "slot": 1310,
+            "sign_only": False,
+            "source": "kamino",
+        }
+
+    async def preview_kamino_lend_withdraw(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "preview",
+            "asset_type": "kamino-lend-withdraw",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "market": market,
+            "reserve": reserve,
+            "amount_ui": amount_ui,
+            "reserve_info": {"reserve": reserve, "liquidityToken": "USDC"},
+            "obligations": [{"obligationAddress": "FakeKaminoObligation11111111111111111111111"}],
+            "sign_only": False,
+            "can_send": True,
+            "source": "kamino",
+        }
+
+    async def execute_kamino_lend_withdraw(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "execute",
+            "asset_type": "kamino-lend-withdraw",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "market": market,
+            "reserve": reserve,
+            "amount_ui": amount_ui,
+            "signature": "fake-kamino-withdraw-signature",
+            "broadcasted": True,
+            "confirmed": True,
+            "confirmation_status": "confirmed",
+            "slot": 1311,
+            "sign_only": False,
+            "source": "kamino",
+        }
+
+    async def preview_kamino_lend_borrow(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "preview",
+            "asset_type": "kamino-lend-borrow",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "market": market,
+            "reserve": reserve,
+            "amount_ui": amount_ui,
+            "reserve_info": {"reserve": reserve, "liquidityToken": "USDC"},
+            "obligations": [{"obligationAddress": "FakeKaminoObligation11111111111111111111111"}],
+            "sign_only": False,
+            "can_send": True,
+            "source": "kamino",
+        }
+
+    async def execute_kamino_lend_borrow(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "execute",
+            "asset_type": "kamino-lend-borrow",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "market": market,
+            "reserve": reserve,
+            "amount_ui": amount_ui,
+            "signature": "fake-kamino-borrow-signature",
+            "broadcasted": True,
+            "confirmed": True,
+            "confirmation_status": "confirmed",
+            "slot": 1312,
+            "sign_only": False,
+            "source": "kamino",
+        }
+
+    async def preview_kamino_lend_repay(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "preview",
+            "asset_type": "kamino-lend-repay",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "market": market,
+            "reserve": reserve,
+            "amount_ui": amount_ui,
+            "reserve_info": {"reserve": reserve, "liquidityToken": "USDC"},
+            "obligations": [{"obligationAddress": "FakeKaminoObligation11111111111111111111111"}],
+            "sign_only": False,
+            "can_send": True,
+            "source": "kamino",
+        }
+
+    async def execute_kamino_lend_repay(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "execute",
+            "asset_type": "kamino-lend-repay",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "market": market,
+            "reserve": reserve,
+            "amount_ui": amount_ui,
+            "signature": "fake-kamino-repay-signature",
+            "broadcasted": True,
+            "confirmed": True,
+            "confirmation_status": "confirmed",
+            "slot": 1313,
+            "sign_only": False,
+            "source": "kamino",
+        }
+
     async def request_testnet_airdrop(self, amount_native: float) -> dict:
         return {
             "chain": "solana",
@@ -976,16 +1250,20 @@ async def main() -> None:
     tool_names = {tool.name for tool in adapter.list_tools()}
     bundle_tool_names = {tool["name"] for tool in bundle["tools"]}
 
-    assert len(tool_names) == 16
+    assert len(tool_names) == 29
     assert bundle["manifest"]["id"] == "agent-wallet"
-    assert len(bundle_tool_names) == 16
+    assert len(bundle_tool_names) == 29
     assert "Wallet Operator" in bundle["instructions"]
     assert "get_jupiter_portfolio" not in tool_names
-    assert "get_jupiter_earn_tokens" not in tool_names
-    assert "jupiter_earn_deposit" not in tool_names
-    assert "jupiter_earn_withdraw" not in tool_names
+    assert "get_jupiter_earn_tokens" in tool_names
+    assert "jupiter_earn_deposit" in tool_names
+    assert "jupiter_earn_withdraw" in tool_names
+    assert "get_kamino_lend_markets" in tool_names
+    assert "kamino_lend_deposit" in tool_names
+    assert "kamino_lend_borrow" in tool_names
     assert "get_jupiter_portfolio" not in bundle_tool_names
-    assert "jupiter_earn_deposit" not in bundle_tool_names
+    assert "jupiter_earn_deposit" in bundle_tool_names
+    assert "kamino_lend_deposit" in bundle_tool_names
 
     capabilities = await adapter.invoke("get_wallet_capabilities")
     assert capabilities.ok and capabilities.data["backend"] == "fake_wallet"
@@ -1007,6 +1285,24 @@ async def main() -> None:
         {"mints": ["So11111111111111111111111111111111111111112"]},
     )
     assert prices.ok and prices.data["count"] == 1
+
+    kamino_markets = await adapter.invoke("get_kamino_lend_markets")
+    assert kamino_markets.ok and kamino_markets.data["market_count"] == 1
+
+    kamino_reserves = await adapter.invoke(
+        "get_kamino_lend_market_reserves",
+        {"market": "FakeKaminoMarket111111111111111111111111111111"},
+    )
+    assert kamino_reserves.ok and kamino_reserves.data["reserve_count"] == 1
+
+    kamino_obligations = await adapter.invoke(
+        "get_kamino_lend_user_obligations",
+        {"market": "FakeKaminoMarket111111111111111111111111111111"},
+    )
+    assert kamino_obligations.ok and kamino_obligations.data["obligation_count"] == 1
+
+    kamino_rewards = await adapter.invoke("get_kamino_lend_user_rewards")
+    assert kamino_rewards.ok and kamino_rewards.data["reward_count"] == 1
 
     validators = await adapter.invoke("get_solana_staking_validators")
     assert validators.ok and validators.data["validator_count"] == 1
@@ -1094,6 +1390,51 @@ async def main() -> None:
         },
     )
     assert executed_transfer.ok and executed_transfer.data["confirmed"] is True
+
+    kamino_preview = await adapter.invoke(
+        "kamino_lend_deposit",
+        {
+            "market": "FakeKaminoMarket111111111111111111111111111111",
+            "reserve": "FakeKaminoReserve1111111111111111111111111111",
+            "amount_ui": "1.25",
+            "mode": "preview",
+            "purpose": "test kamino deposit preview",
+        },
+    )
+    assert kamino_preview.ok and kamino_preview.data["mode"] == "preview"
+    assert kamino_preview.data["confirmation_summary"]["operation"] == "Kamino deposit"
+    assert kamino_preview.data["confirmation_summary"]["market"] == "FakeKaminoMarket111111111111111111111111111111"
+
+    kamino_prepare = await adapter.invoke(
+        "kamino_lend_deposit",
+        {
+            "market": "FakeKaminoMarket111111111111111111111111111111",
+            "reserve": "FakeKaminoReserve1111111111111111111111111111",
+            "amount_ui": "1.25",
+            "mode": "prepare",
+            "purpose": "test kamino deposit prepare",
+            "user_intent": True,
+        },
+    )
+    assert kamino_prepare.ok and kamino_prepare.data["execution_plan_only"] is True
+    assert "transaction_base64" not in kamino_prepare.data
+
+    kamino_execute = await adapter.invoke(
+        "kamino_lend_deposit",
+        {
+            "market": "FakeKaminoMarket111111111111111111111111111111",
+            "reserve": "FakeKaminoReserve1111111111111111111111111111",
+            "amount_ui": "1.25",
+            "mode": "execute",
+            "purpose": "test kamino deposit execute",
+            "approval_token": _issue_execute_approval(
+                tool_name="kamino_lend_deposit",
+                preview=kamino_preview.data,
+                network="devnet",
+            ),
+        },
+    )
+    assert kamino_execute.ok and kamino_execute.data["confirmed"] is True
 
     stake_preview = await adapter.invoke(
         "stake_sol_native",

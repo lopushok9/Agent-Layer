@@ -89,6 +89,118 @@ class AgentWalletBackend(ABC):
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Jupiter Earn earnings.")
 
+    async def get_kamino_lend_markets(self) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Kamino market lookup.")
+
+    async def get_kamino_lend_market_reserves(self, market: str) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Kamino reserve lookup.")
+
+    async def get_kamino_lend_user_obligations(
+        self,
+        market: str,
+        user: str | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Kamino obligations lookup.")
+
+    async def get_kamino_lend_user_rewards(self, user: str | None = None) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Kamino rewards lookup.")
+
+    async def preview_kamino_lend_deposit(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Kamino deposit previews.")
+
+    async def prepare_kamino_lend_deposit(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Kamino deposit preparation.")
+
+    async def execute_kamino_lend_deposit(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Kamino deposits.")
+
+    async def preview_kamino_lend_withdraw(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Kamino withdraw previews.")
+
+    async def prepare_kamino_lend_withdraw(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Kamino withdraw preparation.")
+
+    async def execute_kamino_lend_withdraw(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Kamino withdraws.")
+
+    async def preview_kamino_lend_borrow(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Kamino borrow previews.")
+
+    async def prepare_kamino_lend_borrow(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Kamino borrow preparation.")
+
+    async def execute_kamino_lend_borrow(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Kamino borrows.")
+
+    async def preview_kamino_lend_repay(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Kamino repay previews.")
+
+    async def prepare_kamino_lend_repay(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Kamino repay preparation.")
+
+    async def execute_kamino_lend_repay(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Kamino repays.")
+
     async def preview_jupiter_earn_deposit(
         self,
         asset: str,

@@ -8,8 +8,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agent_wallet.transaction_policy import (
+    KAMINO_LEND_PROGRAM_ID,
     JUPITER_V6_PROGRAM_ID,
     SWAP_ALLOWED_PROGRAMS,
+    verify_provider_kamino_lend_transaction,
     verify_provider_swap_transaction,
 )
 from agent_wallet.wallet_layer.base import WalletBackendError
@@ -129,6 +131,54 @@ def main() -> None:
         raise AssertionError("expected verifier to reject extra signers")
     except WalletBackendError as exc:
         assert "unexpected additional signers" in str(exc)
+
+    kamino_market = "7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF"
+    kamino_reserve = "D6q6wuQSrifJKZYpR1M8R4YawnLDtDsMmWM1NbBmgJ59"
+    kamino_message = _Message(
+        [wallet, kamino_market, kamino_reserve, KAMINO_LEND_PROGRAM_ID],
+        [_Instruction(3)],
+    )
+    kamino_result = verify_provider_kamino_lend_transaction(
+        kamino_message,
+        wallet_address=wallet,
+        market_address=kamino_market,
+        reserve_address=kamino_reserve,
+        action="Kamino deposit",
+    )
+    assert kamino_result["verified"] is True
+    assert kamino_result["has_recognized_kamino_program"] is True
+    assert kamino_result["unknown_program_ids"] == []
+
+    kamino_lookup_message = _Message(
+        [wallet, KAMINO_LEND_PROGRAM_ID],
+        [_Instruction(1)],
+    )
+    kamino_lookup_result = verify_provider_kamino_lend_transaction(
+        kamino_lookup_message,
+        wallet_address=wallet,
+        market_address=kamino_market,
+        reserve_address=kamino_reserve,
+        action="Kamino deposit",
+        loaded_addresses=[kamino_market, kamino_reserve],
+    )
+    assert kamino_lookup_result["verified"] is True
+    assert kamino_lookup_result["account_key_count"] == 4
+
+    bad_kamino = _Message(
+        [wallet, kamino_market, kamino_reserve, "BadProgram1111111111111111111111111111111111"],
+        [_Instruction(3)],
+    )
+    try:
+        verify_provider_kamino_lend_transaction(
+            bad_kamino,
+            wallet_address=wallet,
+            market_address=kamino_market,
+            reserve_address=kamino_reserve,
+            action="Kamino deposit",
+        )
+        raise AssertionError("expected verifier to reject missing Kamino program")
+    except WalletBackendError as exc:
+        assert "Kamino lending program" in str(exc)
 
     print("smoke_transaction_policy: ok")
 

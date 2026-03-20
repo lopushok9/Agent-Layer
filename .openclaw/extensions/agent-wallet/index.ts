@@ -178,6 +178,99 @@ const toolDefinitions = [
     },
   },
   {
+    name: "get_jupiter_earn_tokens",
+    description: "List Jupiter Earn vault tokens currently supported on Solana mainnet.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_jupiter_earn_positions",
+    description: "Get Jupiter Earn positions for one or more Solana wallet addresses on mainnet.",
+    parameters: {
+      type: "object",
+      properties: {
+        users: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional list of Solana wallet addresses. If omitted, use the configured wallet address.",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_jupiter_earn_earnings",
+    description: "Get Jupiter Earn earnings for a wallet and one or more position addresses on mainnet.",
+    parameters: {
+      type: "object",
+      properties: {
+        user: {
+          type: "string",
+          description: "Optional Solana wallet address override.",
+        },
+        positions: {
+          type: "array",
+          items: { type: "string" },
+          description: "List of Jupiter Earn position addresses.",
+        },
+      },
+      required: ["positions"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_kamino_lend_markets",
+    description: "List Kamino lending markets currently available on Solana mainnet.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_kamino_lend_market_reserves",
+    description: "Get reserve metrics for one Kamino lending market on Solana mainnet.",
+    parameters: {
+      type: "object",
+      properties: {
+        market: {
+          type: "string",
+          description: "Kamino market address.",
+        },
+      },
+      required: ["market"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_kamino_lend_user_obligations",
+    description: "Get Kamino obligations for a wallet in a specific Kamino market on Solana mainnet.",
+    parameters: {
+      type: "object",
+      properties: {
+        market: {
+          type: "string",
+          description: "Kamino market address.",
+        },
+        user: {
+          type: "string",
+          description: "Optional Solana wallet address override.",
+        },
+      },
+      required: ["market"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_kamino_lend_user_rewards",
+    description: "Get Kamino rewards summary for a Solana wallet on mainnet.",
+    parameters: {
+      type: "object",
+      properties: {
+        user: {
+          type: "string",
+          description: "Optional Solana wallet address override.",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: "sign_wallet_message",
     description: "Sign an arbitrary message with the connected wallet after explicit approval.",
     optional: true,
@@ -247,6 +340,118 @@ const toolDefinitions = [
         approval_token: { type: "string" },
       },
       required: ["input_mint", "output_mint", "amount", "mode", "purpose"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "jupiter_earn_deposit",
+    description: "Preview, prepare, or execute a Jupiter Earn deposit using a raw base-unit amount. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    optional: true,
+    parameters: {
+      type: "object",
+      properties: {
+        asset: { type: "string" },
+        amount_raw: { type: "string" },
+        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
+        purpose: { type: "string" },
+        user_intent: { type: "boolean" },
+        approval_token: { type: "string" },
+      },
+      required: ["asset", "amount_raw", "mode", "purpose"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "jupiter_earn_withdraw",
+    description: "Preview, prepare, or execute a Jupiter Earn withdraw using a raw base-unit amount. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    optional: true,
+    parameters: {
+      type: "object",
+      properties: {
+        asset: { type: "string" },
+        amount_raw: { type: "string" },
+        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
+        purpose: { type: "string" },
+        user_intent: { type: "boolean" },
+        approval_token: { type: "string" },
+      },
+      required: ["asset", "amount_raw", "mode", "purpose"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "kamino_lend_deposit",
+    description: "Preview, prepare, or execute a Kamino lending deposit using a decimal token amount. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    optional: true,
+    parameters: {
+      type: "object",
+      properties: {
+        market: { type: "string" },
+        reserve: { type: "string" },
+        amount_ui: { type: "string" },
+        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
+        purpose: { type: "string" },
+        user_intent: { type: "boolean" },
+        approval_token: { type: "string" },
+      },
+      required: ["market", "reserve", "amount_ui", "mode", "purpose"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "kamino_lend_withdraw",
+    description: "Preview, prepare, or execute a Kamino lending withdraw using a decimal token amount. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    optional: true,
+    parameters: {
+      type: "object",
+      properties: {
+        market: { type: "string" },
+        reserve: { type: "string" },
+        amount_ui: { type: "string" },
+        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
+        purpose: { type: "string" },
+        user_intent: { type: "boolean" },
+        approval_token: { type: "string" },
+      },
+      required: ["market", "reserve", "amount_ui", "mode", "purpose"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "kamino_lend_borrow",
+    description: "Preview, prepare, or execute a Kamino lending borrow using a decimal token amount. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    optional: true,
+    parameters: {
+      type: "object",
+      properties: {
+        market: { type: "string" },
+        reserve: { type: "string" },
+        amount_ui: { type: "string" },
+        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
+        purpose: { type: "string" },
+        user_intent: { type: "boolean" },
+        approval_token: { type: "string" },
+      },
+      required: ["market", "reserve", "amount_ui", "mode", "purpose"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "kamino_lend_repay",
+    description: "Preview, prepare, or execute a Kamino lending repay using a decimal token amount. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    optional: true,
+    parameters: {
+      type: "object",
+      properties: {
+        market: { type: "string" },
+        reserve: { type: "string" },
+        amount_ui: { type: "string" },
+        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
+        purpose: { type: "string" },
+        user_intent: { type: "boolean" },
+        approval_token: { type: "string" },
+      },
+      required: ["market", "reserve", "amount_ui", "mode", "purpose"],
       additionalProperties: false,
     },
   },

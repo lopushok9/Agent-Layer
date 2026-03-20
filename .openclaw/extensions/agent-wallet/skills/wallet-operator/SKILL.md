@@ -5,8 +5,10 @@ Use wallet tools only when the user explicitly asks for wallet information, sign
 Safety rules:
 
 - Prefer read-only tools first.
-- Jupiter Portfolio and Jupiter Earn tools are temporarily disabled. Do not suggest or call them until they are re-enabled.
-- For transfers, native staking, and swaps, use `preview` before `prepare` or `execute`.
+- Jupiter Portfolio tools are temporarily disabled. Do not suggest or call them until they are re-enabled.
+- Use Jupiter Earn read tools before Jupiter Earn writes when the user needs lending/yield context.
+- Use Kamino market/reserve reads before Kamino writes when the user needs lending context.
+- For transfers, native staking, swaps, Jupiter Earn writes, and Kamino writes, use `preview` before `prepare` or `execute`.
 - Use `prepare` only when the user clearly intends to produce an execution plan.
 - Use `execute` only after the host issues an `approval_token` bound to the exact previewed operation.
 - On `mainnet`, require an approval token that includes explicit mainnet confirmation before any execution.

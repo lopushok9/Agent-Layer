@@ -30,11 +30,6 @@ TEMPORARILY_DISABLED_TOOLS = {
     "get_jupiter_portfolio_platforms",
     "get_jupiter_portfolio",
     "get_jupiter_staked_jup",
-    "get_jupiter_earn_tokens",
-    "get_jupiter_earn_positions",
-    "get_jupiter_earn_earnings",
-    "jupiter_earn_deposit",
-    "jupiter_earn_withdraw",
 }
 
 
@@ -110,6 +105,8 @@ class OpenClawWalletAdapter:
             "owner",
             "authority",
             "address",
+            "market",
+            "reserve",
             "amount_native",
             "amount_ui",
             "input_amount_ui",
@@ -402,6 +399,71 @@ class OpenClawWalletAdapter:
                         },
                     },
                     "required": ["positions"],
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+            AgentToolSpec(
+                name="get_kamino_lend_markets",
+                description="List Kamino lending markets currently available on Solana mainnet.",
+                input_schema={
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+            AgentToolSpec(
+                name="get_kamino_lend_market_reserves",
+                description="Get reserve metrics for one Kamino lending market on Solana mainnet.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "market": {
+                            "type": "string",
+                            "description": "Kamino market address.",
+                        }
+                    },
+                    "required": ["market"],
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+            AgentToolSpec(
+                name="get_kamino_lend_user_obligations",
+                description="Get Kamino obligations for a wallet in a specific Kamino market on Solana mainnet.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "market": {
+                            "type": "string",
+                            "description": "Kamino market address.",
+                        },
+                        "user": {
+                            "type": "string",
+                            "description": "Optional Solana wallet address override. If omitted, use the configured wallet.",
+                        },
+                    },
+                    "required": ["market"],
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+            AgentToolSpec(
+                name="get_kamino_lend_user_rewards",
+                description="Get Kamino rewards summary for a Solana wallet on mainnet.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "user": {
+                            "type": "string",
+                            "description": "Optional Solana wallet address override. If omitted, use the configured wallet.",
+                        },
+                    },
                     "additionalProperties": False,
                 },
                 read_only=True,
@@ -731,6 +793,142 @@ class OpenClawWalletAdapter:
 
             tools.append(
                 AgentToolSpec(
+                    name="kamino_lend_deposit",
+                    description=(
+                        "Preview, prepare, or execute a Kamino lending deposit using a decimal token amount. "
+                        "Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation."
+                    ),
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "market": {"type": "string", "description": "Kamino market address."},
+                            "reserve": {"type": "string", "description": "Kamino reserve address."},
+                            "amount_ui": {
+                                "type": "string",
+                                "description": "Decimal token amount to deposit, as a string.",
+                            },
+                            "mode": {
+                                "type": "string",
+                                "enum": ["preview", "prepare", "execute"],
+                                "description": "preview returns a summary, prepare returns an execution plan without signed transaction bytes, execute attempts to submit the Kamino deposit transaction.",
+                            },
+                            "purpose": {"type": "string", "description": "Short explanation of why the deposit is being made."},
+                            "user_intent": {"type": "boolean", "description": "Must be true for prepare mode."},
+                            "approval_token": {"type": "string", "description": "Host-issued approval token required for execute mode."},
+                        },
+                        "required": ["market", "reserve", "amount_ui", "mode", "purpose"],
+                        "additionalProperties": False,
+                    },
+                    read_only=False,
+                    requires_explicit_user_intent=True,
+                    risk_level="high",
+                )
+            )
+
+            tools.append(
+                AgentToolSpec(
+                    name="kamino_lend_withdraw",
+                    description=(
+                        "Preview, prepare, or execute a Kamino lending withdraw using a decimal token amount. "
+                        "Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation."
+                    ),
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "market": {"type": "string", "description": "Kamino market address."},
+                            "reserve": {"type": "string", "description": "Kamino reserve address."},
+                            "amount_ui": {
+                                "type": "string",
+                                "description": "Decimal token amount to withdraw, as a string.",
+                            },
+                            "mode": {
+                                "type": "string",
+                                "enum": ["preview", "prepare", "execute"],
+                                "description": "preview returns a summary, prepare returns an execution plan without signed transaction bytes, execute attempts to submit the Kamino withdraw transaction.",
+                            },
+                            "purpose": {"type": "string", "description": "Short explanation of why the withdraw is being made."},
+                            "user_intent": {"type": "boolean", "description": "Must be true for prepare mode."},
+                            "approval_token": {"type": "string", "description": "Host-issued approval token required for execute mode."},
+                        },
+                        "required": ["market", "reserve", "amount_ui", "mode", "purpose"],
+                        "additionalProperties": False,
+                    },
+                    read_only=False,
+                    requires_explicit_user_intent=True,
+                    risk_level="high",
+                )
+            )
+
+            tools.append(
+                AgentToolSpec(
+                    name="kamino_lend_borrow",
+                    description=(
+                        "Preview, prepare, or execute a Kamino lending borrow using a decimal token amount. "
+                        "Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation."
+                    ),
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "market": {"type": "string", "description": "Kamino market address."},
+                            "reserve": {"type": "string", "description": "Kamino reserve address."},
+                            "amount_ui": {
+                                "type": "string",
+                                "description": "Decimal token amount to borrow, as a string.",
+                            },
+                            "mode": {
+                                "type": "string",
+                                "enum": ["preview", "prepare", "execute"],
+                                "description": "preview returns a summary, prepare returns an execution plan without signed transaction bytes, execute attempts to submit the Kamino borrow transaction.",
+                            },
+                            "purpose": {"type": "string", "description": "Short explanation of why the borrow is being made."},
+                            "user_intent": {"type": "boolean", "description": "Must be true for prepare mode."},
+                            "approval_token": {"type": "string", "description": "Host-issued approval token required for execute mode."},
+                        },
+                        "required": ["market", "reserve", "amount_ui", "mode", "purpose"],
+                        "additionalProperties": False,
+                    },
+                    read_only=False,
+                    requires_explicit_user_intent=True,
+                    risk_level="high",
+                )
+            )
+
+            tools.append(
+                AgentToolSpec(
+                    name="kamino_lend_repay",
+                    description=(
+                        "Preview, prepare, or execute a Kamino lending repay using a decimal token amount. "
+                        "Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation."
+                    ),
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "market": {"type": "string", "description": "Kamino market address."},
+                            "reserve": {"type": "string", "description": "Kamino reserve address."},
+                            "amount_ui": {
+                                "type": "string",
+                                "description": "Decimal token amount to repay, as a string.",
+                            },
+                            "mode": {
+                                "type": "string",
+                                "enum": ["preview", "prepare", "execute"],
+                                "description": "preview returns a summary, prepare returns an execution plan without signed transaction bytes, execute attempts to submit the Kamino repay transaction.",
+                            },
+                            "purpose": {"type": "string", "description": "Short explanation of why the repay is being made."},
+                            "user_intent": {"type": "boolean", "description": "Must be true for prepare mode."},
+                            "approval_token": {"type": "string", "description": "Host-issued approval token required for execute mode."},
+                        },
+                        "required": ["market", "reserve", "amount_ui", "mode", "purpose"],
+                        "additionalProperties": False,
+                    },
+                    read_only=False,
+                    requires_explicit_user_intent=True,
+                    risk_level="high",
+                )
+            )
+
+            tools.append(
+                AgentToolSpec(
                     name="close_empty_token_accounts",
                     description=(
                         "Preview or execute closing zero-balance SPL token accounts owned by the wallet. "
@@ -1014,6 +1212,37 @@ class OpenClawWalletAdapter:
                 )
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
 
+            if tool_name == "get_kamino_lend_markets":
+                data = await self.backend.get_kamino_lend_markets()
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_kamino_lend_market_reserves":
+                market = args.get("market")
+                if not isinstance(market, str) or not market.strip():
+                    raise WalletBackendError("market is required.")
+                data = await self.backend.get_kamino_lend_market_reserves(market=market.strip())
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_kamino_lend_user_obligations":
+                market = args.get("market")
+                user = args.get("user")
+                if not isinstance(market, str) or not market.strip():
+                    raise WalletBackendError("market is required.")
+                if user is not None and not isinstance(user, str):
+                    raise WalletBackendError("user must be a string when provided.")
+                data = await self.backend.get_kamino_lend_user_obligations(
+                    market=market.strip(),
+                    user=user,
+                )
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_kamino_lend_user_rewards":
+                user = args.get("user")
+                if user is not None and not isinstance(user, str):
+                    raise WalletBackendError("user must be a string when provided.")
+                data = await self.backend.get_kamino_lend_user_rewards(user=user)
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
             if tool_name == "sign_wallet_message":
                 user_confirmed = args.get("user_confirmed")
                 if user_confirmed is not True:
@@ -1113,6 +1342,118 @@ class OpenClawWalletAdapter:
                     data=self._annotate_sensitive_payload(
                         result,
                         action_label="SOL transfer",
+                        mode="execute",
+                    ),
+                )
+
+            if tool_name in {
+                "kamino_lend_deposit",
+                "kamino_lend_withdraw",
+                "kamino_lend_borrow",
+                "kamino_lend_repay",
+            }:
+                market = args.get("market")
+                reserve = args.get("reserve")
+                amount_ui = args.get("amount_ui")
+                mode = args.get("mode")
+                purpose = args.get("purpose")
+                user_intent = args.get("user_intent", False)
+                approval_token = args.get("approval_token")
+
+                if not isinstance(market, str) or not market.strip():
+                    raise WalletBackendError("market is required.")
+                if not isinstance(reserve, str) or not reserve.strip():
+                    raise WalletBackendError("reserve is required.")
+                if not isinstance(amount_ui, str) or not amount_ui.strip():
+                    raise WalletBackendError("amount_ui is required.")
+                if mode not in {"preview", "prepare", "execute"}:
+                    raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
+                if not isinstance(purpose, str) or not purpose.strip():
+                    raise WalletBackendError("purpose is required.")
+
+                action_label_map = {
+                    "kamino_lend_deposit": "Kamino deposit",
+                    "kamino_lend_withdraw": "Kamino withdraw",
+                    "kamino_lend_borrow": "Kamino borrow",
+                    "kamino_lend_repay": "Kamino repay",
+                }
+                preview_method_map = {
+                    "kamino_lend_deposit": self.backend.preview_kamino_lend_deposit,
+                    "kamino_lend_withdraw": self.backend.preview_kamino_lend_withdraw,
+                    "kamino_lend_borrow": self.backend.preview_kamino_lend_borrow,
+                    "kamino_lend_repay": self.backend.preview_kamino_lend_repay,
+                }
+                execute_method_map = {
+                    "kamino_lend_deposit": self.backend.execute_kamino_lend_deposit,
+                    "kamino_lend_withdraw": self.backend.execute_kamino_lend_withdraw,
+                    "kamino_lend_borrow": self.backend.execute_kamino_lend_borrow,
+                    "kamino_lend_repay": self.backend.execute_kamino_lend_repay,
+                }
+                action_label = action_label_map[tool_name]
+                preview_method = preview_method_map[tool_name]
+                execute_method = execute_method_map[tool_name]
+
+                if mode == "preview":
+                    preview = await preview_method(
+                        market=market.strip(),
+                        reserve=reserve.strip(),
+                        amount_ui=amount_ui.strip(),
+                    )
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            preview,
+                            action_label=action_label,
+                            mode="preview",
+                        ),
+                    )
+
+                if mode == "prepare":
+                    self._require_prepare_intent(user_intent)
+                    preview = await preview_method(
+                        market=market.strip(),
+                        reserve=reserve.strip(),
+                        amount_ui=amount_ui.strip(),
+                    )
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            self._build_prepare_plan(
+                                preview_payload=preview,
+                                action_label=action_label,
+                            ),
+                            action_label=action_label,
+                            mode="prepare",
+                        ),
+                    )
+
+                execute_preview = await preview_method(
+                    market=market.strip(),
+                    reserve=reserve.strip(),
+                    amount_ui=amount_ui.strip(),
+                )
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=self._build_confirmation_summary(
+                        action_label=action_label,
+                        payload=execute_preview,
+                    ),
+                    action_label=action_label,
+                )
+                result = await execute_method(
+                    market=market.strip(),
+                    reserve=reserve.strip(),
+                    amount_ui=amount_ui.strip(),
+                )
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=self._annotate_sensitive_payload(
+                        result,
+                        action_label=action_label,
                         mode="execute",
                     ),
                 )

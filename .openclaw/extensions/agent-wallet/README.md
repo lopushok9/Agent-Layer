@@ -10,6 +10,8 @@ In practice this means the agent works through explicit tools for:
 - wallet address, balances, and portfolio reads
 - native SOL and SPL token transfers
 - Jupiter swap and price lookup
+- Jupiter Earn read/deposit/withdraw flows
+- Kamino lending read/deposit/withdraw/borrow/repay flows
 - native Solana staking, stake deactivation, and stake withdrawal
 
 Expected local layout:
@@ -57,7 +59,8 @@ Important:
 - The public OpenClaw plugin docs do not document a per-request end-user identifier in `registerTool(...).execute(...)`, so dynamic multi-user wallet selection is intentionally kept in the Python/runtime layer, not inside the TypeScript plugin itself.
 - Helper scripts in `agent-wallet/scripts/` are generic patch/finalize utilities and no longer assume a specific local username, path, or temporary master key.
 - Optional Jupiter overrides are available via `jupiterBaseUrl`, `jupiterUltraBaseUrl`, `jupiterPriceBaseUrl`, `jupiterPortfolioBaseUrl`, `jupiterLendBaseUrl`, and `jupiterApiKey`.
-- Jupiter `Portfolio` and `Earn` implementation remains in the backend, but those agent-facing tools are temporarily disabled for now.
+- Optional Kamino overrides are available via `kaminoBaseUrl` and `kaminoProgramId`.
+- Jupiter `Portfolio` implementation remains in the backend, but those agent-facing tools are temporarily disabled for now.
 - Mainnet wallets are pinned by address. If a pinned mainnet wallet file disappears, the runtime refuses to silently create a replacement wallet.
 
 ## OpenClaw UX

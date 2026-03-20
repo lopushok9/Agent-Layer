@@ -12,9 +12,11 @@ TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
 ATA_PROGRAM_ID = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
 MEMO_PROGRAM_ID = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
+ADDRESS_LOOKUP_TABLE_PROGRAM_ID = "AddressLookupTab1e1111111111111111111111111"
 JUPITER_V6_PROGRAM_ID = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5Nt7NQYjN"
 JUPITER_ULTRA_EXACT_OUT_PROGRAM_ID = "j1o2qRpjcyUwEvwtcfhEQefh773ZgjxcVRry7LDqg5X"
 JUPITER_DCA_PROGRAM_ID = "DCA265Vj8a7wYymQG8LqM3m7A4QeV9hiC7VYh4S6Jsa"
+KAMINO_LEND_PROGRAM_ID = "KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD"
 
 CORE_PROGRAM_IDS = {
     SYSTEM_PROGRAM_ID,
@@ -23,6 +25,7 @@ CORE_PROGRAM_IDS = {
     TOKEN_2022_PROGRAM_ID,
     ATA_PROGRAM_ID,
     MEMO_PROGRAM_ID,
+    ADDRESS_LOOKUP_TABLE_PROGRAM_ID,
 }
 SWAP_ALLOWED_PROGRAMS = CORE_PROGRAM_IDS | {
     JUPITER_V6_PROGRAM_ID,
@@ -37,10 +40,20 @@ RECOGNIZED_JUPITER_SWAP_PROGRAMS = {
 FORBIDDEN_PROGRAMS = {
     "TokenSwap11111111111111111111111111111111",
 }
+KAMINO_ALLOWED_PROGRAMS = CORE_PROGRAM_IDS | {
+    KAMINO_LEND_PROGRAM_ID,
+}
 
 
-def _account_keys(message: Any) -> list[str]:
+def _static_account_keys(message: Any) -> list[str]:
     return [str(value) for value in getattr(message, "account_keys", []) or []]
+
+
+def _account_keys(message: Any, loaded_addresses: list[str] | None = None) -> list[str]:
+    keys = _static_account_keys(message)
+    if loaded_addresses:
+        keys.extend(str(value) for value in loaded_addresses)
+    return keys
 
 
 def _compiled_instructions(message: Any) -> list[Any]:
@@ -53,7 +66,7 @@ def _header_required_signatures(message: Any) -> int:
 
 
 def _required_signer_keys(message: Any) -> list[str]:
-    keys = _account_keys(message)
+    keys = _static_account_keys(message)
     required = _header_required_signatures(message)
     if required <= 0:
         raise WalletBackendError("Provider transaction does not require any signers.")
@@ -62,8 +75,8 @@ def _required_signer_keys(message: Any) -> list[str]:
     return keys[:required]
 
 
-def _program_ids(message: Any) -> list[str]:
-    keys = _account_keys(message)
+def _program_ids(message: Any, loaded_addresses: list[str] | None = None) -> list[str]:
+    keys = _account_keys(message, loaded_addresses)
     values: list[str] = []
     for instruction in _compiled_instructions(message):
         index = int(getattr(instruction, "program_id_index", -1))
@@ -97,8 +110,13 @@ def _assert_program_allowlist(
     return sorted(set(unknown))
 
 
-def _assert_basic_wallet_binding(message: Any, *, wallet_address: str) -> dict[str, Any]:
-    keys = _account_keys(message)
+def _assert_basic_wallet_binding(
+    message: Any,
+    *,
+    wallet_address: str,
+    loaded_addresses: list[str] | None = None,
+) -> dict[str, Any]:
+    keys = _account_keys(message, loaded_addresses)
     if not keys:
         raise WalletBackendError("Provider transaction does not include account keys.")
     signer_keys = _required_signer_keys(message)
@@ -165,5 +183,101 @@ def verify_provider_swap_transaction(
         "instruction_count": len(_compiled_instructions(message)),
         "input_mint": input_mint,
         "output_mint": output_mint,
+        "verified": True,
+    }
+
+
+def verify_provider_lend_transaction(
+    message: Any,
+    *,
+    wallet_address: str,
+    asset_mint: str,
+    action: str,
+) -> dict[str, Any]:
+    binding = _assert_basic_wallet_binding(message, wallet_address=wallet_address)
+    keys = binding["account_keys"]
+    if asset_mint not in keys:
+        raise WalletBackendError(
+            f"{action} transaction does not reference the expected asset mint."
+        )
+    program_ids = _program_ids(message)
+    unknown_program_ids = _assert_program_allowlist(
+        program_ids,
+        allowed_programs=CORE_PROGRAM_IDS,
+        label=action,
+        reject_unknown=False,
+    )
+    return {
+        "wallet_address": wallet_address,
+        "fee_payer": binding["fee_payer"],
+        "required_signer_keys": binding["required_signer_keys"],
+        "required_signature_count": binding["required_signature_count"],
+        "wallet_signer_index": binding["wallet_signer_index"],
+        "sponsored_fee_payer": binding["sponsored_fee_payer"],
+        "program_ids": program_ids,
+        "unknown_program_ids": unknown_program_ids,
+        "non_core_program_ids": [pid for pid in program_ids if pid not in CORE_PROGRAM_IDS],
+        "account_key_count": len(keys),
+        "instruction_count": len(_compiled_instructions(message)),
+        "asset_mint": asset_mint,
+        "action": action,
+        "verified": True,
+    }
+
+
+def verify_provider_kamino_lend_transaction(
+    message: Any,
+    *,
+    wallet_address: str,
+    market_address: str,
+    reserve_address: str,
+    action: str,
+    loaded_addresses: list[str] | None = None,
+) -> dict[str, Any]:
+    binding = _assert_basic_wallet_binding(
+        message,
+        wallet_address=wallet_address,
+        loaded_addresses=loaded_addresses,
+    )
+    keys = binding["account_keys"]
+    if market_address not in keys:
+        raise WalletBackendError(
+            f"{action} transaction does not reference the expected Kamino market."
+        )
+    if reserve_address not in keys:
+        raise WalletBackendError(
+            f"{action} transaction does not reference the expected Kamino reserve."
+        )
+    program_ids = _program_ids(message, loaded_addresses)
+    unknown_program_ids = _assert_program_allowlist(
+        program_ids,
+        allowed_programs=KAMINO_ALLOWED_PROGRAMS,
+        label=action,
+        reject_unknown=False,
+    )
+    recognized_kamino_program_ids = [
+        pid for pid in program_ids if pid == KAMINO_LEND_PROGRAM_ID
+    ]
+    if not recognized_kamino_program_ids:
+        raise WalletBackendError(
+            f"{action} transaction does not include the expected Kamino lending program."
+        )
+    return {
+        "wallet_address": wallet_address,
+        "fee_payer": binding["fee_payer"],
+        "required_signer_keys": binding["required_signer_keys"],
+        "required_signature_count": binding["required_signature_count"],
+        "wallet_signer_index": binding["wallet_signer_index"],
+        "sponsored_fee_payer": binding["sponsored_fee_payer"],
+        "program_ids": program_ids,
+        "unknown_program_ids": unknown_program_ids,
+        "recognized_kamino_program_ids": recognized_kamino_program_ids,
+        "has_recognized_kamino_program": True,
+        "non_core_program_ids": [pid for pid in program_ids if pid not in CORE_PROGRAM_IDS],
+        "account_key_count": len(keys),
+        "instruction_count": len(_compiled_instructions(message)),
+        "market_address": market_address,
+        "reserve_address": reserve_address,
+        "action": action,
         "verified": True,
     }

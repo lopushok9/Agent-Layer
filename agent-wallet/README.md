@@ -40,6 +40,19 @@ Current safe tools:
 - `stake_sol_native`
 - `transfer_spl_token`
 - `swap_solana_tokens`
+- `get_jupiter_earn_tokens`
+- `get_jupiter_earn_positions`
+- `get_jupiter_earn_earnings`
+- `get_kamino_lend_markets`
+- `get_kamino_lend_market_reserves`
+- `get_kamino_lend_user_obligations`
+- `get_kamino_lend_user_rewards`
+- `jupiter_earn_deposit`
+- `jupiter_earn_withdraw`
+- `kamino_lend_deposit`
+- `kamino_lend_withdraw`
+- `kamino_lend_borrow`
+- `kamino_lend_repay`
 - `close_empty_token_accounts`
 - `deactivate_solana_stake`
 - `withdraw_solana_stake`
@@ -50,11 +63,6 @@ Temporarily disabled but kept in the codebase for later re-enable:
 - `get_jupiter_portfolio_platforms`
 - `get_jupiter_portfolio`
 - `get_jupiter_staked_jup`
-- `get_jupiter_earn_tokens`
-- `get_jupiter_earn_positions`
-- `get_jupiter_earn_earnings`
-- `jupiter_earn_deposit`
-- `jupiter_earn_withdraw`
 
 The signing tool still requires explicit `user_confirmed=true`.
 Transfer, native staking, and swap tools support `preview`, `prepare`, and `execute` modes. The safe operational path is still preview-first. `prepare` now returns an execution plan only and never exposes signed transaction bytes to the agent. `execute` works only when the backend has a signer and `sign_only=false`.
@@ -266,7 +274,7 @@ Current Jupiter integration now includes:
 
 Operational notes:
 
-- Jupiter `Portfolio` and `Earn` implementation remains in the backend, but the agent-facing tools are temporarily disabled.
+- Jupiter `Portfolio` implementation remains in the backend, but the agent-facing tools are temporarily disabled.
 - The Jupiter config fields and provider code are intentionally kept so these surfaces can be restored later without rebuilding the integration from scratch.
 
 ## Native staking coverage

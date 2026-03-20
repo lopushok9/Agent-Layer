@@ -5,10 +5,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from agent_wallet.models import AgentWalletCapabilities, SolanaWalletState
-from agent_wallet.providers import jupiter, solana_rpc
+from agent_wallet.providers import jupiter, kamino, solana_rpc
 from agent_wallet.solana_stake import (
     STAKE_STATE_V2_SIZE,
     deactivate_stake as build_deactivate_stake_instruction,
@@ -21,7 +22,11 @@ from agent_wallet.solana_tx import (
     encode_transaction_base64,
     serialize_legacy_transaction,
 )
-from agent_wallet.transaction_policy import verify_provider_swap_transaction
+from agent_wallet.transaction_policy import (
+    verify_provider_kamino_lend_transaction,
+    verify_provider_lend_transaction,
+    verify_provider_swap_transaction,
+)
 from agent_wallet.validation import validate_solana_address, validate_solana_mint
 from agent_wallet.wallet_layer.base import (
     AgentWalletBackend,
@@ -80,6 +85,43 @@ def _coerce_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _require_positive_integer_string(value: Any, *, field_name: str) -> str:
+    if not isinstance(value, str) or not value.strip().isdigit():
+        raise WalletBackendError(f"{field_name} must be a positive integer string.")
+    normalized = value.strip()
+    if int(normalized) <= 0:
+        raise WalletBackendError(f"{field_name} must be greater than zero.")
+    return normalized
+
+
+def _require_positive_decimal_string(value: Any, *, field_name: str) -> str:
+    if isinstance(value, bool):
+        raise WalletBackendError(f"{field_name} must be a positive decimal string.")
+    text = str(value).strip()
+    if not text:
+        raise WalletBackendError(f"{field_name} must be a positive decimal string.")
+    try:
+        decimal_value = Decimal(text)
+    except InvalidOperation as exc:
+        raise WalletBackendError(f"{field_name} must be a positive decimal string.") from exc
+    if not decimal_value.is_finite() or decimal_value <= 0:
+        raise WalletBackendError(f"{field_name} must be greater than zero.")
+    normalized = format(decimal_value, "f")
+    if "." in normalized:
+        normalized = normalized.rstrip("0").rstrip(".")
+    return normalized or "0"
+
+
+def _kamino_entry_address(entry: Any, *keys: str) -> str:
+    if not isinstance(entry, dict):
+        return ""
+    for key in keys:
+        value = entry.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
 
 
 class SolanaLocalKeypairSigner:
@@ -383,6 +425,10 @@ class SolanaWalletBackend(AgentWalletBackend):
         if self.network != "mainnet":
             raise WalletBackendError(f"{feature} is only enabled for Solana mainnet.")
 
+    def _require_mainnet_kamino(self, feature: str) -> None:
+        if self.network != "mainnet":
+            raise WalletBackendError(f"{feature} is only enabled for Solana mainnet.")
+
     async def get_jupiter_portfolio_platforms(self) -> dict[str, Any]:
         self._require_mainnet_jupiter("Jupiter portfolio")
         data = await jupiter.fetch_portfolio_platforms()
@@ -457,7 +503,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         data = await jupiter.fetch_earn_tokens()
         tokens = data.get("tokens")
         if not isinstance(tokens, list):
-            tokens = data.get("data") if isinstance(data.get("data"), list) else []
+            tokens = []
         return {
             "chain": "solana",
             "network": self.network,
@@ -479,7 +525,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         data = await jupiter.fetch_earn_positions(users=normalized_users)
         positions = data.get("positions")
         if not isinstance(positions, list):
-            positions = data.get("data") if isinstance(data.get("data"), list) else []
+            positions = []
         return {
             "chain": "solana",
             "network": self.network,
@@ -509,13 +555,105 @@ class SolanaWalletBackend(AgentWalletBackend):
             user=wallet_address,
             positions=normalized_positions,
         )
+        earnings = data.get("earnings")
+        if not isinstance(earnings, list):
+            earnings = []
         return {
             "chain": "solana",
             "network": self.network,
             "user": wallet_address,
             "positions": normalized_positions,
+            "earnings": earnings,
             "raw": data,
             "source": "jupiter-lend",
+        }
+
+    async def get_kamino_lend_markets(self) -> dict[str, Any]:
+        self._require_mainnet_kamino("Kamino lending")
+        data = await kamino.fetch_lend_markets()
+        markets = data.get("markets")
+        if not isinstance(markets, list):
+            markets = []
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "market_count": len(markets),
+            "markets": markets,
+            "raw": data,
+            "source": "kamino",
+        }
+
+    async def get_kamino_lend_market_reserves(self, market: str) -> dict[str, Any]:
+        self._require_mainnet_kamino("Kamino lending")
+        market = validate_solana_address(market)
+        data = await kamino.fetch_lend_market_reserves(
+            market=market,
+            network=self.network,
+        )
+        reserves = data.get("reserves")
+        if not isinstance(reserves, list):
+            reserves = []
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "market": market,
+            "reserve_count": len(reserves),
+            "reserves": reserves,
+            "raw": data,
+            "source": "kamino",
+        }
+
+    async def get_kamino_lend_user_obligations(
+        self,
+        market: str,
+        user: str | None = None,
+    ) -> dict[str, Any]:
+        self._require_mainnet_kamino("Kamino lending")
+        wallet_address = user or self.address
+        if not wallet_address:
+            raise WalletBackendError("A wallet address is required for Kamino obligation lookup.")
+        market = validate_solana_address(market)
+        wallet_address = validate_solana_address(wallet_address)
+        data = await kamino.fetch_lend_user_obligations(
+            market=market,
+            user=wallet_address,
+            network=self.network,
+        )
+        obligations = data.get("obligations")
+        if not isinstance(obligations, list):
+            obligations = []
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "market": market,
+            "user": wallet_address,
+            "obligation_count": len(obligations),
+            "obligations": obligations,
+            "raw": data,
+            "source": "kamino",
+        }
+
+    async def get_kamino_lend_user_rewards(self, user: str | None = None) -> dict[str, Any]:
+        self._require_mainnet_kamino("Kamino lending")
+        wallet_address = user or self.address
+        if not wallet_address:
+            raise WalletBackendError("A wallet address is required for Kamino rewards lookup.")
+        wallet_address = validate_solana_address(wallet_address)
+        data = await kamino.fetch_lend_user_rewards(user=wallet_address)
+        rewards = data.get("rewards")
+        if not isinstance(rewards, list):
+            rewards = []
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "user": wallet_address,
+            "reward_count": len(rewards),
+            "rewards": rewards,
+            "avg_base_apy": data.get("avgBaseApy"),
+            "avg_boosted_apy": data.get("avgBoostedApy"),
+            "avg_max_apy": data.get("avgMaxApy"),
+            "raw": data,
+            "source": "kamino",
         }
 
     async def get_state(self) -> SolanaWalletState:
@@ -535,6 +673,50 @@ class SolanaWalletBackend(AgentWalletBackend):
 
     async def describe(self) -> AgentWalletCapabilities:
         return AgentWalletCapabilities(**self.get_capabilities().to_dict())
+
+    async def _resolve_versioned_message_lookup_addresses(self, message: Any) -> list[str]:
+        lookups = list(getattr(message, "address_table_lookups", []) or [])
+        if not lookups:
+            return []
+        try:
+            from solders.address_lookup_table_account import AddressLookupTable
+        except ImportError as exc:
+            raise WalletBackendError(
+                "solders package is required for Kamino lookup table verification."
+            ) from exc
+
+        loaded_addresses: list[str] = []
+        for lookup in lookups:
+            table_address = str(lookup.account_key)
+            account_info = await solana_rpc.fetch_account_info(
+                table_address,
+                rpc_url=self.rpc_urls,
+                encoding="base64",
+            )
+            if not account_info:
+                raise WalletBackendError(
+                    f"Failed to load address lookup table account {table_address}."
+                )
+            data = account_info.get("data")
+            if not isinstance(data, list) or not data or not isinstance(data[0], str):
+                raise WalletBackendError(
+                    f"Address lookup table {table_address} returned invalid account data."
+                )
+            try:
+                raw = base64.b64decode(data[0])
+                table = AddressLookupTable.deserialize(raw)
+            except Exception as exc:
+                raise WalletBackendError(
+                    f"Address lookup table {table_address} could not be decoded."
+                ) from exc
+            addresses = list(table.addresses)
+            loaded_addresses.extend(
+                str(addresses[int(index)]) for index in list(lookup.writable_indexes)
+            )
+            loaded_addresses.extend(
+                str(addresses[int(index)]) for index in list(lookup.readonly_indexes)
+            )
+        return loaded_addresses
 
     async def sign_message(self, message: bytes | str) -> str:
         if not self.signer:
@@ -1003,6 +1185,36 @@ class SolanaWalletBackend(AgentWalletBackend):
             "source": "solana-rpc",
         }
 
+    async def _sign_versioned_provider_transaction(
+        self,
+        *,
+        transaction_base64: str,
+        wallet_signer_index: int,
+    ) -> str:
+        try:
+            from solders.keypair import Keypair
+            from solders.message import to_bytes_versioned
+            from solders.transaction import VersionedTransaction
+        except ImportError as exc:
+            raise WalletBackendError(
+                "solana and solders packages are required for provider transaction signing."
+            ) from exc
+
+        unsigned_transaction = VersionedTransaction.from_bytes(base64.b64decode(transaction_base64))
+        keypair = Keypair.from_bytes(self.signer.export_keypair_bytes())
+        signature = keypair.sign_message(to_bytes_versioned(unsigned_transaction.message))
+        signatures = list(unsigned_transaction.signatures)
+        if wallet_signer_index >= len(signatures):
+            raise WalletBackendError(
+                "Provider transaction signer layout is incompatible with local signing."
+            )
+        signatures[wallet_signer_index] = signature
+        signed_transaction = VersionedTransaction.populate(
+            unsigned_transaction.message,
+            signatures,
+        )
+        return encode_transaction_base64(bytes(signed_transaction))
+
     async def _prepare_jupiter_lend_transaction(
         self,
         *,
@@ -1013,24 +1225,24 @@ class SolanaWalletBackend(AgentWalletBackend):
     ) -> dict[str, Any]:
         if not self.signer:
             raise WalletBackendError("Solana signer is not configured.")
-
         try:
-            from solders.keypair import Keypair
-            from solders.message import to_bytes_versioned
             from solders.transaction import VersionedTransaction
         except ImportError as exc:
             raise WalletBackendError(
                 "solana and solders packages are required for Jupiter Earn transaction signing."
             ) from exc
-
         unsigned_transaction = VersionedTransaction.from_bytes(base64.b64decode(transaction_base64))
-        keypair = Keypair.from_bytes(self.signer.export_keypair_bytes())
-        signature = keypair.sign_message(to_bytes_versioned(unsigned_transaction.message))
-        signed_transaction = VersionedTransaction.populate(
-            unsigned_transaction.message,
-            [signature],
-        )
         owner = await self.get_address()
+        verification = verify_provider_lend_transaction(
+            unsigned_transaction.message,
+            wallet_address=str(owner),
+            asset_mint=asset,
+            action=f"Jupiter Earn {action}",
+        )
+        signed_transaction_base64 = await self._sign_versioned_provider_transaction(
+            transaction_base64=transaction_base64,
+            wallet_signer_index=int(verification.get("wallet_signer_index") or 0),
+        )
         return {
             "chain": "solana",
             "network": self.network,
@@ -1039,17 +1251,23 @@ class SolanaWalletBackend(AgentWalletBackend):
             "owner": owner,
             "asset": asset,
             "amount_raw": amount_raw,
-            "transaction_base64": encode_transaction_base64(bytes(signed_transaction)),
+            "transaction_base64": signed_transaction_base64,
             "transaction_encoding": "base64",
             "transaction_format": "versioned",
             "signed": True,
             "broadcasted": False,
             "confirmed": False,
+            "verification": verification,
             "sign_only": self.sign_only,
             "source": "jupiter-lend",
         }
 
-    async def _execute_prepared_jupiter_lend_transaction(self, prepared: dict[str, Any]) -> dict[str, Any]:
+    async def _execute_prepared_provider_transaction(
+        self,
+        prepared: dict[str, Any],
+        *,
+        source: str,
+    ) -> dict[str, Any]:
         if self.sign_only:
             raise WalletBackendError(
                 "This wallet backend is in sign-only mode. Disable sign_only to broadcast transactions."
@@ -1081,8 +1299,450 @@ class SolanaWalletBackend(AgentWalletBackend):
             "confirmation_status": status.get("confirmationStatus") if status else None,
             "slot": status.get("slot") if status else None,
             "sign_only": self.sign_only,
-            "source": "jupiter-lend",
+            "source": source,
         }
+
+    async def _execute_prepared_jupiter_lend_transaction(self, prepared: dict[str, Any]) -> dict[str, Any]:
+        return await self._execute_prepared_provider_transaction(
+            prepared,
+            source="jupiter-lend",
+        )
+
+    def _find_kamino_reserve_entry(
+        self,
+        *,
+        reserves: list[Any],
+        reserve: str,
+    ) -> dict[str, Any] | None:
+        for item in reserves:
+            if _kamino_entry_address(item, "reserve", "address", "pubkey") == reserve:
+                return item
+        return None
+
+    def _find_kamino_obligation_matches(
+        self,
+        *,
+        obligations: list[Any],
+        reserve: str,
+    ) -> list[dict[str, Any]]:
+        matches: list[dict[str, Any]] = []
+        for item in obligations:
+            if not isinstance(item, dict):
+                continue
+            state = item.get("state")
+            if not isinstance(state, dict):
+                continue
+            deposits = state.get("deposits")
+            borrows = state.get("borrows")
+            deposit_match = any(
+                isinstance(entry, dict)
+                and str(entry.get("depositReserve") or "").strip() == reserve
+                and str(entry.get("depositedAmount") or "0").strip() not in {"", "0"}
+                for entry in (deposits or [])
+            )
+            borrow_match = any(
+                isinstance(entry, dict)
+                and str(entry.get("borrowReserve") or "").strip() == reserve
+                and str(entry.get("borrowedAmountSf") or "0").strip() not in {"", "0"}
+                for entry in (borrows or [])
+            )
+            if deposit_match or borrow_match:
+                matches.append(item)
+        return matches
+
+    async def _prepare_kamino_lend_transaction(
+        self,
+        *,
+        transaction_base64: str,
+        action: str,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        if not self.signer:
+            raise WalletBackendError("Solana signer is not configured.")
+        try:
+            from solders.transaction import VersionedTransaction
+        except ImportError as exc:
+            raise WalletBackendError(
+                "solana and solders packages are required for Kamino transaction signing."
+            ) from exc
+        owner = await self.get_address()
+        unsigned_transaction = VersionedTransaction.from_bytes(base64.b64decode(transaction_base64))
+        loaded_addresses = await self._resolve_versioned_message_lookup_addresses(
+            unsigned_transaction.message
+        )
+        verification = verify_provider_kamino_lend_transaction(
+            unsigned_transaction.message,
+            wallet_address=str(owner),
+            market_address=market,
+            reserve_address=reserve,
+            action=f"Kamino {action}",
+            loaded_addresses=loaded_addresses,
+        )
+        signed_transaction_base64 = await self._sign_versioned_provider_transaction(
+            transaction_base64=transaction_base64,
+            wallet_signer_index=int(verification.get("wallet_signer_index") or 0),
+        )
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "mode": "prepare",
+            "asset_type": f"kamino-lend-{action}",
+            "owner": owner,
+            "market": market,
+            "reserve": reserve,
+            "amount_ui": amount_ui,
+            "transaction_base64": signed_transaction_base64,
+            "transaction_encoding": "base64",
+            "transaction_format": "versioned",
+            "signed": True,
+            "broadcasted": False,
+            "confirmed": False,
+            "verification": verification,
+            "sign_only": self.sign_only,
+            "source": "kamino",
+        }
+
+    async def preview_kamino_lend_deposit(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        self._require_mainnet_kamino("Kamino lending")
+        owner = await self.get_address()
+        if not owner:
+            raise WalletBackendError(
+                "No Solana wallet address configured. Set SOLANA_AGENT_PUBLIC_KEY or a signer."
+            )
+        market = validate_solana_address(market)
+        reserve = validate_solana_address(reserve)
+        amount_ui = _require_positive_decimal_string(amount_ui, field_name="amount_ui")
+        reserve_snapshot = await self.get_kamino_lend_market_reserves(market)
+        reserve_entry = self._find_kamino_reserve_entry(
+            reserves=list(reserve_snapshot["reserves"]),
+            reserve=reserve,
+        )
+        if reserve_entry is None:
+            raise WalletBackendError("Requested reserve is not available in the selected Kamino market.")
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "mode": "preview",
+            "asset_type": "kamino-lend-deposit",
+            "owner": owner,
+            "market": market,
+            "reserve": reserve,
+            "amount_ui": amount_ui,
+            "reserve_info": reserve_entry,
+            "sign_only": self.sign_only,
+            "can_send": self.get_capabilities().can_send_transaction,
+            "source": "kamino",
+        }
+
+    async def prepare_kamino_lend_deposit(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        preview = await self.preview_kamino_lend_deposit(
+            market=market,
+            reserve=reserve,
+            amount_ui=amount_ui,
+        )
+        owner = str(preview["owner"])
+        build = await kamino.build_lend_deposit_transaction(
+            wallet=owner,
+            market=str(preview["market"]),
+            reserve=str(preview["reserve"]),
+            amount_ui=str(preview["amount_ui"]),
+        )
+        prepared = await self._prepare_kamino_lend_transaction(
+            transaction_base64=str(build["transaction"]),
+            action="deposit",
+            market=str(preview["market"]),
+            reserve=str(preview["reserve"]),
+            amount_ui=str(preview["amount_ui"]),
+        )
+        prepared["build_response"] = build
+        return prepared
+
+    async def execute_kamino_lend_deposit(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        prepared = await self.prepare_kamino_lend_deposit(
+            market=market,
+            reserve=reserve,
+            amount_ui=amount_ui,
+        )
+        result = await self._execute_prepared_provider_transaction(prepared, source="kamino")
+        result["build_response"] = prepared.get("build_response")
+        return result
+
+    async def preview_kamino_lend_withdraw(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        self._require_mainnet_kamino("Kamino lending")
+        owner = await self.get_address()
+        if not owner:
+            raise WalletBackendError(
+                "No Solana wallet address configured. Set SOLANA_AGENT_PUBLIC_KEY or a signer."
+            )
+        market = validate_solana_address(market)
+        reserve = validate_solana_address(reserve)
+        amount_ui = _require_positive_decimal_string(amount_ui, field_name="amount_ui")
+        reserve_snapshot = await self.get_kamino_lend_market_reserves(market)
+        reserve_entry = self._find_kamino_reserve_entry(
+            reserves=list(reserve_snapshot["reserves"]),
+            reserve=reserve,
+        )
+        if reserve_entry is None:
+            raise WalletBackendError("Requested reserve is not available in the selected Kamino market.")
+        obligations = await self.get_kamino_lend_user_obligations(market=market, user=owner)
+        obligation_matches = self._find_kamino_obligation_matches(
+            obligations=list(obligations["obligations"]),
+            reserve=reserve,
+        )
+        if not obligation_matches:
+            raise WalletBackendError("No Kamino obligation found for the requested reserve.")
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "mode": "preview",
+            "asset_type": "kamino-lend-withdraw",
+            "owner": owner,
+            "market": market,
+            "reserve": reserve,
+            "amount_ui": amount_ui,
+            "reserve_info": reserve_entry,
+            "obligations": obligation_matches,
+            "sign_only": self.sign_only,
+            "can_send": self.get_capabilities().can_send_transaction,
+            "source": "kamino",
+        }
+
+    async def prepare_kamino_lend_withdraw(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        preview = await self.preview_kamino_lend_withdraw(
+            market=market,
+            reserve=reserve,
+            amount_ui=amount_ui,
+        )
+        owner = str(preview["owner"])
+        build = await kamino.build_lend_withdraw_transaction(
+            wallet=owner,
+            market=str(preview["market"]),
+            reserve=str(preview["reserve"]),
+            amount_ui=str(preview["amount_ui"]),
+        )
+        prepared = await self._prepare_kamino_lend_transaction(
+            transaction_base64=str(build["transaction"]),
+            action="withdraw",
+            market=str(preview["market"]),
+            reserve=str(preview["reserve"]),
+            amount_ui=str(preview["amount_ui"]),
+        )
+        prepared["build_response"] = build
+        return prepared
+
+    async def execute_kamino_lend_withdraw(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        prepared = await self.prepare_kamino_lend_withdraw(
+            market=market,
+            reserve=reserve,
+            amount_ui=amount_ui,
+        )
+        result = await self._execute_prepared_provider_transaction(prepared, source="kamino")
+        result["build_response"] = prepared.get("build_response")
+        return result
+
+    async def preview_kamino_lend_borrow(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        self._require_mainnet_kamino("Kamino lending")
+        owner = await self.get_address()
+        if not owner:
+            raise WalletBackendError(
+                "No Solana wallet address configured. Set SOLANA_AGENT_PUBLIC_KEY or a signer."
+            )
+        market = validate_solana_address(market)
+        reserve = validate_solana_address(reserve)
+        amount_ui = _require_positive_decimal_string(amount_ui, field_name="amount_ui")
+        reserve_snapshot = await self.get_kamino_lend_market_reserves(market)
+        reserve_entry = self._find_kamino_reserve_entry(
+            reserves=list(reserve_snapshot["reserves"]),
+            reserve=reserve,
+        )
+        if reserve_entry is None:
+            raise WalletBackendError("Requested reserve is not available in the selected Kamino market.")
+        obligations = await self.get_kamino_lend_user_obligations(market=market, user=owner)
+        if int(obligations["obligation_count"]) <= 0:
+            raise WalletBackendError("Kamino borrow requires an existing obligation in the selected market.")
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "mode": "preview",
+            "asset_type": "kamino-lend-borrow",
+            "owner": owner,
+            "market": market,
+            "reserve": reserve,
+            "amount_ui": amount_ui,
+            "reserve_info": reserve_entry,
+            "obligations": obligations["obligations"],
+            "sign_only": self.sign_only,
+            "can_send": self.get_capabilities().can_send_transaction,
+            "source": "kamino",
+        }
+
+    async def prepare_kamino_lend_borrow(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        preview = await self.preview_kamino_lend_borrow(
+            market=market,
+            reserve=reserve,
+            amount_ui=amount_ui,
+        )
+        owner = str(preview["owner"])
+        build = await kamino.build_lend_borrow_transaction(
+            wallet=owner,
+            market=str(preview["market"]),
+            reserve=str(preview["reserve"]),
+            amount_ui=str(preview["amount_ui"]),
+        )
+        prepared = await self._prepare_kamino_lend_transaction(
+            transaction_base64=str(build["transaction"]),
+            action="borrow",
+            market=str(preview["market"]),
+            reserve=str(preview["reserve"]),
+            amount_ui=str(preview["amount_ui"]),
+        )
+        prepared["build_response"] = build
+        return prepared
+
+    async def execute_kamino_lend_borrow(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        prepared = await self.prepare_kamino_lend_borrow(
+            market=market,
+            reserve=reserve,
+            amount_ui=amount_ui,
+        )
+        result = await self._execute_prepared_provider_transaction(prepared, source="kamino")
+        result["build_response"] = prepared.get("build_response")
+        return result
+
+    async def preview_kamino_lend_repay(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        self._require_mainnet_kamino("Kamino lending")
+        owner = await self.get_address()
+        if not owner:
+            raise WalletBackendError(
+                "No Solana wallet address configured. Set SOLANA_AGENT_PUBLIC_KEY or a signer."
+            )
+        market = validate_solana_address(market)
+        reserve = validate_solana_address(reserve)
+        amount_ui = _require_positive_decimal_string(amount_ui, field_name="amount_ui")
+        reserve_snapshot = await self.get_kamino_lend_market_reserves(market)
+        reserve_entry = self._find_kamino_reserve_entry(
+            reserves=list(reserve_snapshot["reserves"]),
+            reserve=reserve,
+        )
+        if reserve_entry is None:
+            raise WalletBackendError("Requested reserve is not available in the selected Kamino market.")
+        obligations = await self.get_kamino_lend_user_obligations(market=market, user=owner)
+        obligation_matches = self._find_kamino_obligation_matches(
+            obligations=list(obligations["obligations"]),
+            reserve=reserve,
+        )
+        if not obligation_matches:
+            raise WalletBackendError("No Kamino debt position found for the requested reserve.")
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "mode": "preview",
+            "asset_type": "kamino-lend-repay",
+            "owner": owner,
+            "market": market,
+            "reserve": reserve,
+            "amount_ui": amount_ui,
+            "reserve_info": reserve_entry,
+            "obligations": obligation_matches,
+            "sign_only": self.sign_only,
+            "can_send": self.get_capabilities().can_send_transaction,
+            "source": "kamino",
+        }
+
+    async def prepare_kamino_lend_repay(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        preview = await self.preview_kamino_lend_repay(
+            market=market,
+            reserve=reserve,
+            amount_ui=amount_ui,
+        )
+        owner = str(preview["owner"])
+        build = await kamino.build_lend_repay_transaction(
+            wallet=owner,
+            market=str(preview["market"]),
+            reserve=str(preview["reserve"]),
+            amount_ui=str(preview["amount_ui"]),
+        )
+        prepared = await self._prepare_kamino_lend_transaction(
+            transaction_base64=str(build["transaction"]),
+            action="repay",
+            market=str(preview["market"]),
+            reserve=str(preview["reserve"]),
+            amount_ui=str(preview["amount_ui"]),
+        )
+        prepared["build_response"] = build
+        return prepared
+
+    async def execute_kamino_lend_repay(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        prepared = await self.prepare_kamino_lend_repay(
+            market=market,
+            reserve=reserve,
+            amount_ui=amount_ui,
+        )
+        result = await self._execute_prepared_provider_transaction(prepared, source="kamino")
+        result["build_response"] = prepared.get("build_response")
+        return result
 
     async def preview_jupiter_earn_deposit(
         self,
@@ -1095,8 +1755,7 @@ class SolanaWalletBackend(AgentWalletBackend):
             raise WalletBackendError(
                 "No Solana wallet address configured. Set SOLANA_AGENT_PUBLIC_KEY or a signer."
             )
-        if not isinstance(amount_raw, str) or not amount_raw.strip().isdigit():
-            raise WalletBackendError("amount_raw must be a positive integer string.")
+        amount_raw = _require_positive_integer_string(amount_raw, field_name="amount_raw")
         asset = validate_solana_mint(asset)
         tokens = await self.get_jupiter_earn_tokens()
         token_entry = next(
@@ -1108,6 +1767,8 @@ class SolanaWalletBackend(AgentWalletBackend):
             ),
             None,
         )
+        if token_entry is None:
+            raise WalletBackendError("Requested asset is not currently available in Jupiter Earn.")
         return {
             "chain": "solana",
             "network": self.network,
@@ -1115,7 +1776,7 @@ class SolanaWalletBackend(AgentWalletBackend):
             "asset_type": "jupiter-earn-deposit",
             "owner": owner,
             "asset": asset,
-            "amount_raw": amount_raw.strip(),
+            "amount_raw": amount_raw,
             "token": token_entry,
             "sign_only": self.sign_only,
             "can_send": self.get_capabilities().can_send_transaction,
@@ -1164,10 +1825,17 @@ class SolanaWalletBackend(AgentWalletBackend):
             raise WalletBackendError(
                 "No Solana wallet address configured. Set SOLANA_AGENT_PUBLIC_KEY or a signer."
             )
-        if not isinstance(amount_raw, str) or not amount_raw.strip().isdigit():
-            raise WalletBackendError("amount_raw must be a positive integer string.")
+        amount_raw = _require_positive_integer_string(amount_raw, field_name="amount_raw")
         asset = validate_solana_mint(asset)
         positions = await self.get_jupiter_earn_positions(users=[owner])
+        matching_positions = [
+            item
+            for item in positions["positions"]
+            if isinstance(item, dict)
+            and str(item.get("asset") or item.get("mint") or "").strip() == asset
+        ]
+        if not matching_positions:
+            raise WalletBackendError("No Jupiter Earn position found for the requested asset.")
         return {
             "chain": "solana",
             "network": self.network,
@@ -1175,8 +1843,8 @@ class SolanaWalletBackend(AgentWalletBackend):
             "asset_type": "jupiter-earn-withdraw",
             "owner": owner,
             "asset": asset,
-            "amount_raw": amount_raw.strip(),
-            "positions": positions["positions"],
+            "amount_raw": amount_raw,
+            "positions": matching_positions,
             "sign_only": self.sign_only,
             "can_send": self.get_capabilities().can_send_transaction,
             "source": "jupiter-lend",

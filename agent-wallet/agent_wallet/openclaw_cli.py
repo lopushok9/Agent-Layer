@@ -74,6 +74,8 @@ def _apply_config_overrides(config: dict[str, Any]) -> None:
         ),
         "jupiterLendBaseUrl": ("JUPITER_LEND_API_BASE_URL", config.get("jupiterLendBaseUrl"), True),
         "jupiterApiKey": ("JUPITER_API_KEY", config.get("jupiterApiKey"), True),
+        "kaminoBaseUrl": ("KAMINO_API_BASE_URL", config.get("kaminoBaseUrl"), True),
+        "kaminoProgramId": ("KAMINO_PROGRAM_ID", config.get("kaminoProgramId"), True),
     }
     for _, (env_name, value, allow_override) in env_map.items():
         if value is None:
