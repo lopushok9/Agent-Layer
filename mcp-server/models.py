@@ -13,6 +13,17 @@ class PriceData(BaseModel):
     source: str = "coingecko"
 
 
+class JupiterPriceData(PriceData):
+    asset_id: str
+    mint: str
+    decimals: int | None = None
+    block_id: int | None = None
+    liquidity_usd: float | None = None
+    verified: bool | None = None
+    organic_score: float | None = None
+    source: str = "jupiter"
+
+
 class MarketOverview(BaseModel):
     total_market_cap_usd: float
     total_volume_24h_usd: float

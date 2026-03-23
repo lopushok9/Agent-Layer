@@ -22,11 +22,12 @@ python server.py
 
 The server starts in stdio mode (standard MCP transport).
 
-## Tools (23)
+## Tools
 
 | Tool | Description |
 |------|-------------|
 | `get_crypto_prices` | Batch prices (up to 50 symbols) with 24h change, volume, mcap |
+| `get_solana_token_prices` | Solana token prices via Jupiter (symbol/name/mint resolution + USD prices) |
 | `get_market_overview` | Global market: total mcap, volume, BTC/ETH dominance |
 | `get_trending_coins` | Trending coins in the last 24h |
 | `get_fear_greed_index` | Crypto Fear & Greed Index (0-100) |
@@ -83,6 +84,19 @@ Only explorer API keys need manual setup (for `get_token_transfers` and `get_tra
 1. Go to [etherscan.io/myapikey](https://etherscan.io/myapikey)
 2. Sign up (30 seconds)
 3. Copy your free API key to `.env`
+
+### Jupiter (Solana prices)
+
+Jupiter integration uses the current `api.jup.ag` endpoints with `x-api-key`.
+
+Configure `.env`:
+
+```bash
+JUPITER_API_KEY=...
+JUPITER_API_URL=https://api.jup.ag
+```
+
+Use `get_solana_token_prices` for explicit Solana token lookups, or pass Solana mint addresses into `get_crypto_prices`.
 
 ### Turnkey (VPS/headless wallet backend)
 

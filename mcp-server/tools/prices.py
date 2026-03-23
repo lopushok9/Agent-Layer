@@ -2,19 +2,22 @@
 
 import json
 import logging
+import re
 
 from cache import Cache
 from config import settings
-from exceptions import AllProvidersFailedError
-from models import MarketOverview, PriceData, TrendingCoin
+from models import JupiterPriceData, MarketOverview, PriceData, TrendingCoin
 from providers import coingecko
 from validation import validate_symbols
 
 log = logging.getLogger(__name__)
 
+SOLANA_MINT_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
+
 # Lazy imports to avoid circular deps
 _coincap = None
 _dexscreener = None
+_jupiter = None
 
 
 def _get_coincap():
@@ -35,6 +38,29 @@ def _get_dexscreener():
     return _dexscreener
 
 
+def _get_jupiter():
+    global _jupiter
+    if _jupiter is None:
+        from providers import jupiter
+
+        _jupiter = jupiter
+    return _jupiter
+
+
+def _asset_key(value: str) -> str:
+    stripped = value.strip()
+    if SOLANA_MINT_RE.fullmatch(stripped):
+        return stripped
+    return stripped.upper()
+
+
+def _result_key(item: dict) -> str:
+    asset_id = item.get("asset_id")
+    if isinstance(asset_id, str) and asset_id.strip():
+        return _asset_key(asset_id)
+    return _asset_key(str(item.get("symbol", "")))
+
+
 def register(mcp, cache: Cache):
     """Register price tools on the FastMCP server."""
 
@@ -42,8 +68,9 @@ def register(mcp, cache: Cache):
     async def get_crypto_prices(symbols: list[str]) -> str:
         """Get current prices for cryptocurrencies.
 
-        Supports major coins (BTC, ETH, SOL) and low-cap/DEX-only tokens via DexScreener.
-        Fallback chain: CoinGecko → CoinCap → DexScreener (for tokens not on CEX).
+        Supports major coins (BTC, ETH, SOL), Solana-native assets via Jupiter,
+        and low-cap/DEX-only tokens via DexScreener.
+        Fallback chain: CoinGecko → CoinCap → Jupiter → DexScreener.
 
         Args:
             symbols: List of ticker symbols or CoinGecko IDs, e.g. ["BTC", "ETH", "SOL"].
@@ -52,6 +79,7 @@ def register(mcp, cache: Cache):
 
         Returns:
             JSON array with price_usd, change_24h (%), volume_24h, market_cap for each symbol.
+            For Jupiter-sourced Solana tokens, also includes mint, liquidity_usd, and verification fields.
             For DEX-sourced tokens, also includes chain, dex, liquidity_usd, pair_url.
 
         Examples:
@@ -66,7 +94,7 @@ def register(mcp, cache: Cache):
                 Input: {"symbols": ["ETH", "BRETT", "TOSHI"]}
         """
         symbols = validate_symbols(symbols)
-        cache_key = f"prices:{','.join(sorted(s.upper() for s in symbols))}"
+        cache_key = f"prices:{','.join(sorted(s.strip() for s in symbols))}"
 
         # 1. Check fresh cache
         cached = cache.get(cache_key)
@@ -83,8 +111,8 @@ def register(mcp, cache: Cache):
             items = [PriceData(**r).model_dump() for r in raw]
             if items:
                 all_items.extend(items)
-                found = {item["symbol"].upper() for item in items}
-                remaining_symbols = [s for s in remaining_symbols if s.upper() not in found]
+                found = {_result_key(item) for item in items}
+                remaining_symbols = [s for s in remaining_symbols if _asset_key(s) not in found]
                 if remaining_symbols:
                     log.info("Symbols not found on CoinGecko: %s", remaining_symbols)
         except Exception as exc:
@@ -99,49 +127,99 @@ def register(mcp, cache: Cache):
                 items = [PriceData(**r).model_dump() for r in raw]
                 if items:
                     all_items.extend(items)
-                    found = {item["symbol"].upper() for item in items}
-                    remaining_symbols = [s for s in remaining_symbols if s.upper() not in found]
+                    found = {_result_key(item) for item in items}
+                    remaining_symbols = [s for s in remaining_symbols if _asset_key(s) not in found]
                     if remaining_symbols:
                         log.info("Symbols not found on CoinCap: %s", remaining_symbols)
             except Exception as exc:
                 log.warning("CoinCap prices failed: %s", exc)
                 errors.append(exc)
 
-        # 4. DexScreener fallback for low-cap / DEX-only tokens
+        # 4. Jupiter fallback for Solana-native tokens
+        if remaining_symbols:
+            try:
+                jupiter = _get_jupiter()
+                raw = await jupiter.fetch_prices(remaining_symbols)
+                items = [JupiterPriceData(**r).model_dump() for r in raw]
+                if items:
+                    all_items.extend(items)
+                    found = {_result_key(item) for item in items}
+                    remaining_symbols = [s for s in remaining_symbols if _asset_key(s) not in found]
+                    if remaining_symbols:
+                        log.info("Symbols not found on Jupiter: %s", remaining_symbols)
+            except Exception as exc:
+                log.warning("Jupiter prices failed: %s", exc)
+                errors.append(exc)
+
+        # 5. DexScreener fallback for low-cap / DEX-only tokens
         if remaining_symbols:
             try:
                 dexscreener = _get_dexscreener()
                 raw = await dexscreener.fetch_prices(remaining_symbols)
                 # DexScreener returns extra fields (chain, dex, etc.) — keep them all
                 all_items.extend(raw)
-                found = {item["symbol"].upper() for item in raw}
-                remaining_symbols = [s for s in remaining_symbols if s.upper() not in found]
+                found = {_result_key(item) for item in raw}
+                remaining_symbols = [s for s in remaining_symbols if _asset_key(s) not in found]
                 if remaining_symbols:
                     log.info("Symbols not found on DexScreener: %s", remaining_symbols)
             except Exception as exc:
                 log.warning("DexScreener prices failed: %s", exc)
                 errors.append(exc)
 
-        # 5. Return results if we have any
+        # 6. Return results if we have any
         if all_items:
             result = json.dumps(all_items, ensure_ascii=False)
             cache.set(cache_key, result, settings.cache_ttl_prices)
             return result
 
-        # 6. Stale cache fallback
+        # 7. Stale cache fallback
         stale = cache.get_stale(cache_key, settings.cache_stale_max_age)
         if stale is not None:
             log.info("Returning stale cache for prices")
             return stale
 
-        # 7. All failed — give actionable error
+        # 8. All failed — give actionable error
         known = sorted(coingecko.TICKER_MAP.keys())
         raise ValueError(
             f"No price data found for: {', '.join(symbols)}. "
             f"Check spelling or use known tickers: {', '.join(known[:25])}... "
             "You can also use CoinGecko IDs like 'bitcoin', 'ethereum', 'solana'. "
+            "For Solana tokens, you can also pass the mint address and configure JUPITER_API_KEY. "
             "For low-cap tokens, use the exact ticker symbol as shown on DexScreener."
         )
+
+    @mcp.tool()
+    async def get_solana_token_prices(assets: list[str]) -> str:
+        """Get Solana token prices via Jupiter.
+
+        Uses Jupiter Tokens V2 Search to resolve symbol/name/mint inputs and
+        Jupiter Price V3 for batch USD prices.
+
+        Args:
+            assets: Solana token symbols, names, or mint addresses.
+                    Examples: ["JUP", "BONK", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"].
+
+        Returns:
+            JSON array with symbol, name, mint, price_usd, change_24h, liquidity_usd, and market_cap.
+        """
+        assets = validate_symbols(assets)
+        cache_key = f"solana_prices:{','.join(sorted(asset.strip() for asset in assets))}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        try:
+            jupiter = _get_jupiter()
+            raw = await jupiter.fetch_prices(assets)
+            items = [JupiterPriceData(**r).model_dump() for r in raw]
+            result = json.dumps(items, ensure_ascii=False)
+            cache.set(cache_key, result, settings.cache_ttl_prices)
+            return result
+        except Exception:
+            stale = cache.get_stale(cache_key, settings.cache_stale_max_age)
+            if stale is not None:
+                return stale
+            raise
 
     @mcp.tool()
     async def get_market_overview() -> str:

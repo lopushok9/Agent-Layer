@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     curve_api_url: str = "https://api.curve.finance/v1"
     fear_greed_url: str = "https://api.alternative.me/fng"
     scan8004_api_url: str = "https://api.8004scan.io"
+    jupiter_api_url: str = "https://api.jup.ag"
 
     # RPC endpoints (Alchemy when key set, PublicNode as defaults)
     eth_rpc_url: str = "https://ethereum-rpc.publicnode.com"
@@ -26,6 +27,7 @@ class Settings(BaseSettings):
     alchemy_api_key: str = ""
     tavily_api_key: str = ""
     firecrawl_api_key: str = ""
+    jupiter_api_key: str = ""
 
     # --- Turnkey (headless wallet backend for agents) ---
     turnkey_enabled: bool = False
@@ -91,6 +93,7 @@ class Settings(BaseSettings):
     rate_limit_dexscreener: int = 50
     rate_limit_tavily: int = 60
     rate_limit_scan8004: int = 60
+    rate_limit_jupiter: int = 60
 
     # --- HTTP ---
     http_timeout: float = 10.0
