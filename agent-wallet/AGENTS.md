@@ -4,7 +4,7 @@
 These instructions apply to the entire `agent-wallet/` tree.
 
 ## Purpose
-`agent-wallet` is the Python wallet backend used by OpenClaw. It owns:
+`agent-wallet` is the authoritative Python wallet backend used by OpenClaw. It is the source of truth for wallet behavior, safety policy, and Solana execution. It owns:
 
 - wallet runtime configuration
 - per-user wallet provisioning
@@ -16,45 +16,54 @@ These instructions apply to the entire `agent-wallet/` tree.
 ## Architecture map
 
 ### Main entrypoints
-- `agent_wallet/openclaw_cli.py` — JSON CLI bridge invoked by the TypeScript OpenClaw extension.
-- `agent_wallet/openclaw_runtime.py` — assembles a runtime context for one OpenClaw user session.
-- `agent_wallet/openclaw_adapter.py` — exposes backend operations as safe agent-facing tools and enforces preview/prepare/execute policy.
-- `agent_wallet/plugin_bundle.py` — builds the manifest/tool bundle exposed to hosts.
+- `agent_wallet/openclaw_cli.py` - JSON CLI bridge invoked by the TypeScript OpenClaw extension.
+- `agent_wallet/openclaw_runtime.py` - assembles a runtime context for one OpenClaw user session.
+- `agent_wallet/openclaw_adapter.py` - exposes backend operations as safe agent-facing tools and enforces preview/prepare/execute policy.
+- `agent_wallet/plugin_bundle.py` - builds the manifest/tool bundle exposed to hosts.
+- `agent_wallet/wallet_layer/factory.py` - constructs the active backend implementation.
+- `agent_wallet/wallet_layer/solana.py` - primary Solana backend implementation.
 
 ### Configuration and secrets
-- `agent_wallet/config.py` — central place for runtime settings, RPC resolution, boot key resolution, and sealed secret loading.
-- `agent_wallet/sealed_keys.py` — encrypted secret bundle support for `~/.openclaw/sealed_keys.json`.
-- `agent_wallet/encrypted_storage.py` — encrypted wallet file helpers.
+- `agent_wallet/config.py` - central place for runtime settings, RPC resolution, boot key resolution, and sealed secret loading.
+- `agent_wallet/sealed_keys.py` - encrypted secret bundle support for `~/.openclaw/sealed_keys.json`.
+- `agent_wallet/encrypted_storage.py` - encrypted wallet file helpers.
+- `agent_wallet/validation.py` - shared input validation and error shaping.
 
 ### Wallet backend
-- `agent_wallet/wallet_layer/factory.py` — constructs the configured backend.
-- `agent_wallet/wallet_layer/solana.py` — main Solana backend implementation.
-- `agent_wallet/providers/solana_rpc.py` — Solana RPC access.
-- `agent_wallet/providers/jupiter.py` — Jupiter API integration.
-
-### User wallet lifecycle
-- `agent_wallet/user_wallets.py` — per-user wallet paths, creation, loading, and migration behavior.
-- `agent_wallet/bootstrap.py` — wallet bootstrap helpers and address pinning.
+- `agent_wallet/solana_tx.py` - transaction build, sign, and verification helpers.
+- `agent_wallet/solana_stake.py` - stake-specific wallet operations.
+- `agent_wallet/user_wallets.py` - per-user wallet paths, creation, loading, and migration behavior.
+- `agent_wallet/bootstrap.py` - wallet bootstrap helpers and address pinning.
 
 ### Transaction safety
-- `agent_wallet/approval.py` — host-issued approval tokens.
-- `agent_wallet/nonce_registry.py` — single-use token replay protection.
-- `agent_wallet/transaction_policy.py` — policy validation around transaction execution.
-- `agent_wallet/spending_limits.py` — spending guardrails.
+- `agent_wallet/approval.py` - host-issued approval tokens.
+- `agent_wallet/nonce_registry.py` - single-use token replay protection.
+- `agent_wallet/transaction_policy.py` - policy validation around transaction execution.
+- `agent_wallet/spending_limits.py` - spending guardrails.
+- `agent_wallet/models.py` - canonical JSON payloads and tool metadata.
+
+### OpenClaw integration
+- `agent_wallet/openclaw_cli.py` is the compatibility boundary for the OpenClaw TypeScript plugin.
+- `agent_wallet/openclaw_runtime.py` owns per-session runtime assembly and user wallet onboarding.
+- `agent_wallet/openclaw_adapter.py` is the policy gate for agent-facing tools.
+- `agent_wallet/plugin_bundle.py` defines the host-facing manifest and tool bundle.
+- Keep these files aligned whenever tool names, config fields, or approval semantics change.
 
 ### Scripts
-- `scripts/install_agent_wallet.py` — local installer for Python env + OpenClaw config setup.
-- `scripts/install_openclaw_local_config.py` — writes plugin config into OpenClaw config.
-- `scripts/install_openclaw_sealed_keys.py` — provisions sealed runtime secrets.
-- `scripts/switch_openclaw_wallet_network.py` — helper for switching the configured Solana network.
+- `scripts/install_agent_wallet.py` - local installer for Python env + OpenClaw config setup.
+- `scripts/install_openclaw_local_config.py` - writes plugin config into OpenClaw config.
+- `scripts/install_openclaw_sealed_keys.py` - provisions sealed runtime secrets.
+- `scripts/switch_openclaw_wallet_network.py` - helper for switching the configured Solana network.
+- `scripts/finalize_openclaw_local_wallet_config.py` - local config finalization helper when the runtime is already present.
 
 ## Working rules
 
 ### Keep responsibilities separated
 - Keep host bridge logic in `openclaw_cli.py` and `openclaw_runtime.py`.
 - Keep agent-facing safety and tool exposure in `openclaw_adapter.py`.
-- Keep chain-specific behavior in `wallet_layer/solana.py` and provider modules.
+- Keep chain-specific behavior in `wallet_layer/solana.py`, `solana_tx.py`, and `solana_stake.py`.
 - Keep config precedence in `config.py`; do not duplicate env resolution elsewhere unless necessary.
+- Keep `.openclaw/` as the host-side bridge layer. Wallet policy and signing rules belong here, not in the OpenClaw extension.
 
 ### Security invariants
 - Do not add runtime support for loading `AGENT_WALLET_MASTER_KEY`, `AGENT_WALLET_APPROVAL_SECRET`, or `SOLANA_AGENT_PRIVATE_KEY` directly from runtime env again.
@@ -63,6 +72,8 @@ These instructions apply to the entire `agent-wallet/` tree.
 - `prepare` must never return signed transaction bytes.
 - `execute` must continue requiring a host-issued `approval_token`.
 - On `mainnet`, preserve explicit confirmation requirements and warnings.
+- Treat `user_confirmed=true`, `approval_token`, and the mainnet confirmation fields as mandatory safety gates, not optional metadata.
+- Never weaken wallet validation to make a tool easier to call.
 
 ### Update discipline
 - Prefer fixing behavior in the Python backend instead of patching around it in scripts.
@@ -76,12 +87,15 @@ These instructions apply to the entire `agent-wallet/` tree.
   - `agent_wallet/openclaw_cli.py`
   - `.openclaw/extensions/agent-wallet/openclaw.plugin.json`
   - installer scripts and README examples
+- When changing approval or signing behavior, update the runtime, adapter, CLI bridge, and smoke tests together.
+- If a change affects the OpenClaw bridge, update the TypeScript extension and the Python contract in the same change set.
 
 ### Coding style
 - Follow existing Python style and type-hint usage.
 - Keep changes minimal and local to the owning module.
 - Avoid introducing framework-heavy abstractions; this repo is intentionally direct.
 - Prefer explicit JSON-serializable return payloads because the CLI bridge depends on them.
+- Preserve existing public payload shapes unless a coordinated contract change is required.
 
 ## Validation
 - Prefer targeted smoke tests first, then broader runs if needed.
