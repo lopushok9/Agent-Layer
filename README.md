@@ -14,7 +14,7 @@ Connect from OpenClaw or any MCP client — no setup required:
 {
   "mcpServers": {
     "AgentLayer": {
-      "url": "https://agent-layer-production-852f.up.railway.app/mcp"
+      "url": "https://agent-layer.railway.app/mcp"
     }
   }
 }
