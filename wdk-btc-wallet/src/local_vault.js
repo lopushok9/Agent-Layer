@@ -98,6 +98,22 @@ async function decryptSeedPhrase({ encrypted, password, walletId }) {
   return plaintext.toString("utf8");
 }
 
+async function decryptSeedPhraseWithPasswordCheck(args) {
+  try {
+    return await decryptSeedPhrase(args);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (
+      message.includes("authenticate data") ||
+      message.includes("unable to authenticate") ||
+      message.includes("Unsupported state")
+    ) {
+      throw new Error("Invalid password.");
+    }
+    throw error;
+  }
+}
+
 export class LocalBtcVault {
   constructor(config) {
     this.config = config;
@@ -179,7 +195,7 @@ export class LocalBtcVault {
   async unlockWallet({ walletId, password, timeoutSeconds }) {
     const metadata = await this.#getWalletMetadata(assertNonEmptyString(walletId, "walletId"));
     const encrypted = await this.#loadEncryptedWallet(walletId);
-    const secret = await decryptSeedPhrase({
+    const secret = await decryptSeedPhraseWithPasswordCheck({
       encrypted,
       password: assertNonEmptyString(password, "password"),
       walletId,
@@ -216,7 +232,7 @@ export class LocalBtcVault {
     const id = assertNonEmptyString(walletId, "walletId");
     const metadata = await this.#getWalletMetadata(id);
     const encrypted = await this.#loadEncryptedWallet(id);
-    const seedPhrase = await decryptSeedPhrase({
+    const seedPhrase = await decryptSeedPhraseWithPasswordCheck({
       encrypted,
       password: assertNonEmptyString(password, "password"),
       walletId: id,
@@ -237,7 +253,7 @@ export class LocalBtcVault {
     const safeNewPassword = assertNonEmptyString(newPassword, "newPassword");
     const metadata = await this.#getWalletMetadata(id);
     const encrypted = await this.#loadEncryptedWallet(id);
-    const seedPhrase = await decryptSeedPhrase({
+    const seedPhrase = await decryptSeedPhraseWithPasswordCheck({
       encrypted,
       password: safeCurrentPassword,
       walletId: id,
