@@ -147,14 +147,60 @@ curl "http://localhost:8000/v1/bags/fees/claim-stats?tokenMint=YOUR_TOKEN_MINT" 
 `agent-wallet` can now use this service in two ways:
 
 - shared RPC mode via `PROVIDER_GATEWAY_URL` for onboarding-friendly defaults
-- explicit Bags mode via `SOLANA_SWAP_PROVIDER=bags` for Bags-specific flows
+- explicit Bags launch / fees mode via the gateway-backed Bags client
 
-Default swap routing stays on Jupiter regardless of whether RPC is shared or user-owned.
+Default swap routing stays on Jupiter regardless of whether RPC is shared or user-owned. Bags is used here for launch, fee claims, and fee analytics flows, not swap routing.
 
 ## Railway
+
+This repo is a monorepo, so deploy `provider-gateway/` as its own Railway service.
+
+Recommended setup:
+
+1. Create a new Railway project or open an existing one.
+2. Add a new service from your GitHub repo.
+3. In the service settings, set the root directory to `provider-gateway`.
+4. In the service variables tab, define:
+   - `REQUIRE_BEARER_AUTH=true`
+   - `PROVIDER_GATEWAY_BEARER_TOKEN`
+   - `BAGS_API_KEY`
+   - one RPC source for shared Solana RPC:
+     - `SHARED_SOLANA_RPC_URL`, or
+     - `HELIUS_API_KEY`, or
+     - `ALCHEMY_API_KEY`
+   - optional:
+     - `BAGS_API_BASE_URL`
+     - `ALLOWED_ORIGINS`
+     - `HTTP_TIMEOUT_SECONDS`
+5. Set the start command below.
+6. Deploy and verify `/health`, then `/v1/status`, then one Bags route and one safe RPC route such as `getLatestBlockhash`.
 
 Recommended start command:
 
 ```bash
 uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}
 ```
+
+Notes:
+
+- Railway injects `PORT`; the command above already respects it.
+- Keep `PROVIDER_GATEWAY_BEARER_TOKEN`, `BAGS_API_KEY`, and any RPC API keys as Railway service variables or sealed variables, not in repo files.
+- If this service is exposed publicly, keep bearer auth enabled and put rate limiting / edge protection in front of it.
+- For a Bags-only deployment, you can omit all RPC variables.
+- For a shared-RPC deployment, you can omit `BAGS_API_KEY` only if you do not need any Bags endpoints.
+
+Example production variable sets:
+
+1. Bags-only gateway
+   - `REQUIRE_BEARER_AUTH=true`
+   - `PROVIDER_GATEWAY_BEARER_TOKEN=...`
+   - `BAGS_API_KEY=...`
+
+2. Bags + shared Solana RPC gateway
+   - `REQUIRE_BEARER_AUTH=true`
+   - `PROVIDER_GATEWAY_BEARER_TOKEN=...`
+   - `BAGS_API_KEY=...`
+   - plus one of:
+     - `SHARED_SOLANA_RPC_URL=...`
+     - `HELIUS_API_KEY=...`
+     - `ALCHEMY_API_KEY=...`
