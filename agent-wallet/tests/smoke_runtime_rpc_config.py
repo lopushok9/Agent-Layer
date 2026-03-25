@@ -8,7 +8,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agent_wallet.config import resolve_runtime_solana_rpc_urls  # noqa: E402
+from agent_wallet.config import (  # noqa: E402
+    resolve_runtime_solana_rpc_config,
+    resolve_runtime_solana_rpc_urls,
+    resolve_runtime_solana_swap_config,
+)
 from agent_wallet.openclaw_cli import _apply_config_overrides  # noqa: E402
 
 
@@ -18,10 +22,20 @@ def main() -> None:
         "SOLANA_RPC_URLS": os.environ.get("SOLANA_RPC_URLS"),
         "ALCHEMY_API_KEY": os.environ.get("ALCHEMY_API_KEY"),
         "HELIUS_API_KEY": os.environ.get("HELIUS_API_KEY"),
+        "SOLANA_RPC_PROVIDER_MODE": os.environ.get("SOLANA_RPC_PROVIDER_MODE"),
+        "PROVIDER_GATEWAY_URL": os.environ.get("PROVIDER_GATEWAY_URL"),
+        "PROVIDER_GATEWAY_RPC_PROVIDER": os.environ.get("PROVIDER_GATEWAY_RPC_PROVIDER"),
+        "SOLANA_SWAP_PROVIDER": os.environ.get("SOLANA_SWAP_PROVIDER"),
     }
     try:
         os.environ["SOLANA_RPC_URLS"] = "https://alchemy.example,https://helius.example"
         os.environ.pop("SOLANA_RPC_URL", None)
+        os.environ.pop("HELIUS_API_KEY", None)
+        os.environ.pop("ALCHEMY_API_KEY", None)
+        os.environ.pop("SOLANA_RPC_PROVIDER_MODE", None)
+        os.environ.pop("PROVIDER_GATEWAY_URL", None)
+        os.environ.pop("PROVIDER_GATEWAY_RPC_PROVIDER", None)
+        os.environ.pop("SOLANA_SWAP_PROVIDER", None)
 
         _apply_config_overrides(
             {
@@ -69,7 +83,27 @@ def main() -> None:
             "https://plugin-tertiary.example",
             "https://api.devnet.solana.com",
         ]
+        assert resolve_runtime_solana_swap_config("mainnet") == {
+            "provider": "jupiter",
+            "transport": "direct",
+        }
 
+        os.environ.pop("SOLANA_RPC_URL", None)
+        os.environ.pop("SOLANA_RPC_URLS", None)
+        _apply_config_overrides(
+            {
+                "rpcProviderMode": "shared_proxy",
+                "providerGatewayUrl": "https://providers.from-plugin.example",
+                "providerGatewayRpcProvider": "shared",
+                "heliusApiKey": "plugin-helius-key",
+            }
+        )
+        assert os.environ["SOLANA_RPC_PROVIDER_MODE"] == "shared_proxy"
+        assert os.environ["PROVIDER_GATEWAY_URL"] == "https://providers.from-plugin.example"
+        assert os.environ["PROVIDER_GATEWAY_RPC_PROVIDER"] == "shared"
+        assert os.environ["HELIUS_API_KEY"] == "plugin-helius-key"
+
+        os.environ.pop("HELIUS_API_KEY", None)
         os.environ["ALCHEMY_API_KEY"] = "test-alchemy-key"
         alchemy_mainnet = resolve_runtime_solana_rpc_urls(
             "mainnet",
@@ -112,6 +146,75 @@ def main() -> None:
             "https://devnet.helius-rpc.com/?api-key=test-helius-key",
             "https://api.devnet.solana.com",
         ]
+
+        os.environ.pop("HELIUS_API_KEY", None)
+        os.environ["SOLANA_RPC_PROVIDER_MODE"] = "shared_proxy"
+        os.environ["PROVIDER_GATEWAY_URL"] = "https://providers.example"
+        os.environ["PROVIDER_GATEWAY_RPC_PROVIDER"] = "helius"
+        proxy_config = resolve_runtime_solana_rpc_config(
+            "mainnet",
+            "https://plugin-primary.example",
+            "https://plugin-secondary.example",
+        )
+        assert proxy_config == {
+            "mode": "shared_proxy",
+            "provider": "helius",
+            "transport": "proxy",
+            "rpc_urls": ["gateway::helius::mainnet::https://providers.example/v1/rpc"],
+        }
+
+        proxy_urls = resolve_runtime_solana_rpc_urls(
+            "mainnet",
+            "https://plugin-primary.example",
+            "https://plugin-secondary.example",
+        )
+        assert proxy_urls == ["gateway::helius::mainnet::https://providers.example/v1/rpc"]
+        assert resolve_runtime_solana_swap_config("mainnet") == {
+            "provider": "jupiter",
+            "transport": "direct",
+        }
+
+        devnet_proxy_config = resolve_runtime_solana_rpc_config(
+            "devnet",
+            "https://plugin-primary.example",
+            "https://plugin-secondary.example",
+        )
+        assert devnet_proxy_config == {
+            "mode": "public_fallback",
+            "provider": "official",
+            "transport": "direct",
+            "rpc_urls": [
+                "https://plugin-primary.example",
+                "https://plugin-secondary.example",
+                "https://api.devnet.solana.com",
+            ],
+        }
+
+        os.environ["HELIUS_API_KEY"] = "user-owned-helius"
+        direct_wins = resolve_runtime_solana_rpc_config(
+            "mainnet",
+            "https://plugin-primary.example",
+            "https://plugin-secondary.example",
+        )
+        assert direct_wins == {
+            "mode": "user_direct",
+            "provider": "helius",
+            "transport": "direct",
+            "rpc_urls": [
+                "https://mainnet.helius-rpc.com/?api-key=user-owned-helius",
+                "https://api.mainnet-beta.solana.com",
+            ],
+        }
+        assert resolve_runtime_solana_swap_config("mainnet") == {
+            "provider": "jupiter",
+            "transport": "direct",
+        }
+
+        os.environ["SOLANA_SWAP_PROVIDER"] = "bags"
+        assert resolve_runtime_solana_swap_config("mainnet") == {
+            "provider": "jupiter",
+            "transport": "direct",
+        }
     finally:
         for key, value in original_env.items():
             if value is None:

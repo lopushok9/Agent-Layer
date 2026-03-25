@@ -17,6 +17,18 @@ from _secret_test_utils import install_test_sealed_secrets  # noqa: E402
 def _run(*args: str) -> dict:
     env = os.environ.copy()
     env["PYTHONPATH"] = str(PACKAGE_ROOT)
+    for key in (
+        "SOLANA_RPC_URL",
+        "SOLANA_RPC_URLS",
+        "SOLANA_RPC_PROVIDER_MODE",
+        "SOLANA_SWAP_PROVIDER",
+        "PROVIDER_GATEWAY_URL",
+        "PROVIDER_GATEWAY_BEARER_TOKEN",
+        "PROVIDER_GATEWAY_RPC_PROVIDER",
+        "HELIUS_API_KEY",
+        "ALCHEMY_API_KEY",
+    ):
+        env.pop(key, None)
     completed = subprocess.run(
         [sys.executable, "-m", "agent_wallet.openclaw_cli", *args],
         check=True,
@@ -53,7 +65,13 @@ def main() -> None:
     )
     assert onboard["manifest"]["id"] == "agent-wallet"
     assert onboard["session"]["storage_format"] == "encrypted"
+    assert onboard["session"]["rpc_provider_mode"] == "user_direct"
+    assert onboard["session"]["rpc_provider"] == "custom"
+    assert onboard["session"]["rpc_transport"] == "direct"
+    assert onboard["session"]["swap_provider"] == "jupiter"
+    assert onboard["session"]["swap_transport"] == "direct"
     assert "get_wallet_address" in {tool["name"] for tool in onboard["tools"]}
+    assert "launch_bags_token" in {tool["name"] for tool in onboard["tools"]}
 
     result = _run(
         "invoke",

@@ -187,6 +187,49 @@ def verify_provider_swap_transaction(
     }
 
 
+def verify_provider_bags_transaction(
+    message: Any,
+    *,
+    wallet_address: str,
+    token_mint: str,
+    action: str,
+    loaded_addresses: list[str] | None = None,
+) -> dict[str, Any]:
+    binding = _assert_basic_wallet_binding(
+        message,
+        wallet_address=wallet_address,
+        loaded_addresses=loaded_addresses,
+    )
+    keys = binding["account_keys"]
+    if token_mint not in keys:
+        raise WalletBackendError(
+            f"{action} transaction does not reference the expected token mint."
+        )
+    program_ids = _program_ids(message, loaded_addresses)
+    unknown_program_ids = _assert_program_allowlist(
+        program_ids,
+        allowed_programs=CORE_PROGRAM_IDS,
+        label=action,
+        reject_unknown=False,
+    )
+    return {
+        "wallet_address": wallet_address,
+        "fee_payer": binding["fee_payer"],
+        "required_signer_keys": binding["required_signer_keys"],
+        "required_signature_count": binding["required_signature_count"],
+        "wallet_signer_index": binding["wallet_signer_index"],
+        "sponsored_fee_payer": binding["sponsored_fee_payer"],
+        "program_ids": program_ids,
+        "unknown_program_ids": unknown_program_ids,
+        "non_core_program_ids": [pid for pid in program_ids if pid not in CORE_PROGRAM_IDS],
+        "account_key_count": len(keys),
+        "instruction_count": len(_compiled_instructions(message)),
+        "token_mint": token_mint,
+        "action": action,
+        "verified": True,
+    }
+
+
 def verify_provider_lend_transaction(
     message: Any,
     *,

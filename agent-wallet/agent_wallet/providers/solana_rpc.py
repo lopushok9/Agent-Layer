@@ -9,6 +9,7 @@ from typing import Any
 
 import httpx
 
+from agent_wallet.config import settings
 from agent_wallet.exceptions import ProviderError
 from agent_wallet.http_client import get_client
 
@@ -16,6 +17,27 @@ log = logging.getLogger(__name__)
 
 SOLANA_RPC_FALLBACK = "https://api.mainnet-beta.solana.com"
 LAMPORTS_PER_SOL = 1_000_000_000
+
+
+def _is_gateway_url(rpc_url: str) -> bool:
+    return rpc_url.startswith("gateway::")
+
+
+def _parse_gateway_url(rpc_url: str) -> tuple[str, str, str]:
+    try:
+        parts = rpc_url.split("::", 3)
+    except ValueError as exc:
+        raise ProviderError("solana-rpc", f"Malformed provider gateway rpc url: {rpc_url}") from exc
+    if len(parts) == 4:
+        _, provider, network, url = parts
+    elif len(parts) == 3:
+        _, provider, url = parts
+        network = "mainnet"
+    else:
+        raise ProviderError("solana-rpc", f"Malformed provider gateway rpc url: {rpc_url}")
+    if not url.strip():
+        raise ProviderError("solana-rpc", f"Malformed provider gateway rpc url: {rpc_url}")
+    return provider.strip() or "auto", network.strip().lower() or "mainnet", url.strip()
 
 
 def _fallback_for_rpc_url(rpc_url: str) -> str:
@@ -62,12 +84,32 @@ def _retry_after_seconds(response: httpx.Response) -> float:
 
 async def _do_rpc_call(rpc_url: str, method: str, params: list[Any]) -> dict[str, Any]:
     client = get_client()
+    gateway_mode = _is_gateway_url(rpc_url)
     payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
+    headers: dict[str, str] | None = None
+
+    if gateway_mode:
+        provider, network, gateway_url = _parse_gateway_url(rpc_url)
+        rpc_url = gateway_url
+        payload = {
+            "provider": provider,
+            "network": network,
+            "method": method,
+            "params": params,
+        }
+        bearer = settings.provider_gateway_bearer_token.strip()
+        if not bearer:
+            raise ProviderError(
+                "solana-rpc",
+                "Provider gateway mode requires PROVIDER_GATEWAY_BEARER_TOKEN.",
+            )
+        headers = {"Authorization": f"Bearer {bearer}"}
+
     last_exc: Exception | None = None
     response: httpx.Response | None = None
     for attempt in range(3):
         try:
-            response = await client.post(rpc_url, json=payload)
+            response = await client.post(rpc_url, json=payload, headers=headers)
             if response.status_code == 429:
                 wait_seconds = max(_retry_after_seconds(response), 0.5 * (attempt + 1))
                 last_exc = ProviderError("solana-rpc", f"Rate limited on {rpc_url}")
@@ -94,6 +136,17 @@ async def _do_rpc_call(rpc_url: str, method: str, params: list[Any]) -> dict[str
     if response.status_code != 200:
         raise ProviderError("solana-rpc", f"HTTP {response.status_code} on {rpc_url}")
     data = response.json()
+    if gateway_mode:
+        if not isinstance(data, dict):
+            raise ProviderError("solana-rpc", "Provider gateway returned unexpected response shape.")
+        if not data.get("ok", False):
+            raise ProviderError(
+                "solana-rpc",
+                f"Provider gateway error: {data.get('error') or data}",
+            )
+        data = data.get("rpc")
+        if not isinstance(data, dict):
+            raise ProviderError("solana-rpc", "Provider gateway rpc payload is missing.")
     if "error" in data:
         raise ProviderError("solana-rpc", f"RPC error: {data['error']}")
     return data

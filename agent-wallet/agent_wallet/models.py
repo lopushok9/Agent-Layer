@@ -55,5 +55,10 @@ class OpenClawWalletSessionMetadata(BaseModel):
     storage_format: str
     created_now: bool
     sign_only: bool
+    rpc_provider_mode: str | None = None
+    rpc_provider: str | None = None
+    rpc_transport: str | None = None
+    swap_provider: str | None = None
+    swap_transport: str | None = None
     tool_names: list[str]
     approval_token_required_for_execute: bool = True

@@ -15,7 +15,8 @@ from agent_wallet.bootstrap import (
 from agent_wallet.config import (
     allow_plaintext_user_wallet_migration,
     resolve_openclaw_home,
-    resolve_runtime_solana_rpc_urls,
+    resolve_runtime_solana_rpc_config,
+    resolve_runtime_solana_swap_config,
     resolve_wallet_master_key,
     settings,
     use_per_user_key_derivation,
@@ -333,15 +334,22 @@ def create_wallet_backend_for_user(
         network=effective_network,
     )
     signer = SolanaLocalKeypairSigner.from_secret_material(secret_material)
+    rpc_config = resolve_runtime_solana_rpc_config(
+        effective_network,
+        rpc_url or settings.solana_rpc_url,
+        settings.solana_rpc_urls,
+    )
+    swap_config = resolve_runtime_solana_swap_config(effective_network)
     return SolanaWalletBackend(
-        rpc_url=resolve_runtime_solana_rpc_urls(
-            effective_network,
-            rpc_url or settings.solana_rpc_url,
-            settings.solana_rpc_urls,
-        ),
+        rpc_url=rpc_config["rpc_urls"],
         commitment=settings.solana_commitment,
         network=effective_network,
         signer=signer,
         address=wallet_info["address"],
         sign_only=settings.agent_wallet_sign_only if sign_only is None else sign_only,
+        rpc_provider_mode=str(rpc_config["mode"]),
+        rpc_provider=str(rpc_config["provider"]),
+        rpc_transport=str(rpc_config["transport"]),
+        swap_provider=str(swap_config["provider"]),
+        swap_transport=str(swap_config["transport"]),
     )

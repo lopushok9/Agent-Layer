@@ -37,6 +37,7 @@ def main() -> None:
     assert first_session.sign_only is False
     assert first_session.storage_format == "encrypted"
     assert "get_wallet_address" in first_session.tool_names
+    assert "claim_bags_fees" in first_session.tool_names
     assert first_bundle["session"]["created_now"] is True
     assert first_bundle["manifest"]["id"] == "agent-wallet"
     assert callable(first.plugin_bundle["invoke"])

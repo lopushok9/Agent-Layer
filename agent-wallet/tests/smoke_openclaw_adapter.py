@@ -77,6 +77,61 @@ class FakeBackend(AgentWalletBackend):
             "source": "jupiter",
         }
 
+    async def get_bags_claimable_positions(self, wallet: str | None = None) -> dict:
+        owner = wallet or "Fake11111111111111111111111111111111111111111"
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "wallet": owner,
+            "position_count": 1,
+            "positions": [
+                {
+                    "tokenMint": "FakeMint1111111111111111111111111111111111111",
+                    "wallet": owner,
+                    "claimableAmount": "12345",
+                }
+            ],
+            "raw": {"positions": [{"tokenMint": "FakeMint1111111111111111111111111111111111111"}]},
+            "source": "bags",
+        }
+
+    async def get_bags_fee_analytics(
+        self,
+        token_mint: str,
+        *,
+        include_claim_events: bool = False,
+        mode: str = "offset",
+        limit: int | None = None,
+        offset: int | None = None,
+        from_ts: int | None = None,
+        to_ts: int | None = None,
+    ) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "token_mint": token_mint,
+            "lifetime_fees": {"totalFees": "42"},
+            "claim_stats": [{"wallet": "Fake11111111111111111111111111111111111111111"}],
+            "claim_events": (
+                {
+                    "events": [
+                        {
+                            "wallet": "Fake11111111111111111111111111111111111111111",
+                            "mode": mode,
+                            "limit": limit,
+                            "offset": offset,
+                            "from": from_ts,
+                            "to": to_ts,
+                        }
+                    ]
+                }
+                if include_claim_events
+                else None
+            ),
+            "include_claim_events": include_claim_events,
+            "source": "bags",
+        }
+
     async def get_staking_validators(
         self,
         limit: int = 20,
@@ -600,6 +655,136 @@ class FakeBackend(AgentWalletBackend):
             "can_send": True,
             "quote_response": {"routePlan": [{"swapInfo": {"label": "fake-route"}}]},
             "source": "fake",
+        }
+
+    async def preview_bags_fee_claim(self, token_mint: str) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "preview",
+            "asset_type": "bags-fee-claim",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "fee_claimer": "Fake11111111111111111111111111111111111111111",
+            "token_mint": token_mint,
+            "claimable_position_count": 1,
+            "claimable_positions": [
+                {
+                    "tokenMint": token_mint,
+                    "claimableAmount": "12345",
+                }
+            ],
+            "sign_only": False,
+            "can_send": True,
+            "source": "bags",
+        }
+
+    async def execute_bags_fee_claim(self, token_mint: str) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "execute",
+            "asset_type": "bags-fee-claim",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "fee_claimer": "Fake11111111111111111111111111111111111111111",
+            "token_mint": token_mint,
+            "claimable_position_count": 1,
+            "signatures": ["fake-bags-claim-signature"],
+            "signature": "fake-bags-claim-signature",
+            "broadcasted": True,
+            "confirmed": True,
+            "confirmation_statuses": ["confirmed"],
+            "slots": [1400],
+            "source": "bags",
+        }
+
+    async def preview_bags_token_launch(
+        self,
+        *,
+        name: str,
+        symbol: str,
+        description: str,
+        base_mint: str,
+        claimers: list[str],
+        basis_points: list[int],
+        initial_buy_sol: float,
+        image_url: str | None = None,
+        website: str | None = None,
+        twitter: str | None = None,
+        telegram: str | None = None,
+        discord: str | None = None,
+        bags_config_type: int | None = None,
+    ) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "preview",
+            "asset_type": "bags-token-launch",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "wallet": "Fake11111111111111111111111111111111111111111",
+            "token_name": name,
+            "token_symbol": symbol,
+            "description": description,
+            "image_url": image_url,
+            "website": website,
+            "twitter": twitter,
+            "telegram": telegram,
+            "discord": discord,
+            "base_mint": base_mint,
+            "claimers": claimers,
+            "basis_points": basis_points,
+            "claimers_count": len(claimers),
+            "total_basis_points": sum(basis_points),
+            "initial_buy_sol": initial_buy_sol,
+            "initial_buy_lamports": 10000000,
+            "bags_config_type": bags_config_type,
+            "sign_only": False,
+            "can_send": True,
+            "source": "bags",
+        }
+
+    async def execute_bags_token_launch(
+        self,
+        *,
+        name: str,
+        symbol: str,
+        description: str,
+        base_mint: str,
+        claimers: list[str],
+        basis_points: list[int],
+        initial_buy_sol: float,
+        image_url: str | None = None,
+        website: str | None = None,
+        twitter: str | None = None,
+        telegram: str | None = None,
+        discord: str | None = None,
+        bags_config_type: int | None = None,
+    ) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "execute",
+            "asset_type": "bags-token-launch",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "wallet": "Fake11111111111111111111111111111111111111111",
+            "token_mint": "FakeMint1111111111111111111111111111111111111",
+            "token_name": name,
+            "token_symbol": symbol,
+            "base_mint": base_mint,
+            "claimers": claimers,
+            "basis_points": basis_points,
+            "claimers_count": len(claimers),
+            "total_basis_points": sum(basis_points),
+            "initial_buy_sol": initial_buy_sol,
+            "initial_buy_lamports": 10000000,
+            "config_key": "fake-config-key",
+            "ipfs": "ipfs://fake-launch",
+            "signatures": ["fake-bags-launch-signature"],
+            "signature": "fake-bags-launch-signature",
+            "broadcasted": True,
+            "confirmed": True,
+            "confirmation_statuses": ["confirmed"],
+            "slots": [1401],
+            "source": "bags",
         }
 
     async def preview_close_empty_token_accounts(self, limit: int = 8) -> dict:
@@ -1222,6 +1407,10 @@ class DriftingSwapBackend(FakeBackend):
         return preview
 
 
+class MainnetFakeBackend(FakeBackend):
+    network = "mainnet"
+
+
 def _issue_execute_approval(
     *,
     tool_name: str,
@@ -1246,13 +1435,14 @@ async def main() -> None:
         approval_secret="smoke-approval-secret",
     )
     adapter = OpenClawWalletAdapter(FakeBackend())
+    mainnet_adapter = OpenClawWalletAdapter(MainnetFakeBackend())
     bundle = build_openclaw_plugin_bundle(FakeBackend())
     tool_names = {tool.name for tool in adapter.list_tools()}
     bundle_tool_names = {tool["name"] for tool in bundle["tools"]}
 
-    assert len(tool_names) == 29
+    assert len(tool_names) == 33
     assert bundle["manifest"]["id"] == "agent-wallet"
-    assert len(bundle_tool_names) == 29
+    assert len(bundle_tool_names) == 33
     assert "Wallet Operator" in bundle["instructions"]
     assert "get_jupiter_portfolio" not in tool_names
     assert "get_jupiter_earn_tokens" in tool_names
@@ -1261,9 +1451,15 @@ async def main() -> None:
     assert "get_kamino_lend_markets" in tool_names
     assert "kamino_lend_deposit" in tool_names
     assert "kamino_lend_borrow" in tool_names
+    assert "get_bags_claimable_positions" in tool_names
+    assert "get_bags_fee_analytics" in tool_names
+    assert "claim_bags_fees" in tool_names
+    assert "launch_bags_token" in tool_names
     assert "get_jupiter_portfolio" not in bundle_tool_names
     assert "jupiter_earn_deposit" in bundle_tool_names
     assert "kamino_lend_deposit" in bundle_tool_names
+    assert "claim_bags_fees" in bundle_tool_names
+    assert "launch_bags_token" in bundle_tool_names
 
     capabilities = await adapter.invoke("get_wallet_capabilities")
     assert capabilities.ok and capabilities.data["backend"] == "fake_wallet"
@@ -1285,6 +1481,22 @@ async def main() -> None:
         {"mints": ["So11111111111111111111111111111111111111112"]},
     )
     assert prices.ok and prices.data["count"] == 1
+
+    bags_positions = await mainnet_adapter.invoke("get_bags_claimable_positions")
+    assert bags_positions.ok and bags_positions.data["position_count"] == 1
+
+    bags_analytics = await mainnet_adapter.invoke(
+        "get_bags_fee_analytics",
+        {
+            "token_mint": "FakeMint1111111111111111111111111111111111111",
+            "include_claim_events": True,
+            "mode": "time",
+            "from_ts": 10,
+            "to_ts": 20,
+        },
+    )
+    assert bags_analytics.ok and bags_analytics.data["lifetime_fees"]["totalFees"] == "42"
+    assert bags_analytics.data["claim_events"]["events"][0]["mode"] == "time"
 
     kamino_markets = await adapter.invoke("get_kamino_lend_markets")
     assert kamino_markets.ok and kamino_markets.data["market_count"] == 1
@@ -1599,6 +1811,108 @@ async def main() -> None:
     )
     assert executed_swap.ok and executed_swap.data["confirmed"] is True
 
+    bags_claim_preview = await mainnet_adapter.invoke(
+        "claim_bags_fees",
+        {
+            "token_mint": "FakeMint1111111111111111111111111111111111111",
+            "mode": "preview",
+            "purpose": "test Bags fee claim preview",
+        },
+    )
+    assert bags_claim_preview.ok and bags_claim_preview.data["asset_type"] == "bags-fee-claim"
+
+    bags_claim_prepare = await mainnet_adapter.invoke(
+        "claim_bags_fees",
+        {
+            "token_mint": "FakeMint1111111111111111111111111111111111111",
+            "mode": "prepare",
+            "purpose": "test Bags fee claim prepare",
+            "user_intent": True,
+        },
+    )
+    assert bags_claim_prepare.ok and bags_claim_prepare.data["execution_plan_only"] is True
+    assert "signatures" not in bags_claim_prepare.data
+
+    bags_claim_execute = await mainnet_adapter.invoke(
+        "claim_bags_fees",
+        {
+            "token_mint": "FakeMint1111111111111111111111111111111111111",
+            "mode": "execute",
+            "purpose": "test Bags fee claim execute",
+            "approval_token": _issue_execute_approval(
+                tool_name="claim_bags_fees",
+                preview=bags_claim_preview.data,
+                network="mainnet",
+                mainnet_confirmed=True,
+            ),
+        },
+    )
+    assert bags_claim_execute.ok and bags_claim_execute.data["confirmed"] is True
+
+    bags_launch_preview = await mainnet_adapter.invoke(
+        "launch_bags_token",
+        {
+            "name": "OpenClaw",
+            "symbol": "CLAW",
+            "description": "Launch test token",
+            "image_url": "https://example.com/claw.png",
+            "website": "https://openclaw.ai",
+            "base_mint": "So11111111111111111111111111111111111111112",
+            "claimers": ["Fake11111111111111111111111111111111111111111"],
+            "basis_points": [10000],
+            "initial_buy_sol": 0.01,
+            "mode": "preview",
+            "purpose": "test Bags launch preview",
+        },
+    )
+    assert bags_launch_preview.ok and bags_launch_preview.data["asset_type"] == "bags-token-launch"
+    assert bags_launch_preview.data["claimers_count"] == 1
+
+    bags_launch_prepare = await mainnet_adapter.invoke(
+        "launch_bags_token",
+        {
+            "name": "OpenClaw",
+            "symbol": "CLAW",
+            "description": "Launch test token",
+            "image_url": "https://example.com/claw.png",
+            "website": "https://openclaw.ai",
+            "base_mint": "So11111111111111111111111111111111111111112",
+            "claimers": ["Fake11111111111111111111111111111111111111111"],
+            "basis_points": [10000],
+            "initial_buy_sol": 0.01,
+            "mode": "prepare",
+            "purpose": "test Bags launch prepare",
+            "user_intent": True,
+        },
+    )
+    assert bags_launch_prepare.ok and bags_launch_prepare.data["execution_plan_only"] is True
+    assert "token_mint" not in bags_launch_prepare.data
+
+    bags_launch_execute = await mainnet_adapter.invoke(
+        "launch_bags_token",
+        {
+            "name": "OpenClaw",
+            "symbol": "CLAW",
+            "description": "Launch test token",
+            "image_url": "https://example.com/claw.png",
+            "website": "https://openclaw.ai",
+            "base_mint": "So11111111111111111111111111111111111111112",
+            "claimers": ["Fake11111111111111111111111111111111111111111"],
+            "basis_points": [10000],
+            "initial_buy_sol": 0.01,
+            "mode": "execute",
+            "purpose": "test Bags launch execute",
+            "approval_token": _issue_execute_approval(
+                tool_name="launch_bags_token",
+                preview=bags_launch_preview.data,
+                network="mainnet",
+                mainnet_confirmed=True,
+            ),
+        },
+    )
+    assert bags_launch_execute.ok and bags_launch_execute.data["confirmed"] is True
+    assert bags_launch_execute.data["token_symbol"] == "CLAW"
+
     drifting_swap_adapter = OpenClawWalletAdapter(DriftingSwapBackend())
     drifting_swap_preview = await drifting_swap_adapter.invoke(
         "swap_solana_tokens",
@@ -1629,8 +1943,8 @@ async def main() -> None:
             ),
         },
     )
-    assert drifting_swap_execute.ok is True
-    assert drifting_swap_execute.data["confirmed"] is True
+    assert drifting_swap_execute.ok is False
+    assert "approval_token does not match the requested operation" in str(drifting_swap_execute.error)
 
     close_preview = await adapter.invoke(
         "close_empty_token_accounts",

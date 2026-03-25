@@ -330,6 +330,17 @@ class AgentWalletBackend(ABC):
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support swap preparation.")
 
+    async def prepare_swap_from_preview(
+        self,
+        preview: dict[str, Any],
+    ) -> dict[str, Any]:
+        return await self.prepare_swap(
+            input_mint=str(preview["input_mint"]),
+            output_mint=str(preview["output_mint"]),
+            amount_ui=float(preview["input_amount_ui"]),
+            slippage_bps=int(preview.get("slippage_bps") or 50),
+        )
+
     async def execute_swap(
         self,
         input_mint: str,
@@ -338,6 +349,110 @@ class AgentWalletBackend(ABC):
         slippage_bps: int = 50,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support swaps.")
+
+    async def execute_swap_from_preview(
+        self,
+        preview: dict[str, Any],
+    ) -> dict[str, Any]:
+        return await self.execute_swap(
+            input_mint=str(preview["input_mint"]),
+            output_mint=str(preview["output_mint"]),
+            amount_ui=float(preview["input_amount_ui"]),
+            slippage_bps=int(preview.get("slippage_bps") or 50),
+        )
+
+    async def get_bags_claimable_positions(
+        self,
+        wallet: str | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Bags claimable positions lookup.")
+
+    async def get_bags_fee_analytics(
+        self,
+        token_mint: str,
+        *,
+        include_claim_events: bool = False,
+        mode: str = "offset",
+        limit: int | None = None,
+        offset: int | None = None,
+        from_ts: int | None = None,
+        to_ts: int | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Bags fee analytics lookup.")
+
+    async def preview_bags_fee_claim(self, token_mint: str) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Bags fee claim previews.")
+
+    async def execute_bags_fee_claim(self, token_mint: str) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Bags fee claims.")
+
+    async def execute_bags_fee_claim_from_preview(
+        self,
+        preview: dict[str, Any],
+    ) -> dict[str, Any]:
+        return await self.execute_bags_fee_claim(str(preview["token_mint"]))
+
+    async def preview_bags_token_launch(
+        self,
+        *,
+        name: str,
+        symbol: str,
+        description: str,
+        base_mint: str,
+        claimers: list[str],
+        basis_points: list[int],
+        initial_buy_sol: float,
+        image_url: str | None = None,
+        website: str | None = None,
+        twitter: str | None = None,
+        telegram: str | None = None,
+        discord: str | None = None,
+        bags_config_type: int | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Bags token launch previews.")
+
+    async def execute_bags_token_launch(
+        self,
+        *,
+        name: str,
+        symbol: str,
+        description: str,
+        base_mint: str,
+        claimers: list[str],
+        basis_points: list[int],
+        initial_buy_sol: float,
+        image_url: str | None = None,
+        website: str | None = None,
+        twitter: str | None = None,
+        telegram: str | None = None,
+        discord: str | None = None,
+        bags_config_type: int | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Bags token launches.")
+
+    async def execute_bags_token_launch_from_preview(
+        self,
+        preview: dict[str, Any],
+    ) -> dict[str, Any]:
+        return await self.execute_bags_token_launch(
+            name=str(preview["token_name"]),
+            symbol=str(preview["token_symbol"]),
+            description=str(preview["description"]),
+            base_mint=str(preview["base_mint"]),
+            claimers=list(preview["claimers"]),
+            basis_points=[int(value) for value in preview["basis_points"]],
+            initial_buy_sol=float(preview["initial_buy_sol"]),
+            image_url=preview.get("image_url"),
+            website=preview.get("website"),
+            twitter=preview.get("twitter"),
+            telegram=preview.get("telegram"),
+            discord=preview.get("discord"),
+            bags_config_type=(
+                int(preview["bags_config_type"])
+                if preview.get("bags_config_type") is not None
+                else None
+            ),
+        )
 
     async def request_testnet_airdrop(self, amount_native: float) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support testnet airdrops.")

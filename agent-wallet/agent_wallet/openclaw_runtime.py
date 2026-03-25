@@ -55,6 +55,11 @@ class OpenClawWalletRuntimeContext:
             storage_format=self.wallet_info["storage_format"],
             created_now=self.created_now,
             sign_only=bool(getattr(self.backend, "sign_only", True)),
+            rpc_provider_mode=getattr(self.backend, "rpc_provider_mode", None),
+            rpc_provider=getattr(self.backend, "rpc_provider", None),
+            rpc_transport=getattr(self.backend, "rpc_transport", None),
+            swap_provider=getattr(self.backend, "swap_provider", None),
+            swap_transport=getattr(self.backend, "swap_transport", None),
             tool_names=tool_names,
         )
 

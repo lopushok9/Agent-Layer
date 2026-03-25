@@ -1,4 +1,4 @@
-"""Live quote smoke for Jupiter-based swap preview."""
+"""Live quote smoke for Jupiter-routed Solana swap preview."""
 
 from __future__ import annotations
 

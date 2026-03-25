@@ -7,7 +7,8 @@ from pathlib import Path
 from agent_wallet.bootstrap import ensure_solana_wallet_ready, ensure_wallet_pin
 from agent_wallet.encrypted_storage import load_wallet_secret_material
 from agent_wallet.config import (
-    resolve_runtime_solana_rpc_urls,
+    resolve_runtime_solana_rpc_config,
+    resolve_runtime_solana_swap_config,
     resolve_solana_private_key,
     settings,
 )
@@ -55,17 +56,24 @@ def create_wallet_backend() -> AgentWalletBackend | None:
                 network=settings.solana_network,
             )
         configured_address = settings.solana_agent_public_key.strip() or None
+        rpc_config = resolve_runtime_solana_rpc_config(
+            settings.solana_network,
+            settings.solana_rpc_url,
+            settings.solana_rpc_urls,
+        )
+        swap_config = resolve_runtime_solana_swap_config(settings.solana_network)
         return SolanaWalletBackend(
-            rpc_url=resolve_runtime_solana_rpc_urls(
-                settings.solana_network,
-                settings.solana_rpc_url,
-                settings.solana_rpc_urls,
-            ),
+            rpc_url=rpc_config["rpc_urls"],
             commitment=settings.solana_commitment,
             network=settings.solana_network,
             signer=signer,
             address=configured_address,
             sign_only=settings.agent_wallet_sign_only,
+            rpc_provider_mode=str(rpc_config["mode"]),
+            rpc_provider=str(rpc_config["provider"]),
+            rpc_transport=str(rpc_config["transport"]),
+            swap_provider=str(swap_config["provider"]),
+            swap_transport=str(swap_config["transport"]),
         )
 
     raise WalletBackendError(

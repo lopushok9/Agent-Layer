@@ -13,10 +13,14 @@ from agent_wallet.wallet_layer.base import WalletBackendError
 
 
 def _parse_bool(value: Any) -> str:
+    if value is None:
+        return ""
     return "true" if value is True else "false"
 
 
 def _parse_csv(value: Any) -> str:
+    if value is None:
+        return ""
     if isinstance(value, list):
         return ",".join(str(item).strip() for item in value if str(item).strip())
     return str(value).strip()
@@ -45,6 +49,16 @@ def _apply_config_overrides(config: dict[str, Any]) -> None:
         # Deployment-owned RPC env must win over plugin config.
         "rpcUrl": ("SOLANA_RPC_URL", config.get("rpcUrl"), False),
         "rpcUrls": ("SOLANA_RPC_URLS", _parse_csv(config.get("rpcUrls")), False),
+        "rpcProviderMode": ("SOLANA_RPC_PROVIDER_MODE", config.get("rpcProviderMode"), True),
+        "providerGatewayUrl": ("PROVIDER_GATEWAY_URL", config.get("providerGatewayUrl"), True),
+        "providerGatewayRpcProvider": (
+            "PROVIDER_GATEWAY_RPC_PROVIDER",
+            config.get("providerGatewayRpcProvider"),
+            True,
+        ),
+        "swapProvider": ("SOLANA_SWAP_PROVIDER", config.get("swapProvider"), True),
+        "heliusApiKey": ("HELIUS_API_KEY", config.get("heliusApiKey"), True),
+        "alchemyApiKey": ("ALCHEMY_API_KEY", config.get("alchemyApiKey"), True),
         "publicKey": ("SOLANA_AGENT_PUBLIC_KEY", config.get("publicKey"), True),
         "keypairPath": ("SOLANA_AGENT_KEYPAIR_PATH", config.get("keypairPath"), True),
         "autoCreateWallet": ("SOLANA_AUTO_CREATE_WALLET", _parse_bool(config.get("autoCreateWallet")), True),

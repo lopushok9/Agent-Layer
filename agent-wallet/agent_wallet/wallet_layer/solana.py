@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import binascii
 import json
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from agent_wallet.models import AgentWalletCapabilities, SolanaWalletState
-from agent_wallet.providers import jupiter, kamino, solana_rpc
+from agent_wallet.providers import bags, jupiter, kamino, solana_rpc
 from agent_wallet.solana_stake import (
     STAKE_STATE_V2_SIZE,
     deactivate_stake as build_deactivate_stake_instruction,
@@ -23,6 +24,7 @@ from agent_wallet.solana_tx import (
     serialize_legacy_transaction,
 )
 from agent_wallet.transaction_policy import (
+    verify_provider_bags_transaction,
     verify_provider_kamino_lend_transaction,
     verify_provider_lend_transaction,
     verify_provider_swap_transaction,
@@ -114,6 +116,18 @@ def _require_positive_decimal_string(value: Any, *, field_name: str) -> str:
     return normalized or "0"
 
 
+def _coerce_non_negative_integer(value: Any, *, field_name: str) -> int:
+    if isinstance(value, bool):
+        raise WalletBackendError(f"{field_name} must be a non-negative integer.")
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError) as exc:
+        raise WalletBackendError(f"{field_name} must be a non-negative integer.") from exc
+    if normalized < 0:
+        raise WalletBackendError(f"{field_name} must be a non-negative integer.")
+    return normalized
+
+
 def _kamino_entry_address(entry: Any, *keys: str) -> str:
     if not isinstance(entry, dict):
         return ""
@@ -175,6 +189,11 @@ class SolanaWalletBackend(AgentWalletBackend):
         signer: SolanaLocalKeypairSigner | None = None,
         address: str | None = None,
         sign_only: bool = True,
+        rpc_provider_mode: str | None = None,
+        rpc_provider: str | None = None,
+        rpc_transport: str | None = None,
+        swap_provider: str | None = None,
+        swap_transport: str | None = None,
     ):
         derived_address = signer.address if signer else None
         final_address = address or derived_address
@@ -192,6 +211,11 @@ class SolanaWalletBackend(AgentWalletBackend):
         self.signer = signer
         self.address = final_address
         self.sign_only = sign_only
+        self.rpc_provider_mode = rpc_provider_mode
+        self.rpc_provider = rpc_provider
+        self.rpc_transport = rpc_transport
+        self.swap_provider = swap_provider
+        self.swap_transport = swap_transport
 
     async def get_address(self) -> str | None:
         return self.address
@@ -278,6 +302,79 @@ class SolanaWalletBackend(AgentWalletBackend):
             "count": len(items),
             "prices": items,
             "source": "jupiter",
+        }
+
+    async def get_bags_claimable_positions(
+        self,
+        wallet: str | None = None,
+    ) -> dict[str, Any]:
+        self._require_mainnet_bags("Bags fee claims")
+        wallet_address = wallet or self.address
+        if not wallet_address:
+            raise WalletBackendError("A wallet address is required for Bags claimable positions.")
+        wallet_address = validate_solana_address(wallet_address)
+        raw = await bags.fetch_claimable_positions(wallet_address)
+        positions = self._bags_claim_positions_list(raw)
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "wallet": wallet_address,
+            "position_count": len(positions),
+            "positions": positions,
+            "raw": raw,
+            "source": "bags",
+        }
+
+    async def get_bags_fee_analytics(
+        self,
+        token_mint: str,
+        *,
+        include_claim_events: bool = False,
+        mode: str = "offset",
+        limit: int | None = None,
+        offset: int | None = None,
+        from_ts: int | None = None,
+        to_ts: int | None = None,
+    ) -> dict[str, Any]:
+        self._require_mainnet_bags("Bags fee analytics")
+        normalized_mint = validate_solana_mint(token_mint)
+        if mode not in {"offset", "time"}:
+            raise WalletBackendError("mode must be 'offset' or 'time'.")
+        if limit is not None and limit <= 0:
+            raise WalletBackendError("limit must be greater than zero when provided.")
+        if offset is not None and offset < 0:
+            raise WalletBackendError("offset must be greater than or equal to zero when provided.")
+        if from_ts is not None and from_ts < 0:
+            raise WalletBackendError("from_ts must be greater than or equal to zero.")
+        if to_ts is not None and to_ts < 0:
+            raise WalletBackendError("to_ts must be greater than or equal to zero.")
+
+        tasks = [
+            bags.fetch_lifetime_fees(normalized_mint),
+            bags.fetch_claim_stats(normalized_mint),
+        ]
+        if include_claim_events:
+            tasks.append(
+                bags.fetch_claim_events(
+                    token_mint=normalized_mint,
+                    mode=mode,
+                    limit=limit,
+                    offset=offset,
+                    from_ts=from_ts,
+                    to_ts=to_ts,
+                )
+            )
+        results = await asyncio.gather(*tasks)
+        claim_events = results[2] if include_claim_events else None
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "token_mint": normalized_mint,
+            "lifetime_fees": results[0],
+            "claim_stats": results[1],
+            "claim_events": claim_events,
+            "include_claim_events": include_claim_events,
+            "source": "bags",
         }
 
     async def get_staking_validators(
@@ -380,7 +477,10 @@ class SolanaWalletBackend(AgentWalletBackend):
         signature_fee_lamports: Any = None,
         rent_fee_lamports: Any = None,
     ) -> dict[str, Any]:
+        platform_fee = quote_response.get("platformFee")
         fee_bps = _coerce_int(quote_response.get("feeBps"))
+        if fee_bps is None and isinstance(platform_fee, dict):
+            fee_bps = _coerce_int(platform_fee.get("feeBps"))
         resolved_signature_fee = _coerce_int(signature_fee_lamports)
         resolved_priority_fee = _coerce_int(prioritization_fee_lamports)
         resolved_rent_fee = _coerce_int(rent_fee_lamports)
@@ -420,6 +520,294 @@ class SolanaWalletBackend(AgentWalletBackend):
         if isinstance(route_fee_bps, int):
             parts.append(f"route fee {route_fee_bps} bps (already reflected in quoted output)")
         return "; ".join(parts)
+
+    def _require_mainnet_bags(self, feature: str) -> None:
+        if self.network != "mainnet":
+            raise WalletBackendError(f"{feature} is only enabled for Solana mainnet.")
+
+    def _normalize_bags_claimers(self, claimers: list[str]) -> list[str]:
+        if not isinstance(claimers, list) or not claimers:
+            raise WalletBackendError("claimers must be a non-empty array of Solana wallet addresses.")
+        if len(claimers) > 100:
+            raise WalletBackendError("Bags fee share supports at most 100 claimers.")
+        normalized: list[str] = []
+        for raw in claimers:
+            if not isinstance(raw, str) or not raw.strip():
+                raise WalletBackendError(
+                    "claimers must be a non-empty array of Solana wallet addresses."
+                )
+            normalized.append(validate_solana_address(raw.strip()))
+        return normalized
+
+    def _normalize_bags_basis_points(self, basis_points: list[int]) -> list[int]:
+        if not isinstance(basis_points, list) or not basis_points:
+            raise WalletBackendError("basis_points must be a non-empty array of integers.")
+        normalized = [
+            _coerce_non_negative_integer(value, field_name="basis_points")
+            for value in basis_points
+        ]
+        if sum(normalized) != 10_000:
+            raise WalletBackendError("basis_points must sum to exactly 10000.")
+        return normalized
+
+    def _bags_claim_positions_list(self, payload: Any) -> list[dict[str, Any]]:
+        if isinstance(payload, list):
+            return [item for item in payload if isinstance(item, dict)]
+        if isinstance(payload, dict):
+            for key in ("positions", "claimablePositions", "items", "data"):
+                value = payload.get(key)
+                if isinstance(value, list):
+                    return [item for item in value if isinstance(item, dict)]
+        return []
+
+    def _bags_decode_serialized_transaction_bytes(self, serialized_transaction: str) -> bytes:
+        serialized = str(serialized_transaction).strip()
+        if not serialized:
+            raise WalletBackendError("Bags serialized transaction is empty.")
+        try:
+            return base64.b64decode(serialized, validate=True)
+        except (ValueError, binascii.Error):
+            return b58decode(serialized)
+
+    def _bags_extract_serialized_transaction_string(self, payload: Any) -> str:
+        if isinstance(payload, str):
+            cleaned = payload.strip()
+            return cleaned if cleaned else ""
+        if isinstance(payload, dict):
+            for key in ("transaction", "tx", "response"):
+                value = payload.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        return ""
+
+    def _bags_extract_serialized_transaction_strings(self, payload: Any) -> list[str]:
+        if isinstance(payload, str):
+            cleaned = payload.strip()
+            return [cleaned] if cleaned else []
+        if isinstance(payload, list):
+            normalized: list[str] = []
+            for item in payload:
+                value = self._bags_extract_serialized_transaction_string(item)
+                if value:
+                    normalized.append(value)
+            return normalized
+        if isinstance(payload, dict):
+            normalized: list[str] = []
+            for key in ("transactions", "txs", "responses"):
+                value = payload.get(key)
+                if isinstance(value, list):
+                    normalized.extend(self._bags_extract_serialized_transaction_strings(value))
+            for key in (
+                "transaction",
+                "launchTransaction",
+                "serializedTransaction",
+                "swapTransaction",
+                "response",
+                "tx",
+            ):
+                value = payload.get(key)
+                if isinstance(value, str) and value.strip():
+                    normalized.append(value.strip())
+            return normalized
+        return []
+
+    def _bags_extract_fee_share_config_transaction_strings(self, payload: Any) -> list[str]:
+        if not isinstance(payload, dict):
+            return self._bags_extract_serialized_transaction_strings(payload)
+        transaction_strings: list[str] = []
+        transactions = payload.get("transactions")
+        if isinstance(transactions, list):
+            transaction_strings.extend(self._bags_extract_serialized_transaction_strings(transactions))
+        bundles = payload.get("bundles")
+        if isinstance(bundles, list):
+            for bundle in bundles:
+                if isinstance(bundle, list):
+                    transaction_strings.extend(self._bags_extract_serialized_transaction_strings(bundle))
+                else:
+                    value = self._bags_extract_serialized_transaction_string(bundle)
+                    if value:
+                        transaction_strings.append(value)
+        return transaction_strings
+
+    def _bags_extract_transaction_base64s(self, payload: Any) -> list[str]:
+        def _normalize(item: Any) -> list[str]:
+            if isinstance(item, str):
+                cleaned = item.strip()
+                return [cleaned] if cleaned else []
+            if isinstance(item, list):
+                normalized: list[str] = []
+                for value in item:
+                    normalized.extend(_normalize(value))
+                return normalized
+            if isinstance(item, dict):
+                for key in ("tx", "transaction", "serializedTransaction", "swapTransaction", "launchTransaction"):
+                    value = item.get(key)
+                    if isinstance(value, str) and value.strip():
+                        return [value.strip()]
+                for key in ("transactions", "claimTransactions", "txs", "responses", "response"):
+                    value = item.get(key)
+                    if isinstance(value, (list, dict, str)):
+                        normalized = _normalize(value)
+                        if normalized:
+                            return normalized
+            return []
+
+        return _normalize(payload)
+
+    def _bags_extract_token_info_fields(self, payload: Any) -> tuple[str, str]:
+        if not isinstance(payload, dict):
+            raise WalletBackendError("Bags token info response is missing metadata fields.")
+        token_mint = str(payload.get("tokenMint") or "").strip()
+        token_launch = payload.get("tokenLaunch") if isinstance(payload.get("tokenLaunch"), dict) else {}
+        token_metadata = payload.get("tokenMetadata")
+        metadata_candidates: list[Any] = [
+            token_launch.get("uri") if isinstance(token_launch.get("uri"), str) else None,
+            token_launch.get("ipfs") if isinstance(token_launch.get("ipfs"), str) else None,
+            token_launch.get("metadataUri") if isinstance(token_launch.get("metadataUri"), str) else None,
+            token_metadata if isinstance(token_metadata, str) else None,
+            token_metadata.get("uri") if isinstance(token_metadata, dict) else None,
+            token_metadata.get("ipfs") if isinstance(token_metadata, dict) else None,
+            token_metadata.get("metadataUri") if isinstance(token_metadata, dict) else None,
+            payload.get("ipfs") if isinstance(payload.get("ipfs"), str) else None,
+            payload.get("metadataUri") if isinstance(payload.get("metadataUri"), str) else None,
+            payload.get("uri") if isinstance(payload.get("uri"), str) else None,
+        ]
+        ipfs = next((str(candidate).strip() for candidate in metadata_candidates if isinstance(candidate, str) and candidate.strip()), "")
+        if not token_mint:
+            raise WalletBackendError("Bags token info response is missing tokenMint.")
+        if not ipfs:
+            raise WalletBackendError("Bags token info response is missing metadata reference.")
+        return token_mint, ipfs
+
+    def _bags_extract_config_key(self, payload: Any) -> str:
+        if not isinstance(payload, dict):
+            raise WalletBackendError("Bags fee share config response is missing config key.")
+        config_key = str(
+            payload.get("meteoraConfigKey")
+            or payload.get("configKey")
+            or payload.get("key")
+            or ""
+        ).strip()
+        if not config_key:
+            raise WalletBackendError("Bags fee share config response is missing config key.")
+        return config_key
+
+    async def _prepare_bags_transactions(
+        self,
+        *,
+        transaction_base64s: list[str],
+        token_mint: str,
+        action: str,
+        owner: str,
+        asset_type: str,
+        extra: dict[str, Any],
+    ) -> dict[str, Any]:
+        if not self.signer:
+            raise WalletBackendError("Solana signer is not configured.")
+        if not transaction_base64s:
+            raise WalletBackendError(f"{action} did not return any transactions.")
+        try:
+            from solders.transaction import VersionedTransaction
+        except ImportError as exc:
+            raise WalletBackendError(
+                "solana and solders packages are required for Bags transaction signing."
+            ) from exc
+
+        signed_transactions: list[str] = []
+        verifications: list[dict[str, Any]] = []
+        for transaction_base64 in transaction_base64s:
+            unsigned_transaction = VersionedTransaction.from_bytes(
+                self._bags_decode_serialized_transaction_bytes(transaction_base64)
+            )
+            loaded_addresses = await self._resolve_versioned_message_lookup_addresses(
+                unsigned_transaction.message
+            )
+            verification = verify_provider_bags_transaction(
+                unsigned_transaction.message,
+                wallet_address=owner,
+                token_mint=token_mint,
+                action=action,
+                loaded_addresses=loaded_addresses,
+            )
+            signed_transactions.append(
+                await self._sign_versioned_provider_transaction(
+                    transaction_base64=transaction_base64,
+                    wallet_signer_index=int(verification.get("wallet_signer_index") or 0),
+                )
+            )
+            verifications.append(verification)
+
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "mode": "prepare",
+            "asset_type": asset_type,
+            "owner": owner,
+            "token_mint": token_mint,
+            "transaction_count": len(signed_transactions),
+            "transactions_base64": signed_transactions,
+            "transaction_encoding": "base64",
+            "transaction_format": "versioned",
+            "signed": True,
+            "broadcasted": False,
+            "confirmed": False,
+            "verification": verifications[0] if len(verifications) == 1 else None,
+            "verifications": verifications,
+            "sign_only": self.sign_only,
+            "source": "bags",
+            **extra,
+        }
+
+    async def _execute_prepared_bags_transactions(
+        self,
+        prepared: dict[str, Any],
+    ) -> dict[str, Any]:
+        if self.sign_only:
+            raise WalletBackendError(
+                "This wallet backend is in sign-only mode. Disable sign_only to broadcast transactions."
+            )
+        serialized = prepared.get("transactions_base64")
+        if not isinstance(serialized, list) or not serialized:
+            raise WalletBackendError("Prepared Bags transaction payload is missing transactions.")
+
+        signatures: list[str] = []
+        statuses: list[dict[str, Any] | None] = []
+        for transaction_base64 in serialized:
+            submitted = await solana_rpc.send_transaction(
+                transaction_base64=str(transaction_base64),
+                rpc_url=self.rpc_urls,
+            )
+            signature = str(submitted.get("signature") or "").strip()
+            signatures.append(signature)
+            status = None
+            if signature:
+                status = await solana_rpc.wait_for_confirmation(
+                    signature=signature,
+                    rpc_url=self.rpc_urls,
+                )
+            statuses.append(status)
+
+        confirmed = all(status is not None for status in statuses)
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "mode": "execute",
+            "asset_type": prepared["asset_type"],
+            "owner": prepared.get("owner"),
+            "token_mint": prepared.get("token_mint"),
+            "transaction_count": len(serialized),
+            "signatures": signatures,
+            "signature": signatures[0] if len(signatures) == 1 else None,
+            "broadcasted": any(bool(item) for item in signatures),
+            "confirmed": confirmed,
+            "confirmation_statuses": [
+                status.get("confirmationStatus") if status else None for status in statuses
+            ],
+            "slots": [status.get("slot") if status else None for status in statuses],
+            "verification": prepared.get("verification"),
+            "verifications": prepared.get("verifications"),
+            "source": "bags",
+        }
 
     def _require_mainnet_jupiter(self, feature: str) -> None:
         if self.network != "mainnet":
@@ -1200,7 +1588,9 @@ class SolanaWalletBackend(AgentWalletBackend):
                 "solana and solders packages are required for provider transaction signing."
             ) from exc
 
-        unsigned_transaction = VersionedTransaction.from_bytes(base64.b64decode(transaction_base64))
+        unsigned_transaction = VersionedTransaction.from_bytes(
+            self._bags_decode_serialized_transaction_bytes(transaction_base64)
+        )
         keypair = Keypair.from_bytes(self.signer.export_keypair_bytes())
         signature = keypair.sign_message(to_bytes_versioned(unsigned_transaction.message))
         signatures = list(unsigned_transaction.signatures)
@@ -2538,6 +2928,340 @@ class SolanaWalletBackend(AgentWalletBackend):
             "source": "solana-rpc",
         }
 
+    async def preview_bags_fee_claim(self, token_mint: str) -> dict[str, Any]:
+        self._require_mainnet_bags("Bags fee claims")
+        owner = await self.get_address()
+        if not owner:
+            raise WalletBackendError(
+                "No Solana wallet address configured. Set SOLANA_AGENT_PUBLIC_KEY or a signer."
+            )
+        normalized_mint = validate_solana_mint(token_mint)
+        positions_payload = await self.get_bags_claimable_positions(owner)
+        positions = [
+            item
+            for item in positions_payload["positions"]
+            if str(item.get("tokenMint") or item.get("token_mint") or "").strip() == normalized_mint
+        ]
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "mode": "preview",
+            "asset_type": "bags-fee-claim",
+            "owner": owner,
+            "fee_claimer": owner,
+            "token_mint": normalized_mint,
+            "claimable_position_count": len(positions),
+            "claimable_positions": positions,
+            "sign_only": self.sign_only,
+            "can_send": self.get_capabilities().can_send_transaction,
+            "source": "bags",
+        }
+
+    async def execute_bags_fee_claim(
+        self,
+        token_mint: str,
+    ) -> dict[str, Any]:
+        preview = await self.preview_bags_fee_claim(token_mint)
+        return await self.execute_bags_fee_claim_from_preview(preview)
+
+    async def execute_bags_fee_claim_from_preview(
+        self,
+        preview: dict[str, Any],
+    ) -> dict[str, Any]:
+        if not self.signer:
+            raise WalletBackendError("Solana signer is not configured.")
+        owner = await self.get_address()
+        if not owner:
+            raise WalletBackendError(
+                "No Solana wallet address configured. Set SOLANA_AGENT_PUBLIC_KEY or a signer."
+            )
+        if str(preview.get("asset_type") or "").strip().lower() != "bags-fee-claim":
+            raise WalletBackendError("preview payload is not a Bags fee claim preview.")
+        if str(preview.get("network") or self.network).strip().lower() != self.network:
+            raise WalletBackendError("preview payload network does not match the wallet backend.")
+        if str(preview.get("owner") or owner) != owner:
+            raise WalletBackendError("preview payload owner does not match the connected wallet.")
+        if int(preview.get("claimable_position_count") or 0) <= 0:
+            raise WalletBackendError("No claimable Bags fee positions were found for this token.")
+
+        token_mint = validate_solana_mint(str(preview.get("token_mint") or ""))
+        claim_payload = await bags.build_claim_transactions(
+            {
+                "feeClaimer": owner,
+                "tokenMint": token_mint,
+            }
+        )
+        transactions = self._bags_extract_transaction_base64s(claim_payload)
+        prepared = await self._prepare_bags_transactions(
+            transaction_base64s=transactions,
+            token_mint=token_mint,
+            action="Bags fee claim",
+            owner=owner,
+            asset_type="bags-fee-claim",
+            extra={
+                "fee_claimer": owner,
+                "claimable_position_count": int(preview.get("claimable_position_count") or 0),
+                "claimable_positions": preview.get("claimable_positions"),
+                "claim_response": claim_payload,
+            },
+        )
+        result = await self._execute_prepared_bags_transactions(prepared)
+        result["fee_claimer"] = owner
+        result["claimable_position_count"] = int(preview.get("claimable_position_count") or 0)
+        result["claimable_positions"] = preview.get("claimable_positions")
+        result["claim_response"] = claim_payload
+        return result
+
+    async def preview_bags_token_launch(
+        self,
+        *,
+        name: str,
+        symbol: str,
+        description: str,
+        base_mint: str,
+        claimers: list[str],
+        basis_points: list[int],
+        initial_buy_sol: float,
+        image_url: str | None = None,
+        website: str | None = None,
+        twitter: str | None = None,
+        telegram: str | None = None,
+        discord: str | None = None,
+        bags_config_type: int | None = None,
+    ) -> dict[str, Any]:
+        self._require_mainnet_bags("Bags token launch")
+        owner = await self.get_address()
+        if not owner:
+            raise WalletBackendError(
+                "No Solana wallet address configured. Set SOLANA_AGENT_PUBLIC_KEY or a signer."
+            )
+        normalized_name = str(name).strip()
+        normalized_symbol = str(symbol).strip()
+        normalized_description = str(description).strip()
+        if not normalized_name:
+            raise WalletBackendError("name is required.")
+        if not normalized_symbol:
+            raise WalletBackendError("symbol is required.")
+        if not normalized_description:
+            raise WalletBackendError("description is required.")
+        normalized_base_mint = validate_solana_mint(base_mint)
+        normalized_claimers = self._normalize_bags_claimers(claimers)
+        normalized_basis_points = self._normalize_bags_basis_points(basis_points)
+        if len(normalized_claimers) != len(normalized_basis_points):
+            raise WalletBackendError("claimers and basis_points must have the same length.")
+        if owner not in normalized_claimers:
+            raise WalletBackendError(
+                "claimers must explicitly include the connected wallet address as the creator fee recipient."
+            )
+        if isinstance(initial_buy_sol, bool) or float(initial_buy_sol) < 0:
+            raise WalletBackendError("initial_buy_sol must be a non-negative number.")
+        initial_buy_lamports = int(round(float(initial_buy_sol) * solana_rpc.LAMPORTS_PER_SOL))
+        if initial_buy_lamports < 0:
+            raise WalletBackendError("initial_buy_sol must be a non-negative number.")
+        normalized_bags_config_type = (
+            _coerce_non_negative_integer(bags_config_type, field_name="bags_config_type")
+            if bags_config_type is not None
+            else None
+        )
+        preview = {
+            "chain": "solana",
+            "network": self.network,
+            "mode": "preview",
+            "asset_type": "bags-token-launch",
+            "owner": owner,
+            "wallet": owner,
+            "token_name": normalized_name,
+            "token_symbol": normalized_symbol,
+            "description": normalized_description,
+            "image_url": str(image_url or "").strip() or None,
+            "website": str(website or "").strip() or None,
+            "twitter": str(twitter or "").strip() or None,
+            "telegram": str(telegram or "").strip() or None,
+            "discord": str(discord or "").strip() or None,
+            "base_mint": normalized_base_mint,
+            "claimers": normalized_claimers,
+            "basis_points": normalized_basis_points,
+            "claimers_count": len(normalized_claimers),
+            "total_basis_points": sum(normalized_basis_points),
+            "initial_buy_sol": float(initial_buy_sol),
+            "initial_buy_lamports": initial_buy_lamports,
+            "bags_config_type": normalized_bags_config_type,
+            "sign_only": self.sign_only,
+            "can_send": self.get_capabilities().can_send_transaction,
+            "source": "bags",
+        }
+        return preview
+
+    async def execute_bags_token_launch(
+        self,
+        *,
+        name: str,
+        symbol: str,
+        description: str,
+        base_mint: str,
+        claimers: list[str],
+        basis_points: list[int],
+        initial_buy_sol: float,
+        image_url: str | None = None,
+        website: str | None = None,
+        twitter: str | None = None,
+        telegram: str | None = None,
+        discord: str | None = None,
+        bags_config_type: int | None = None,
+    ) -> dict[str, Any]:
+        preview = await self.preview_bags_token_launch(
+            name=name,
+            symbol=symbol,
+            description=description,
+            base_mint=base_mint,
+            claimers=claimers,
+            basis_points=basis_points,
+            initial_buy_sol=initial_buy_sol,
+            image_url=image_url,
+            website=website,
+            twitter=twitter,
+            telegram=telegram,
+            discord=discord,
+            bags_config_type=bags_config_type,
+        )
+        return await self.execute_bags_token_launch_from_preview(preview)
+
+    async def execute_bags_token_launch_from_preview(
+        self,
+        preview: dict[str, Any],
+    ) -> dict[str, Any]:
+        if not self.signer:
+            raise WalletBackendError("Solana signer is not configured.")
+        owner = await self.get_address()
+        if not owner:
+            raise WalletBackendError(
+                "No Solana wallet address configured. Set SOLANA_AGENT_PUBLIC_KEY or a signer."
+            )
+        if str(preview.get("asset_type") or "").strip().lower() != "bags-token-launch":
+            raise WalletBackendError("preview payload is not a Bags token launch preview.")
+        if str(preview.get("network") or self.network).strip().lower() != self.network:
+            raise WalletBackendError("preview payload network does not match the wallet backend.")
+        if str(preview.get("owner") or owner) != owner:
+            raise WalletBackendError("preview payload owner does not match the connected wallet.")
+        if int(preview.get("claimers_count") or 0) > 7:
+            raise WalletBackendError(
+                "Bags fee-share launches with more than 7 fee claimers require lookup table "
+                "creation, which this backend does not generate yet."
+            )
+
+        token_info_payload = {
+            "name": str(preview["token_name"]),
+            "symbol": str(preview["token_symbol"]),
+            "description": str(preview["description"]),
+        }
+        optional_metadata = {
+            "imageUrl": preview.get("image_url"),
+            "website": preview.get("website"),
+            "twitter": preview.get("twitter"),
+            "telegram": preview.get("telegram"),
+            "discord": preview.get("discord"),
+        }
+        for key, value in optional_metadata.items():
+            if isinstance(value, str) and value.strip():
+                token_info_payload[key] = value.strip()
+
+        token_info_response = await bags.create_token_info(token_info_payload)
+        token_mint, ipfs = self._bags_extract_token_info_fields(token_info_response)
+        fee_share_payload: dict[str, Any] = {
+            "payer": owner,
+            "baseMint": token_mint,
+            "claimersArray": list(preview["claimers"]),
+            "basisPointsArray": [int(value) for value in preview["basis_points"]],
+        }
+        if preview.get("bags_config_type") is not None:
+            fee_share_payload["bagsConfigType"] = int(preview["bags_config_type"])
+        fee_share_response = await bags.create_fee_share_config(fee_share_payload)
+        config_key = self._bags_extract_config_key(fee_share_response)
+        fee_share_execution: dict[str, Any] | None = None
+        if bool(fee_share_response.get("needsCreation")):
+            fee_share_transactions = self._bags_extract_fee_share_config_transaction_strings(
+                fee_share_response
+            )
+            if not fee_share_transactions:
+                raise WalletBackendError(
+                    "Bags fee share config requested creation but returned no transactions."
+                )
+            fee_share_prepared = await self._prepare_bags_transactions(
+                transaction_base64s=fee_share_transactions,
+                token_mint=token_mint,
+                action="Bags fee share config",
+                owner=owner,
+                asset_type="bags-fee-share-config",
+                extra={
+                    "wallet": owner,
+                    "base_mint": preview["base_mint"],
+                    "claimers": preview["claimers"],
+                    "basis_points": preview["basis_points"],
+                    "claimers_count": preview["claimers_count"],
+                    "total_basis_points": preview["total_basis_points"],
+                    "config_key": config_key,
+                    "fee_share_response": fee_share_response,
+                },
+            )
+            fee_share_execution = await self._execute_prepared_bags_transactions(fee_share_prepared)
+        launch_transaction_response = await bags.create_launch_transaction(
+            {
+                "ipfs": ipfs,
+                "tokenMint": token_mint,
+                "wallet": owner,
+                "configKey": config_key,
+                "initialBuyLamports": str(int(preview["initial_buy_lamports"])),
+            }
+        )
+        transactions = self._bags_extract_serialized_transaction_strings(launch_transaction_response)
+        prepared = await self._prepare_bags_transactions(
+            transaction_base64s=transactions,
+            token_mint=token_mint,
+            action="Bags token launch",
+            owner=owner,
+            asset_type="bags-token-launch",
+            extra={
+                "wallet": owner,
+                "token_name": preview["token_name"],
+                "token_symbol": preview["token_symbol"],
+                "base_mint": preview["base_mint"],
+                "claimers": preview["claimers"],
+                "basis_points": preview["basis_points"],
+                "claimers_count": preview["claimers_count"],
+                "total_basis_points": preview["total_basis_points"],
+                "initial_buy_sol": preview["initial_buy_sol"],
+                "initial_buy_lamports": preview["initial_buy_lamports"],
+                "config_key": config_key,
+                "ipfs": ipfs,
+                "token_info_response": token_info_response,
+                "fee_share_response": fee_share_response,
+                "fee_share_execution": fee_share_execution,
+                "launch_transaction_response": launch_transaction_response,
+            },
+        )
+        result = await self._execute_prepared_bags_transactions(prepared)
+        result.update(
+            {
+                "wallet": owner,
+                "token_name": preview["token_name"],
+                "token_symbol": preview["token_symbol"],
+                "base_mint": preview["base_mint"],
+                "claimers": preview["claimers"],
+                "basis_points": preview["basis_points"],
+                "claimers_count": preview["claimers_count"],
+                "total_basis_points": preview["total_basis_points"],
+                "initial_buy_sol": preview["initial_buy_sol"],
+                "initial_buy_lamports": preview["initial_buy_lamports"],
+                "config_key": config_key,
+                "ipfs": ipfs,
+                "token_info_response": token_info_response,
+                "fee_share_response": fee_share_response,
+                "fee_share_execution": fee_share_execution,
+                "launch_transaction_response": launch_transaction_response,
+            }
+        )
+        return result
+
     async def preview_swap(
         self,
         input_mint: str,
@@ -2546,7 +3270,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         slippage_bps: int = 50,
     ) -> dict[str, Any]:
         if self.network != "mainnet":
-            raise WalletBackendError("Jupiter swaps are only enabled for Solana mainnet.")
+            raise WalletBackendError("Provider-routed swaps are only enabled for Solana mainnet.")
         if amount_ui <= 0:
             raise WalletBackendError("amount must be greater than zero.")
         if slippage_bps <= 0:
@@ -2629,12 +3353,19 @@ class SolanaWalletBackend(AgentWalletBackend):
         amount_ui: float,
         slippage_bps: int = 50,
     ) -> dict[str, Any]:
-        prepared = await self.prepare_swap(
+        preview = await self.preview_swap(
             input_mint=input_mint,
             output_mint=output_mint,
             amount_ui=amount_ui,
             slippage_bps=slippage_bps,
         )
+        return await self.execute_swap_from_preview(preview)
+
+    async def execute_swap_from_preview(
+        self,
+        preview: dict[str, Any],
+    ) -> dict[str, Any]:
+        prepared = await self.prepare_swap_from_preview(preview)
         if self.sign_only:
             raise WalletBackendError(
                 "This wallet backend is in sign-only mode. Disable sign_only to broadcast transactions."
@@ -2697,6 +3428,18 @@ class SolanaWalletBackend(AgentWalletBackend):
         amount_ui: float,
         slippage_bps: int = 50,
     ) -> dict[str, Any]:
+        preview = await self.preview_swap(
+            input_mint=input_mint,
+            output_mint=output_mint,
+            amount_ui=amount_ui,
+            slippage_bps=slippage_bps,
+        )
+        return await self.prepare_swap_from_preview(preview)
+
+    async def prepare_swap_from_preview(
+        self,
+        preview: dict[str, Any],
+    ) -> dict[str, Any]:
         if not self.signer:
             raise WalletBackendError("Solana signer is not configured.")
 
@@ -2706,12 +3449,12 @@ class SolanaWalletBackend(AgentWalletBackend):
                 "No Solana wallet address configured. Set SOLANA_AGENT_PUBLIC_KEY or a signer."
             )
 
-        preview = await self.preview_swap(
-            input_mint=input_mint,
-            output_mint=output_mint,
-            amount_ui=amount_ui,
-            slippage_bps=slippage_bps,
-        )
+        if str(preview.get("asset_type") or "").strip().lower() != "swap":
+            raise WalletBackendError("preview payload is not a swap preview.")
+        if str(preview.get("network") or self.network).strip().lower() != self.network:
+            raise WalletBackendError("preview payload network does not match the wallet backend.")
+        if str(preview.get("owner") or sender) != sender:
+            raise WalletBackendError("preview payload owner does not match the connected wallet.")
 
         try:
             from solders.keypair import Keypair
@@ -2719,7 +3462,7 @@ class SolanaWalletBackend(AgentWalletBackend):
             from solders.transaction import VersionedTransaction
         except ImportError as exc:
             raise WalletBackendError(
-                "solana and solders packages are required for Jupiter swap execution."
+                "solana and solders packages are required for provider-routed swap execution."
             ) from exc
 
         swap_provider = str(preview.get("swap_provider") or "jupiter-metis")
