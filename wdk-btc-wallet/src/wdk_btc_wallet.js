@@ -55,6 +55,7 @@ function buildElectrumClient(config) {
   const clientConfig = {
     host: config.electrumHost,
     port: config.electrumPort,
+    network: config.network,
   };
   if (config.electrumProtocol === "tcp") {
     return new ElectrumTcp(clientConfig);
