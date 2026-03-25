@@ -21,6 +21,22 @@
         "items": { "type": "string" },
         "description": "Optional local fallback ordered list of Solana RPC URLs. Deployment env SOLANA_RPC_URLS wins if set."
       },
+      "rpcProviderMode": {
+        "type": "string",
+        "description": "RPC mode: auto, user_direct, or shared_proxy. In auto mode, user RPC keys/URLs win; otherwise the shared provider gateway is used when configured."
+      },
+      "providerGatewayUrl": {
+        "type": "string",
+        "description": "Optional override for the shared provider gateway base URL. If omitted, the hosted OpenClaw gateway default is used for onboarding-friendly mainnet RPC and Bags launch/fees flows."
+      },
+      "providerGatewayRpcProvider": {
+        "type": "string",
+        "description": "Optional shared RPC upstream selection for the provider gateway: auto, shared, helius, or alchemy."
+      },
+      "swapProvider": {
+        "type": "string",
+        "description": "Optional Solana swap routing preference: auto or jupiter. Bags launch and fee flows still use the provider gateway separately, but token swaps stay Jupiter-first."
+      },
       "network": {
         "type": "string",
         "description": "Solana cluster: mainnet, devnet, or testnet."

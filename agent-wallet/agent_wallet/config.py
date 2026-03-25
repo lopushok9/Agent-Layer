@@ -6,6 +6,7 @@ from pathlib import Path
 from pydantic_settings import BaseSettings
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_PROVIDER_GATEWAY_URL = "https://agent-layer-production.up.railway.app"
 
 
 class Settings(BaseSettings):
@@ -31,7 +32,7 @@ class Settings(BaseSettings):
     solana_auto_create_wallet: bool = False
     solana_agent_public_key: str = ""
     solana_agent_keypair_path: str = ""
-    provider_gateway_url: str = ""
+    provider_gateway_url: str = DEFAULT_PROVIDER_GATEWAY_URL
     provider_gateway_bearer_token: str = ""
     provider_gateway_rpc_provider: str = "auto"
     solana_swap_provider: str = "auto"

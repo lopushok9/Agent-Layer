@@ -125,6 +125,12 @@ For production `mainnet`, prefer a dedicated RPC instead of the public Solana en
 
 Production recommendation: treat RPC as deployment-owned config, not wallet logic. Runtime env wins over `openclaw.json` plugin config, so keep `Alchemy/Helius/QuickNode` endpoints in deployment secrets or service env and use plugin `rpcUrl` / `rpcUrls` only as local fallback.
 
+For OpenClaw onboarding, `agent-wallet` now ships with a hosted default provider gateway:
+
+- `https://agent-layer-production.up.railway.app`
+
+So users do not need to enter `PROVIDER_GATEWAY_URL` manually for the default Bags launch/fees flows or shared mainnet RPC path. You only need to set `PROVIDER_GATEWAY_URL` yourself if you want to override that hosted default with your own deployment.
+
 For a self-hosted install where each operator brings their own RPC key, a minimal Solana setup can be just:
 
 ```bash

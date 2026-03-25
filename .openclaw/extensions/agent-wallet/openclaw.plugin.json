@@ -35,7 +35,7 @@
       },
       "providerGatewayUrl": {
         "type": "string",
-        "description": "Optional shared provider gateway base URL for onboarding-friendly default RPC access on mainnet."
+        "description": "Optional override for the shared provider gateway base URL. If omitted, the hosted OpenClaw gateway default is used for onboarding-friendly mainnet RPC and Bags launch/fees flows."
       },
       "providerGatewayRpcProvider": {
         "type": "string",

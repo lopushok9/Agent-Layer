@@ -15,7 +15,7 @@ def _gateway_base_url() -> str:
     if not base_url:
         raise ProviderError(
             "bags",
-            "Provider gateway URL is required for Bags integration. Set PROVIDER_GATEWAY_URL first.",
+            "Provider gateway URL is not configured for Bags integration.",
         )
     return base_url.rstrip("/")
 

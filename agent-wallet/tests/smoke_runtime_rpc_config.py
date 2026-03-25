@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agent_wallet.config import (  # noqa: E402
+    DEFAULT_PROVIDER_GATEWAY_URL,
     resolve_runtime_solana_rpc_config,
     resolve_runtime_solana_rpc_urls,
     resolve_runtime_solana_swap_config,
@@ -86,6 +87,17 @@ def main() -> None:
         assert resolve_runtime_solana_swap_config("mainnet") == {
             "provider": "jupiter",
             "transport": "direct",
+        }
+        default_shared = resolve_runtime_solana_rpc_config(
+            "mainnet",
+            "",
+            "",
+        )
+        assert default_shared == {
+            "mode": "shared_proxy",
+            "provider": "auto",
+            "transport": "proxy",
+            "rpc_urls": [f"gateway::auto::mainnet::{DEFAULT_PROVIDER_GATEWAY_URL}/v1/rpc"],
         }
 
         os.environ.pop("SOLANA_RPC_URL", None)
