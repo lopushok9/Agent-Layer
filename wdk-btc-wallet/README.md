@@ -86,6 +86,30 @@ cp .env.example .env
 npm start
 ```
 
+Simplest onboarding:
+
+```bash
+cd wdk-btc-wallet && sh bootstrap.sh
+cd wdk-btc-wallet && npm start
+```
+
+Or in one command:
+
+```bash
+cd wdk-btc-wallet && sh bootstrap.sh && npm start
+```
+
+Fastest local start:
+
+```bash
+cd wdk-btc-wallet && sh run-local.sh
+```
+
+`run-local.sh` will:
+- create `.env` if missing
+- install dependencies if `node_modules` is missing
+- start the wallet service
+
 ## Configuration
 
 Environment variables:

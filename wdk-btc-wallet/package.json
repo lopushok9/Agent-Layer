@@ -5,6 +5,8 @@
   "type": "module",
   "description": "Separate BTC-only wallet service built on Tether WDK.",
   "scripts": {
+    "bootstrap": "sh ./bootstrap.sh",
+    "start:local": "sh ./run-local.sh",
     "start": "node src/server.js",
     "check": "node --check src/server.js && node --check src/wdk_btc_wallet.js && node --check src/config.js && node --check src/json.js"
   },
