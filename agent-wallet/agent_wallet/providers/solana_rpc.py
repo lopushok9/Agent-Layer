@@ -98,12 +98,8 @@ async def _do_rpc_call(rpc_url: str, method: str, params: list[Any]) -> dict[str
             "params": params,
         }
         bearer = settings.provider_gateway_bearer_token.strip()
-        if not bearer:
-            raise ProviderError(
-                "solana-rpc",
-                "Provider gateway mode requires PROVIDER_GATEWAY_BEARER_TOKEN.",
-            )
-        headers = {"Authorization": f"Bearer {bearer}"}
+        if bearer:
+            headers = {"Authorization": f"Bearer {bearer}"}
 
     last_exc: Exception | None = None
     response: httpx.Response | None = None

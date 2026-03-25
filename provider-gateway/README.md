@@ -59,12 +59,15 @@ Copy `.env.example` to `.env`.
 
 Required for a useful deployment:
 
-- `PROVIDER_GATEWAY_BEARER_TOKEN`
 - one shared RPC source:
   - `SHARED_SOLANA_RPC_URL`, or
   - `HELIUS_API_KEY`, or
   - `ALCHEMY_API_KEY`
 - `BAGS_API_KEY`
+
+Optional:
+
+- `PROVIDER_GATEWAY_BEARER_TOKEN` when `REQUIRE_BEARER_AUTH=true`
 
 ## Run locally
 
@@ -88,15 +91,13 @@ curl http://localhost:8000/health
 Status:
 
 ```bash
-curl http://localhost:8000/v1/status \
-  -H "Authorization: Bearer change-me"
+curl http://localhost:8000/v1/status
 ```
 
 Shared RPC:
 
 ```bash
 curl http://localhost:8000/v1/rpc \
-  -H "Authorization: Bearer change-me" \
   -H "Content-Type: application/json" \
   -d '{
     "provider": "auto",
@@ -109,14 +110,13 @@ Bags quote:
 
 ```bash
 curl "http://localhost:8000/v1/bags/trade/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000" \
-  -H "Authorization: Bearer change-me"
+  -H "Accept: application/json"
 ```
 
 Bags launch token info:
 
 ```bash
 curl http://localhost:8000/v1/bags/launch/token-info \
-  -H "Authorization: Bearer change-me" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "OpenClaw",
@@ -131,8 +131,13 @@ curl http://localhost:8000/v1/bags/launch/token-info \
 Bags fee analytics:
 
 ```bash
-curl "http://localhost:8000/v1/bags/fees/claim-stats?tokenMint=YOUR_TOKEN_MINT" \
-  -H "Authorization: Bearer change-me"
+curl "http://localhost:8000/v1/bags/fees/claim-stats?tokenMint=YOUR_TOKEN_MINT"
+```
+
+If you switch back to protected mode with `REQUIRE_BEARER_AUTH=true`, add:
+
+```bash
+-H "Authorization: Bearer YOUR_PROVIDER_GATEWAY_BEARER_TOKEN"
 ```
 
 ## Design notes
@@ -161,14 +166,14 @@ Recommended setup:
 2. Add a new service from your GitHub repo.
 3. In the service settings, set the root directory to `provider-gateway`.
 4. In the service variables tab, define:
-   - `REQUIRE_BEARER_AUTH=true`
-   - `PROVIDER_GATEWAY_BEARER_TOKEN`
+   - `REQUIRE_BEARER_AUTH=false` for the current public beta mode
    - `BAGS_API_KEY`
    - one RPC source for shared Solana RPC:
      - `SHARED_SOLANA_RPC_URL`, or
      - `HELIUS_API_KEY`, or
      - `ALCHEMY_API_KEY`
    - optional:
+     - `PROVIDER_GATEWAY_BEARER_TOKEN`
      - `BAGS_API_BASE_URL`
      - `ALLOWED_ORIGINS`
      - `HTTP_TIMEOUT_SECONDS`
@@ -185,22 +190,26 @@ Notes:
 
 - Railway injects `PORT`; the command above already respects it.
 - Keep `PROVIDER_GATEWAY_BEARER_TOKEN`, `BAGS_API_KEY`, and any RPC API keys as Railway service variables or sealed variables, not in repo files.
-- If this service is exposed publicly, keep bearer auth enabled and put rate limiting / edge protection in front of it.
+- Public beta mode can run with `REQUIRE_BEARER_AUTH=false`, but rate limiting / edge protection is still strongly recommended.
 - For a Bags-only deployment, you can omit all RPC variables.
 - For a shared-RPC deployment, you can omit `BAGS_API_KEY` only if you do not need any Bags endpoints.
 
 Example production variable sets:
 
 1. Bags-only gateway
-   - `REQUIRE_BEARER_AUTH=true`
-   - `PROVIDER_GATEWAY_BEARER_TOKEN=...`
+   - `REQUIRE_BEARER_AUTH=false`
    - `BAGS_API_KEY=...`
 
 2. Bags + shared Solana RPC gateway
-   - `REQUIRE_BEARER_AUTH=true`
-   - `PROVIDER_GATEWAY_BEARER_TOKEN=...`
+   - `REQUIRE_BEARER_AUTH=false`
    - `BAGS_API_KEY=...`
    - plus one of:
      - `SHARED_SOLANA_RPC_URL=...`
      - `HELIUS_API_KEY=...`
      - `ALCHEMY_API_KEY=...`
+
+3. Protected gateway
+   - `REQUIRE_BEARER_AUTH=true`
+   - `PROVIDER_GATEWAY_BEARER_TOKEN=...`
+   - `BAGS_API_KEY=...`
+   - optionally one shared RPC source
