@@ -226,6 +226,15 @@ python -m agent_wallet.openclaw_cli btc-wallet-create \
   --config-json '{"backend":"wdk_btc_local","network":"testnet","wdkBtcServiceUrl":"http://127.0.0.1:8080"}'
 ```
 
+If you want a friendlier host-shell flow, use:
+
+```bash
+python scripts/manage_openclaw_btc_wallet.py create \
+  --user-id alice@example.com \
+  --network testnet \
+  --service-url http://127.0.0.1:8080
+```
+
 After that, `onboard` and `invoke` can use the bound BTC wallet by `user_id` without manually passing `wdkBtcWalletId` every time.
 
 Per-user wallets are now encrypted at rest in one hardened mode:
