@@ -2,7 +2,34 @@
 set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-PYTHON_BIN=${OPENCLAW_AGENT_WALLET_PYTHON:-python3}
+PACKAGE_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+
+resolve_python_bin() {
+  if [ -n "${OPENCLAW_AGENT_WALLET_PYTHON:-}" ] && [ -x "${OPENCLAW_AGENT_WALLET_PYTHON}" ]; then
+    printf "%s" "${OPENCLAW_AGENT_WALLET_PYTHON}"
+    return 0
+  fi
+
+  if [ -x "/tmp/agent-wallet-venv/bin/python" ]; then
+    printf "%s" "/tmp/agent-wallet-venv/bin/python"
+    return 0
+  fi
+
+  if [ -x "$PACKAGE_ROOT/.venv/bin/python" ]; then
+    printf "%s" "$PACKAGE_ROOT/.venv/bin/python"
+    return 0
+  fi
+
+  if command -v python3 >/dev/null 2>&1; then
+    command -v python3
+    return 0
+  fi
+
+  command -v python
+}
+
+PYTHON_BIN=$(resolve_python_bin)
+export OPENCLAW_AGENT_WALLET_PYTHON="$PYTHON_BIN"
 
 has_flag() {
   flag=$1
@@ -106,6 +133,14 @@ fi
 
 if ! has_flag --wdk-wallet-root "$@" && [ -n "${OPENCLAW_BTC_WDK_WALLET_ROOT:-}" ]; then
   set -- "$@" --wdk-wallet-root "$OPENCLAW_BTC_WDK_WALLET_ROOT"
+fi
+
+if ! has_flag --python-bin "$@"; then
+  set -- "$@" --python-bin "$PYTHON_BIN"
+fi
+
+if ! has_flag --package-root "$@"; then
+  set -- "$@" --package-root "$PACKAGE_ROOT"
 fi
 
 exec "$PYTHON_BIN" "$SCRIPT_DIR/bootstrap_openclaw_btc.py" "$@"

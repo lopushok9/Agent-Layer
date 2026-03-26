@@ -265,6 +265,7 @@ That is the intended "agent/host installs, user only enters password" entrypoint
 - it auto-starts the local `wdk-btc-wallet` service for localhost URLs if needed
 - it asks for `user-id` and shows a small `mainnet / testnet / regtest` menu if you did not pass them as args or env
 - it prompts for the BTC wallet password interactively unless you explicitly pass `--password-stdin`
+- it prefers `/tmp/agent-wallet-venv/bin/python`, then `agent-wallet/.venv/bin/python`, and only then falls back to system `python3`
 - it creates or unlocks the BTC wallet binding and patches local OpenClaw config in one pass
 
 Useful optional env defaults:
