@@ -86,6 +86,22 @@ def main() -> None:
         )
         assert unlocked["wallet"]["unlocked"] is True
 
+        revealed = _run(
+            "reveal-seed",
+            "--user-id",
+            "script-btc@example.com",
+            "--network",
+            "testnet",
+            "--service-url",
+            server.base_url,
+            "--password-stdin",
+            stdin_text="script-btc-password\n",
+        )
+        assert revealed["wallet"]["seed_phrase"] == (
+            "abandon abandon abandon abandon abandon abandon "
+            "abandon abandon abandon abandon abandon about"
+        )
+
         setup_unlocked = _run(
             "setup",
             "--user-id",

@@ -18,6 +18,7 @@ from agent_wallet.btc_user_wallets import (  # noqa: E402
     get_user_btc_wallet_binding,
     import_user_btc_wallet,
     lock_user_btc_wallet,
+    reveal_user_btc_wallet_seed_phrase,
     unlock_user_btc_wallet,
 )
 
@@ -97,6 +98,9 @@ def main() -> int:
 
     unlock_parser = subparsers.add_parser("unlock", parents=[common_parent])
     unlock_parser.add_argument("--password-stdin", action="store_true")
+
+    reveal_parser = subparsers.add_parser("reveal-seed", parents=[common_parent])
+    reveal_parser.add_argument("--password-stdin", action="store_true")
 
     lock_parser = subparsers.add_parser("lock", parents=[common_parent])
 
@@ -200,6 +204,19 @@ def main() -> int:
         payload = {
             "ok": True,
             "wallet": unlock_user_btc_wallet(
+                args.user_id,
+                password=_read_secret(
+                    prompt="BTC wallet password: ",
+                    stdin_mode=bool(args.password_stdin),
+                ),
+                network=effective_network,
+                service_url=args.service_url,
+            ),
+        }
+    elif args.command == "reveal-seed":
+        payload = {
+            "ok": True,
+            "wallet": reveal_user_btc_wallet_seed_phrase(
                 args.user_id,
                 password=_read_secret(
                     prompt="BTC wallet password: ",

@@ -12,8 +12,10 @@ from typing import Any
 class FakeWdkBtcWalletServer(AbstractContextManager["FakeWdkBtcWalletServer"]):
     wallet_id = "btc-wallet-123"
 
-    def __init__(self, network: str = "testnet"):
+    def __init__(self, network: str = "testnet", host: str = "127.0.0.1", port: int = 0):
         self.network = network
+        self.host = host
+        self.port = int(port)
         self.address = (
             "tb1qagentwallet000000000000000000000000000000"
             if network == "testnet"
@@ -50,6 +52,20 @@ class FakeWdkBtcWalletServer(AbstractContextManager["FakeWdkBtcWalletServer"]):
                     return {}
                 raw = self.rfile.read(raw_len)
                 return json.loads(raw.decode("utf-8"))
+
+            def do_GET(self) -> None:  # noqa: N802
+                if self.path == "/health":
+                    self._send(
+                        200,
+                        {
+                            "ok": True,
+                            "service": "wdk-btc-wallet",
+                            "wallet": "bitcoin",
+                            "network": outer.network,
+                        },
+                    )
+                    return
+                self._send(404, {"ok": False, "error": "Not Found"})
 
             def do_POST(self) -> None:  # noqa: N802
                 body = self._read_json()
@@ -133,6 +149,25 @@ class FakeWdkBtcWalletServer(AbstractContextManager["FakeWdkBtcWalletServer"]):
                                 "label": "Agent BTC Wallet",
                                 "unlocked": True,
                                 "unlockExpiresAt": None,
+                            },
+                        },
+                    )
+                    return
+
+                if self.path == "/v1/btc/wallets/reveal-seed":
+                    if wallet_id != outer.wallet_id:
+                        self._send(400, {"ok": False, "error": "Unknown walletId."})
+                        return
+                    self._send(
+                        200,
+                        {
+                            "ok": True,
+                            "data": {
+                                "walletId": outer.wallet_id,
+                                "seedPhrase": (
+                                    "abandon abandon abandon abandon abandon abandon "
+                                    "abandon abandon abandon abandon abandon about"
+                                ),
                             },
                         },
                     )
@@ -264,7 +299,7 @@ class FakeWdkBtcWalletServer(AbstractContextManager["FakeWdkBtcWalletServer"]):
 
                 self._send(404, {"ok": False, "error": "Not Found"})
 
-        self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self._server = ThreadingHTTPServer((self.host, self.port), Handler)
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
         return self

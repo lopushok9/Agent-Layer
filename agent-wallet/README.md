@@ -215,6 +215,7 @@ For the local BTC backend (`backend=wdk_btc_local`), the host-side lifecycle now
   - `btc-wallet-get`
   - `btc-wallet-unlock`
   - `btc-wallet-lock`
+- or more conveniently through `scripts/manage_openclaw_btc_wallet.py`
 
 Example host-side BTC wallet creation:
 
@@ -252,12 +253,54 @@ python agent-wallet/scripts/bootstrap_openclaw_btc.py \
 
 For BTC mainnet, use the same bootstrap with `--network mainnet`. The script normalizes that to `bitcoin` in plugin config automatically.
 
+For the simplest host-side UX, use the shell wrapper instead:
+
+```bash
+sh agent-wallet/scripts/setup_btc_wallet.sh
+```
+
+That is the intended "agent/host installs, user only enters password" entrypoint:
+
+- the script wraps the full BTC bootstrap
+- it auto-starts the local `wdk-btc-wallet` service for localhost URLs if needed
+- it asks for `user-id` and shows a small `mainnet / testnet / regtest` menu if you did not pass them as args or env
+- it prompts for the BTC wallet password interactively unless you explicitly pass `--password-stdin`
+- it creates or unlocks the BTC wallet binding and patches local OpenClaw config in one pass
+
+Useful optional env defaults:
+
+```bash
+export OPENCLAW_BTC_USER_ID=alice@example.com
+export OPENCLAW_BTC_NETWORK=mainnet
+export OPENCLAW_BTC_SERVICE_URL=http://127.0.0.1:8080
+```
+
+Then the wrapper can run with no arguments at all.
+
 That script:
 
 - runs BTC wallet `setup`
+- checks `wdk-btc-wallet /health`
+- auto-starts the local `wdk-btc-wallet` service if `--service-url` points to `127.0.0.1` or `localhost` and the service is not already running
 - creates or updates `~/.openclaw/openclaw.json`
 - configures `backend=wdk_btc_local`
 - writes the local BTC service URL into plugin config
+
+If your local `wdk-btc-wallet` repo lives somewhere else, pass:
+
+```bash
+--wdk-wallet-root /absolute/path/to/wdk-btc-wallet
+```
+
+To reveal the seed phrase later as the user/host:
+
+```bash
+sh agent-wallet/scripts/reveal_btc_seed.sh
+```
+
+That wrapper also prompts for `user-id` and network if you do not pass them explicitly.
+
+This remains host-only. The agent does not get a seed-reveal tool.
 
 After that, `onboard` and `invoke` can use the bound BTC wallet by `user_id` without manually passing `wdkBtcWalletId` every time.
 

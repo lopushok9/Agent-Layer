@@ -174,6 +174,28 @@ def unlock_user_btc_wallet(
     }
 
 
+def reveal_user_btc_wallet_seed_phrase(
+    user_id: str,
+    *,
+    password: str,
+    network: str | None = None,
+    service_url: str | None = None,
+) -> dict[str, Any]:
+    binding = get_user_btc_wallet_binding(user_id, network=network)
+    client = WdkBtcLocalClient(_resolve_service_url(service_url))
+    payload = client.post_sync(
+        "/v1/btc/wallets/reveal-seed",
+        {
+            "walletId": binding["wallet_id"],
+            "password": password,
+        },
+    )
+    return {
+        **binding,
+        "seed_phrase": str(payload.get("seedPhrase") or ""),
+    }
+
+
 def lock_user_btc_wallet(
     user_id: str,
     *,

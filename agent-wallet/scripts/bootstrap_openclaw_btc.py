@@ -8,6 +8,10 @@ import json
 import os
 import subprocess
 import sys
+import time
+from urllib.error import URLError
+from urllib.parse import urlparse
+from urllib.request import urlopen
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -31,6 +35,10 @@ def _package_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
 def _script_path(name: str) -> Path:
     return _package_root() / "scripts" / name
 
@@ -49,6 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--user-id", default=_default_user_id())
     parser.add_argument("--network", default="testnet")
     parser.add_argument("--service-url", default="http://127.0.0.1:8080")
+    parser.add_argument("--wdk-wallet-root", default=str(_repo_root() / "wdk-btc-wallet"))
     parser.add_argument("--label", default="Agent BTC Wallet")
     parser.add_argument("--account-index", type=int, default=0)
     parser.add_argument("--python-bin", default=_default_python_bin())
@@ -56,6 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--password-stdin", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--reveal-seed", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--sign-only", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--auto-start-service", action=argparse.BooleanOptionalAction, default=True)
     return parser
 
 
@@ -90,11 +100,110 @@ def _run_script(
     return json.loads(completed.stdout)
 
 
+def _health_url(service_url: str) -> str:
+    return f"{service_url.rstrip('/')}/health"
+
+
+def _service_is_healthy(service_url: str) -> bool:
+    try:
+        with urlopen(_health_url(service_url), timeout=1.5) as response:
+            return int(getattr(response, "status", 0) or 0) == 200
+    except (URLError, TimeoutError, OSError):
+        return False
+
+
+def _is_local_service_url(service_url: str) -> bool:
+    parsed = urlparse(service_url)
+    return parsed.scheme in {"http", "https"} and parsed.hostname in {"127.0.0.1", "localhost"}
+
+
+def _service_log_dir(config_path: Path) -> Path:
+    return config_path.expanduser().parent / "logs"
+
+
+def _service_log_path(config_path: Path) -> Path:
+    return _service_log_dir(config_path) / "wdk-btc-wallet.log"
+
+
+def _auto_start_local_service(
+    *,
+    service_url: str,
+    network: str,
+    wdk_wallet_root: Path,
+    config_path: Path,
+) -> dict[str, object]:
+    if _service_is_healthy(service_url):
+        return {"started": False, "already_healthy": True}
+
+    if not _is_local_service_url(service_url):
+        raise SystemExit(
+            f"BTC service at {service_url} is unreachable and auto-start is only supported for localhost URLs."
+        )
+
+    run_local = wdk_wallet_root / "run-local.sh"
+    if not run_local.exists():
+        raise SystemExit(f"Could not find wdk-btc-wallet launcher: {run_local}")
+
+    parsed = urlparse(service_url)
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or 8080
+    log_dir = _service_log_dir(config_path)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = _service_log_path(config_path)
+
+    env = os.environ.copy()
+    env["HOST"] = host
+    env["PORT"] = str(port)
+    env["WDK_BTC_NETWORK"] = network
+
+    with log_path.open("a", encoding="utf-8") as log_file:
+        process = subprocess.Popen(  # noqa: S603
+            ["sh", str(run_local)],
+            cwd=str(wdk_wallet_root),
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=log_file,
+            stderr=log_file,
+            start_new_session=True,
+        )
+
+    deadline = time.time() + 30.0
+    while time.time() < deadline:
+        if _service_is_healthy(service_url):
+            return {
+                "started": True,
+                "already_healthy": False,
+                "pid": process.pid,
+                "log_path": str(log_path),
+            }
+        if process.poll() is not None:
+            raise SystemExit(
+                f"wdk-btc-wallet exited before becoming healthy. Check log: {log_path}"
+            )
+        time.sleep(0.5)
+
+    raise SystemExit(
+        f"Timed out waiting for wdk-btc-wallet health at {_health_url(service_url)}. Check log: {log_path}"
+    )
+
+
 def main() -> int:
     args = build_parser().parse_args()
     effective_network = _normalize_network(args.network)
     config_path = Path(args.config_path).expanduser()
     config_created = _ensure_openclaw_config(config_path)
+    service_bootstrap: dict[str, object] | None = None
+    if args.auto_start_service:
+        service_bootstrap = _auto_start_local_service(
+            service_url=args.service_url,
+            network=effective_network,
+            wdk_wallet_root=Path(args.wdk_wallet_root).expanduser(),
+            config_path=config_path,
+        )
+    elif not _service_is_healthy(args.service_url):
+        raise SystemExit(
+            f"BTC service is not healthy at {_health_url(args.service_url)} and --no-auto-start-service was set."
+        )
 
     stdin_text = sys.stdin.read() if args.password_stdin else None
     setup_payload = _run_script(
@@ -149,6 +258,7 @@ def main() -> int:
         "ok": True,
         "config_created": config_created,
         "config_path": str(config_path),
+        "service_bootstrap": service_bootstrap,
         "btc_setup": setup_payload,
         "openclaw_config": install_payload,
     }

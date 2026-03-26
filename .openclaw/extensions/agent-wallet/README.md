@@ -61,6 +61,8 @@ Important:
 - Helper scripts in `agent-wallet/scripts/` are generic patch/finalize utilities and no longer assume a specific local username, path, or temporary master key.
 - The OpenClaw plugin API in this repo exposes tool registration, not host password prompts, so BTC wallet create/unlock remains a host-shell flow through `agent-wallet/scripts/manage_openclaw_btc_wallet.py setup`.
 - For a one-command local BTC onboarding path, use `agent-wallet/scripts/bootstrap_openclaw_btc.py`, which both sets up the BTC wallet binding and patches local OpenClaw config for `backend=wdk_btc_local`.
+- When the BTC service URL is local (`127.0.0.1` / `localhost`), that bootstrap script can also auto-start `wdk-btc-wallet` before patching OpenClaw config.
+- If the user needs to recover the mnemonic later, host-side reveal stays outside the agent tool surface via `agent-wallet/scripts/manage_openclaw_btc_wallet.py reveal-seed`.
 - Optional Jupiter overrides are available via `jupiterBaseUrl`, `jupiterUltraBaseUrl`, `jupiterPriceBaseUrl`, `jupiterPortfolioBaseUrl`, `jupiterLendBaseUrl`, and `jupiterApiKey`.
 - Optional Kamino overrides are available via `kaminoBaseUrl` and `kaminoProgramId`.
 - Jupiter `Portfolio` implementation remains in the backend, but those agent-facing tools are temporarily disabled for now.
