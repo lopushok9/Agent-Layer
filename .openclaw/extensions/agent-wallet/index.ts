@@ -22,6 +22,13 @@ function resolveUserId(api, config) {
   );
 }
 
+function resolveBackend(api) {
+  const config = resolvePluginConfig(api);
+  return String(config.backend || process.env.AGENT_WALLET_BACKEND || "solana_local")
+    .trim()
+    .toLowerCase();
+}
+
 function resolvePythonBin(config) {
   return config.pythonBin || process.env.OPENCLAW_AGENT_WALLET_PYTHON || "python3";
 }
@@ -122,7 +129,7 @@ function registerTool(api, definition) {
   });
 }
 
-const toolDefinitions = [
+const solanaToolDefinitions = [
   {
     name: "get_wallet_capabilities",
     description: "Describe the connected wallet backend, chain, and safety limits.",
@@ -589,8 +596,90 @@ const toolDefinitions = [
   },
 ];
 
+const btcToolDefinitions = [
+  {
+    name: "get_wallet_capabilities",
+    description: "Describe the connected wallet backend, chain, and safety limits.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_wallet_address",
+    description: "Return the configured wallet address for the connected backend.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_wallet_balance",
+    description: "Get the native BTC balance for the configured wallet address.",
+    parameters: {
+      type: "object",
+      properties: {
+        address: {
+          type: "string",
+          description: "Optional wallet address override.",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_btc_transfer_history",
+    description: "Get BTC transfer history for the configured wallet account.",
+    parameters: {
+      type: "object",
+      properties: {
+        direction: { type: "string", enum: ["incoming", "outgoing", "all"] },
+        limit: { type: "integer" },
+        skip: { type: "integer" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_btc_fee_rates",
+    description: "Get current BTC fee-rate suggestions from the local BTC wallet service.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_btc_max_spendable",
+    description: "Estimate the maximum BTC spendable amount after fees.",
+    parameters: {
+      type: "object",
+      properties: {
+        fee_rate: { type: "integer" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "transfer_btc",
+    description: "Preview, prepare, or execute a BTC transfer in satoshis. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    optional: true,
+    parameters: {
+      type: "object",
+      properties: {
+        recipient: { type: "string" },
+        amount_sats: { type: "integer" },
+        fee_rate: { type: "integer" },
+        confirmation_target: { type: "integer" },
+        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
+        purpose: { type: "string" },
+        user_intent: { type: "boolean" },
+        approval_token: { type: "string" },
+      },
+      required: ["recipient", "amount_sats", "mode", "purpose"],
+      additionalProperties: false,
+    },
+  },
+];
+
 export default function registerAgentWalletPlugin(api) {
   api?.logger?.info?.("[agent-wallet] registering OpenClaw wallet plugin");
+
+  const backend = resolveBackend(api);
+  const toolDefinitions =
+    backend === "wdk_btc_local" || backend === "wdk-btc-local" || backend === "btc_local"
+      ? btcToolDefinitions
+      : solanaToolDefinitions;
 
   for (const definition of toolDefinitions) {
     registerTool(api, definition);

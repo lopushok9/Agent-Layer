@@ -14,6 +14,7 @@ from agent_wallet.config import (
 )
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendError
 from agent_wallet.wallet_layer.solana import SolanaLocalKeypairSigner, SolanaWalletBackend
+from agent_wallet.wallet_layer.wdk_btc import WdkBtcLocalWalletBackend
 
 
 def _load_keypair_material() -> str | None:
@@ -76,7 +77,16 @@ def create_wallet_backend() -> AgentWalletBackend | None:
             swap_transport=str(swap_config["transport"]),
         )
 
+    if backend in {"wdk_btc_local", "wdk-btc-local", "btc_local", "btc-local"}:
+        return WdkBtcLocalWalletBackend(
+            service_url=settings.wdk_btc_service_url,
+            wallet_id=settings.wdk_btc_wallet_id,
+            network=settings.solana_network,
+            account_index=settings.wdk_btc_account_index,
+            sign_only=settings.agent_wallet_sign_only,
+        )
+
     raise WalletBackendError(
         f"Unsupported agent wallet backend: {backend}. "
-        "Supported values: none, solana_local."
+        "Supported values: none, solana_local, wdk_btc_local."
     )

@@ -56,6 +56,13 @@ def _apply_config_overrides(config: dict[str, Any]) -> None:
             config.get("providerGatewayRpcProvider"),
             True,
         ),
+        "wdkBtcServiceUrl": ("WDK_BTC_SERVICE_URL", config.get("wdkBtcServiceUrl"), True),
+        "wdkBtcWalletId": ("WDK_BTC_WALLET_ID", config.get("wdkBtcWalletId"), True),
+        "wdkBtcAccountIndex": (
+            "WDK_BTC_ACCOUNT_INDEX",
+            config.get("wdkBtcAccountIndex"),
+            True,
+        ),
         "swapProvider": ("SOLANA_SWAP_PROVIDER", config.get("swapProvider"), True),
         "heliusApiKey": ("HELIUS_API_KEY", config.get("heliusApiKey"), True),
         "alchemyApiKey": ("ALCHEMY_API_KEY", config.get("alchemyApiKey"), True),
@@ -111,6 +118,13 @@ def _load_json(raw: str | None, default: dict[str, Any] | None = None) -> dict[s
     if not isinstance(parsed, dict):
         raise ValueError("Expected a JSON object.")
     return parsed
+
+
+def _read_stdin_secret(field_name: str) -> str:
+    value = sys.stdin.read().strip()
+    if not value:
+        raise WalletBackendError(f"{field_name} is required on stdin.")
+    return value
 
 
 async def _run_onboard(user_id: str, config: dict[str, Any]) -> dict[str, Any]:
@@ -177,6 +191,98 @@ async def _run_issue_approval(
     }
 
 
+async def _run_btc_wallet_get(user_id: str, config: dict[str, Any]) -> dict[str, Any]:
+    from agent_wallet.btc_user_wallets import get_user_btc_wallet_binding
+
+    return {
+        "ok": True,
+        "wallet": get_user_btc_wallet_binding(
+            user_id,
+            network=config.get("network"),
+        ),
+    }
+
+
+async def _run_btc_wallet_create(
+    user_id: str,
+    config: dict[str, Any],
+    *,
+    label: str | None,
+    reveal_seed: bool,
+    password: str,
+) -> dict[str, Any]:
+    from agent_wallet.btc_user_wallets import create_user_btc_wallet
+
+    return {
+        "ok": True,
+        "wallet": create_user_btc_wallet(
+            user_id,
+            password=password,
+            label=label,
+            network=config.get("network"),
+            service_url=config.get("wdkBtcServiceUrl"),
+            reveal_seed_phrase=reveal_seed,
+            account_index=config.get("wdkBtcAccountIndex"),
+        ),
+    }
+
+
+async def _run_btc_wallet_import(
+    user_id: str,
+    config: dict[str, Any],
+    *,
+    label: str | None,
+    password: str,
+    seed_phrase: str,
+) -> dict[str, Any]:
+    from agent_wallet.btc_user_wallets import import_user_btc_wallet
+
+    return {
+        "ok": True,
+        "wallet": import_user_btc_wallet(
+            user_id,
+            password=password,
+            seed_phrase=seed_phrase,
+            label=label,
+            network=config.get("network"),
+            service_url=config.get("wdkBtcServiceUrl"),
+            account_index=config.get("wdkBtcAccountIndex"),
+        ),
+    }
+
+
+async def _run_btc_wallet_unlock(
+    user_id: str,
+    config: dict[str, Any],
+    *,
+    password: str,
+) -> dict[str, Any]:
+    from agent_wallet.btc_user_wallets import unlock_user_btc_wallet
+
+    return {
+        "ok": True,
+        "wallet": unlock_user_btc_wallet(
+            user_id,
+            password=password,
+            network=config.get("network"),
+            service_url=config.get("wdkBtcServiceUrl"),
+        ),
+    }
+
+
+async def _run_btc_wallet_lock(user_id: str, config: dict[str, Any]) -> dict[str, Any]:
+    from agent_wallet.btc_user_wallets import lock_user_btc_wallet
+
+    return {
+        "ok": True,
+        "wallet": lock_user_btc_wallet(
+            user_id,
+            network=config.get("network"),
+            service_url=config.get("wdkBtcServiceUrl"),
+        ),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="OpenClaw wallet bridge CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -199,6 +305,33 @@ def main() -> int:
     approval_parser.add_argument("--ttl-seconds", type=int)
     approval_parser.add_argument("--config-json", default="{}")
 
+    btc_get_parser = subparsers.add_parser("btc-wallet-get")
+    btc_get_parser.add_argument("--user-id", required=True)
+    btc_get_parser.add_argument("--config-json", default="{}")
+
+    btc_create_parser = subparsers.add_parser("btc-wallet-create")
+    btc_create_parser.add_argument("--user-id", required=True)
+    btc_create_parser.add_argument("--label")
+    btc_create_parser.add_argument("--reveal-seed", action="store_true")
+    btc_create_parser.add_argument("--password-stdin", action="store_true")
+    btc_create_parser.add_argument("--config-json", default="{}")
+
+    btc_import_parser = subparsers.add_parser("btc-wallet-import")
+    btc_import_parser.add_argument("--user-id", required=True)
+    btc_import_parser.add_argument("--label")
+    btc_import_parser.add_argument("--password-stdin", action="store_true")
+    btc_import_parser.add_argument("--seed-stdin", action="store_true")
+    btc_import_parser.add_argument("--config-json", default="{}")
+
+    btc_unlock_parser = subparsers.add_parser("btc-wallet-unlock")
+    btc_unlock_parser.add_argument("--user-id", required=True)
+    btc_unlock_parser.add_argument("--password-stdin", action="store_true")
+    btc_unlock_parser.add_argument("--config-json", default="{}")
+
+    btc_lock_parser = subparsers.add_parser("btc-wallet-lock")
+    btc_lock_parser.add_argument("--user-id", required=True)
+    btc_lock_parser.add_argument("--config-json", default="{}")
+
     args = parser.parse_args()
 
     try:
@@ -218,6 +351,56 @@ def main() -> int:
                     ttl_seconds=args.ttl_seconds,
                 )
             )
+        elif args.command == "btc-wallet-get":
+            payload = asyncio.run(_run_btc_wallet_get(args.user_id, config))
+        elif args.command == "btc-wallet-create":
+            if not args.password_stdin:
+                raise WalletBackendError("btc-wallet-create requires --password-stdin.")
+            payload = asyncio.run(
+                _run_btc_wallet_create(
+                    args.user_id,
+                    config,
+                    label=args.label,
+                    reveal_seed=bool(args.reveal_seed),
+                    password=_read_stdin_secret("password"),
+                )
+            )
+        elif args.command == "btc-wallet-import":
+            if not args.password_stdin:
+                raise WalletBackendError("btc-wallet-import requires --password-stdin.")
+            if not args.seed_stdin:
+                raise WalletBackendError("btc-wallet-import requires --seed-stdin.")
+            raw = _read_stdin_secret("password and seed phrase payload")
+            lines = raw.splitlines()
+            if len(lines) < 2:
+                raise WalletBackendError(
+                    "btc-wallet-import stdin must contain password on the first line and seed phrase on the remaining lines."
+                )
+            password = lines[0].strip()
+            seed_phrase = " ".join(line.strip() for line in lines[1:] if line.strip())
+            if not password or not seed_phrase:
+                raise WalletBackendError("btc-wallet-import requires both password and seed phrase on stdin.")
+            payload = asyncio.run(
+                _run_btc_wallet_import(
+                    args.user_id,
+                    config,
+                    label=args.label,
+                    password=password,
+                    seed_phrase=seed_phrase,
+                )
+            )
+        elif args.command == "btc-wallet-unlock":
+            if not args.password_stdin:
+                raise WalletBackendError("btc-wallet-unlock requires --password-stdin.")
+            payload = asyncio.run(
+                _run_btc_wallet_unlock(
+                    args.user_id,
+                    config,
+                    password=_read_stdin_secret("password"),
+                )
+            )
+        elif args.command == "btc-wallet-lock":
+            payload = asyncio.run(_run_btc_wallet_lock(args.user_id, config))
         else:
             payload = asyncio.run(
                 _run_invoke(

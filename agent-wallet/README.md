@@ -31,6 +31,10 @@ Current safe tools:
 - `get_wallet_capabilities`
 - `get_wallet_address`
 - `get_wallet_balance`
+- `get_btc_transfer_history`
+- `get_btc_fee_rates`
+- `get_btc_max_spendable`
+- `transfer_btc`
 - `get_wallet_portfolio`
 - `get_solana_token_prices`
 - `get_solana_staking_validators`
@@ -200,6 +204,29 @@ For OpenClaw install/runtime, the intended creation flow is:
 For multi-user OpenClaw integration, use `agent_wallet.user_wallets.create_wallet_backend_for_user(user_id)`.
 That provisions a wallet per user under:
 `~/.openclaw/users/<normalized-user-id>/wallets/solana-<network>-agent.json`
+
+For the local BTC backend (`backend=wdk_btc_local`), the host-side lifecycle now follows the same pattern:
+
+- the local `wdk-btc-wallet` service holds the encrypted seed vault
+- `agent-wallet` stores only a per-user BTC wallet binding under `~/.openclaw/users/<normalized-user-id>/wallets/btc-<network>-agent.json`
+- you can manage that binding through `agent_wallet.openclaw_cli`:
+  - `btc-wallet-create`
+  - `btc-wallet-import`
+  - `btc-wallet-get`
+  - `btc-wallet-unlock`
+  - `btc-wallet-lock`
+
+Example host-side BTC wallet creation:
+
+```bash
+printf '%s\n' 'your-local-btc-password' | \
+python -m agent_wallet.openclaw_cli btc-wallet-create \
+  --user-id alice@example.com \
+  --password-stdin \
+  --config-json '{"backend":"wdk_btc_local","network":"testnet","wdkBtcServiceUrl":"http://127.0.0.1:8080"}'
+```
+
+After that, `onboard` and `invoke` can use the bound BTC wallet by `user_id` without manually passing `wdkBtcWalletId` every time.
 
 Per-user wallets are now encrypted at rest in one hardened mode:
 

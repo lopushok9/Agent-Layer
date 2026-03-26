@@ -1,7 +1,7 @@
 {
   "id": "agent-wallet",
   "name": "Agent Wallet",
-  "description": "Official OpenClaw plugin bridge for the Solana agent-wallet backend.",
+  "description": "Official OpenClaw plugin bridge for the agent-wallet backends, including Solana and local BTC.",
   "version": "0.1.0",
   "skills": ["skills/wallet-operator"],
   "configSchema": {
@@ -14,11 +14,23 @@
       },
       "backend": {
         "type": "string",
-        "description": "Wallet backend identifier. Current supported value: solana_local."
+        "description": "Wallet backend identifier. Supported values: solana_local, wdk_btc_local."
       },
       "network": {
         "type": "string",
-        "description": "Solana cluster: mainnet, devnet, or testnet."
+        "description": "Backend network selector. Solana uses mainnet/devnet/testnet. BTC uses bitcoin/testnet/regtest."
+      },
+      "wdkBtcServiceUrl": {
+        "type": "string",
+        "description": "Base URL for the local wdk-btc-wallet HTTP service when backend=wdk_btc_local."
+      },
+      "wdkBtcWalletId": {
+        "type": "string",
+        "description": "Optional direct walletId override from the local wdk-btc-wallet vault. If omitted, agent-wallet will look for a user-bound BTC wallet under ~/.openclaw/users/<user>/wallets/."
+      },
+      "wdkBtcAccountIndex": {
+        "type": "integer",
+        "description": "Optional BTC account index to expose to the agent. Defaults to 0."
       },
       "rpcUrl": {
         "type": "string",

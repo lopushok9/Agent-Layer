@@ -44,6 +44,45 @@ class AgentWalletBackend(ABC):
     async def get_balance(self, address: str | None = None) -> dict[str, Any]:
         """Return the wallet balance for the configured or provided address."""
 
+    async def get_btc_transfer_history(
+        self,
+        *,
+        direction: str = "all",
+        limit: int = 10,
+        skip: int = 0,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support BTC transfer history lookup.")
+
+    async def get_btc_fee_rates(self) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support BTC fee-rate lookup.")
+
+    async def get_btc_max_spendable(
+        self,
+        *,
+        fee_rate: int | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support BTC max spendable lookup.")
+
+    async def preview_btc_transfer(
+        self,
+        *,
+        recipient: str,
+        amount_sats: int,
+        fee_rate: int | None = None,
+        confirmation_target: int | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support BTC transfer previews.")
+
+    async def send_btc_transfer(
+        self,
+        *,
+        recipient: str,
+        amount_sats: int,
+        fee_rate: int | None = None,
+        confirmation_target: int | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support BTC transfers.")
+
     async def get_portfolio(self, address: str | None = None) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support portfolio lookup.")
 

@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     provider_gateway_bearer_token: str = ""
     provider_gateway_rpc_provider: str = "auto"
     solana_swap_provider: str = "auto"
+    wdk_btc_service_url: str = "http://127.0.0.1:8080"
+    wdk_btc_wallet_id: str = ""
+    wdk_btc_account_index: int = 0
 
     jupiter_api_base_url: str = "https://lite-api.jup.ag/swap/v1"
     jupiter_ultra_api_base_url: str = "https://lite-api.jup.ag/ultra/v1"
