@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -32,10 +33,13 @@ def _run(*args: str, stdin_text: str | None = None) -> dict:
 
 def main() -> None:
     with FakeWdkBtcWalletServer(network="testnet") as server:
-        os.environ["OPENCLAW_HOME"] = "/tmp/openclaw-btc-script-smoke"
+        temp_home = Path("/tmp/openclaw-btc-script-smoke")
+        if temp_home.exists():
+            shutil.rmtree(temp_home)
+        os.environ["OPENCLAW_HOME"] = str(temp_home)
 
-        created = _run(
-            "create",
+        setup_created = _run(
+            "setup",
             "--user-id",
             "script-btc@example.com",
             "--network",
@@ -45,7 +49,9 @@ def main() -> None:
             "--password-stdin",
             stdin_text="script-btc-password\n",
         )
-        assert created["wallet"]["wallet_id"] == server.wallet_id
+        assert setup_created["action"] == "created"
+        assert setup_created["wallet"]["wallet_id"] == server.wallet_id
+        assert setup_created["openclaw_config_hint"]["backend"] == "wdk_btc_local"
 
         binding = _run(
             "get",
@@ -79,6 +85,20 @@ def main() -> None:
             stdin_text="script-btc-password\n",
         )
         assert unlocked["wallet"]["unlocked"] is True
+
+        setup_unlocked = _run(
+            "setup",
+            "--user-id",
+            "script-btc@example.com",
+            "--network",
+            "testnet",
+            "--service-url",
+            server.base_url,
+            "--password-stdin",
+            stdin_text="script-btc-password\n",
+        )
+        assert setup_unlocked["action"] == "unlocked"
+        assert setup_unlocked["wallet"]["wallet_id"] == server.wallet_id
 
     print("smoke_manage_openclaw_btc_wallet: ok")
 

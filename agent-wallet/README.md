@@ -229,11 +229,35 @@ python -m agent_wallet.openclaw_cli btc-wallet-create \
 If you want a friendlier host-shell flow, use:
 
 ```bash
-python scripts/manage_openclaw_btc_wallet.py create \
+python scripts/manage_openclaw_btc_wallet.py setup \
   --user-id alice@example.com \
   --network testnet \
   --service-url http://127.0.0.1:8080
 ```
+
+`setup` is the easiest host path:
+
+- if no BTC wallet binding exists for that `user_id`, it creates one
+- if the binding already exists, it unlocks the existing wallet
+- it returns an `openclaw_config_hint` payload you can paste into plugin config if needed
+
+If you want a true one-command OpenClaw bootstrap, use:
+
+```bash
+python agent-wallet/scripts/bootstrap_openclaw_btc.py \
+  --user-id alice@example.com \
+  --network testnet \
+  --service-url http://127.0.0.1:8080
+```
+
+For BTC mainnet, use the same bootstrap with `--network mainnet`. The script normalizes that to `bitcoin` in plugin config automatically.
+
+That script:
+
+- runs BTC wallet `setup`
+- creates or updates `~/.openclaw/openclaw.json`
+- configures `backend=wdk_btc_local`
+- writes the local BTC service URL into plugin config
 
 After that, `onboard` and `invoke` can use the bound BTC wallet by `user_id` without manually passing `wdkBtcWalletId` every time.
 

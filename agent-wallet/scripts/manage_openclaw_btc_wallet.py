@@ -22,6 +22,13 @@ from agent_wallet.btc_user_wallets import (  # noqa: E402
 )
 
 
+def _normalize_network(value: str) -> str:
+    network = str(value or "").strip().lower()
+    if network == "mainnet":
+        return "bitcoin"
+    return network or "bitcoin"
+
+
 def _read_secret(
     *,
     prompt: str,
@@ -70,6 +77,12 @@ def main() -> int:
 
     get_parser = subparsers.add_parser("get", parents=[common_parent])
 
+    setup_parser = subparsers.add_parser("setup", parents=[common_parent])
+    setup_parser.add_argument("--label")
+    setup_parser.add_argument("--account-index", type=int)
+    setup_parser.add_argument("--reveal-seed", action="store_true")
+    setup_parser.add_argument("--password-stdin", action="store_true")
+
     create_parser = subparsers.add_parser("create", parents=[common_parent])
     create_parser.add_argument("--label")
     create_parser.add_argument("--account-index", type=int)
@@ -88,9 +101,59 @@ def main() -> int:
     lock_parser = subparsers.add_parser("lock", parents=[common_parent])
 
     args = parser.parse_args()
+    effective_network = _normalize_network(args.network)
+
+    def _config_hint(wallet: dict[str, object]) -> dict[str, object]:
+        return {
+            "backend": "wdk_btc_local",
+            "network": effective_network,
+            "wdkBtcServiceUrl": args.service_url,
+            "wdkBtcWalletId": wallet.get("wallet_id"),
+            "wdkBtcAccountIndex": wallet.get("account_index"),
+        }
 
     if args.command == "get":
-        payload = {"ok": True, "wallet": get_user_btc_wallet_binding(args.user_id, network=args.network)}
+        payload = {"ok": True, "wallet": get_user_btc_wallet_binding(args.user_id, network=effective_network)}
+    elif args.command == "setup":
+        password = _read_secret(
+            prompt="BTC wallet password: ",
+            confirm_prompt=None,
+            stdin_mode=bool(args.password_stdin),
+        )
+        try:
+            existing = get_user_btc_wallet_binding(args.user_id, network=effective_network)
+        except Exception:
+            existing = None
+
+        if existing is None:
+            wallet = create_user_btc_wallet(
+                args.user_id,
+                password=password,
+                label=args.label,
+                network=effective_network,
+                service_url=args.service_url,
+                reveal_seed_phrase=bool(args.reveal_seed),
+                account_index=args.account_index,
+            )
+            payload = {
+                "ok": True,
+                "action": "created",
+                "wallet": wallet,
+                "openclaw_config_hint": _config_hint(wallet),
+            }
+        else:
+            wallet = unlock_user_btc_wallet(
+                args.user_id,
+                password=password,
+                network=effective_network,
+                service_url=args.service_url,
+            )
+            payload = {
+                "ok": True,
+                "action": "unlocked",
+                "wallet": wallet,
+                "openclaw_config_hint": _config_hint(wallet),
+            }
     elif args.command == "create":
         payload = {
             "ok": True,
@@ -102,7 +165,7 @@ def main() -> int:
                     stdin_mode=bool(args.password_stdin),
                 ),
                 label=args.label,
-                network=args.network,
+                network=effective_network,
                 service_url=args.service_url,
                 reveal_seed_phrase=bool(args.reveal_seed),
                 account_index=args.account_index,
@@ -128,7 +191,7 @@ def main() -> int:
                 password=password,
                 seed_phrase=seed_phrase,
                 label=args.label,
-                network=args.network,
+                network=effective_network,
                 service_url=args.service_url,
                 account_index=args.account_index,
             ),
@@ -142,7 +205,7 @@ def main() -> int:
                     prompt="BTC wallet password: ",
                     stdin_mode=bool(args.password_stdin),
                 ),
-                network=args.network,
+                network=effective_network,
                 service_url=args.service_url,
             ),
         }
@@ -151,7 +214,7 @@ def main() -> int:
             "ok": True,
             "wallet": lock_user_btc_wallet(
                 args.user_id,
-                network=args.network,
+                network=effective_network,
                 service_url=args.service_url,
             ),
         }

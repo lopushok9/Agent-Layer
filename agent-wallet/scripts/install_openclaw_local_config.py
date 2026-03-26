@@ -18,6 +18,7 @@ from security_utils import write_redacted_backup
 OPTIONAL_TOOLS = [
     "sign_wallet_message",
     "transfer_sol",
+    "transfer_btc",
     "transfer_spl_token",
     "swap_solana_tokens",
     "close_empty_token_accounts",
@@ -49,6 +50,16 @@ def _default_user_id() -> str:
     return f"{os.getenv('USER', 'openclaw-user')}-local"
 
 
+def _normalize_network(backend: str, network: str) -> str:
+    backend_name = backend.strip().lower()
+    normalized = network.strip().lower()
+    if backend_name in {"wdk_btc_local", "wdk-btc-local", "btc_local", "btc-local"}:
+        if normalized == "mainnet":
+            return "bitcoin"
+        return normalized or "bitcoin"
+    return normalized or "devnet"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config-path", default=str(_default_config_path()))
@@ -58,6 +69,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--network", default="devnet")
     parser.add_argument("--rpc-url", default="")
     parser.add_argument("--rpc-urls", default="")
+    parser.add_argument("--wdk-btc-service-url", default="")
+    parser.add_argument("--wdk-btc-wallet-id", default="")
+    parser.add_argument("--wdk-btc-account-index", type=int, default=0)
     parser.add_argument("--sign-only", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--encrypt-user-wallets", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument(
@@ -146,10 +160,11 @@ def main() -> None:
         paths.append(extension_path_text)
 
     entries = plugins.setdefault("entries", {})
+    effective_network = _normalize_network(args.backend, args.network)
     plugin_config = {
         "userId": args.user_id,
         "backend": args.backend,
-        "network": args.network,
+        "network": effective_network,
         "signOnly": args.sign_only,
         "encryptUserWallets": args.encrypt_user_wallets,
         "migratePlaintextUserWallets": args.migrate_plaintext_user_wallets,
@@ -162,6 +177,12 @@ def main() -> None:
         plugin_config["rpcUrls"] = [
             item.strip() for item in args.rpc_urls.split(",") if item.strip()
         ]
+    if args.wdk_btc_service_url.strip():
+        plugin_config["wdkBtcServiceUrl"] = args.wdk_btc_service_url.strip()
+    if args.wdk_btc_wallet_id.strip():
+        plugin_config["wdkBtcWalletId"] = args.wdk_btc_wallet_id.strip()
+    if args.wdk_btc_account_index is not None:
+        plugin_config["wdkBtcAccountIndex"] = int(args.wdk_btc_account_index)
     if args.write_master_key:
         raise SystemExit(
             "Refusing to write masterKey into config. Runtime secrets must live in sealed_keys.json."
