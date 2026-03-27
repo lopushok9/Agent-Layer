@@ -12,10 +12,17 @@ from typing import Any
 class FakeWdkBtcWalletServer(AbstractContextManager["FakeWdkBtcWalletServer"]):
     wallet_id = "btc-wallet-123"
 
-    def __init__(self, network: str = "testnet", host: str = "127.0.0.1", port: int = 0):
+    def __init__(
+        self,
+        network: str = "testnet",
+        host: str = "127.0.0.1",
+        port: int = 0,
+        auth_token: str = "test-local-btc-token",
+    ):
         self.network = network
         self.host = host
         self.port = int(port)
+        self.auth_token = str(auth_token).strip()
         self.address = (
             "tb1qagentwallet000000000000000000000000000000"
             if network == "testnet"
@@ -46,6 +53,12 @@ class FakeWdkBtcWalletServer(AbstractContextManager["FakeWdkBtcWalletServer"]):
                 self.end_headers()
                 self.wfile.write(encoded)
 
+            def _authorized(self) -> bool:
+                if not outer.auth_token:
+                    return True
+                header = str(self.headers.get("Authorization") or "").strip()
+                return header == f"Bearer {outer.auth_token}"
+
             def _read_json(self) -> dict[str, Any]:
                 raw_len = int(self.headers.get("Content-Length", "0"))
                 if raw_len <= 0:
@@ -68,6 +81,9 @@ class FakeWdkBtcWalletServer(AbstractContextManager["FakeWdkBtcWalletServer"]):
                 self._send(404, {"ok": False, "error": "Not Found"})
 
             def do_POST(self) -> None:  # noqa: N802
+                if not self._authorized():
+                    self._send(401, {"ok": False, "error": "Unauthorized."})
+                    return
                 body = self._read_json()
                 wallet_id = str(body.get("walletId") or "").strip()
                 fee_rate = body.get("feeRate")

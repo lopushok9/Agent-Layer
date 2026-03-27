@@ -17,7 +17,13 @@ def main() -> None:
     network = os.getenv("WDK_BTC_NETWORK", "bitcoin").strip() or "bitcoin"
     host = os.getenv("HOST", "127.0.0.1").strip() or "127.0.0.1"
     port = int(os.getenv("PORT", "8080").strip() or "8080")
-    with FakeWdkBtcWalletServer(network=network, host=host, port=port) as server:
+    auth_token = os.getenv("WDK_BTC_LOCAL_TOKEN", "test-local-btc-token").strip()
+    with FakeWdkBtcWalletServer(
+        network=network,
+        host=host,
+        port=port,
+        auth_token=auth_token,
+    ) as server:
         while True:
             time.sleep(1)
 

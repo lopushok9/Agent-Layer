@@ -33,6 +33,7 @@ def main() -> None:
     with FakeWdkBtcWalletServer(network="bitcoin") as server:
         env = os.environ.copy()
         env["PYTHONPATH"] = str(ROOT)
+        env["WDK_BTC_LOCAL_TOKEN"] = server.auth_token
         completed = subprocess.run(
             [
                 sys.executable,

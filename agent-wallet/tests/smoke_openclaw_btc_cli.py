@@ -30,6 +30,7 @@ def _run(config: dict, *args: str, stdin_text: str | None = None) -> dict:
 
 def main() -> None:
     with FakeWdkBtcWalletServer(network="testnet") as server:
+        os.environ["WDK_BTC_LOCAL_TOKEN"] = server.auth_token
         config = {
             "backend": "wdk_btc_local",
             "network": "testnet",

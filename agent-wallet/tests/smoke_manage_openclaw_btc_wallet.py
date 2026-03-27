@@ -37,6 +37,7 @@ def main() -> None:
         if temp_home.exists():
             shutil.rmtree(temp_home)
         os.environ["OPENCLAW_HOME"] = str(temp_home)
+        os.environ["WDK_BTC_LOCAL_TOKEN"] = server.auth_token
 
         setup_created = _run(
             "setup",
@@ -115,6 +116,7 @@ def main() -> None:
         )
         assert setup_unlocked["action"] == "unlocked"
         assert setup_unlocked["wallet"]["wallet_id"] == server.wallet_id
+        os.environ.pop("WDK_BTC_LOCAL_TOKEN", None)
 
     print("smoke_manage_openclaw_btc_wallet: ok")
 

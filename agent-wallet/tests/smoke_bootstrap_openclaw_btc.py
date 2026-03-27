@@ -34,6 +34,7 @@ def main() -> None:
         base_url = server.base_url
         env = os.environ.copy()
         env["PYTHONPATH"] = str(ROOT)
+        env["WDK_BTC_LOCAL_TOKEN"] = server.auth_token
         completed = subprocess.run(
             [
                 sys.executable,

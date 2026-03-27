@@ -9,6 +9,8 @@ with Bitcoin only.
 Current scope:
 
 - local encrypted wallet vault
+- localhost-only HTTP surface
+- local bearer-token auth between the wallet service and trusted local callers
 - wallet registry with `walletId`
 - explicit `unlock` / `lock` semantics
 - derive BTC accounts and addresses
@@ -53,6 +55,16 @@ The implementation is based on the official WDK documentation:
 - `POST /v1/btc/fee-rates/get`
 - `POST /v1/btc/transfer/quote`
 - `POST /v1/btc/transfer/send`
+
+All routes except `/health` require:
+
+- `Authorization: Bearer <token>`
+
+By default the service generates that token automatically at:
+
+- `~/.openclaw/wdk-btc-wallet/local-auth-token`
+
+or under `OPENCLAW_HOME/wdk-btc-wallet/local-auth-token` when `OPENCLAW_HOME` is set.
 
 The preferred flow is now local-vault based:
 
@@ -128,6 +140,8 @@ Environment variables:
 - `WDK_BTC_REGTEST_ELECTRUM_HOST`
 - `WDK_BTC_REGTEST_ELECTRUM_PORT`
 - `WDK_BTC_DATA_DIR`
+- `WDK_BTC_LOCAL_TOKEN`
+- `WDK_BTC_LOCAL_TOKEN_PATH`
 - `WDK_BTC_UNLOCK_TIMEOUT_SECONDS`
 
 Production note from WDK docs:

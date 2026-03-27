@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -51,6 +53,45 @@ function parseNonNegativeInteger(value, fallback, fieldName) {
   return parsed;
 }
 
+function resolveOpenClawHome(env) {
+  const configured = String(env.OPENCLAW_HOME ?? "").trim();
+  if (!configured) {
+    return path.join(os.homedir(), ".openclaw");
+  }
+  if (configured === "~") {
+    return os.homedir();
+  }
+  if (configured.startsWith("~/")) {
+    return path.join(os.homedir(), configured.slice(2));
+  }
+  return configured;
+}
+
+function ensureLocalAuthToken(tokenPath, configuredToken = "") {
+  const direct = String(configuredToken ?? "").trim();
+  if (direct) {
+    return direct;
+  }
+  fs.mkdirSync(path.dirname(tokenPath), { recursive: true, mode: 0o700 });
+  try {
+    const existing = fs.readFileSync(tokenPath, "utf8").trim();
+    if (existing) {
+      fs.chmodSync(tokenPath, 0o600);
+      return existing;
+    }
+  } catch {
+    // Generate a new token below.
+  }
+
+  const generated = crypto.randomBytes(32).toString("hex");
+  fs.writeFileSync(tokenPath, `${generated}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  fs.chmodSync(tokenPath, 0o600);
+  return generated;
+}
+
 export function loadConfig(env = process.env) {
   const host = String(env.HOST ?? DEFAULTS.host).trim() || DEFAULTS.host;
   const network = String(env.WDK_BTC_NETWORK ?? DEFAULTS.network).trim() || DEFAULTS.network;
@@ -62,9 +103,13 @@ export function loadConfig(env = process.env) {
   if (![44, 84].includes(bip)) {
     throw new Error("WDK_BTC_BIP must be either 44 or 84.");
   }
+  const openClawHome = resolveOpenClawHome(env);
   const dataDir =
     String(env.WDK_BTC_DATA_DIR ?? "").trim() ||
-    path.join(os.homedir(), ".openclaw", "wdk-btc-wallet");
+    path.join(openClawHome, "wdk-btc-wallet");
+  const authTokenPath =
+    String(env.WDK_BTC_LOCAL_TOKEN_PATH ?? "").trim() ||
+    path.join(openClawHome, "wdk-btc-wallet", "local-auth-token");
 
   const networkProfiles = Object.fromEntries(
     Object.entries(DEFAULT_NETWORK_PROFILES).map(([name, defaults]) => {
@@ -100,7 +145,11 @@ export function loadConfig(env = process.env) {
     port: parseInteger(env.PORT, DEFAULTS.port, "PORT"),
     network,
     bip,
+    openClawHome,
     dataDir,
+    authRequired: true,
+    authTokenPath,
+    authToken: ensureLocalAuthToken(authTokenPath, env.WDK_BTC_LOCAL_TOKEN),
     unlockTimeoutSeconds: parseNonNegativeInteger(
       env.WDK_BTC_UNLOCK_TIMEOUT_SECONDS,
       DEFAULTS.unlockTimeoutSeconds,

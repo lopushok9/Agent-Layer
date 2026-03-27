@@ -1,5 +1,6 @@
 import "dotenv/config";
 
+import crypto from "node:crypto";
 import { createServer } from "node:http";
 
 import { loadConfig } from "./config.js";
@@ -15,6 +16,28 @@ const networkState = new BtcNetworkState(config);
 
 function notFound(response) {
   sendJson(response, 404, { ok: false, error: "Not Found" });
+}
+
+function unauthorized(response) {
+  response.setHeader("WWW-Authenticate", 'Bearer realm="wdk-btc-wallet"');
+  sendJson(response, 401, { ok: false, error: "Unauthorized." });
+}
+
+function pathRequiresAuth(pathname) {
+  return pathname !== "/health";
+}
+
+function isAuthorized(request) {
+  const header = String(request.headers.authorization || "").trim();
+  if (!header.startsWith("Bearer ")) {
+    return false;
+  }
+  const provided = Buffer.from(header.slice("Bearer ".length).trim(), "utf8");
+  const expected = Buffer.from(String(config.authToken || ""), "utf8");
+  if (provided.length === 0 || provided.length !== expected.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(provided, expected);
 }
 
 async function withResolvedSeed(body = {}) {
@@ -44,6 +67,10 @@ async function handleRequest(request, response) {
     const url = new URL(request.url || "/", "http://localhost");
     const { method = "GET" } = request;
 
+    if (pathRequiresAuth(url.pathname) && !isAuthorized(request)) {
+      return unauthorized(response);
+    }
+
     if (method === "GET" && url.pathname === "/health") {
       const runtimeConfig = await networkState.resolveRuntimeConfig();
       const networkInfo = await networkState.getNetworkInfo();
@@ -56,6 +83,7 @@ async function handleRequest(request, response) {
         bip: config.bip,
         host: config.host,
         dataDir: config.dataDir,
+        authRequired: config.authRequired,
         unlockTimeoutSeconds: config.unlockTimeoutSeconds,
         availableNetworks: Object.keys(config.networkProfiles),
         electrum: {

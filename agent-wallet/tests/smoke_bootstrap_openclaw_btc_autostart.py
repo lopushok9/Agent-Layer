@@ -52,6 +52,7 @@ def main() -> None:
     config_path = temp_home / "openclaw.json"
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT)
+    env["WDK_BTC_LOCAL_TOKEN"] = "test-local-btc-token"
     completed = subprocess.run(
         [
             sys.executable,

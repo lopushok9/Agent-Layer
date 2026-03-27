@@ -22,7 +22,7 @@
       },
       "wdkBtcServiceUrl": {
         "type": "string",
-        "description": "Base URL for the local wdk-btc-wallet HTTP service when backend=wdk_btc_local."
+        "description": "Base URL for the localhost-only wdk-btc-wallet HTTP service when backend=wdk_btc_local."
       },
       "wdkBtcWalletId": {
         "type": "string",

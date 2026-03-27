@@ -114,7 +114,14 @@ def _service_is_healthy(service_url: str) -> bool:
 
 def _is_local_service_url(service_url: str) -> bool:
     parsed = urlparse(service_url)
-    return parsed.scheme in {"http", "https"} and parsed.hostname in {"127.0.0.1", "localhost"}
+    return parsed.scheme in {"http", "https"} and parsed.hostname in {"127.0.0.1", "localhost", "::1"}
+
+
+def _require_local_service_url(service_url: str) -> None:
+    if not _is_local_service_url(service_url):
+        raise SystemExit(
+            f"BTC bootstrap only supports a localhost service URL. Refusing non-local endpoint: {service_url}"
+        )
 
 
 def _service_log_dir(config_path: Path) -> Path:
@@ -190,6 +197,7 @@ def _auto_start_local_service(
 def main() -> int:
     args = build_parser().parse_args()
     effective_network = _normalize_network(args.network)
+    _require_local_service_url(args.service_url)
     config_path = Path(args.config_path).expanduser()
     config_created = _ensure_openclaw_config(config_path)
     service_bootstrap: dict[str, object] | None = None

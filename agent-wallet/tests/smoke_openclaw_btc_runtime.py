@@ -15,6 +15,7 @@ def main() -> None:
     with FakeWdkBtcWalletServer(network="testnet") as server:
         os.environ["AGENT_WALLET_BACKEND"] = "wdk_btc_local"
         os.environ["WDK_BTC_SERVICE_URL"] = server.base_url
+        os.environ["WDK_BTC_LOCAL_TOKEN"] = server.auth_token
         os.environ.pop("WDK_BTC_WALLET_ID", None)
         os.environ["WDK_BTC_ACCOUNT_INDEX"] = "0"
         os.environ["SOLANA_NETWORK"] = "testnet"

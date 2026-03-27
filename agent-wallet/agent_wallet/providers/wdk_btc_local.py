@@ -2,19 +2,50 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
+from agent_wallet.config import resolve_openclaw_home
 from agent_wallet.http_client import get_client
 from agent_wallet.wallet_layer.base import WalletBackendError
+
+LOCAL_WDK_BTC_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
 def _normalize_base_url(value: str) -> str:
     text = str(value or "").strip()
     if not text:
         raise WalletBackendError("WDK BTC service URL is not configured.")
+    parsed = urlparse(text)
+    if parsed.scheme not in {"http", "https"} or parsed.hostname not in LOCAL_WDK_BTC_HOSTS:
+        raise WalletBackendError("WDK BTC service URL must point to a localhost HTTP endpoint.")
     return text.rstrip("/")
+
+
+def _resolve_local_token_path() -> Path:
+    configured = os.getenv("WDK_BTC_LOCAL_TOKEN_PATH", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return resolve_openclaw_home() / "wdk-btc-wallet" / "local-auth-token"
+
+
+def _load_local_token() -> str:
+    direct = os.getenv("WDK_BTC_LOCAL_TOKEN", "").strip()
+    if direct:
+        return direct
+    token_path = _resolve_local_token_path()
+    if not token_path.exists():
+        raise WalletBackendError(
+            f"WDK BTC local auth token file not found: {token_path}. Start the local wdk-btc-wallet service first."
+        )
+    token = token_path.read_text(encoding="utf-8").strip()
+    if not token:
+        raise WalletBackendError(f"WDK BTC local auth token file is empty: {token_path}")
+    return token
 
 
 def _unwrap_payload(response: httpx.Response) -> dict[str, Any]:
@@ -38,20 +69,33 @@ class WdkBtcLocalClient:
 
     def __init__(self, base_url: str):
         self.base_url = _normalize_base_url(base_url)
+        self._headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {_load_local_token()}",
+        }
 
     async def post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
-        response = await get_client().post(f"{self.base_url}{path}", json=payload)
+        response = await get_client().post(
+            f"{self.base_url}{path}",
+            json=payload,
+            headers=self._headers,
+            follow_redirects=False,
+        )
         return _unwrap_payload(response)
 
     async def get(self, path: str) -> dict[str, Any]:
-        response = await get_client().get(f"{self.base_url}{path}")
+        response = await get_client().get(
+            f"{self.base_url}{path}",
+            headers=self._headers,
+            follow_redirects=False,
+        )
         return _unwrap_payload(response)
 
     def post_sync(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         with httpx.Client(
             timeout=10.0,
-            headers={"Accept": "application/json"},
-            follow_redirects=True,
+            headers=self._headers,
+            follow_redirects=False,
         ) as client:
             response = client.post(f"{self.base_url}{path}", json=payload)
         return _unwrap_payload(response)
@@ -59,8 +103,8 @@ class WdkBtcLocalClient:
     def get_sync(self, path: str) -> dict[str, Any]:
         with httpx.Client(
             timeout=10.0,
-            headers={"Accept": "application/json"},
-            follow_redirects=True,
+            headers=self._headers,
+            follow_redirects=False,
         ) as client:
             response = client.get(f"{self.base_url}{path}")
         return _unwrap_payload(response)

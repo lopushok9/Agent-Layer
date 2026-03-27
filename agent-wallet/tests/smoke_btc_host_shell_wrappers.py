@@ -36,6 +36,7 @@ def main() -> None:
         env["PYTHONPATH"] = str(ROOT)
         env["OPENCLAW_HOME"] = str(temp_home)
         env["OPENCLAW_AGENT_WALLET_PYTHON"] = sys.executable
+        env["WDK_BTC_LOCAL_TOKEN"] = server.auth_token
         env["OPENCLAW_BTC_CONFIG_PATH"] = str(config_path)
         env["OPENCLAW_BTC_USER_ID"] = "host-shell@example.com"
         env["OPENCLAW_BTC_NETWORK"] = "testnet"
