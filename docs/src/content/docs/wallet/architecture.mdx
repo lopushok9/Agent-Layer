@@ -1,0 +1,35 @@
+---
+title: Wallet Architecture
+description: Core safety model and wallet boundaries.
+head: []
+---
+
+# Wallet Architecture
+
+AgentLayer is built around one rule:
+
+the agent gets wallet capabilities, not wallet ownership.
+
+That means:
+
+- secret material stays local
+- signing stays in the wallet layer
+- risky writes require approval
+- `prepare` does not expose signed transaction bytes to the agent
+
+## Core flow
+
+Write-capable operations use:
+
+1. `preview`
+2. `prepare`
+3. `execute`
+
+`execute` requires a host-issued approval token.
+
+## Components
+
+- `agent-wallet` owns policy, approvals, signing, and execution
+- `.openclaw` stays a thin bridge layer
+- `provider-gateway` stays non-custodial
+- local wallet services handle local secret storage where needed

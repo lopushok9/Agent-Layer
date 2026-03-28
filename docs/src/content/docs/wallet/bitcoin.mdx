@@ -1,0 +1,42 @@
+---
+title: Bitcoin Wallet
+description: Local Bitcoin wallet architecture.
+head: []
+---
+
+# Bitcoin Wallet
+
+AgentLayer uses a separate local Bitcoin wallet service built on Tether WDK.
+
+Key properties:
+
+- encrypted local vault
+- localhost-only service
+- local bearer-token auth between trusted components
+- host-managed password flow
+- seed phrase stays out of the normal agent path
+
+This means the user keeps the secret, while the agent works through wallet capabilities.
+
+## User flow
+
+1. start `wdk-btc-wallet`
+2. run `setup_btc_wallet.sh`
+3. create or unlock a wallet
+4. let the agent use the wallet through `walletId`-based capabilities
+
+## Agent flow
+
+The agent can:
+
+- get wallet address
+- read balances
+- read transfer history
+- estimate fees
+- preview and execute BTC transfers through approval-gated flow
+
+The agent does not:
+
+- see the wallet password
+- see the seed phrase
+- create recovery exports during normal operation

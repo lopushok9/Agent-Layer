@@ -1,0 +1,119 @@
+---
+title: Capabilities
+description: Current agent-facing wallet capabilities in AgentLayer.
+head: []
+---
+
+# Capabilities
+
+AgentLayer exposes wallet capabilities to the agent through a constrained tool surface.
+
+The main rule is:
+
+- the agent can use the wallet
+- the agent does not own the wallet
+
+## Cross-wallet basics
+
+Available on connected backends where relevant:
+
+- `get_wallet_capabilities`
+- `get_wallet_address`
+- `get_wallet_balance`
+
+## Bitcoin
+
+Current BTC tools:
+
+- `get_btc_transfer_history`
+- `get_btc_fee_rates`
+- `get_btc_max_spendable`
+- `transfer_btc`
+
+`transfer_btc` follows:
+
+1. `preview`
+2. `prepare`
+3. `execute`
+
+`execute` requires a host-issued approval token.
+
+## Solana reads
+
+Current Solana read tools:
+
+- `get_wallet_portfolio`
+- `get_solana_token_prices`
+- `get_bags_claimable_positions`
+- `get_bags_fee_analytics`
+- `get_solana_staking_validators`
+- `get_solana_stake_account`
+- `get_jupiter_earn_tokens`
+- `get_jupiter_earn_positions`
+- `get_jupiter_earn_earnings`
+- `get_kamino_lend_markets`
+- `get_kamino_lend_market_reserves`
+- `get_kamino_lend_user_obligations`
+- `get_kamino_lend_user_rewards`
+
+## Solana writes
+
+Current Solana write-capable tools:
+
+- `sign_wallet_message`
+- `transfer_sol`
+- `stake_sol_native`
+- `transfer_spl_token`
+- `swap_solana_tokens`
+- `claim_bags_fees`
+- `launch_bags_token`
+- `jupiter_earn_deposit`
+- `jupiter_earn_withdraw`
+- `kamino_lend_deposit`
+- `kamino_lend_withdraw`
+- `kamino_lend_borrow`
+- `kamino_lend_repay`
+- `close_empty_token_accounts`
+- `deactivate_solana_stake`
+- `withdraw_solana_stake`
+- `request_devnet_airdrop`
+
+Most write flows use:
+
+1. `preview`
+2. `prepare`
+3. `execute`
+
+With the following safety boundary:
+
+- `prepare` returns an execution plan only
+- `prepare` does not expose signed transaction bytes
+- `execute` requires a host-issued approval token
+
+## Bags
+
+Bags support currently includes:
+
+- token launch
+- fee claims
+- fee analytics
+
+The provider path uses the shared gateway, while signing still stays in the wallet layer.
+
+## Kamino and Jupiter Earn
+
+Current DeFi coverage includes:
+
+- Jupiter Earn discovery
+- Jupiter Earn position reads
+- Jupiter Earn earnings reads
+- Jupiter Earn deposit and withdraw flows
+- Kamino market discovery
+- Kamino reserve reads
+- Kamino user obligation reads
+- Kamino user reward reads
+- Kamino deposit, withdraw, borrow, and repay flows
+
+## Notes
+
+Some older Jupiter portfolio-oriented tools remain in the codebase for later re-enable, but the active wallet surface should be treated as the list above.

@@ -1,0 +1,99 @@
+---
+title: Quick Start
+description: Fastest local setup path for AgentLayer.
+head: []
+---
+
+# Quick Start
+
+Most of the setup can be delegated to an agent or local installer.
+
+The user should still be the one who:
+
+- chooses and stores the secrets
+- enters wallet passwords
+- confirms risky writes
+
+The agent can handle the repetitive setup work around the wallet stack.
+
+## Bitcoin
+
+Start the local Bitcoin wallet service:
+
+```bash
+cd wdk-btc-wallet && sh run-local.sh
+```
+
+Then connect it to OpenClaw:
+
+```bash
+sh agent-wallet/scripts/setup_btc_wallet.sh
+```
+
+That flow asks for:
+
+- `user-id`
+- `mainnet`, `testnet`, or `regtest`
+- a local wallet password
+
+What the user does:
+
+- chooses the password
+- keeps the password
+- optionally reveals the seed phrase later through the host-only recovery flow
+
+What can be delegated:
+
+- starting the local BTC wallet service
+- creating or unlocking the wallet
+- connecting it to OpenClaw
+- patching local config
+
+## Solana
+
+Install the wallet backend:
+
+```bash
+cd agent-wallet
+python3 scripts/install_agent_wallet.py
+```
+
+Provide the local runtime secrets:
+
+```bash
+export AGENT_WALLET_BOOT_KEY='...'
+export AGENT_WALLET_MASTER_KEY='...'
+export AGENT_WALLET_APPROVAL_SECRET='...'
+```
+
+What the user does:
+
+- generates or chooses the secrets
+- stores them safely
+- provides them locally to the runtime
+
+What can be delegated:
+
+- installing the wallet backend
+- creating local config
+- wiring OpenClaw to the wallet backend
+- handling the routine local setup steps
+
+You do not need to bring your own RPC just to get started.
+
+The default setup already includes:
+
+- shared Solana RPC through the hosted gateway
+- Bags provider access for launch and fees
+
+If you want faster or more predictable performance, you can also set your own RPC.
+
+Use the shared gateway for the easiest start.
+Use your own RPC if you want a more operator-controlled or faster setup.
+
+## Safety model during setup
+
+The intended split is:
+
+- the user owns secrets, passwords, and approvals
+- the agent automates setup and day-to-day wallet operations through constrained interfaces

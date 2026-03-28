@@ -1,0 +1,36 @@
+---
+title: Overview
+description: AgentLayer documentation.
+head: []
+---
+
+# AgentLayer
+
+AgentLayer is a local-first wallet and finance stack for agents.
+
+The system includes:
+
+- a local wallet backend for OpenClaw
+- a separate local Bitcoin wallet built on WDK
+- shared provider access for Solana RPC and Bags
+- a finance and crypto MCP layer
+
+The design goal is simple:
+
+- keep secrets local
+- let agents use constrained wallet capabilities
+- preserve explicit approval for risky writes
+
+## Main parts
+
+- `agent-wallet/` — authoritative wallet backend
+- `.openclaw/` — local OpenClaw bridge
+- `wdk-btc-wallet/` — local Bitcoin wallet service
+- `provider-gateway/` — shared provider access
+- `mcp-server/` — finance and crypto MCP server
+
+## Beta status
+
+AgentLayer is currently in beta.
+
+Use it carefully, test flows before relying on them, and expect changes as the stack evolves.
