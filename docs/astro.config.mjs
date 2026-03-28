@@ -7,6 +7,7 @@ export default defineConfig({
       title: "AgentLayer Docs",
       description: "Documentation for the AgentLayer wallet and finance stack.",
       head: [],
+      disable404Route: true,
       social: {
         github: "https://github.com/lopushok9/Agent-Layer"
       },
