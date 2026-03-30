@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from agent_wallet.config import settings
@@ -22,6 +23,138 @@ def _require_api_key(provider_name: str) -> None:
             provider_name,
             "Jupiter API key is required for this endpoint. Set JUPITER_API_KEY first.",
         )
+
+
+def _gateway_base_url() -> str:
+    return os.getenv("PROVIDER_GATEWAY_URL", settings.provider_gateway_url).strip().rstrip("/")
+
+
+def _gateway_headers() -> dict[str, str]:
+    headers = {"Accept": "application/json"}
+    bearer = os.getenv(
+        "PROVIDER_GATEWAY_BEARER_TOKEN",
+        settings.provider_gateway_bearer_token,
+    ).strip()
+    if bearer:
+        headers["Authorization"] = f"Bearer {bearer}"
+    return headers
+
+
+def _gateway_enabled() -> bool:
+    return bool(_gateway_base_url())
+
+
+def _gateway_route_missing(status_code: int, payload: Any) -> bool:
+    if status_code == 404:
+        return True
+    if isinstance(payload, dict):
+        message = str(payload.get("error") or "").lower()
+        if "not found" in message:
+            return True
+    return False
+
+
+def _direct_jupiter_enabled() -> bool:
+    return bool(settings.jupiter_api_key.strip())
+
+
+def _unwrap_gateway_payload(
+    status_code: int,
+    payload: Any,
+    *,
+    operation: str,
+) -> Any:
+    if isinstance(payload, dict) and payload.get("ok") is False:
+        message = str(payload.get("error") or f"{operation} failed.")
+        raise ProviderError("jupiter-lend", f"{operation} failed via provider gateway: {message}")
+
+    if status_code != 200:
+        message = payload
+        if isinstance(payload, dict):
+            message = payload.get("error") or payload
+        raise ProviderError("jupiter-lend", f"{operation} failed via provider gateway: {message}")
+
+    return payload
+
+
+async def _gateway_get_json(
+    path: str,
+    *,
+    params: dict[str, Any] | None,
+    operation: str,
+) -> Any:
+    client = get_client()
+    response = await client.get(
+        f"{_gateway_base_url()}{path}",
+        params=params,
+        headers=_gateway_headers(),
+    )
+    payload = response.json() if response.content else {}
+    return _unwrap_gateway_payload(
+        response.status_code,
+        payload,
+        operation=operation,
+    )
+
+
+async def _gateway_post_json(
+    path: str,
+    *,
+    body: dict[str, Any],
+    operation: str,
+) -> Any:
+    client = get_client()
+    response = await client.post(
+        f"{_gateway_base_url()}{path}",
+        json=body,
+        headers={**_gateway_headers(), "Content-Type": "application/json"},
+    )
+    payload = response.json() if response.content else {}
+    return _unwrap_gateway_payload(
+        response.status_code,
+        payload,
+        operation=operation,
+    )
+
+
+async def _earn_get_with_gateway_fallback(
+    *,
+    path: str,
+    params: dict[str, Any] | None,
+    operation: str,
+) -> Any:
+    if _gateway_enabled():
+        client = get_client()
+        response = await client.get(
+            f"{_gateway_base_url()}{path}",
+            params=params,
+            headers=_gateway_headers(),
+        )
+        payload = response.json() if response.content else {}
+        if _gateway_route_missing(response.status_code, payload) and _direct_jupiter_enabled():
+            return None
+        return _unwrap_gateway_payload(response.status_code, payload, operation=operation)
+    return None
+
+
+async def _earn_post_with_gateway_fallback(
+    *,
+    path: str,
+    body: dict[str, Any],
+    operation: str,
+) -> Any:
+    if _gateway_enabled():
+        client = get_client()
+        response = await client.post(
+            f"{_gateway_base_url()}{path}",
+            json=body,
+            headers={**_gateway_headers(), "Content-Type": "application/json"},
+        )
+        payload = response.json() if response.content else {}
+        if _gateway_route_missing(response.status_code, payload) and _direct_jupiter_enabled():
+            return None
+        return _unwrap_gateway_payload(response.status_code, payload, operation=operation)
+    return None
 
 
 def _normalize_named_list_response(
@@ -267,6 +400,18 @@ async def fetch_staked_jup(*, address: str) -> dict[str, Any]:
 
 async def fetch_earn_tokens() -> dict[str, Any]:
     """Fetch supported Jupiter Earn vault tokens."""
+    gateway_response = await _earn_get_with_gateway_fallback(
+        path="/v1/jupiter/earn/tokens",
+        params=None,
+        operation="Jupiter Earn tokens",
+    )
+    if gateway_response is not None:
+        return _normalize_named_list_response(
+            gateway_response,
+            key="tokens",
+            provider_name="jupiter-lend",
+        )
+
     _require_api_key("jupiter-lend")
     client = get_client()
     response = await client.get(
@@ -284,6 +429,18 @@ async def fetch_earn_tokens() -> dict[str, Any]:
 
 async def fetch_earn_positions(*, users: list[str]) -> dict[str, Any]:
     """Fetch Jupiter Earn positions for one or more users."""
+    gateway_response = await _earn_get_with_gateway_fallback(
+        path="/v1/jupiter/earn/positions",
+        params={"users": ",".join(users)},
+        operation="Jupiter Earn positions",
+    )
+    if gateway_response is not None:
+        return _normalize_named_list_response(
+            gateway_response,
+            key="positions",
+            provider_name="jupiter-lend",
+        )
+
     _require_api_key("jupiter-lend")
     client = get_client()
     response = await client.get(
@@ -302,6 +459,18 @@ async def fetch_earn_positions(*, users: list[str]) -> dict[str, Any]:
 
 async def fetch_earn_earnings(*, user: str, positions: list[str]) -> dict[str, Any]:
     """Fetch Jupiter Earn earnings for a user and position list."""
+    gateway_response = await _earn_get_with_gateway_fallback(
+        path="/v1/jupiter/earn/earnings",
+        params={"user": user, "positions": ",".join(positions)},
+        operation="Jupiter Earn earnings",
+    )
+    if gateway_response is not None:
+        return _normalize_named_list_response(
+            gateway_response,
+            key="earnings",
+            provider_name="jupiter-lend",
+        )
+
     _require_api_key("jupiter-lend")
     client = get_client()
     response = await client.get(
@@ -325,6 +494,20 @@ async def build_earn_deposit_transaction(
     amount_raw: str,
 ) -> dict[str, Any]:
     """Build an unsigned Jupiter Earn deposit transaction."""
+    gateway_response = await _earn_post_with_gateway_fallback(
+        path="/v1/jupiter/earn/deposit",
+        body={
+            "asset": asset,
+            "signer": user_address,
+            "amount": amount_raw,
+        },
+        operation="Jupiter Earn deposit",
+    )
+    if gateway_response is not None:
+        if not isinstance(gateway_response, dict) or "transaction" not in gateway_response:
+            raise ProviderError("jupiter-lend", "Unexpected Earn deposit response.")
+        return gateway_response
+
     _require_api_key("jupiter-lend")
     client = get_client()
     response = await client.post(
@@ -351,6 +534,20 @@ async def build_earn_withdraw_transaction(
     amount_raw: str,
 ) -> dict[str, Any]:
     """Build an unsigned Jupiter Earn withdraw transaction."""
+    gateway_response = await _earn_post_with_gateway_fallback(
+        path="/v1/jupiter/earn/withdraw",
+        body={
+            "asset": asset,
+            "signer": user_address,
+            "amount": amount_raw,
+        },
+        operation="Jupiter Earn withdraw",
+    )
+    if gateway_response is not None:
+        if not isinstance(gateway_response, dict) or "transaction" not in gateway_response:
+            raise ProviderError("jupiter-lend", "Unexpected Earn withdraw response.")
+        return gateway_response
+
     _require_api_key("jupiter-lend")
     client = get_client()
     response = await client.post(

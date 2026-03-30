@@ -95,6 +95,17 @@ def _bags_headers() -> dict[str, str]:
     return {"x-api-key": api_key}
 
 
+def _jupiter_lend_base_url() -> str:
+    return _trim(os.getenv("JUPITER_LEND_API_BASE_URL")) or "https://api.jup.ag/lend/v1"
+
+
+def _jupiter_headers() -> dict[str, str]:
+    api_key = _trim(os.getenv("JUPITER_API_KEY"))
+    if not api_key:
+        raise RuntimeError("JUPITER_API_KEY is not configured")
+    return {"x-api-key": api_key}
+
+
 def _provider_url_from_env(name: str, default: str = "") -> str:
     return _trim(os.getenv(name)) or default
 
@@ -169,6 +180,14 @@ def _status_payload() -> dict[str, Any]:
             "launch_token_info": True,
             "launch_fee_share_config": True,
             "launch_transaction": True,
+        },
+        "jupiter_earn_configured": bool(_trim(os.getenv("JUPITER_API_KEY"))),
+        "jupiter_earn_features": {
+            "earn_tokens": True,
+            "earn_positions": True,
+            "earn_earnings": True,
+            "earn_deposit": True,
+            "earn_withdraw": True,
         },
     }
 
@@ -647,6 +666,133 @@ async def bags_fees_claim_events(request: Request) -> JSONResponse:
     return JSONResponse(payload, status_code=status_code)
 
 
+def _split_csv_query(value: str) -> list[str]:
+    items = [item.strip() for item in value.split(",") if item.strip()]
+    if not items:
+        raise ValueError("Query parameter must contain at least one value")
+    return items
+
+
+async def jupiter_earn_tokens(request: Request) -> JSONResponse:
+    auth_error = _require_bearer(request)
+    if auth_error:
+        return _json_error(auth_error, 401)
+
+    try:
+        status_code, payload = await _http_get(
+            f"{_jupiter_lend_base_url()}/earn/tokens",
+            headers=_jupiter_headers(),
+        )
+    except (RuntimeError, httpx.HTTPError) as exc:
+        return _json_error(f"Jupiter Earn tokens error: {exc}", 502)
+
+    return JSONResponse(payload, status_code=status_code)
+
+
+async def jupiter_earn_positions(request: Request) -> JSONResponse:
+    auth_error = _require_bearer(request)
+    if auth_error:
+        return _json_error(auth_error, 401)
+
+    try:
+        users_raw = _require_query(request, "users")
+        params = {"users": ",".join(_split_csv_query(users_raw))}
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+
+    try:
+        status_code, payload = await _http_get(
+            f"{_jupiter_lend_base_url()}/earn/positions",
+            headers=_jupiter_headers(),
+            params=params,
+        )
+    except (RuntimeError, httpx.HTTPError) as exc:
+        return _json_error(f"Jupiter Earn positions error: {exc}", 502)
+
+    return JSONResponse(payload, status_code=status_code)
+
+
+async def jupiter_earn_earnings(request: Request) -> JSONResponse:
+    auth_error = _require_bearer(request)
+    if auth_error:
+        return _json_error(auth_error, 401)
+
+    try:
+        user = _require_query(request, "user")
+        positions_raw = _require_query(request, "positions")
+        params = {
+            "user": user,
+            "positions": ",".join(_split_csv_query(positions_raw)),
+        }
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+
+    try:
+        status_code, payload = await _http_get(
+            f"{_jupiter_lend_base_url()}/earn/earnings",
+            headers=_jupiter_headers(),
+            params=params,
+        )
+    except (RuntimeError, httpx.HTTPError) as exc:
+        return _json_error(f"Jupiter Earn earnings error: {exc}", 502)
+
+    return JSONResponse(payload, status_code=status_code)
+
+
+async def jupiter_earn_deposit(request: Request) -> JSONResponse:
+    auth_error = _require_bearer(request)
+    if auth_error:
+        return _json_error(auth_error, 401)
+
+    try:
+        body = _require_body_dict(await request.json())
+        _require_string_field(body, "asset")
+        _require_string_field(body, "signer")
+        _require_string_field(body, "amount")
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except Exception:
+        return _json_error("Invalid JSON body", 400)
+
+    try:
+        status_code, payload = await _http_post(
+            f"{_jupiter_lend_base_url()}/earn/deposit",
+            headers={**_jupiter_headers(), "Content-Type": "application/json"},
+            json_body=body,
+        )
+    except (RuntimeError, httpx.HTTPError) as exc:
+        return _json_error(f"Jupiter Earn deposit error: {exc}", 502)
+
+    return JSONResponse(payload, status_code=status_code)
+
+
+async def jupiter_earn_withdraw(request: Request) -> JSONResponse:
+    auth_error = _require_bearer(request)
+    if auth_error:
+        return _json_error(auth_error, 401)
+
+    try:
+        body = _require_body_dict(await request.json())
+        _require_string_field(body, "asset")
+        _require_string_field(body, "signer")
+        _require_string_field(body, "amount")
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except Exception:
+        return _json_error("Invalid JSON body", 400)
+
+    try:
+        status_code, payload = await _http_post(
+            f"{_jupiter_lend_base_url()}/earn/withdraw",
+            headers={**_jupiter_headers(), "Content-Type": "application/json"},
+            json_body=body,
+        )
+    except (RuntimeError, httpx.HTTPError) as exc:
+        return _json_error(f"Jupiter Earn withdraw error: {exc}", 502)
+
+    return JSONResponse(payload, status_code=status_code)
+
+
 routes = [
     Route("/health", health, methods=["GET"]),
     Route("/v1/status", status, methods=["GET"]),
@@ -661,6 +807,11 @@ routes = [
     Route("/v1/bags/fees/lifetime", bags_fees_lifetime, methods=["GET"]),
     Route("/v1/bags/fees/claim-stats", bags_fees_claim_stats, methods=["GET"]),
     Route("/v1/bags/fees/claim-events", bags_fees_claim_events, methods=["GET"]),
+    Route("/v1/jupiter/earn/tokens", jupiter_earn_tokens, methods=["GET"]),
+    Route("/v1/jupiter/earn/positions", jupiter_earn_positions, methods=["GET"]),
+    Route("/v1/jupiter/earn/earnings", jupiter_earn_earnings, methods=["GET"]),
+    Route("/v1/jupiter/earn/deposit", jupiter_earn_deposit, methods=["POST"]),
+    Route("/v1/jupiter/earn/withdraw", jupiter_earn_withdraw, methods=["POST"]),
 ]
 
 app = Starlette(debug=False, routes=routes)

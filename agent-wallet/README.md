@@ -135,6 +135,8 @@ For OpenClaw onboarding, `agent-wallet` now ships with a hosted default provider
 
 So users do not need to enter `PROVIDER_GATEWAY_URL` manually for the default Bags launch/fees flows or shared mainnet RPC path. You only need to set `PROVIDER_GATEWAY_URL` yourself if you want to override that hosted default with your own deployment.
 
+That same provider gateway path can now also cover Jupiter Earn reads and transaction-building. Ordinary Jupiter swap routing remains direct.
+
 For a self-hosted install where each operator brings their own RPC key, a minimal Solana setup can be just:
 
 ```bash
@@ -385,9 +387,12 @@ Current Jupiter integration now includes:
 
 - `Ultra Swap` as the default swap path, with legacy `Metis` fallback
 - `Price API` token lookup
+- `Earn` reads and deposit/withdraw transaction building
 
 Operational notes:
 
+- Jupiter `Earn` can use the hosted or self-hosted provider gateway for shared onboarding-friendly access.
+- Ordinary Jupiter swap routing remains direct and does not go through the provider gateway.
 - Jupiter `Portfolio` implementation remains in the backend, but the agent-facing tools are temporarily disabled.
 - The Jupiter config fields and provider code are intentionally kept so these surfaces can be restored later without rebuilding the integration from scratch.
 

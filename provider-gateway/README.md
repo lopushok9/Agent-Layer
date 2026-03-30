@@ -11,6 +11,7 @@ This service is deliberately narrow:
 
 - shared Bags trade + claim relay
 - shared Bags token launch relay
+- shared Jupiter Earn relay
 - shared Solana RPC gateway with method allowlist
 - no wallet custody
 - no transaction signing
@@ -36,6 +37,11 @@ Implemented endpoints:
 - `GET /v1/bags/fees/lifetime` — authenticated Bags lifetime fee analytics
 - `GET /v1/bags/fees/claim-stats` — authenticated Bags claimer analytics
 - `GET /v1/bags/fees/claim-events` — authenticated Bags claim event feed / history
+- `GET /v1/jupiter/earn/tokens` — authenticated Jupiter Earn token catalog
+- `GET /v1/jupiter/earn/positions` — authenticated Jupiter Earn positions
+- `GET /v1/jupiter/earn/earnings` — authenticated Jupiter Earn earnings
+- `POST /v1/jupiter/earn/deposit` — authenticated Jupiter Earn deposit transaction build
+- `POST /v1/jupiter/earn/withdraw` — authenticated Jupiter Earn withdraw transaction build
 
 Not implemented yet:
 
@@ -57,17 +63,21 @@ Do not expose this service publicly without inbound auth and outer rate limiting
 
 Copy `.env.example` to `.env`.
 
-Required for a useful deployment:
+Configure the surfaces you want to expose:
 
-- one shared RPC source:
+- shared Solana RPC:
   - `SHARED_SOLANA_RPC_URL`, or
   - `HELIUS_API_KEY`, or
   - `ALCHEMY_API_KEY`
-- `BAGS_API_KEY`
+- Bags relay:
+  - `BAGS_API_KEY`
+- Jupiter Earn relay:
+  - `JUPITER_API_KEY`
 
 Optional:
 
 - `PROVIDER_GATEWAY_BEARER_TOKEN` when `REQUIRE_BEARER_AUTH=true`
+- `JUPITER_LEND_API_BASE_URL`
 
 ## Run locally
 
@@ -134,6 +144,12 @@ Bags fee analytics:
 curl "http://localhost:8000/v1/bags/fees/claim-stats?tokenMint=YOUR_TOKEN_MINT"
 ```
 
+Jupiter Earn tokens:
+
+```bash
+curl "http://localhost:8000/v1/jupiter/earn/tokens"
+```
+
 If you switch back to protected mode with `REQUIRE_BEARER_AUTH=true`, add:
 
 ```bash
@@ -153,8 +169,9 @@ If you switch back to protected mode with `REQUIRE_BEARER_AUTH=true`, add:
 
 - shared RPC mode via `PROVIDER_GATEWAY_URL` for onboarding-friendly defaults
 - explicit Bags launch / fees mode via the gateway-backed Bags client
+- explicit Jupiter Earn mode via the gateway-backed Earn client
 
-Default swap routing stays on Jupiter regardless of whether RPC is shared or user-owned. Bags is used here for launch, fee claims, and fee analytics flows, not swap routing.
+Default Jupiter swap routing stays direct regardless of whether RPC is shared or user-owned. The gateway is used here for Bags launch/fees and Jupiter Earn, not for ordinary swaps.
 
 ## Railway
 
@@ -200,7 +217,12 @@ Example production variable sets:
    - `REQUIRE_BEARER_AUTH=false`
    - `BAGS_API_KEY=...`
 
-2. Bags + shared Solana RPC gateway
+2. Bags + Jupiter Earn gateway
+   - `REQUIRE_BEARER_AUTH=false`
+   - `BAGS_API_KEY=...`
+   - `JUPITER_API_KEY=...`
+
+3. Bags + shared Solana RPC gateway
    - `REQUIRE_BEARER_AUTH=false`
    - `BAGS_API_KEY=...`
    - plus one of:
@@ -208,8 +230,9 @@ Example production variable sets:
      - `HELIUS_API_KEY=...`
      - `ALCHEMY_API_KEY=...`
 
-3. Protected gateway
+4. Protected gateway
    - `REQUIRE_BEARER_AUTH=true`
    - `PROVIDER_GATEWAY_BEARER_TOKEN=...`
    - `BAGS_API_KEY=...`
+   - optionally `JUPITER_API_KEY=...`
    - optionally one shared RPC source
