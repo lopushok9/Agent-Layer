@@ -111,6 +111,7 @@ export const WalletPage = ({ onInstallClick }) => {
                 <a href="#how-to-use">How to use</a>
               </div>
               <div className="wp-link-col">
+                <a href="https://docs.agent-layer.tech" target="_blank" rel="noreferrer">Docs</a>
                 <a href="https://github.com/lopushok9/Agent-Layer/tree/main/agent-wallet" target="_blank" rel="noreferrer">Wallet docs</a>
                 <a href="https://github.com/lopushok9/Agent-Layer" target="_blank" rel="noreferrer">GitHub</a>
               </div>

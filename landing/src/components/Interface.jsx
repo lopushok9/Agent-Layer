@@ -100,6 +100,7 @@ export const Interface = ({ onInstallClick }) => {
                         <a href="#how-to-use">How to use</a>
                         </div>
                         <div className="link-column">
+                            <a href="https://docs.agent-layer.tech" target="_blank" rel="noreferrer">Docs</a>
                             <a href="https://github.com/lopushok9/Agent-Layer" target="_blank" rel="noreferrer">GitHub</a>
                             <a href="https://x.com/agentlayer_ai" target="_blank" rel="noreferrer">Blog</a>
                         </div>
