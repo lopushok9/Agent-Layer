@@ -9,8 +9,9 @@ The repository includes:
 - `agent-wallet/` — the main wallet backend for OpenClaw
 - `.openclaw/` — the local OpenClaw bridge
 - `wdk-btc-wallet/` — the local Bitcoin wallet service
-- `provider-gateway/` — shared provider access for Solana RPC and Bags
+- `provider-gateway/` — shared provider access for Solana RPC, Bags, and Jupiter Earn
 - `mcp-server/` — the finance and crypto MCP layer
+- `docs/` — the documentation site for onboarding and architecture reference
 
 The goal is simple:
 
