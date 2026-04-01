@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     wdk_btc_service_url: str = "http://127.0.0.1:8080"
     wdk_btc_wallet_id: str = ""
     wdk_btc_account_index: int = 0
+    wdk_evm_service_url: str = "http://127.0.0.1:8081"
+    wdk_evm_wallet_id: str = ""
+    wdk_evm_account_index: int = 0
 
     jupiter_api_base_url: str = "https://lite-api.jup.ag/swap/v1"
     jupiter_ultra_api_base_url: str = "https://lite-api.jup.ag/ultra/v1"

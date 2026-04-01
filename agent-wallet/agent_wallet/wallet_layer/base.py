@@ -63,6 +63,49 @@ class AgentWalletBackend(ABC):
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support BTC max spendable lookup.")
 
+    async def get_evm_token_balance(self, token_address: str) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM token balance lookup.")
+
+    async def get_evm_fee_rates(self) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM fee-rate lookup.")
+
+    async def get_evm_transaction_receipt(self, tx_hash: str) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM transaction receipt lookup.")
+
+    async def preview_evm_native_transfer(
+        self,
+        *,
+        recipient: str,
+        amount_wei: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM native transfer previews.")
+
+    async def send_evm_native_transfer(
+        self,
+        *,
+        recipient: str,
+        amount_wei: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM native transfers.")
+
+    async def preview_evm_token_transfer(
+        self,
+        *,
+        token_address: str,
+        recipient: str,
+        amount_raw: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM token transfer previews.")
+
+    async def send_evm_token_transfer(
+        self,
+        *,
+        token_address: str,
+        recipient: str,
+        amount_raw: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM token transfers.")
+
     async def preview_btc_transfer(
         self,
         *,

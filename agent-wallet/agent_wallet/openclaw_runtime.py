@@ -8,12 +8,15 @@ from typing import Any
 from agent_wallet.approval import issue_approval_token
 from agent_wallet.btc_user_wallets import get_user_btc_wallet_binding
 from agent_wallet.config import settings
+from agent_wallet.evm_user_wallets import get_user_evm_wallet_binding
 from agent_wallet.models import OpenClawWalletSessionMetadata
 from agent_wallet.openclaw_adapter import OpenClawWalletAdapter
 from agent_wallet.plugin_bundle import build_openclaw_plugin_bundle
 from agent_wallet.providers.wdk_btc_local import WdkBtcLocalClient
+from agent_wallet.providers.wdk_evm_local import WdkEvmLocalClient
 from agent_wallet.user_wallets import create_wallet_backend_for_user, ensure_user_solana_wallet, resolve_user_wallet_path
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendError
+from agent_wallet.wallet_layer.wdk_evm import WdkEvmLocalWalletBackend
 from agent_wallet.wallet_layer.wdk_btc import WdkBtcLocalWalletBackend
 
 
@@ -130,6 +133,67 @@ def onboard_openclaw_user_wallet(
             "key_scope": "host-managed",
             "wallet_id": wallet_id,
             "label": str(wallet_meta.get("label") or (binding or {}).get("label") or "BTC Wallet"),
+        }
+        adapter = OpenClawWalletAdapter(backend)
+        plugin_bundle = build_openclaw_plugin_bundle(backend)
+        return OpenClawWalletRuntimeContext(
+            user_id=user_id,
+            wallet_info=wallet_info,
+            created_now=False,
+            backend=backend,
+            adapter=adapter,
+            plugin_bundle=plugin_bundle,
+        )
+
+    if backend_name in {"wdk_evm_local", "wdk-evm-local", "evm_local", "evm-local"}:
+        service_url = settings.wdk_evm_service_url.strip()
+        requested_network = (network or settings.solana_network).strip().lower() or "ethereum"
+        aliases = {
+            "mainnet": "ethereum",
+            "eth": "ethereum",
+            "eth-mainnet": "ethereum",
+            "base-mainnet": "base",
+            "base_sepolia": "base-sepolia",
+        }
+        effective_network = aliases.get(requested_network, requested_network)
+        binding: dict[str, Any] | None = None
+        wallet_id = settings.wdk_evm_wallet_id.strip()
+        if not service_url:
+            raise WalletBackendError("wdk_evm_service_url is required for backend=wdk_evm_local.")
+        if not wallet_id:
+            binding = get_user_evm_wallet_binding(user_id, network=effective_network)
+            wallet_id = str(binding.get("wallet_id") or "").strip()
+        if not wallet_id:
+            raise WalletBackendError(
+                "wdk_evm_wallet_id is required for backend=wdk_evm_local, or create a bound user EVM wallet first."
+            )
+
+        client = WdkEvmLocalClient(service_url)
+        wallet_meta = client.post_sync("/v1/evm/wallets/get", {"walletId": wallet_id})
+        address_payload = client.post_sync(
+            "/v1/evm/address/resolve",
+            {
+                "walletId": wallet_id,
+                "accountIndex": settings.wdk_evm_account_index,
+                "network": effective_network,
+            },
+        )
+        backend = WdkEvmLocalWalletBackend(
+            service_url=service_url,
+            wallet_id=wallet_id,
+            network=effective_network,
+            account_index=settings.wdk_evm_account_index,
+            sign_only=settings.agent_wallet_sign_only if sign_only is None else sign_only,
+            address=str(address_payload.get("address") or "").strip() or None,
+        )
+        wallet_info = {
+            "user_id": user_id,
+            "address": str(address_payload.get("address") or (binding or {}).get("address") or ""),
+            "path": f"{service_url}#walletId={wallet_id}",
+            "storage_format": "local_vault",
+            "key_scope": "host-managed",
+            "wallet_id": wallet_id,
+            "label": str(wallet_meta.get("label") or (binding or {}).get("label") or "EVM Wallet"),
         }
         adapter = OpenClawWalletAdapter(backend)
         plugin_bundle = build_openclaw_plugin_bundle(backend)

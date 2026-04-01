@@ -1,7 +1,7 @@
 {
   "id": "agent-wallet",
   "name": "Agent Wallet",
-  "description": "Plugin-friendly wallet backend for OpenClaw agents with safe wallet tools and runtime instructions.",
+  "description": "Plugin-friendly wallet backend for OpenClaw agents with safe wallet tools and runtime instructions across Solana, local BTC, and local EVM.",
   "version": "0.1.0",
   "skills": ["skills/wallet-operator"],
   "configSchema": {
@@ -10,7 +10,7 @@
     "properties": {
       "backend": {
         "type": "string",
-        "description": "Wallet backend identifier. Supported values: solana_local, wdk_btc_local."
+        "description": "Wallet backend identifier. Supported values: solana_local, wdk_btc_local, wdk_evm_local."
       },
       "rpcUrl": {
         "type": "string",
@@ -39,7 +39,7 @@
       },
       "network": {
         "type": "string",
-        "description": "Backend network selector. Solana uses mainnet/devnet/testnet. BTC uses bitcoin/testnet/regtest."
+        "description": "Backend network selector. Solana uses mainnet/devnet/testnet. BTC uses bitcoin/testnet/regtest. EVM uses ethereum/sepolia/base/base-sepolia."
       },
       "wdkBtcServiceUrl": {
         "type": "string",
@@ -52,6 +52,18 @@
       "wdkBtcAccountIndex": {
         "type": "integer",
         "description": "Optional BTC account index to expose to the agent. Defaults to 0."
+      },
+      "wdkEvmServiceUrl": {
+        "type": "string",
+        "description": "Base URL for the localhost-only wdk-evm-wallet HTTP service when backend=wdk_evm_local."
+      },
+      "wdkEvmWalletId": {
+        "type": "string",
+        "description": "Optional direct walletId override from the local wdk-evm-wallet vault. If omitted, agent-wallet will look for a user-bound EVM wallet under ~/.openclaw/users/<user>/wallets/."
+      },
+      "wdkEvmAccountIndex": {
+        "type": "integer",
+        "description": "Optional EVM account index to expose to the agent. Defaults to 0."
       },
       "publicKey": {
         "type": "string",

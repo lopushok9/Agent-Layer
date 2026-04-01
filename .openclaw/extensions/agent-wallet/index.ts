@@ -672,6 +672,99 @@ const btcToolDefinitions = [
   },
 ];
 
+const evmToolDefinitions = [
+  {
+    name: "get_wallet_capabilities",
+    description: "Describe the connected wallet backend, chain, and safety limits.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_wallet_address",
+    description: "Return the configured wallet address for the connected backend.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_wallet_balance",
+    description: "Get the native EVM balance for the configured wallet address.",
+    parameters: {
+      type: "object",
+      properties: {
+        address: {
+          type: "string",
+          description: "Optional wallet address override.",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_evm_token_balance",
+    description: "Get the raw ERC-20 balance for the configured EVM wallet account.",
+    parameters: {
+      type: "object",
+      properties: {
+        token_address: { type: "string" },
+      },
+      required: ["token_address"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_evm_fee_rates",
+    description: "Get current EVM fee-rate suggestions for the active network.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_evm_transaction_receipt",
+    description: "Get the transaction receipt for a broadcast EVM transaction hash.",
+    parameters: {
+      type: "object",
+      properties: {
+        tx_hash: { type: "string" },
+      },
+      required: ["tx_hash"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "transfer_evm_native",
+    description: "Preview, prepare, or execute a native EVM transfer using a wei amount. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    optional: true,
+    parameters: {
+      type: "object",
+      properties: {
+        recipient: { type: "string" },
+        amount_wei: { type: "string" },
+        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
+        purpose: { type: "string" },
+        user_intent: { type: "boolean" },
+        approval_token: { type: "string" },
+      },
+      required: ["recipient", "amount_wei", "mode", "purpose"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "transfer_evm_token",
+    description: "Preview, prepare, or execute an ERC-20 transfer using a raw base-unit amount. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    optional: true,
+    parameters: {
+      type: "object",
+      properties: {
+        token_address: { type: "string" },
+        recipient: { type: "string" },
+        amount_raw: { type: "string" },
+        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
+        purpose: { type: "string" },
+        user_intent: { type: "boolean" },
+        approval_token: { type: "string" },
+      },
+      required: ["token_address", "recipient", "amount_raw", "mode", "purpose"],
+      additionalProperties: false,
+    },
+  },
+];
+
 export default function registerAgentWalletPlugin(api) {
   api?.logger?.info?.("[agent-wallet] registering OpenClaw wallet plugin");
 
@@ -679,6 +772,11 @@ export default function registerAgentWalletPlugin(api) {
   const toolDefinitions =
     backend === "wdk_btc_local" || backend === "wdk-btc-local" || backend === "btc_local"
       ? btcToolDefinitions
+      : backend === "wdk_evm_local" ||
+          backend === "wdk-evm-local" ||
+          backend === "evm_local" ||
+          backend === "evm-local"
+        ? evmToolDefinitions
       : solanaToolDefinitions;
 
   for (const definition of toolDefinitions) {

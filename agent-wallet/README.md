@@ -5,6 +5,7 @@ Reusable wallet backend for OpenClaw agents.
 Current focus:
 
 - simple local Solana support
+- separate local BTC and EVM custody runtimes
 - send-enabled local operation with optional sign-only mode
 - minimal external API surface
 - easy embedding into agent runtimes or MCP adapters
@@ -35,6 +36,11 @@ Current safe tools:
 - `get_btc_fee_rates`
 - `get_btc_max_spendable`
 - `transfer_btc`
+- `get_evm_token_balance`
+- `get_evm_fee_rates`
+- `get_evm_transaction_receipt`
+- `transfer_evm_native`
+- `transfer_evm_token`
 - `get_wallet_portfolio`
 - `get_solana_token_prices`
 - `get_solana_staking_validators`
@@ -77,8 +83,8 @@ Policy defaults:
 - `prepare` requires `user_intent=true`
 - `prepare` does not return signed transaction bytes
 - `execute` requires a host-issued `approval_token` bound to the exact previewed operation
-- on Solana `mainnet`, that `approval_token` must include explicit mainnet confirmation
-- on Solana `mainnet`, preview and prepare responses include a `confirmation_summary` and `mainnet_warning` to force a clearer final confirmation step
+- on mainnet networks, that `approval_token` must include explicit mainnet confirmation
+- on mainnet networks, preview and prepare responses include a `confirmation_summary` and `mainnet_warning` to force a clearer final confirmation step
 
 ## Install
 
@@ -310,6 +316,32 @@ That wrapper also prompts for `user-id` and network if you do not pass them expl
 This remains host-only. The agent does not get a seed-reveal tool.
 
 After that, `onboard` and `invoke` can use the bound BTC wallet by `user_id` without manually passing `wdkBtcWalletId` every time.
+
+For the local EVM backend (`backend=wdk_evm_local`), the lifecycle mirrors the BTC path:
+
+- the local `wdk-evm-wallet` service holds the encrypted seed vault
+- the EVM service is localhost-only and no longer accepts remote service URLs through the OpenClaw EVM flow
+- `agent-wallet` talks to it through a local bearer token loaded from `~/.openclaw/wdk-evm-wallet/local-auth-token`
+- `agent-wallet` stores only a per-user EVM wallet binding under `~/.openclaw/users/<normalized-user-id>/wallets/evm-<network>-agent.json`
+- supported EVM networks are `ethereum`, `sepolia`, `base`, and `base-sepolia`
+- you can manage that binding through `agent_wallet.openclaw_cli`:
+  - `evm-wallet-create`
+  - `evm-wallet-import`
+  - `evm-wallet-get`
+  - `evm-wallet-unlock`
+  - `evm-wallet-lock`
+
+Example host-side EVM wallet creation:
+
+```bash
+printf '%s\n' 'your-local-evm-password' | \
+python -m agent_wallet.openclaw_cli evm-wallet-create \
+  --user-id alice@example.com \
+  --password-stdin \
+  --config-json '{"backend":"wdk_evm_local","network":"sepolia","wdkEvmServiceUrl":"http://127.0.0.1:8081"}'
+```
+
+After that, `onboard` and `invoke` can use the bound EVM wallet by `user_id` without manually passing `wdkEvmWalletId` every time.
 
 Per-user wallets are now encrypted at rest in one hardened mode:
 

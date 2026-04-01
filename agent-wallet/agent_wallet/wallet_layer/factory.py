@@ -13,6 +13,7 @@ from agent_wallet.config import (
     settings,
 )
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendError
+from agent_wallet.wallet_layer.wdk_evm import WdkEvmLocalWalletBackend
 from agent_wallet.wallet_layer.solana import SolanaLocalKeypairSigner, SolanaWalletBackend
 from agent_wallet.wallet_layer.wdk_btc import WdkBtcLocalWalletBackend
 
@@ -86,7 +87,16 @@ def create_wallet_backend() -> AgentWalletBackend | None:
             sign_only=settings.agent_wallet_sign_only,
         )
 
+    if backend in {"wdk_evm_local", "wdk-evm-local", "evm_local", "evm-local"}:
+        return WdkEvmLocalWalletBackend(
+            service_url=settings.wdk_evm_service_url,
+            wallet_id=settings.wdk_evm_wallet_id,
+            network=settings.solana_network,
+            account_index=settings.wdk_evm_account_index,
+            sign_only=settings.agent_wallet_sign_only,
+        )
+
     raise WalletBackendError(
         f"Unsupported agent wallet backend: {backend}. "
-        "Supported values: none, solana_local, wdk_btc_local."
+        "Supported values: none, solana_local, wdk_btc_local, wdk_evm_local."
     )

@@ -8,6 +8,7 @@ It is designed so the OpenClaw agent sees a small operational wallet surface ins
 In practice this means the agent works through explicit tools for:
 
 - BTC balance, fee-rate, max-spendable, history, and transfer flows through the local `wdk-btc-wallet` backend
+- EVM native balance, ERC-20 balance, fee-rate, receipt, and transfer flows through the local `wdk-evm-wallet` backend
 - wallet address, balances, and portfolio reads
 - native SOL and SPL token transfers
 - Jupiter swap and price lookup
@@ -59,11 +60,13 @@ Important:
 - For a local official OpenClaw install, `userId` should represent the wallet owner for that agent install.
 - The public OpenClaw plugin docs do not document a per-request end-user identifier in `registerTool(...).execute(...)`, so dynamic multi-user wallet selection is intentionally kept in the Python/runtime layer, not inside the TypeScript plugin itself.
 - Helper scripts in `agent-wallet/scripts/` are generic patch/finalize utilities and no longer assume a specific local username, path, or temporary master key.
-- The OpenClaw plugin API in this repo exposes tool registration, not host password prompts, so BTC wallet create/unlock remains a host-shell flow through `agent-wallet/scripts/manage_openclaw_btc_wallet.py setup`.
+- The OpenClaw plugin API in this repo exposes tool registration, not host password prompts, so BTC and EVM wallet create/unlock remain host-shell or CLI flows outside the agent tool surface.
 - For a one-command local BTC onboarding path, use `agent-wallet/scripts/bootstrap_openclaw_btc.py`, which both sets up the BTC wallet binding and patches local OpenClaw config for `backend=wdk_btc_local`.
 - The BTC flow now only supports local service URLs (`127.0.0.1` / `localhost` / `::1`).
 - The local BTC service is protected with a bearer token loaded from `~/.openclaw/wdk-btc-wallet/local-auth-token`, not from plugin config JSON.
 - When the BTC service URL is local, that bootstrap script can also auto-start `wdk-btc-wallet` before patching OpenClaw config.
+- The EVM flow also only supports local service URLs (`127.0.0.1` / `localhost` / `::1`) and uses a bearer token loaded from `~/.openclaw/wdk-evm-wallet/local-auth-token`.
+- The initial EVM tool surface is intentionally narrow: native transfers, ERC-20 transfers, fee quotes, and receipt lookup only. No arbitrary calldata, approvals, or generic contract execution are exposed to the agent.
 - If the user needs to recover the mnemonic later, host-side reveal stays outside the agent tool surface via `agent-wallet/scripts/manage_openclaw_btc_wallet.py reveal-seed`.
 - Optional Jupiter overrides are available via `jupiterBaseUrl`, `jupiterUltraBaseUrl`, `jupiterPriceBaseUrl`, `jupiterPortfolioBaseUrl`, `jupiterLendBaseUrl`, and `jupiterApiKey`.
 - Optional Kamino overrides are available via `kaminoBaseUrl` and `kaminoProgramId`.

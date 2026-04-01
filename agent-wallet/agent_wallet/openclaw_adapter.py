@@ -41,8 +41,17 @@ class OpenClawWalletAdapter:
     def __init__(self, backend: AgentWalletBackend):
         self.backend = backend
 
+    def _is_mainnet_network(self, network: Any) -> bool:
+        chain = str(getattr(self.backend, "chain", "")).strip().lower()
+        normalized = str(network or "").strip().lower()
+        if chain == "bitcoin":
+            return normalized == "bitcoin"
+        if chain == "evm":
+            return normalized in {"ethereum", "base"}
+        return normalized == "mainnet"
+
     def _is_mainnet(self) -> bool:
-        return str(getattr(self.backend, "network", "")).strip().lower() == "mainnet"
+        return self._is_mainnet_network(getattr(self.backend, "network", ""))
 
     def _require_prepare_intent(self, user_intent: Any) -> None:
         if user_intent is not True:
@@ -208,6 +217,56 @@ class OpenClawWalletAdapter:
                 "btc_transfer_fingerprint": btc_fingerprint,
             }
 
+        if asset_type == "evm-native-transfer":
+            evm_binding = {
+                "recipient": payload.get("recipient"),
+                "amount_wei": payload.get("amount_wei"),
+                "estimated_fee_wei": payload.get("estimated_fee_wei"),
+            }
+            evm_fingerprint = hashlib.sha256(
+                json.dumps(
+                    evm_binding,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()
+            return {
+                "operation": action_label,
+                "network": str(payload.get("network") or getattr(self.backend, "network", "unknown")),
+                "wallet": payload.get("wallet"),
+                "from_address": payload.get("from_address"),
+                "recipient": payload.get("recipient"),
+                "amount_wei": payload.get("amount_wei"),
+                "estimated_fee_wei": payload.get("estimated_fee_wei"),
+                "evm_transfer_fingerprint": evm_fingerprint,
+            }
+
+        if asset_type == "evm-token-transfer":
+            evm_token_binding = {
+                "recipient": payload.get("recipient"),
+                "token_address": payload.get("token_address"),
+                "amount_raw": payload.get("amount_raw"),
+                "estimated_fee_wei": payload.get("estimated_fee_wei"),
+            }
+            evm_token_fingerprint = hashlib.sha256(
+                json.dumps(
+                    evm_token_binding,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()
+            return {
+                "operation": action_label,
+                "network": str(payload.get("network") or getattr(self.backend, "network", "unknown")),
+                "wallet": payload.get("wallet"),
+                "from_address": payload.get("from_address"),
+                "recipient": payload.get("recipient"),
+                "token_address": payload.get("token_address"),
+                "amount_raw": payload.get("amount_raw"),
+                "estimated_fee_wei": payload.get("estimated_fee_wei"),
+                "evm_token_transfer_fingerprint": evm_token_fingerprint,
+            }
+
         summary: dict[str, Any] = {
             "operation": action_label,
             "network": str(payload.get("network") or getattr(self.backend, "network", "unknown")),
@@ -248,6 +307,10 @@ class OpenClawWalletAdapter:
             "estimated_fee_sats",
             "fee_rate",
             "confirmation_target",
+            "amount_wei",
+            "estimated_fee_wei",
+            "token_address",
+            "amount_raw",
         ):
             value = payload.get(key)
             if value is not None:
@@ -293,7 +356,9 @@ class OpenClawWalletAdapter:
     ) -> dict[str, Any]:
         annotated = dict(payload)
         network = str(annotated.get("network") or getattr(self.backend, "network", "unknown")).strip().lower()
+        is_mainnet = self._is_mainnet_network(network)
         annotated["network"] = network
+        annotated["is_mainnet"] = is_mainnet
         annotated["confirmation_summary"] = self._build_confirmation_summary(
             action_label=action_label,
             payload=annotated,
@@ -301,14 +366,14 @@ class OpenClawWalletAdapter:
         annotated["confirmation_requirements"] = {
             "prepare_requires_user_intent": mode == "prepare",
             "execute_requires_approval_token": mode == "execute",
-            "execute_requires_mainnet_confirmed_in_token": mode == "execute" and network == "mainnet",
+            "execute_requires_mainnet_confirmed_in_token": mode == "execute" and is_mainnet,
         }
         if mode == "preview":
             annotated["approval_hint"] = {
                 "host_must_issue_token_for": annotated["confirmation_summary"],
                 "tool_name": None,
             }
-        if network == "mainnet" and mode in {"preview", "prepare", "execute"}:
+        if is_mainnet and mode in {"preview", "prepare", "execute"}:
             annotated["mainnet_warning"] = (
                 "Mainnet operation. Confirm the network, asset, amount, and destination, validator, or stake account "
                 "before execute. Execute requires a host-issued approval token with mainnet confirmation."
@@ -318,6 +383,152 @@ class OpenClawWalletAdapter:
     def list_tools(self) -> list[AgentToolSpec]:
         """Return wallet tools suitable for agent registration."""
         capabilities = self.backend.get_capabilities()
+        if capabilities.chain == "evm":
+            return [
+                AgentToolSpec(
+                    name="get_wallet_capabilities",
+                    description="Describe the connected wallet backend, chain, and safety limits.",
+                    input_schema={
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": False,
+                    },
+                    read_only=True,
+                    risk_level="low",
+                ),
+                AgentToolSpec(
+                    name="get_wallet_address",
+                    description="Return the configured wallet address for the connected backend.",
+                    input_schema={
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": False,
+                    },
+                    read_only=True,
+                    risk_level="low",
+                ),
+                AgentToolSpec(
+                    name="get_wallet_balance",
+                    description="Get the native token balance for the configured wallet address.",
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "address": {
+                                "type": "string",
+                                "description": "Optional wallet address override.",
+                            }
+                        },
+                        "additionalProperties": False,
+                    },
+                    read_only=True,
+                    risk_level="low",
+                ),
+                AgentToolSpec(
+                    name="get_evm_token_balance",
+                    description="Get the raw ERC-20 token balance for the configured EVM wallet account.",
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "token_address": {
+                                "type": "string",
+                                "description": "ERC-20 token contract address.",
+                            }
+                        },
+                        "required": ["token_address"],
+                        "additionalProperties": False,
+                    },
+                    read_only=True,
+                    risk_level="low",
+                ),
+                AgentToolSpec(
+                    name="get_evm_fee_rates",
+                    description="Get current EVM fee-rate suggestions for the active network.",
+                    input_schema={
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": False,
+                    },
+                    read_only=True,
+                    risk_level="low",
+                ),
+                AgentToolSpec(
+                    name="get_evm_transaction_receipt",
+                    description="Get the transaction receipt for a broadcast EVM transaction hash.",
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "tx_hash": {
+                                "type": "string",
+                                "description": "0x-prefixed EVM transaction hash.",
+                            }
+                        },
+                        "required": ["tx_hash"],
+                        "additionalProperties": False,
+                    },
+                    read_only=True,
+                    risk_level="low",
+                ),
+                AgentToolSpec(
+                    name="transfer_evm_native",
+                    description=(
+                        "Preview, prepare, or execute a native EVM transfer using an amount in wei. "
+                        "Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation."
+                    ),
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "recipient": {"type": "string"},
+                            "amount_wei": {
+                                "type": "string",
+                                "description": "Transfer amount in wei as a base-10 integer string.",
+                            },
+                            "mode": {
+                                "type": "string",
+                                "enum": ["preview", "prepare", "execute"],
+                            },
+                            "purpose": {"type": "string"},
+                            "user_intent": {"type": "boolean"},
+                            "approval_token": {"type": "string"},
+                        },
+                        "required": ["recipient", "amount_wei", "mode", "purpose"],
+                        "additionalProperties": False,
+                    },
+                    read_only=False,
+                    requires_explicit_user_intent=True,
+                    risk_level="high",
+                ),
+                AgentToolSpec(
+                    name="transfer_evm_token",
+                    description=(
+                        "Preview, prepare, or execute an ERC-20 transfer using a raw base-unit amount. "
+                        "Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation."
+                    ),
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "token_address": {"type": "string"},
+                            "recipient": {"type": "string"},
+                            "amount_raw": {
+                                "type": "string",
+                                "description": "Transfer amount in token base units as a base-10 integer string.",
+                            },
+                            "mode": {
+                                "type": "string",
+                                "enum": ["preview", "prepare", "execute"],
+                            },
+                            "purpose": {"type": "string"},
+                            "user_intent": {"type": "boolean"},
+                            "approval_token": {"type": "string"},
+                        },
+                        "required": ["token_address", "recipient", "amount_raw", "mode", "purpose"],
+                        "additionalProperties": False,
+                    },
+                    read_only=False,
+                    requires_explicit_user_intent=True,
+                    risk_level="high",
+                ),
+            ]
+
         if capabilities.chain == "bitcoin":
             return [
                 AgentToolSpec(
@@ -1585,6 +1796,24 @@ class OpenClawWalletAdapter:
                 data = await self.backend.get_btc_max_spendable(fee_rate=fee_rate)
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
 
+            if tool_name == "get_evm_token_balance":
+                token_address = args.get("token_address")
+                if not isinstance(token_address, str) or not token_address.strip():
+                    raise WalletBackendError("token_address is required.")
+                data = await self.backend.get_evm_token_balance(token_address.strip())
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_evm_fee_rates":
+                data = await self.backend.get_evm_fee_rates()
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_evm_transaction_receipt":
+                tx_hash = args.get("tx_hash")
+                if not isinstance(tx_hash, str) or not tx_hash.strip():
+                    raise WalletBackendError("tx_hash is required.")
+                data = await self.backend.get_evm_transaction_receipt(tx_hash.strip())
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
             if tool_name == "get_wallet_portfolio":
                 address = args.get("address")
                 if address is not None and not isinstance(address, str):
@@ -1928,6 +2157,156 @@ class OpenClawWalletAdapter:
                     data=self._annotate_sensitive_payload(
                         result,
                         action_label="BTC transfer",
+                        mode="execute",
+                    ),
+                )
+
+            if tool_name == "transfer_evm_native":
+                recipient = args.get("recipient")
+                amount_wei = args.get("amount_wei")
+                mode = args.get("mode")
+                purpose = args.get("purpose")
+                user_intent = args.get("user_intent", False)
+                approval_token = args.get("approval_token")
+
+                if not isinstance(recipient, str) or not recipient.strip():
+                    raise WalletBackendError("recipient is required.")
+                if not isinstance(amount_wei, str) or not amount_wei.strip().isdigit():
+                    raise WalletBackendError("amount_wei must be a positive integer string.")
+                if int(amount_wei.strip()) <= 0:
+                    raise WalletBackendError("amount_wei must be greater than zero.")
+                if mode not in {"preview", "prepare", "execute"}:
+                    raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
+                if not isinstance(purpose, str) or not purpose.strip():
+                    raise WalletBackendError("purpose is required.")
+
+                preview_kwargs = {
+                    "recipient": recipient.strip(),
+                    "amount_wei": amount_wei.strip(),
+                }
+
+                if mode == "preview":
+                    preview = await self.backend.preview_evm_native_transfer(**preview_kwargs)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            preview,
+                            action_label="EVM native transfer",
+                            mode="preview",
+                        ),
+                    )
+
+                if mode == "prepare":
+                    self._require_prepare_intent(user_intent)
+                    preview = await self.backend.preview_evm_native_transfer(**preview_kwargs)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            self._build_prepare_plan(
+                                preview_payload=preview,
+                                action_label="EVM native transfer",
+                            ),
+                            action_label="EVM native transfer",
+                            mode="prepare",
+                        ),
+                    )
+
+                execute_preview = await self.backend.preview_evm_native_transfer(**preview_kwargs)
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=self._build_confirmation_summary(
+                        action_label="EVM native transfer",
+                        payload=execute_preview,
+                    ),
+                    action_label="EVM native transfer",
+                )
+                result = await self.backend.send_evm_native_transfer(**preview_kwargs)
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=self._annotate_sensitive_payload(
+                        result,
+                        action_label="EVM native transfer",
+                        mode="execute",
+                    ),
+                )
+
+            if tool_name == "transfer_evm_token":
+                token_address = args.get("token_address")
+                recipient = args.get("recipient")
+                amount_raw = args.get("amount_raw")
+                mode = args.get("mode")
+                purpose = args.get("purpose")
+                user_intent = args.get("user_intent", False)
+                approval_token = args.get("approval_token")
+
+                if not isinstance(token_address, str) or not token_address.strip():
+                    raise WalletBackendError("token_address is required.")
+                if not isinstance(recipient, str) or not recipient.strip():
+                    raise WalletBackendError("recipient is required.")
+                if not isinstance(amount_raw, str) or not amount_raw.strip().isdigit():
+                    raise WalletBackendError("amount_raw must be a positive integer string.")
+                if int(amount_raw.strip()) <= 0:
+                    raise WalletBackendError("amount_raw must be greater than zero.")
+                if mode not in {"preview", "prepare", "execute"}:
+                    raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
+                if not isinstance(purpose, str) or not purpose.strip():
+                    raise WalletBackendError("purpose is required.")
+
+                preview_kwargs = {
+                    "token_address": token_address.strip(),
+                    "recipient": recipient.strip(),
+                    "amount_raw": amount_raw.strip(),
+                }
+
+                if mode == "preview":
+                    preview = await self.backend.preview_evm_token_transfer(**preview_kwargs)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            preview,
+                            action_label="EVM token transfer",
+                            mode="preview",
+                        ),
+                    )
+
+                if mode == "prepare":
+                    self._require_prepare_intent(user_intent)
+                    preview = await self.backend.preview_evm_token_transfer(**preview_kwargs)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            self._build_prepare_plan(
+                                preview_payload=preview,
+                                action_label="EVM token transfer",
+                            ),
+                            action_label="EVM token transfer",
+                            mode="prepare",
+                        ),
+                    )
+
+                execute_preview = await self.backend.preview_evm_token_transfer(**preview_kwargs)
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=self._build_confirmation_summary(
+                        action_label="EVM token transfer",
+                        payload=execute_preview,
+                    ),
+                    action_label="EVM token transfer",
+                )
+                result = await self.backend.send_evm_token_transfer(**preview_kwargs)
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=self._annotate_sensitive_payload(
+                        result,
+                        action_label="EVM token transfer",
                         mode="execute",
                     ),
                 )
