@@ -10,7 +10,6 @@ from urllib.parse import urlparse
 import httpx
 
 from agent_wallet.config import resolve_openclaw_home
-from agent_wallet.http_client import get_client
 from agent_wallet.wallet_layer.base import WalletBackendError
 
 LOCAL_WDK_BTC_HOSTS = {"127.0.0.1", "localhost", "::1"}
@@ -75,20 +74,23 @@ class WdkBtcLocalClient:
         }
 
     async def post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
-        response = await get_client().post(
-            f"{self.base_url}{path}",
-            json=payload,
+        async with httpx.AsyncClient(
+            timeout=10.0,
             headers=self._headers,
             follow_redirects=False,
-        )
+            trust_env=False,
+        ) as client:
+            response = await client.post(f"{self.base_url}{path}", json=payload)
         return _unwrap_payload(response)
 
     async def get(self, path: str) -> dict[str, Any]:
-        response = await get_client().get(
-            f"{self.base_url}{path}",
+        async with httpx.AsyncClient(
+            timeout=10.0,
             headers=self._headers,
             follow_redirects=False,
-        )
+            trust_env=False,
+        ) as client:
+            response = await client.get(f"{self.base_url}{path}")
         return _unwrap_payload(response)
 
     def post_sync(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -96,6 +98,7 @@ class WdkBtcLocalClient:
             timeout=10.0,
             headers=self._headers,
             follow_redirects=False,
+            trust_env=False,
         ) as client:
             response = client.post(f"{self.base_url}{path}", json=payload)
         return _unwrap_payload(response)
@@ -105,6 +108,7 @@ class WdkBtcLocalClient:
             timeout=10.0,
             headers=self._headers,
             follow_redirects=False,
+            trust_env=False,
         ) as client:
             response = client.get(f"{self.base_url}{path}")
         return _unwrap_payload(response)
