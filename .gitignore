@@ -28,3 +28,8 @@ agent-a2a-gateway/.env.*
 
 # OS files
 .DS_Store
+
+# Local private application materials
+
+about_AL.md
+~$*.docx
