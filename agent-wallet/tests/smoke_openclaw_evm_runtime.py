@@ -12,6 +12,13 @@ from _wdk_evm_test_server import FakeWdkEvmWalletServer  # noqa: E402
 
 
 def main() -> None:
+    temp_home = Path("/tmp/openclaw-evm-runtime-smoke")
+    if temp_home.exists():
+        import shutil
+
+        shutil.rmtree(temp_home)
+    os.environ["OPENCLAW_HOME"] = str(temp_home)
+
     with FakeWdkEvmWalletServer(network="base-sepolia") as server:
         os.environ["AGENT_WALLET_BACKEND"] = "wdk_evm_local"
         os.environ["WDK_EVM_SERVICE_URL"] = server.base_url

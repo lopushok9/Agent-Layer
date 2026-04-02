@@ -1,6 +1,17 @@
 import WDK from "@tetherto/wdk";
 import WalletManagerEvm from "@tetherto/wdk-wallet-evm";
 
+function createTaggedError(message, code, details = {}) {
+  const error = new Error(message);
+  if (typeof code === "string" && code.trim()) {
+    error.errorCode = code.trim();
+  }
+  if (details && typeof details === "object" && !Array.isArray(details)) {
+    error.errorDetails = details;
+  }
+  return error;
+}
+
 function assertNonEmptyString(value, fieldName) {
   if (typeof value !== "string" || !value.trim()) {
     throw new Error(`${fieldName} is required.`);
@@ -90,24 +101,56 @@ function formatUnits(value, decimals = 18) {
 }
 
 async function rpcRequest(providerUrl, method, params = []) {
-  const response = await fetch(providerUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method,
-      params,
-    }),
-  });
-  if (!response.ok) {
-    throw new Error(`RPC request failed with HTTP ${response.status}.`);
+  let response;
+  try {
+    response = await fetch(providerUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method,
+        params,
+      }),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw createTaggedError(`RPC network unavailable: ${message}`, "network_unavailable", {
+      providerUrl,
+      rpcMethod: method,
+    });
   }
-  const payload = await response.json();
+  if (!response.ok) {
+    throw createTaggedError(`RPC request failed with HTTP ${response.status}.`, "network_unavailable", {
+      providerUrl,
+      rpcMethod: method,
+      httpStatus: response.status,
+    });
+  }
+  let payload;
+  try {
+    payload = await response.json();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw createTaggedError(`RPC returned invalid JSON: ${message}`, "network_unavailable", {
+      providerUrl,
+      rpcMethod: method,
+    });
+  }
   if (payload?.error) {
-    throw new Error(payload.error.message || `RPC ${method} failed.`);
+    const rpcMessage = payload.error.message || `RPC ${method} failed.`;
+    const error = new Error(rpcMessage);
+    if (payload.error.code !== undefined && payload.error.code !== null) {
+      error.code = String(payload.error.code);
+    }
+    error.errorDetails = {
+      providerUrl,
+      rpcMethod: method,
+      rpcCode: payload.error.code,
+    };
+    throw error;
   }
   return payload.result;
 }

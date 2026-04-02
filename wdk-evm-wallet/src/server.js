@@ -14,6 +14,119 @@ const service = new WdkEvmWalletService(config);
 const vault = new LocalEvmVault(config);
 const networkState = new EvmNetworkState(config);
 
+function normalizeErrorCode(errorCode, pathname, message) {
+  const code = String(errorCode || "").trim().toLowerCase();
+  const lower = String(message || "").toLowerCase();
+  const isTokenPath = pathname.includes("/token");
+
+  if (code === "insufficient_funds") {
+    return "insufficient_funds";
+  }
+  if (code === "network_unavailable") {
+    return "network_unavailable";
+  }
+  if (
+    code === "call_exception" ||
+    code === "bad_data" ||
+    code === "execution_reverted" ||
+    code === "contract_not_found"
+  ) {
+    if (isTokenPath) {
+      return "token_not_found";
+    }
+  }
+  if (
+    code === "econnrefused" ||
+    code === "enotfound" ||
+    code === "etimedout" ||
+    code === "fetch_failed"
+  ) {
+    return "network_unavailable";
+  }
+
+  if (lower.includes("wallet is locked")) {
+    return "wallet_locked";
+  }
+  if (lower.includes("insufficient funds")) {
+    return "insufficient_funds";
+  }
+  if (
+    lower.includes("recipient must be a valid") ||
+    lower.includes("recipient must not be the zero address") ||
+    lower.includes("to must be a valid") ||
+    lower.includes("to must not be the zero address") ||
+    lower.includes("invalid address") ||
+    lower.includes("bad address checksum")
+  ) {
+    return "recipient_invalid";
+  }
+  if (
+    isTokenPath &&
+    (lower.includes("missing revert data") ||
+      lower.includes("call exception") ||
+      lower.includes("could not decode result data") ||
+      lower.includes("no contract code") ||
+      lower.includes("execution reverted"))
+  ) {
+    return "token_not_found";
+  }
+  if (
+    lower.includes("rpc network unavailable") ||
+    lower.includes("rpc request failed") ||
+    lower.includes("rpc returned invalid json") ||
+    lower.includes("fetch failed") ||
+    lower.includes("network unavailable") ||
+    lower.includes("timeout")
+  ) {
+    return "network_unavailable";
+  }
+  if (lower.includes("unknown walletid")) {
+    return "wallet_not_found";
+  }
+  if (lower.includes("invalid password")) {
+    return "invalid_password";
+  }
+
+  return null;
+}
+
+function errorStatusCode(errorCode, fallback = 400) {
+  if (errorCode === "wallet_locked" || errorCode === "insufficient_funds") {
+    return 409;
+  }
+  if (errorCode === "network_unavailable") {
+    return 503;
+  }
+  if (errorCode === "wallet_not_found" || errorCode === "token_not_found") {
+    return 404;
+  }
+  return fallback;
+}
+
+function toErrorResponse(error, pathname, fallbackStatus = 400) {
+  const message = error instanceof Error ? error.message : String(error);
+  const explicitCode =
+    (typeof error?.errorCode === "string" && error.errorCode.trim()) ||
+    (typeof error?.code === "string" && error.code.trim()) ||
+    "";
+  const errorCode = normalizeErrorCode(explicitCode, pathname, message);
+  const details =
+    error && typeof error === "object" && error.errorDetails && typeof error.errorDetails === "object"
+      ? { ...error.errorDetails }
+      : {};
+  details.source = "wdk-evm-wallet";
+  details.path = pathname;
+  return {
+    statusCode: errorStatusCode(errorCode, fallbackStatus),
+    payload: {
+      ok: false,
+      error: message,
+      ...(errorCode ? { error_code: errorCode } : {}),
+      error_details: details,
+    },
+  };
+}
+
 function notFound(response) {
   sendJson(response, 404, { ok: false, error: "Not Found" });
 }
@@ -242,19 +355,15 @@ async function handleRequest(request, response) {
 
     return notFound(response);
   } catch (error) {
-    return sendJson(response, 400, {
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-    });
+    const shaped = toErrorResponse(error, new URL(request.url || "/", "http://localhost").pathname, 400);
+    return sendJson(response, shaped.statusCode, shaped.payload);
   }
 }
 
 const server = createServer((request, response) => {
   handleRequest(request, response).catch((error) => {
-    sendJson(response, 500, {
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-    });
+    const shaped = toErrorResponse(error, new URL(request.url || "/", "http://localhost").pathname, 500);
+    sendJson(response, shaped.statusCode, shaped.payload);
   });
 });
 

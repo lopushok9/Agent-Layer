@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from _secret_test_utils import install_test_sealed_secrets  # noqa: E402
 from agent_wallet.approval import issue_approval_token  # noqa: E402
 from agent_wallet.openclaw_adapter import OpenClawWalletAdapter  # noqa: E402
-from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletCapabilities  # noqa: E402
+from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendError, WalletCapabilities  # noqa: E402
 
 
 class FakeEvmBackend(AgentWalletBackend):
@@ -219,6 +219,19 @@ async def _main() -> None:
     )
     assert executed.ok is True
     assert executed.data["hash"].startswith("0x")
+
+    class LockedEvmBackend(FakeEvmBackend):
+        async def get_balance(self, address: str | None = None) -> dict:
+            raise WalletBackendError(
+                "Wallet is locked. Unlock it first or provide seedPhrase explicitly.",
+                code="wallet_locked",
+                details={"source": "wdk-evm-wallet"},
+            )
+
+    shaped_error = await OpenClawWalletAdapter(LockedEvmBackend()).invoke("get_wallet_balance", {})
+    assert shaped_error.ok is False
+    assert shaped_error.error_code == "wallet_locked"
+    assert shaped_error.error_details == {"source": "wdk-evm-wallet"}
 
 
 def main() -> None:

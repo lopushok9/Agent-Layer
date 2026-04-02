@@ -3223,4 +3223,12 @@ class OpenClawWalletAdapter:
 
             raise WalletBackendError(f"Unsupported wallet tool: {tool_name}")
         except Exception as exc:
+            if isinstance(exc, WalletBackendError):
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=False,
+                    error=str(exc),
+                    error_code=exc.code,
+                    error_details=exc.details,
+                )
             return AgentToolResult(tool=tool_name, ok=False, error=str(exc))

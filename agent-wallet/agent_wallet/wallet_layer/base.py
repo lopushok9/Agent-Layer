@@ -10,6 +10,17 @@ from typing import Any
 class WalletBackendError(Exception):
     """Wallet backend or signer error."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str | None = None,
+        details: dict[str, Any] | None = None,
+    ):
+        super().__init__(message)
+        self.code = str(code).strip() if isinstance(code, str) and code.strip() else None
+        self.details = dict(details) if isinstance(details, dict) else None
+
 
 @dataclass(slots=True)
 class WalletCapabilities:

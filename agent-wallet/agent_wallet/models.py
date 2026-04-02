@@ -43,6 +43,8 @@ class AgentToolResult(BaseModel):
     ok: bool
     data: dict[str, Any] | None = None
     error: str | None = None
+    error_code: str | None = None
+    error_details: dict[str, Any] | None = None
 
 
 class OpenClawWalletSessionMetadata(BaseModel):

@@ -15,6 +15,11 @@ from agent_wallet.wallet_layer.base import WalletBackendError
 LOCAL_WDK_EVM_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
+def _error_details_from_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
+    details = payload.get("error_details")
+    return dict(details) if isinstance(details, dict) else None
+
+
 def _normalize_base_url(value: str) -> str:
     text = str(value or "").strip()
     if not text:
@@ -52,11 +57,20 @@ def _unwrap_payload(response: httpx.Response) -> dict[str, Any]:
         payload = response.json()
     except Exception as exc:  # pragma: no cover - defensive
         raise WalletBackendError(
-            f"wdk-evm-wallet returned a non-JSON response ({response.status_code})."
+            f"wdk-evm-wallet returned a non-JSON response ({response.status_code}).",
+            code="network_unavailable",
+            details={
+                "service": "wdk-evm-wallet",
+                "http_status": response.status_code,
+            },
         ) from exc
     if response.status_code >= 400 or payload.get("ok") is False:
         detail = payload.get("error") or f"HTTP {response.status_code}"
-        raise WalletBackendError(str(detail))
+        raise WalletBackendError(
+            str(detail),
+            code=str(payload.get("error_code") or "").strip() or None,
+            details=_error_details_from_payload(payload),
+        )
     data = payload.get("data")
     if not isinstance(data, dict):
         raise WalletBackendError("wdk-evm-wallet returned an invalid response payload.")
@@ -74,41 +88,93 @@ class WdkEvmLocalClient:
         }
 
     async def post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
-        async with httpx.AsyncClient(
-            timeout=10.0,
-            headers=self._headers,
-            follow_redirects=False,
-            trust_env=False,
-        ) as client:
-            response = await client.post(f"{self.base_url}{path}", json=payload)
+        try:
+            async with httpx.AsyncClient(
+                timeout=10.0,
+                headers=self._headers,
+                follow_redirects=False,
+                trust_env=False,
+            ) as client:
+                response = await client.post(f"{self.base_url}{path}", json=payload)
+        except httpx.TimeoutException as exc:
+            raise WalletBackendError(
+                "wdk-evm-wallet request timed out.",
+                code="network_unavailable",
+                details={"service": "wdk-evm-wallet", "path": path},
+            ) from exc
+        except httpx.RequestError as exc:
+            raise WalletBackendError(
+                f"wdk-evm-wallet request failed: {exc}",
+                code="network_unavailable",
+                details={"service": "wdk-evm-wallet", "path": path},
+            ) from exc
         return _unwrap_payload(response)
 
     async def get(self, path: str) -> dict[str, Any]:
-        async with httpx.AsyncClient(
-            timeout=10.0,
-            headers=self._headers,
-            follow_redirects=False,
-            trust_env=False,
-        ) as client:
-            response = await client.get(f"{self.base_url}{path}")
+        try:
+            async with httpx.AsyncClient(
+                timeout=10.0,
+                headers=self._headers,
+                follow_redirects=False,
+                trust_env=False,
+            ) as client:
+                response = await client.get(f"{self.base_url}{path}")
+        except httpx.TimeoutException as exc:
+            raise WalletBackendError(
+                "wdk-evm-wallet request timed out.",
+                code="network_unavailable",
+                details={"service": "wdk-evm-wallet", "path": path},
+            ) from exc
+        except httpx.RequestError as exc:
+            raise WalletBackendError(
+                f"wdk-evm-wallet request failed: {exc}",
+                code="network_unavailable",
+                details={"service": "wdk-evm-wallet", "path": path},
+            ) from exc
         return _unwrap_payload(response)
 
     def post_sync(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
-        with httpx.Client(
-            timeout=10.0,
-            headers=self._headers,
-            follow_redirects=False,
-            trust_env=False,
-        ) as client:
-            response = client.post(f"{self.base_url}{path}", json=payload)
+        try:
+            with httpx.Client(
+                timeout=10.0,
+                headers=self._headers,
+                follow_redirects=False,
+                trust_env=False,
+            ) as client:
+                response = client.post(f"{self.base_url}{path}", json=payload)
+        except httpx.TimeoutException as exc:
+            raise WalletBackendError(
+                "wdk-evm-wallet request timed out.",
+                code="network_unavailable",
+                details={"service": "wdk-evm-wallet", "path": path},
+            ) from exc
+        except httpx.RequestError as exc:
+            raise WalletBackendError(
+                f"wdk-evm-wallet request failed: {exc}",
+                code="network_unavailable",
+                details={"service": "wdk-evm-wallet", "path": path},
+            ) from exc
         return _unwrap_payload(response)
 
     def get_sync(self, path: str) -> dict[str, Any]:
-        with httpx.Client(
-            timeout=10.0,
-            headers=self._headers,
-            follow_redirects=False,
-            trust_env=False,
-        ) as client:
-            response = client.get(f"{self.base_url}{path}")
+        try:
+            with httpx.Client(
+                timeout=10.0,
+                headers=self._headers,
+                follow_redirects=False,
+                trust_env=False,
+            ) as client:
+                response = client.get(f"{self.base_url}{path}")
+        except httpx.TimeoutException as exc:
+            raise WalletBackendError(
+                "wdk-evm-wallet request timed out.",
+                code="network_unavailable",
+                details={"service": "wdk-evm-wallet", "path": path},
+            ) from exc
+        except httpx.RequestError as exc:
+            raise WalletBackendError(
+                f"wdk-evm-wallet request failed: {exc}",
+                code="network_unavailable",
+                details={"service": "wdk-evm-wallet", "path": path},
+            ) from exc
         return _unwrap_payload(response)

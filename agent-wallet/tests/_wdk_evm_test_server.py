@@ -18,11 +18,13 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
         host: str = "127.0.0.1",
         port: int = 0,
         auth_token: str = "test-local-evm-token",
+        error_responses: dict[str, dict[str, Any]] | None = None,
     ):
         self.network = network
         self.host = host
         self.port = int(port)
         self.auth_token = str(auth_token).strip()
+        self.error_responses = dict(error_responses or {})
         self.address = "0x1111111111111111111111111111111111111111"
         self.token = "0x2222222222222222222222222222222222222222"
         self.sent_payloads: list[dict[str, Any]] = []
@@ -78,6 +80,13 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                 return json.loads(raw.decode("utf-8"))
 
             def do_GET(self) -> None:  # noqa: N802
+                error_config = outer.error_responses.get(f"GET {self.path}")
+                if error_config is not None:
+                    self._send(
+                        int(error_config.get("status", 400)),
+                        dict(error_config.get("payload") or {}),
+                    )
+                    return
                 if self.path == "/health":
                     self._send(
                         200,
@@ -140,6 +149,13 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                 self._send(404, {"ok": False, "error": "Not Found"})
 
             def do_POST(self) -> None:  # noqa: N802
+                error_config = outer.error_responses.get(f"POST {self.path}")
+                if error_config is not None:
+                    self._send(
+                        int(error_config.get("status", 400)),
+                        dict(error_config.get("payload") or {}),
+                    )
+                    return
                 if not self._authorized():
                     self._send(401, {"ok": False, "error": "Unauthorized."})
                     return
