@@ -1,10 +1,4 @@
-"""Live Sepolia smoke for the local EVM wallet prepare/execute flow.
-
-This test is intentionally stateful:
-- it assumes a bound local EVM wallet already exists for the configured user
-- it sends a very small amount of Sepolia ETH to a configured recipient
-- it verifies the full OpenClaw CLI path: balance -> prepare -> issue-approval -> execute -> receipt
-"""
+"""Live EVM smoke for the local ERC-20 prepare/execute flow."""
 
 from __future__ import annotations
 
@@ -26,10 +20,11 @@ from agent_wallet.user_wallets import normalize_user_id  # noqa: E402
 
 
 DEFAULT_USER_ID = "evm-live@example.com"
-DEFAULT_NETWORK = "sepolia"
+DEFAULT_NETWORK = "base-sepolia"
 DEFAULT_SERVICE_URL = "http://127.0.0.1:18087"
 DEFAULT_RECIPIENT = "0x3333333333333333333333333333333333333333"
-DEFAULT_AMOUNT_WEI = "100000000000000"
+DEFAULT_TOKEN_ADDRESS = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+DEFAULT_AMOUNT_RAW = "100000"
 
 
 def _config() -> dict[str, object]:
@@ -57,8 +52,12 @@ def _recipient() -> str:
     return os.environ.get("OPENCLAW_EVM_TEST_RECIPIENT", DEFAULT_RECIPIENT)
 
 
-def _amount_wei() -> str:
-    return os.environ.get("OPENCLAW_EVM_TEST_AMOUNT_WEI", DEFAULT_AMOUNT_WEI)
+def _token_address() -> str:
+    return os.environ.get("OPENCLAW_EVM_TEST_TOKEN_ADDRESS", DEFAULT_TOKEN_ADDRESS)
+
+
+def _amount_raw() -> str:
+    return os.environ.get("OPENCLAW_EVM_TEST_AMOUNT_RAW", DEFAULT_AMOUNT_RAW)
 
 
 def _run_cli(*args: str) -> dict[str, object]:
@@ -119,7 +118,7 @@ def _require_ok(payload: dict[str, object], label: str) -> dict[str, object]:
     return data
 
 
-def _wait_for_receipt(tx_hash: str, *, timeout_seconds: int = 60) -> dict[str, object]:
+def _wait_for_receipt(tx_hash: str, *, timeout_seconds: int = 90) -> dict[str, object]:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
         receipt_payload = _invoke("get_evm_transaction_receipt", {"tx_hash": tx_hash})
@@ -166,33 +165,36 @@ def _prepare_isolated_openclaw_home(temp_home: Path) -> None:
 
     install_test_sealed_secrets(
         temp_home,
-        boot_key="live-evm-smoke-boot-key",
-        master_key="live-evm-smoke-master-key",
-        approval_secret="live-evm-smoke-approval-secret",
+        boot_key="live-evm-token-smoke-boot-key",
+        master_key="live-evm-token-smoke-master-key",
+        approval_secret="live-evm-token-smoke-approval-secret",
     )
 
 
 def main() -> None:
-    with tempfile.TemporaryDirectory(prefix="openclaw-evm-live-smoke-") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="openclaw-evm-token-live-smoke-") as temp_dir:
         temp_home = Path(temp_dir)
         _prepare_isolated_openclaw_home(temp_home)
 
-        balance_data = _require_ok(_invoke("get_wallet_balance", {}), "get_wallet_balance")
-        assert balance_data["chain"] == "evm"
-        assert balance_data["network"] == _config()["network"]
-        assert str(balance_data["address"]).startswith("0x")
+        token_balance = _require_ok(
+            _invoke("get_evm_token_balance", {"token_address": _token_address()}),
+            "get_evm_token_balance",
+        )
+        assert token_balance["chain"] == "evm"
+        assert token_balance["network"] == _config()["network"]
 
         prepare_payload = _invoke(
-            "transfer_evm_native",
+            "transfer_evm_token",
             {
+                "token_address": _token_address(),
                 "recipient": _recipient(),
-                "amount_wei": _amount_wei(),
+                "amount_raw": _amount_raw(),
                 "mode": "prepare",
-                "purpose": "live sepolia native transfer smoke",
+                "purpose": "live evm token transfer smoke",
                 "user_intent": True,
             },
         )
-        prepare_data = _require_ok(prepare_payload, "transfer_evm_native prepare")
+        prepare_data = _require_ok(prepare_payload, "transfer_evm_token prepare")
         assert prepare_data["execution_plan_only"] is True
         assert prepare_data["prepared"] is False
         assert prepare_data["broadcasted"] is False
@@ -200,7 +202,7 @@ def main() -> None:
         assert isinstance(prepare_data.get("confirmation_summary"), dict)
 
         approval_payload = _issue_approval(
-            "transfer_evm_native",
+            "transfer_evm_token",
             prepare_data["confirmation_summary"],
         )
         approval_token = str(approval_payload.get("approval_token") or "").strip()
@@ -208,16 +210,17 @@ def main() -> None:
             raise RuntimeError(f"issue-approval did not return an approval_token: {approval_payload}")
 
         execute_payload = _invoke(
-            "transfer_evm_native",
+            "transfer_evm_token",
             {
+                "token_address": _token_address(),
                 "recipient": _recipient(),
-                "amount_wei": _amount_wei(),
+                "amount_raw": _amount_raw(),
                 "mode": "execute",
-                "purpose": "live sepolia native transfer smoke",
+                "purpose": "live evm token transfer smoke",
                 "approval_token": approval_token,
             },
         )
-        execute_data = _require_ok(execute_payload, "transfer_evm_native execute")
+        execute_data = _require_ok(execute_payload, "transfer_evm_token execute")
         tx_hash = str(execute_data.get("hash") or "").strip()
         if not tx_hash.startswith("0x"):
             raise RuntimeError(f"execute did not return a transaction hash: {execute_payload}")
@@ -233,9 +236,10 @@ def main() -> None:
                 {
                     "user_id": _user_id(),
                     "network": _config()["network"],
-                    "wallet_address": balance_data["address"],
+                    "wallet_address": token_balance["address"],
+                    "token_address": _token_address(),
                     "recipient": _recipient(),
-                    "amount_wei": _amount_wei(),
+                    "amount_raw": _amount_raw(),
                     "tx_hash": tx_hash,
                     "receipt_status": receipt.get("status"),
                 },
