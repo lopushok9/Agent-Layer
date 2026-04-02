@@ -8,7 +8,7 @@ from typing import Any
 from agent_wallet.approval import issue_approval_token
 from agent_wallet.btc_user_wallets import get_user_btc_wallet_binding
 from agent_wallet.config import settings
-from agent_wallet.evm_user_wallets import get_user_evm_wallet_binding
+from agent_wallet.evm_user_wallets import ensure_user_evm_wallet_binding, get_user_evm_wallet_binding
 from agent_wallet.models import OpenClawWalletSessionMetadata
 from agent_wallet.openclaw_adapter import OpenClawWalletAdapter
 from agent_wallet.plugin_bundle import build_openclaw_plugin_bundle
@@ -160,8 +160,33 @@ def onboard_openclaw_user_wallet(
         wallet_id = settings.wdk_evm_wallet_id.strip()
         if not service_url:
             raise WalletBackendError("wdk_evm_service_url is required for backend=wdk_evm_local.")
-        if not wallet_id:
-            binding = get_user_evm_wallet_binding(user_id, network=effective_network)
+        if wallet_id:
+            try:
+                binding = get_user_evm_wallet_binding(user_id, network=effective_network)
+            except WalletBackendError:
+                binding = ensure_user_evm_wallet_binding(
+                    user_id,
+                    network=effective_network,
+                    service_url=service_url,
+                    wallet_id=wallet_id,
+                    account_index=settings.wdk_evm_account_index,
+                )
+            else:
+                if str(binding.get("wallet_id") or "").strip() != wallet_id:
+                    binding = ensure_user_evm_wallet_binding(
+                        user_id,
+                        network=effective_network,
+                        service_url=service_url,
+                        wallet_id=wallet_id,
+                        account_index=settings.wdk_evm_account_index,
+                    )
+        else:
+            binding = ensure_user_evm_wallet_binding(
+                user_id,
+                network=effective_network,
+                service_url=service_url,
+                account_index=settings.wdk_evm_account_index,
+            )
             wallet_id = str(binding.get("wallet_id") or "").strip()
         if not wallet_id:
             raise WalletBackendError(

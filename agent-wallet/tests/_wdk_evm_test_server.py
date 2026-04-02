@@ -37,13 +37,17 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
 
     @property
     def chain_id(self) -> int:
+        return self.chain_id_for(self.network)
+
+    @staticmethod
+    def chain_id_for(network: str) -> int:
         mapping = {
             "ethereum": 1,
             "sepolia": 11155111,
             "base": 8453,
             "base-sepolia": 84532,
         }
-        return mapping[self.network]
+        return mapping[network]
 
     def __enter__(self) -> "FakeWdkEvmWalletServer":
         outer = self
@@ -141,6 +145,8 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                     return
                 body = self._read_json()
                 wallet_id = str(body.get("walletId") or "").strip()
+                requested_network = str(body.get("network") or outer.network)
+                requested_chain_id = outer.chain_id_for(requested_network)
 
                 if self.path == "/v1/evm/wallets/get":
                     if wallet_id != outer.wallet_id:
@@ -248,8 +254,8 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                             "ok": True,
                             "data": {
                                 "address": outer.address,
-                                "network": str(body.get("network") or outer.network),
-                                "chainId": outer.chain_id,
+                                "network": requested_network,
+                                "chainId": requested_chain_id,
                             },
                         },
                     )
@@ -262,8 +268,8 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                             "ok": True,
                             "data": {
                                 "address": outer.address,
-                                "network": str(body.get("network") or outer.network),
-                                "chainId": outer.chain_id,
+                                "network": requested_network,
+                                "chainId": requested_chain_id,
                                 "nativeSymbol": "ETH",
                                 "balance": "1230000000000000000",
                                 "balanceFormatted": "1.23",
@@ -279,8 +285,8 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                             "ok": True,
                             "data": {
                                 "address": outer.address,
-                                "network": str(body.get("network") or outer.network),
-                                "chainId": outer.chain_id,
+                                "network": requested_network,
+                                "chainId": requested_chain_id,
                                 "tokenAddress": str(body.get("tokenAddress") or outer.token),
                                 "balance": "42000000",
                             },
@@ -294,8 +300,8 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                         {
                             "ok": True,
                             "data": {
-                                "network": str(body.get("network") or outer.network),
-                                "chainId": outer.chain_id,
+                                "network": requested_network,
+                                "chainId": requested_chain_id,
                                 "gasPrice": "1200000000",
                                 "feeRates": {
                                     "slow": "1200000000",
@@ -316,8 +322,8 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                         {
                             "ok": True,
                             "data": {
-                                "network": str(body.get("network") or outer.network),
-                                "chainId": outer.chain_id,
+                                "network": requested_network,
+                                "chainId": requested_chain_id,
                                 "txHash": tx_hash,
                                 "found": True,
                                 "receipt": {
@@ -336,8 +342,8 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                         {
                             "ok": True,
                             "data": {
-                                "network": str(body.get("network") or outer.network),
-                                "chainId": outer.chain_id,
+                                "network": requested_network,
+                                "chainId": requested_chain_id,
                                 "quote": {
                                     "fee": "21000000000000",
                                     "gasLimit": "21000",
@@ -354,8 +360,8 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                         {
                             "ok": True,
                             "data": {
-                                "network": str(body.get("network") or outer.network),
-                                "chainId": outer.chain_id,
+                                "network": requested_network,
+                                "chainId": requested_chain_id,
                                 "result": {
                                     "hash": "0x" + "b" * 64,
                                     "fee": "21000000000000",
@@ -371,8 +377,8 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                         {
                             "ok": True,
                             "data": {
-                                "network": str(body.get("network") or outer.network),
-                                "chainId": outer.chain_id,
+                                "network": requested_network,
+                                "chainId": requested_chain_id,
                                 "quote": {
                                     "fee": "45000000000000",
                                     "gasLimit": "65000",
@@ -389,8 +395,8 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                         {
                             "ok": True,
                             "data": {
-                                "network": str(body.get("network") or outer.network),
-                                "chainId": outer.chain_id,
+                                "network": requested_network,
+                                "chainId": requested_chain_id,
                                 "result": {
                                     "hash": "0x" + "c" * 64,
                                     "fee": "45000000000000",

@@ -12,7 +12,7 @@ from _wdk_evm_test_server import FakeWdkEvmWalletServer  # noqa: E402
 
 
 def main() -> None:
-    with FakeWdkEvmWalletServer(network="sepolia") as server:
+    with FakeWdkEvmWalletServer(network="base-sepolia") as server:
         os.environ["AGENT_WALLET_BACKEND"] = "wdk_evm_local"
         os.environ["WDK_EVM_SERVICE_URL"] = server.base_url
         os.environ["WDK_EVM_LOCAL_TOKEN"] = server.auth_token
@@ -20,7 +20,11 @@ def main() -> None:
         os.environ["WDK_EVM_ACCOUNT_INDEX"] = "0"
         os.environ["SOLANA_NETWORK"] = "sepolia"
 
-        from agent_wallet.evm_user_wallets import create_user_evm_wallet  # noqa: E402
+        from agent_wallet.evm_user_wallets import (  # noqa: E402
+            create_user_evm_wallet,
+            get_user_evm_wallet_binding,
+            resolve_user_evm_wallet_path,
+        )
         from agent_wallet.openclaw_runtime import onboard_openclaw_user_wallet  # noqa: E402
 
         created = create_user_evm_wallet(
@@ -44,6 +48,25 @@ def main() -> None:
         assert "transfer_evm_native" in session.tool_names
         assert "transfer_sol" not in session.tool_names
         assert bundle["session"]["address"] == session.address
+
+        autobind_user = "runtime-evm-autobind@example.com"
+        created_autobind = create_user_evm_wallet(
+            autobind_user,
+            password="runtime-evm-password",
+            network="sepolia",
+            service_url=server.base_url,
+        )
+        assert created_autobind["wallet_id"] == server.wallet_id
+        assert resolve_user_evm_wallet_path(autobind_user, network="base-sepolia").exists() is False
+
+        autobind_context = onboard_openclaw_user_wallet(autobind_user, network="base-sepolia")
+        autobind_session = autobind_context.session_metadata()
+        autobind_binding = get_user_evm_wallet_binding(autobind_user, network="base-sepolia")
+
+        assert autobind_session.network == "base-sepolia"
+        assert autobind_binding["wallet_id"] == created_autobind["wallet_id"]
+        assert autobind_binding["address"] == created_autobind["address"]
+        assert resolve_user_evm_wallet_path(autobind_user, network="base-sepolia").exists() is True
 
     print("smoke_openclaw_evm_runtime: ok")
 

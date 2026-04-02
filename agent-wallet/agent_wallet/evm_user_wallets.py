@@ -34,9 +34,13 @@ def _resolve_service_url(service_url: str | None = None) -> str:
     return effective
 
 
+def _resolve_user_evm_wallet_dir(user_id: str) -> Path:
+    return resolve_openclaw_home() / "users" / normalize_user_id(user_id) / "wallets"
+
+
 def resolve_user_evm_wallet_path(user_id: str, network: str | None = None) -> Path:
     effective_network = _normalize_evm_network(network or settings.solana_network)
-    user_dir = resolve_openclaw_home() / "users" / normalize_user_id(user_id) / "wallets"
+    user_dir = _resolve_user_evm_wallet_dir(user_id)
     return user_dir / f"evm-{effective_network}-agent.json"
 
 
@@ -53,6 +57,112 @@ def get_user_evm_wallet_binding(user_id: str, network: str | None = None) -> dic
     if not isinstance(payload, dict) or not str(payload.get("wallet_id") or "").strip():
         raise WalletBackendError(f"EVM wallet binding is invalid: {path}")
     return payload
+
+
+def list_user_evm_wallet_bindings(user_id: str) -> list[dict[str, Any]]:
+    user_dir = _resolve_user_evm_wallet_dir(user_id)
+    if not user_dir.exists():
+        return []
+
+    bindings: list[dict[str, Any]] = []
+    for path in sorted(user_dir.glob("evm-*-agent.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        wallet_id = str(payload.get("wallet_id") or "").strip()
+        if not wallet_id:
+            continue
+        bindings.append(payload)
+    return bindings
+
+
+def bind_user_evm_wallet(
+    user_id: str,
+    *,
+    wallet_id: str,
+    network: str | None = None,
+    service_url: str | None = None,
+    account_index: int | None = None,
+) -> dict[str, Any]:
+    effective_network = _normalize_evm_network(network or settings.solana_network)
+    effective_account_index = settings.wdk_evm_account_index if account_index is None else int(account_index)
+    effective_wallet_id = str(wallet_id or "").strip()
+    if not effective_wallet_id:
+        raise WalletBackendError("wallet_id is required for EVM wallet binding.")
+
+    client = WdkEvmLocalClient(_resolve_service_url(service_url))
+    wallet_meta = client.post_sync("/v1/evm/wallets/get", {"walletId": effective_wallet_id})
+    address = client.post_sync(
+        "/v1/evm/address/resolve",
+        {
+            "walletId": effective_wallet_id,
+            "accountIndex": effective_account_index,
+            "network": effective_network,
+        },
+    )
+    binding = {
+        "user_id": user_id,
+        "wallet_id": effective_wallet_id,
+        "label": str(wallet_meta.get("label") or "Agent EVM Wallet"),
+        "network": effective_network,
+        "account_index": effective_account_index,
+        "address": str(address.get("address") or ""),
+        "storage_format": "local_vault",
+        "service_kind": "wdk-evm-wallet",
+        "created_at": wallet_meta.get("createdAt"),
+        "updated_at": wallet_meta.get("updatedAt"),
+    }
+    _write_wallet_binding(resolve_user_evm_wallet_path(user_id, effective_network), binding)
+    return binding
+
+
+def ensure_user_evm_wallet_binding(
+    user_id: str,
+    *,
+    network: str | None = None,
+    service_url: str | None = None,
+    wallet_id: str | None = None,
+    account_index: int | None = None,
+) -> dict[str, Any]:
+    effective_network = _normalize_evm_network(network or settings.solana_network)
+    path = resolve_user_evm_wallet_path(user_id, network=effective_network)
+    if path.exists():
+        return get_user_evm_wallet_binding(user_id, network=effective_network)
+
+    explicit_wallet_id = str(wallet_id or "").strip()
+    if explicit_wallet_id:
+        return bind_user_evm_wallet(
+            user_id,
+            wallet_id=explicit_wallet_id,
+            network=effective_network,
+            service_url=service_url,
+            account_index=account_index,
+        )
+
+    bindings = list_user_evm_wallet_bindings(user_id)
+    if not bindings:
+        raise WalletBackendError(f"EVM wallet binding does not exist yet: {path}")
+
+    wallet_ids = {
+        str(binding.get("wallet_id") or "").strip()
+        for binding in bindings
+        if str(binding.get("wallet_id") or "").strip()
+    }
+    if not wallet_ids:
+        raise WalletBackendError(f"EVM wallet binding does not exist yet: {path}")
+    if len(wallet_ids) > 1:
+        raise WalletBackendError(
+            "Multiple EVM wallet bindings exist for this user. Set wdk_evm_wallet_id explicitly to auto-bind a new network."
+        )
+
+    return bind_user_evm_wallet(
+        user_id,
+        wallet_id=next(iter(wallet_ids)),
+        network=effective_network,
+        service_url=service_url,
+        account_index=account_index,
+    )
 
 
 def create_user_evm_wallet(

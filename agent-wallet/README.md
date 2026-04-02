@@ -324,6 +324,7 @@ For the local EVM backend (`backend=wdk_evm_local`), the lifecycle mirrors the B
 - `agent-wallet` talks to it through a local bearer token loaded from `~/.openclaw/wdk-evm-wallet/local-auth-token`
 - `agent-wallet` stores only a per-user EVM wallet binding under `~/.openclaw/users/<normalized-user-id>/wallets/evm-<network>-agent.json`
 - supported EVM networks are `ethereum`, `sepolia`, `base`, and `base-sepolia`
+- if a requested EVM network binding is missing, `agent-wallet` auto-binds it from the same local wallet when there is exactly one reusable EVM wallet for that user or when `wdkEvmWalletId` is provided explicitly
 - you can manage that binding through `agent_wallet.openclaw_cli`:
   - `evm-wallet-create`
   - `evm-wallet-import`
