@@ -305,6 +305,37 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                                 "chainId": requested_chain_id,
                                 "tokenAddress": str(body.get("tokenAddress") or outer.token),
                                 "balance": "42000000",
+                                "balanceFormatted": "42",
+                                "tokenMetadata": {
+                                    "address": str(body.get("tokenAddress") or outer.token),
+                                    "name": "USD Coin",
+                                    "symbol": "USDC",
+                                    "decimals": 6,
+                                    "verified": False,
+                                    "source": "erc20-rpc",
+                                },
+                            },
+                        },
+                    )
+                    return
+
+                if self.path == "/v1/evm/token-metadata/get":
+                    self._send(
+                        200,
+                        {
+                            "ok": True,
+                            "data": {
+                                "network": requested_network,
+                                "chainId": requested_chain_id,
+                                "tokenAddress": str(body.get("tokenAddress") or outer.token),
+                                "tokenMetadata": {
+                                    "address": str(body.get("tokenAddress") or outer.token),
+                                    "name": "USD Coin",
+                                    "symbol": "USDC",
+                                    "decimals": 6,
+                                    "verified": False,
+                                    "source": "erc20-rpc",
+                                },
                             },
                         },
                     )
@@ -362,16 +393,80 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                                 "chainId": requested_chain_id,
                                 "address": outer.address,
                                 "protocol": "velora",
-                                "executionSupported": False,
+                                "executionSupported": True,
                                 "swapRequest": {
                                     "tokenIn": str(body.get("tokenIn") or outer.token),
                                     "tokenOut": "0x3333333333333333333333333333333333333333",
                                     "tokenInAmount": str(body.get("tokenInAmount") or "1000000"),
                                 },
+                                "tokenInMetadata": {
+                                    "address": str(body.get("tokenIn") or outer.token),
+                                    "name": "USD Coin",
+                                    "symbol": "USDC",
+                                    "decimals": 6,
+                                    "verified": False,
+                                    "source": "erc20-rpc",
+                                },
+                                "tokenOutMetadata": {
+                                    "address": "0x3333333333333333333333333333333333333333",
+                                    "name": "Tether USD",
+                                    "symbol": "USDT",
+                                    "decimals": 6,
+                                    "verified": False,
+                                    "source": "erc20-rpc",
+                                },
+                                "inputAmountFormatted": "1",
+                                "outputAmountFormatted": "0.995",
                                 "quote": {
                                     "tokenInAmount": str(body.get("tokenInAmount") or "1000000"),
                                     "tokenOutAmount": "995000",
                                     "route": "fake-velora-route",
+                                },
+                            },
+                        },
+                    )
+                    return
+
+                if self.path == "/v1/evm/swap/send":
+                    outer.sent_payloads.append(body)
+                    self._send(
+                        200,
+                        {
+                            "ok": True,
+                            "data": {
+                                "network": requested_network,
+                                "chainId": requested_chain_id,
+                                "address": outer.address,
+                                "protocol": "velora",
+                                "executionSupported": True,
+                                "swapRequest": {
+                                    "tokenIn": str(body.get("tokenIn") or outer.token),
+                                    "tokenOut": "0x3333333333333333333333333333333333333333",
+                                    "tokenInAmount": str(body.get("tokenInAmount") or "1000000"),
+                                },
+                                "tokenInMetadata": {
+                                    "address": str(body.get("tokenIn") or outer.token),
+                                    "name": "USD Coin",
+                                    "symbol": "USDC",
+                                    "decimals": 6,
+                                    "verified": False,
+                                    "source": "erc20-rpc",
+                                },
+                                "tokenOutMetadata": {
+                                    "address": "0x3333333333333333333333333333333333333333",
+                                    "name": "Tether USD",
+                                    "symbol": "USDT",
+                                    "decimals": 6,
+                                    "verified": False,
+                                    "source": "erc20-rpc",
+                                },
+                                "inputAmountFormatted": "1",
+                                "outputAmountFormatted": "0.995",
+                                "result": {
+                                    "hash": "0x" + "d" * 64,
+                                    "fee": "39000000000000",
+                                    "tokenInAmount": str(body.get("tokenInAmount") or "1000000"),
+                                    "tokenOutAmount": "995000",
                                 },
                             },
                         },
@@ -425,6 +520,15 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                                     "fee": "45000000000000",
                                     "gasLimit": "65000",
                                 },
+                                "tokenMetadata": {
+                                    "address": str(body.get("tokenAddress") or outer.token),
+                                    "name": "USD Coin",
+                                    "symbol": "USDC",
+                                    "decimals": 6,
+                                    "verified": False,
+                                    "source": "erc20-rpc",
+                                },
+                                "amountFormatted": "5",
                             },
                         },
                     )
@@ -443,6 +547,15 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                                     "hash": "0x" + "c" * 64,
                                     "fee": "45000000000000",
                                 },
+                                "tokenMetadata": {
+                                    "address": str(body.get("tokenAddress") or outer.token),
+                                    "name": "USD Coin",
+                                    "symbol": "USDC",
+                                    "decimals": 6,
+                                    "verified": False,
+                                    "source": "erc20-rpc",
+                                },
+                                "amountFormatted": "5",
                             },
                         },
                     )

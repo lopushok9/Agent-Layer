@@ -34,6 +34,32 @@ def _extract_fee_wei(payload: dict[str, Any]) -> str | None:
     return None
 
 
+def _normalize_swap_route(quote: dict[str, Any]) -> Any:
+    for key in ("routePlan", "route", "priceRoute"):
+        value = quote.get(key)
+        if value is not None:
+            return value
+    return None
+
+
+def _normalize_token_metadata(payload: Any, token_address: str | None = None) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    address = str(payload.get("address") or token_address or "").strip()
+    name = payload.get("name")
+    symbol = payload.get("symbol")
+    decimals = payload.get("decimals")
+    normalized: dict[str, Any] = {
+        "address": address,
+        "name": str(name) if name is not None else None,
+        "symbol": str(symbol) if symbol is not None else None,
+        "decimals": int(decimals) if decimals is not None else None,
+        "verified": bool(payload.get("verified")),
+        "source": str(payload.get("source") or "erc20-rpc"),
+    }
+    return normalized
+
+
 class WdkEvmLocalWalletBackend(AgentWalletBackend):
     """EVM backend that delegates signing and execution to a local WDK service."""
 
@@ -118,6 +144,32 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "address": str(data.get("address") or await self.get_address() or ""),
             "token_address": str(data.get("tokenAddress") or token_address),
             "balance_raw": str(data.get("balance") or "0"),
+            "balance_ui": str(data.get("balanceFormatted")) if data.get("balanceFormatted") is not None else None,
+            "token_metadata": _normalize_token_metadata(
+                data.get("tokenMetadata"),
+                str(data.get("tokenAddress") or token_address),
+            ),
+            "chain_id": int(data.get("chainId") or 0),
+            "source": "wdk-evm-wallet",
+        }
+
+    async def get_evm_token_metadata(self, token_address: str) -> dict[str, Any]:
+        data = await self.client.post(
+            "/v1/evm/token-metadata/get",
+            {
+                "network": self.network,
+                "tokenAddress": token_address,
+            },
+        )
+        resolved = _normalize_token_metadata(
+            data.get("tokenMetadata"),
+            str(data.get("tokenAddress") or token_address),
+        )
+        return {
+            "chain": self.chain,
+            "network": self.network,
+            "token_address": str(data.get("tokenAddress") or token_address),
+            "token_metadata": resolved,
             "chain_id": int(data.get("chainId") or 0),
             "source": "wdk-evm-wallet",
         }
@@ -179,10 +231,130 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "token_in": str((data.get("swapRequest") or {}).get("tokenIn") or token_in),
             "token_out": str((data.get("swapRequest") or {}).get("tokenOut") or token_out),
             "amount_in_raw": str((data.get("swapRequest") or {}).get("tokenInAmount") or amount_in_raw),
+            "amount_in_ui": str(data.get("inputAmountFormatted")) if data.get("inputAmountFormatted") is not None else None,
+            "estimated_output_amount_ui": (
+                str(data.get("outputAmountFormatted")) if data.get("outputAmountFormatted") is not None else None
+            ),
             "quote": dict(data.get("quote") or {}),
             "protocol": str(data.get("protocol") or "velora"),
-            "execution_supported": bool(data.get("executionSupported")),
+            "execution_supported": bool(data.get("executionSupported")) and not self.sign_only,
+            "token_in_metadata": _normalize_token_metadata(
+                data.get("tokenInMetadata"),
+                str((data.get("swapRequest") or {}).get("tokenIn") or token_in),
+            ),
+            "token_out_metadata": _normalize_token_metadata(
+                data.get("tokenOutMetadata"),
+                str((data.get("swapRequest") or {}).get("tokenOut") or token_out),
+            ),
             "chain_id": int(data.get("chainId") or 0),
+            "source": "wdk-evm-wallet",
+        }
+
+    async def preview_evm_swap(
+        self,
+        *,
+        token_in: str,
+        token_out: str,
+        amount_in_raw: str,
+    ) -> dict[str, Any]:
+        data = await self.client.post(
+            "/v1/evm/swap/quote",
+            {
+                "walletId": self.wallet_id,
+                "accountIndex": self.account_index,
+                "network": self.network,
+                "tokenIn": token_in,
+                "tokenOut": token_out,
+                "tokenInAmount": amount_in_raw,
+            },
+        )
+        quote = dict(data.get("quote") or {})
+        return {
+            "chain": self.chain,
+            "network": self.network,
+            "asset_type": "evm-swap",
+            "asset": "ERC20",
+            "wallet": self.wallet_id,
+            "from_address": await self.get_address(),
+            "token_in": str((data.get("swapRequest") or {}).get("tokenIn") or token_in),
+            "token_out": str((data.get("swapRequest") or {}).get("tokenOut") or token_out),
+            "input_amount_raw": str((data.get("swapRequest") or {}).get("tokenInAmount") or amount_in_raw),
+            "input_amount_ui": str(data.get("inputAmountFormatted")) if data.get("inputAmountFormatted") is not None else None,
+            "estimated_output_amount_raw": str(quote.get("tokenOutAmount") or "0"),
+            "estimated_output_amount_ui": (
+                str(data.get("outputAmountFormatted")) if data.get("outputAmountFormatted") is not None else None
+            ),
+            "estimated_fee_wei": _extract_fee_wei(quote),
+            "swap_provider": str(data.get("protocol") or "velora"),
+            "execution_supported": bool(data.get("executionSupported")) and not self.sign_only,
+            "route_plan": _normalize_swap_route(quote),
+            "token_in_metadata": _normalize_token_metadata(
+                data.get("tokenInMetadata"),
+                str((data.get("swapRequest") or {}).get("tokenIn") or token_in),
+            ),
+            "token_out_metadata": _normalize_token_metadata(
+                data.get("tokenOutMetadata"),
+                str((data.get("swapRequest") or {}).get("tokenOut") or token_out),
+            ),
+            "quote": quote,
+            "chain_id": int(data.get("chainId") or 0),
+            "source": "wdk-evm-wallet",
+        }
+
+    async def send_evm_swap(
+        self,
+        *,
+        token_in: str,
+        token_out: str,
+        amount_in_raw: str,
+    ) -> dict[str, Any]:
+        if self.sign_only:
+            raise WalletBackendError("wdk_evm_local is configured as sign_only.")
+        data = await self.client.post(
+            "/v1/evm/swap/send",
+            {
+                "walletId": self.wallet_id,
+                "accountIndex": self.account_index,
+                "network": self.network,
+                "tokenIn": token_in,
+                "tokenOut": token_out,
+                "tokenInAmount": amount_in_raw,
+            },
+        )
+        result = dict(data.get("result") or {})
+        return {
+            "chain": self.chain,
+            "network": self.network,
+            "asset_type": "evm-swap",
+            "asset": "ERC20",
+            "wallet": self.wallet_id,
+            "from_address": await self.get_address(),
+            "token_in": str((data.get("swapRequest") or {}).get("tokenIn") or token_in),
+            "token_out": str((data.get("swapRequest") or {}).get("tokenOut") or token_out),
+            "input_amount_raw": str((data.get("swapRequest") or {}).get("tokenInAmount") or amount_in_raw),
+            "input_amount_ui": str(data.get("inputAmountFormatted")) if data.get("inputAmountFormatted") is not None else None,
+            "output_amount_raw": str(result.get("tokenOutAmount") or "0"),
+            "estimated_output_amount_raw": str(result.get("tokenOutAmount") or "0"),
+            "estimated_output_amount_ui": (
+                str(data.get("outputAmountFormatted")) if data.get("outputAmountFormatted") is not None else None
+            ),
+            "estimated_fee_wei": _extract_fee_wei(result),
+            "swap_provider": str(data.get("protocol") or "velora"),
+            "token_in_metadata": _normalize_token_metadata(
+                data.get("tokenInMetadata"),
+                str((data.get("swapRequest") or {}).get("tokenIn") or token_in),
+            ),
+            "token_out_metadata": _normalize_token_metadata(
+                data.get("tokenOutMetadata"),
+                str((data.get("swapRequest") or {}).get("tokenOut") or token_out),
+            ),
+            "hash": result.get("hash"),
+            "approve_hash": result.get("approveHash"),
+            "reset_allowance_hash": result.get("resetAllowanceHash"),
+            "result": result,
+            "chain_id": int(data.get("chainId") or 0),
+            "broadcasted": True,
+            "confirmed": False,
             "source": "wdk-evm-wallet",
         }
 
@@ -283,7 +455,9 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "recipient": recipient,
             "token_address": token_address,
             "amount_raw": str(amount_raw),
+            "amount_ui": str(data.get("amountFormatted")) if data.get("amountFormatted") is not None else None,
             "estimated_fee_wei": _extract_fee_wei(quote),
+            "token_metadata": _normalize_token_metadata(data.get("tokenMetadata"), token_address),
             "quote": quote,
             "chain_id": int(data.get("chainId") or 0),
             "source": "wdk-evm-wallet",
@@ -319,7 +493,9 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "recipient": recipient,
             "token_address": token_address,
             "amount_raw": str(amount_raw),
+            "amount_ui": str(data.get("amountFormatted")) if data.get("amountFormatted") is not None else None,
             "estimated_fee_wei": _extract_fee_wei(result),
+            "token_metadata": _normalize_token_metadata(data.get("tokenMetadata"), token_address),
             "hash": result.get("hash"),
             "result": result,
             "chain_id": int(data.get("chainId") or 0),

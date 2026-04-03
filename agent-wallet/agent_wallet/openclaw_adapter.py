@@ -53,6 +53,9 @@ class OpenClawWalletAdapter:
     def _is_mainnet(self) -> bool:
         return self._is_mainnet_network(getattr(self.backend, "network", ""))
 
+    def _supports_evm_velora(self) -> bool:
+        return str(getattr(self.backend, "chain", "")).strip().lower() == "evm" and self._is_mainnet()
+
     def _require_prepare_intent(self, user_intent: Any) -> None:
         if user_intent is not True:
             raise WalletBackendError(
@@ -127,6 +130,42 @@ class OpenClawWalletAdapter:
                 if value is not None:
                     summary[key] = value
             return summary
+
+        if asset_type == "evm-swap":
+            output_amount_raw = (
+                payload.get("estimated_output_amount_raw")
+                if payload.get("estimated_output_amount_raw") is not None
+                else payload.get("output_amount_raw")
+            )
+            evm_swap_binding = {
+                "swap_provider": payload.get("swap_provider"),
+                "token_in": payload.get("token_in"),
+                "token_out": payload.get("token_out"),
+                "input_amount_raw": payload.get("input_amount_raw"),
+                "output_amount_raw": output_amount_raw,
+                "estimated_fee_wei": payload.get("estimated_fee_wei"),
+                "route_plan": payload.get("route_plan"),
+            }
+            evm_swap_fingerprint = hashlib.sha256(
+                json.dumps(
+                    evm_swap_binding,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()
+            return {
+                "operation": action_label,
+                "network": str(payload.get("network") or getattr(self.backend, "network", "unknown")),
+                "wallet": payload.get("wallet"),
+                "from_address": payload.get("from_address"),
+                "swap_provider": payload.get("swap_provider"),
+                "token_in": payload.get("token_in"),
+                "token_out": payload.get("token_out"),
+                "input_amount_raw": payload.get("input_amount_raw"),
+                "output_amount_raw": output_amount_raw,
+                "estimated_fee_wei": payload.get("estimated_fee_wei"),
+                "evm_swap_fingerprint": evm_swap_fingerprint,
+            }
 
         if asset_type == "bags-token-launch":
             launch_binding = {
@@ -311,6 +350,12 @@ class OpenClawWalletAdapter:
             "estimated_fee_wei",
             "token_address",
             "amount_raw",
+            "token_in",
+            "token_out",
+            "input_amount_raw",
+            "estimated_output_amount_raw",
+            "output_amount_raw",
+            "swap_provider",
         ):
             value = payload.get(key)
             if value is not None:
@@ -384,7 +429,7 @@ class OpenClawWalletAdapter:
         """Return wallet tools suitable for agent registration."""
         capabilities = self.backend.get_capabilities()
         if capabilities.chain == "evm":
-            return [
+            tools = [
                 AgentToolSpec(
                     name="get_wallet_capabilities",
                     description="Describe the connected wallet backend, chain, and safety limits.",
@@ -441,6 +486,23 @@ class OpenClawWalletAdapter:
                     risk_level="low",
                 ),
                 AgentToolSpec(
+                    name="get_evm_token_metadata",
+                    description="Get ERC-20 token metadata for a contract address on the active EVM network.",
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "token_address": {
+                                "type": "string",
+                                "description": "ERC-20 token contract address.",
+                            }
+                        },
+                        "required": ["token_address"],
+                        "additionalProperties": False,
+                    },
+                    read_only=True,
+                    risk_level="low",
+                ),
+                AgentToolSpec(
                     name="get_evm_fee_rates",
                     description="Get current EVM fee-rate suggestions for the active network.",
                     input_schema={
@@ -463,34 +525,6 @@ class OpenClawWalletAdapter:
                             }
                         },
                         "required": ["tx_hash"],
-                        "additionalProperties": False,
-                    },
-                    read_only=True,
-                    risk_level="low",
-                ),
-                AgentToolSpec(
-                    name="get_evm_swap_quote",
-                    description=(
-                        "Get a read-only Velora quote for an ERC-20 to ERC-20 swap on supported EVM mainnet networks. "
-                        "This does not approve or execute a swap."
-                    ),
-                    input_schema={
-                        "type": "object",
-                        "properties": {
-                            "token_in": {
-                                "type": "string",
-                                "description": "ERC-20 contract address for the input token.",
-                            },
-                            "token_out": {
-                                "type": "string",
-                                "description": "ERC-20 contract address for the output token.",
-                            },
-                            "amount_in_raw": {
-                                "type": "string",
-                                "description": "Input amount in token base units as a base-10 integer string.",
-                            },
-                        },
-                        "required": ["token_in", "token_out", "amount_in_raw"],
                         "additionalProperties": False,
                     },
                     read_only=True,
@@ -556,6 +590,74 @@ class OpenClawWalletAdapter:
                     risk_level="high",
                 ),
             ]
+
+            if self._supports_evm_velora():
+                tools.insert(
+                    6,
+                    AgentToolSpec(
+                        name="get_evm_swap_quote",
+                        description=(
+                            "Get a read-only Velora quote for an ERC-20 to ERC-20 swap on supported EVM mainnet networks. "
+                            "This does not approve or execute a swap."
+                        ),
+                        input_schema={
+                            "type": "object",
+                            "properties": {
+                                "token_in": {
+                                    "type": "string",
+                                    "description": "ERC-20 contract address for the input token.",
+                                },
+                                "token_out": {
+                                    "type": "string",
+                                    "description": "ERC-20 contract address for the output token.",
+                                },
+                                "amount_in_raw": {
+                                    "type": "string",
+                                    "description": "Input amount in token base units as a base-10 integer string.",
+                                },
+                            },
+                            "required": ["token_in", "token_out", "amount_in_raw"],
+                            "additionalProperties": False,
+                        },
+                        read_only=True,
+                        risk_level="low",
+                    ),
+                )
+                tools.insert(
+                    7,
+                    AgentToolSpec(
+                        name="swap_evm_tokens",
+                        description=(
+                            "Preview, prepare, or execute an ERC-20 to ERC-20 swap through Velora on supported EVM mainnet networks. "
+                            "Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation."
+                        ),
+                        input_schema={
+                            "type": "object",
+                            "properties": {
+                                "token_in": {"type": "string"},
+                                "token_out": {"type": "string"},
+                                "amount_in_raw": {
+                                    "type": "string",
+                                    "description": "Input amount in token base units as a base-10 integer string.",
+                                },
+                                "mode": {
+                                    "type": "string",
+                                    "enum": ["preview", "prepare", "execute"],
+                                },
+                                "purpose": {"type": "string"},
+                                "user_intent": {"type": "boolean"},
+                                "approval_token": {"type": "string"},
+                            },
+                            "required": ["token_in", "token_out", "amount_in_raw", "mode", "purpose"],
+                            "additionalProperties": False,
+                        },
+                        read_only=False,
+                        requires_explicit_user_intent=True,
+                        risk_level="high",
+                    ),
+                )
+
+            return tools
 
         if capabilities.chain == "bitcoin":
             return [
@@ -1831,6 +1933,13 @@ class OpenClawWalletAdapter:
                 data = await self.backend.get_evm_token_balance(token_address.strip())
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
 
+            if tool_name == "get_evm_token_metadata":
+                token_address = args.get("token_address")
+                if not isinstance(token_address, str) or not token_address.strip():
+                    raise WalletBackendError("token_address is required.")
+                data = await self.backend.get_evm_token_metadata(token_address.strip())
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
             if tool_name == "get_evm_fee_rates":
                 data = await self.backend.get_evm_fee_rates()
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
@@ -1860,6 +1969,83 @@ class OpenClawWalletAdapter:
                     amount_in_raw=amount_in_raw.strip(),
                 )
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "swap_evm_tokens":
+                token_in = args.get("token_in")
+                token_out = args.get("token_out")
+                amount_in_raw = args.get("amount_in_raw")
+                mode = args.get("mode")
+                purpose = args.get("purpose")
+                user_intent = args.get("user_intent", False)
+                approval_token = args.get("approval_token")
+
+                if not isinstance(token_in, str) or not token_in.strip():
+                    raise WalletBackendError("token_in is required.")
+                if not isinstance(token_out, str) or not token_out.strip():
+                    raise WalletBackendError("token_out is required.")
+                if not isinstance(amount_in_raw, str) or not amount_in_raw.strip().isdigit():
+                    raise WalletBackendError("amount_in_raw must be a positive integer string.")
+                if int(amount_in_raw.strip()) <= 0:
+                    raise WalletBackendError("amount_in_raw must be greater than zero.")
+                if mode not in {"preview", "prepare", "execute"}:
+                    raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
+                if not isinstance(purpose, str) or not purpose.strip():
+                    raise WalletBackendError("purpose is required.")
+
+                preview_kwargs = {
+                    "token_in": token_in.strip(),
+                    "token_out": token_out.strip(),
+                    "amount_in_raw": amount_in_raw.strip(),
+                }
+
+                if mode == "preview":
+                    preview = await self.backend.preview_evm_swap(**preview_kwargs)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            preview,
+                            action_label="EVM swap",
+                            mode="preview",
+                        ),
+                    )
+
+                if mode == "prepare":
+                    self._require_prepare_intent(user_intent)
+                    preview = await self.backend.preview_evm_swap(**preview_kwargs)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            self._build_prepare_plan(
+                                preview_payload=preview,
+                                action_label="EVM swap",
+                            ),
+                            action_label="EVM swap",
+                            mode="prepare",
+                        ),
+                    )
+
+                execute_preview = await self.backend.preview_evm_swap(**preview_kwargs)
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=self._build_confirmation_summary(
+                        action_label="EVM swap",
+                        payload=execute_preview,
+                    ),
+                    action_label="EVM swap",
+                )
+                result = await self.backend.send_evm_swap(**preview_kwargs)
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=self._annotate_sensitive_payload(
+                        result,
+                        action_label="EVM swap",
+                        mode="execute",
+                    ),
+                )
 
             if tool_name == "get_wallet_portfolio":
                 address = args.get("address")

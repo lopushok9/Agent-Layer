@@ -8,7 +8,7 @@ It is designed so the OpenClaw agent sees a small operational wallet surface ins
 In practice this means the agent works through explicit tools for:
 
 - BTC balance, fee-rate, max-spendable, history, and transfer flows through the local `wdk-btc-wallet` backend
-- EVM native balance, ERC-20 balance, fee-rate, receipt, swap quote, and transfer flows through the local `wdk-evm-wallet` backend
+- EVM native balance, ERC-20 balance/metadata, fee-rate, receipt, Velora swap quote/execute, and transfer flows through the local `wdk-evm-wallet` backend
 - wallet address, balances, and portfolio reads
 - native SOL and SPL token transfers
 - Jupiter swap and price lookup
@@ -66,7 +66,8 @@ Important:
 - The local BTC service is protected with a bearer token loaded from `~/.openclaw/wdk-btc-wallet/local-auth-token`, not from plugin config JSON.
 - When the BTC service URL is local, that bootstrap script can also auto-start `wdk-btc-wallet` before patching OpenClaw config.
 - The EVM flow also only supports local service URLs (`127.0.0.1` / `localhost` / `::1`) and uses a bearer token loaded from `~/.openclaw/wdk-evm-wallet/local-auth-token`.
-- The initial EVM tool surface is intentionally narrow: read-only Velora swap quotes, native transfers, ERC-20 transfers, fee quotes, and receipt lookup only. No arbitrary calldata, approvals, generic contract execution, or swap execution are exposed to the agent.
+- The initial EVM tool surface is intentionally narrow: Velora swap quote/execute on supported mainnet networks, native transfers, ERC-20 transfers, fee quotes, and receipt lookup only. No arbitrary calldata, standalone approvals, or generic contract execution are exposed to the agent.
+- Velora swap support is currently limited to `ethereum` and `base`. Test carefully because the upstream WDK swap package is still beta.
 - If the user needs to recover the mnemonic later, host-side reveal stays outside the agent tool surface via `agent-wallet/scripts/manage_openclaw_btc_wallet.py reveal-seed`.
 - Optional Jupiter overrides are available via `jupiterBaseUrl`, `jupiterUltraBaseUrl`, `jupiterPriceBaseUrl`, `jupiterPortfolioBaseUrl`, `jupiterLendBaseUrl`, and `jupiterApiKey`.
 - Optional Kamino overrides are available via `kaminoBaseUrl` and `kaminoProgramId`.

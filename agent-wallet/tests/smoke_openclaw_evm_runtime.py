@@ -52,7 +52,9 @@ def main() -> None:
         assert session.network == "sepolia"
         assert session.storage_format == "local_vault"
         assert session.address.startswith("0x")
-        assert "get_evm_swap_quote" in session.tool_names
+        assert "get_evm_token_metadata" in session.tool_names
+        assert "get_evm_swap_quote" not in session.tool_names
+        assert "swap_evm_tokens" not in session.tool_names
         assert "transfer_evm_native" in session.tool_names
         assert "transfer_sol" not in session.tool_names
         assert bundle["session"]["address"] == session.address
@@ -72,6 +74,9 @@ def main() -> None:
         autobind_binding = get_user_evm_wallet_binding(autobind_user, network="base-sepolia")
 
         assert autobind_session.network == "base-sepolia"
+        assert "get_evm_token_metadata" in autobind_session.tool_names
+        assert "get_evm_swap_quote" not in autobind_session.tool_names
+        assert "swap_evm_tokens" not in autobind_session.tool_names
         assert autobind_binding["wallet_id"] == created_autobind["wallet_id"]
         assert autobind_binding["address"] == created_autobind["address"]
         assert resolve_user_evm_wallet_path(autobind_user, network="base-sepolia").exists() is True

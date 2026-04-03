@@ -317,6 +317,12 @@ async function handleRequest(request, response) {
       return sendJson(response, 200, { ok: true, data });
     }
 
+    if (method === "POST" && url.pathname === "/v1/evm/token-metadata/get") {
+      const body = await withResolvedNetwork(await readJsonBody(request));
+      const data = await service.getTokenMetadata(body);
+      return sendJson(response, 200, { ok: true, data });
+    }
+
     if (method === "POST" && url.pathname === "/v1/evm/fee-rates/get") {
       const body = await withResolvedNetwork(await readJsonBody(request));
       const data = await service.getFeeRates(body);
@@ -332,6 +338,12 @@ async function handleRequest(request, response) {
     if (method === "POST" && url.pathname === "/v1/evm/swap/quote") {
       const body = await withResolvedNetwork(await withResolvedSeed(await readJsonBody(request)));
       const data = await service.quoteSwap(body);
+      return sendJson(response, 200, { ok: true, data });
+    }
+
+    if (method === "POST" && url.pathname === "/v1/evm/swap/send") {
+      const body = await withResolvedNetwork(await withResolvedSeed(await readJsonBody(request)));
+      const data = await service.swap(body);
       return sendJson(response, 200, { ok: true, data });
     }
 

@@ -29,11 +29,11 @@ def _run(config: dict, *args: str, stdin_text: str | None = None) -> dict:
 
 
 def main() -> None:
-    with FakeWdkEvmWalletServer(network="sepolia") as server:
+    with FakeWdkEvmWalletServer(network="ethereum") as server:
         os.environ["WDK_EVM_LOCAL_TOKEN"] = server.auth_token
         config = {
             "backend": "wdk_evm_local",
-            "network": "sepolia",
+            "network": "ethereum",
             "wdkEvmServiceUrl": server.base_url,
             "wdkEvmAccountIndex": 0,
             "signOnly": False,
@@ -95,8 +95,10 @@ def main() -> None:
         )
         assert onboard["session"]["backend"] == "wdk_evm_local"
         assert onboard["session"]["chain"] == "evm"
-        assert onboard["session"]["network"] == "sepolia"
+        assert onboard["session"]["network"] == "ethereum"
+        assert "get_evm_token_metadata" in {tool["name"] for tool in onboard["tools"]}
         assert "get_evm_swap_quote" in {tool["name"] for tool in onboard["tools"]}
+        assert "swap_evm_tokens" in {tool["name"] for tool in onboard["tools"]}
         assert "transfer_evm_native" in {tool["name"] for tool in onboard["tools"]}
         assert "transfer_sol" not in {tool["name"] for tool in onboard["tools"]}
 

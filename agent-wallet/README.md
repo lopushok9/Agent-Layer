@@ -32,6 +32,7 @@ Current safe tools:
 - `get_wallet_capabilities`
 - `get_wallet_address`
 - `get_wallet_balance`
+- `get_evm_token_metadata`
 - `get_btc_transfer_history`
 - `get_btc_fee_rates`
 - `get_btc_max_spendable`
@@ -40,6 +41,7 @@ Current safe tools:
 - `get_evm_fee_rates`
 - `get_evm_transaction_receipt`
 - `get_evm_swap_quote`
+- `swap_evm_tokens`
 - `transfer_evm_native`
 - `transfer_evm_token`
 - `get_wallet_portfolio`

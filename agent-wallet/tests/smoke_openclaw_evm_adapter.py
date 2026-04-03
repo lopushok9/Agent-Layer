@@ -18,7 +18,7 @@ from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendErro
 class FakeEvmBackend(AgentWalletBackend):
     name = "wdk_evm_local"
     chain = "evm"
-    network = "sepolia"
+    network = "ethereum"
     sign_only = False
 
     async def get_address(self) -> str | None:
@@ -27,7 +27,7 @@ class FakeEvmBackend(AgentWalletBackend):
     async def get_balance(self, address: str | None = None) -> dict:
         return {
             "chain": "evm",
-            "network": "sepolia",
+            "network": "ethereum",
             "address": address or await self.get_address(),
             "balance_wei": "1230000000000000000",
             "balance_native": "1.23",
@@ -38,17 +38,42 @@ class FakeEvmBackend(AgentWalletBackend):
     async def get_evm_token_balance(self, token_address: str) -> dict:
         return {
             "chain": "evm",
-            "network": "sepolia",
+            "network": "ethereum",
             "address": await self.get_address(),
             "token_address": token_address,
             "balance_raw": "42000000",
+            "balance_ui": "42",
+            "token_metadata": {
+                "address": token_address,
+                "name": "USD Coin",
+                "symbol": "USDC",
+                "decimals": 6,
+                "verified": False,
+                "source": "fake",
+            },
+            "source": "fake",
+        }
+
+    async def get_evm_token_metadata(self, token_address: str) -> dict:
+        return {
+            "chain": "evm",
+            "network": "ethereum",
+            "token_address": token_address,
+            "token_metadata": {
+                "address": token_address,
+                "name": "USD Coin",
+                "symbol": "USDC",
+                "decimals": 6,
+                "verified": False,
+                "source": "fake",
+            },
             "source": "fake",
         }
 
     async def get_evm_fee_rates(self) -> dict:
         return {
             "chain": "evm",
-            "network": "sepolia",
+            "network": "ethereum",
             "fee_rates": {
                 "slow": "1200000000",
                 "normal": "2000000000",
@@ -60,7 +85,7 @@ class FakeEvmBackend(AgentWalletBackend):
     async def get_evm_transaction_receipt(self, tx_hash: str) -> dict:
         return {
             "chain": "evm",
-            "network": "sepolia",
+            "network": "ethereum",
             "tx_hash": tx_hash,
             "found": True,
             "receipt": {"transactionHash": tx_hash, "status": "0x1"},
@@ -81,14 +106,95 @@ class FakeEvmBackend(AgentWalletBackend):
             "token_in": token_in,
             "token_out": token_out,
             "amount_in_raw": amount_in_raw,
+            "amount_in_ui": "1",
+            "estimated_output_amount_ui": "0.995",
             "quote": {
                 "tokenInAmount": amount_in_raw,
                 "tokenOutAmount": "995000",
                 "route": "fake-velora-route",
             },
             "protocol": "velora",
-            "execution_supported": False,
+            "execution_supported": True,
+            "token_in_metadata": {
+                "address": token_in,
+                "name": "USD Coin",
+                "symbol": "USDC",
+                "decimals": 6,
+                "verified": False,
+                "source": "fake",
+            },
+            "token_out_metadata": {
+                "address": token_out,
+                "name": "Tether USD",
+                "symbol": "USDT",
+                "decimals": 6,
+                "verified": False,
+                "source": "fake",
+            },
             "source": "fake",
+        }
+
+    async def preview_evm_swap(
+        self,
+        *,
+        token_in: str,
+        token_out: str,
+        amount_in_raw: str,
+    ) -> dict:
+        return {
+            "chain": "evm",
+            "network": "ethereum",
+            "asset_type": "evm-swap",
+            "asset": "ERC20",
+            "wallet": "evm-wallet-123",
+            "from_address": await self.get_address(),
+            "token_in": token_in,
+            "token_out": token_out,
+            "input_amount_raw": amount_in_raw,
+            "input_amount_ui": "1",
+            "estimated_output_amount_raw": "995000",
+            "estimated_output_amount_ui": "0.995",
+            "estimated_fee_wei": "39000000000000",
+            "swap_provider": "velora",
+            "execution_supported": True,
+            "route_plan": "fake-velora-route",
+            "token_in_metadata": {
+                "address": token_in,
+                "name": "USD Coin",
+                "symbol": "USDC",
+                "decimals": 6,
+                "verified": False,
+                "source": "fake",
+            },
+            "token_out_metadata": {
+                "address": token_out,
+                "name": "Tether USD",
+                "symbol": "USDT",
+                "decimals": 6,
+                "verified": False,
+                "source": "fake",
+            },
+            "source": "fake",
+        }
+
+    async def send_evm_swap(
+        self,
+        *,
+        token_in: str,
+        token_out: str,
+        amount_in_raw: str,
+    ) -> dict:
+        preview = await self.preview_evm_swap(
+            token_in=token_in,
+            token_out=token_out,
+            amount_in_raw=amount_in_raw,
+        )
+        return {
+            **preview,
+            "output_amount_raw": "995000",
+            "hash": "0x" + "d" * 64,
+            "broadcasted": True,
+            "confirmed": False,
         }
 
     async def preview_evm_native_transfer(
@@ -140,7 +246,16 @@ class FakeEvmBackend(AgentWalletBackend):
             "recipient": recipient,
             "token_address": token_address,
             "amount_raw": amount_raw,
+            "amount_ui": "5",
             "estimated_fee_wei": "45000000000000",
+            "token_metadata": {
+                "address": token_address,
+                "name": "USD Coin",
+                "symbol": "USDC",
+                "decimals": 6,
+                "verified": False,
+                "source": "fake",
+            },
             "source": "fake",
         }
 
@@ -182,7 +297,9 @@ class FakeEvmBackend(AgentWalletBackend):
 async def _main() -> None:
     adapter = OpenClawWalletAdapter(FakeEvmBackend())
     tool_names = {tool.name for tool in adapter.list_tools()}
+    assert "get_evm_token_metadata" in tool_names
     assert "get_evm_swap_quote" in tool_names
+    assert "swap_evm_tokens" in tool_names
     assert "transfer_evm_native" in tool_names
     assert "transfer_evm_token" in tool_names
     assert "transfer_btc" not in tool_names
@@ -198,6 +315,14 @@ async def _main() -> None:
     )
     assert token_balance.ok is True
     assert token_balance.data["balance_raw"] == "42000000"
+    assert token_balance.data["token_metadata"]["symbol"] == "USDC"
+
+    token_metadata = await adapter.invoke(
+        "get_evm_token_metadata",
+        {"token_address": "0x2222222222222222222222222222222222222222"},
+    )
+    assert token_metadata.ok is True
+    assert token_metadata.data["token_metadata"]["decimals"] == 6
 
     swap_quote = await adapter.invoke(
         "get_evm_swap_quote",
@@ -209,7 +334,24 @@ async def _main() -> None:
     )
     assert swap_quote.ok is True
     assert swap_quote.data["protocol"] == "velora"
-    assert swap_quote.data["execution_supported"] is False
+    assert swap_quote.data["execution_supported"] is True
+    assert swap_quote.data["token_in_metadata"]["symbol"] == "USDC"
+    assert swap_quote.data["token_out_metadata"]["symbol"] == "USDT"
+
+    swap_preview = await adapter.invoke(
+        "swap_evm_tokens",
+        {
+            "token_in": "0x2222222222222222222222222222222222222222",
+            "token_out": "0x3333333333333333333333333333333333333333",
+            "amount_in_raw": "1000000",
+            "mode": "preview",
+            "purpose": "test evm swap",
+        },
+    )
+    assert swap_preview.ok is True
+    assert swap_preview.data["asset_type"] == "evm-swap"
+    assert swap_preview.data["estimated_output_amount_raw"] == "995000"
+    assert swap_preview.data["estimated_output_amount_ui"] == "0.995"
 
     preview = await adapter.invoke(
         "transfer_evm_native",
@@ -236,12 +378,34 @@ async def _main() -> None:
     )
     assert prepared.ok is True
     assert prepared.data["execution_plan_only"] is True
+    assert prepared.data["token_metadata"]["decimals"] == 6
+
+    swap_approval = issue_approval_token(
+        tool_name="swap_evm_tokens",
+        network="ethereum",
+        summary=swap_preview.data["confirmation_summary"],
+        mainnet_confirmed=True,
+        issued_by="test",
+    )
+    swap_executed = await adapter.invoke(
+        "swap_evm_tokens",
+        {
+            "token_in": "0x2222222222222222222222222222222222222222",
+            "token_out": "0x3333333333333333333333333333333333333333",
+            "amount_in_raw": "1000000",
+            "mode": "execute",
+            "purpose": "test evm swap",
+            "approval_token": swap_approval,
+        },
+    )
+    assert swap_executed.ok is True
+    assert swap_executed.data["hash"].startswith("0x")
 
     approval = issue_approval_token(
         tool_name="transfer_evm_native",
-        network="sepolia",
+        network="ethereum",
         summary=preview.data["confirmation_summary"],
-        mainnet_confirmed=False,
+        mainnet_confirmed=True,
         issued_by="test",
     )
     executed = await adapter.invoke(

@@ -16,8 +16,10 @@ Current scope:
 - derive EVM accounts and addresses
 - fetch native balances
 - fetch ERC-20 balances
+- fetch ERC-20 token metadata (`name`, `symbol`, `decimals`)
 - fetch fee-rate suggestions
 - fetch read-only Velora swap quotes for supported mainnet ERC-20 pairs
+- execute Velora ERC-20 swaps on supported mainnet networks through the local wallet account
 - quote and send native transfers
 - quote and send ERC-20 transfers
 - fetch transaction receipts
@@ -47,7 +49,6 @@ This service intentionally supports a narrow surface:
 - no ERC-4337 in this runtime
 - no arbitrary calldata on `sendTransaction`
 - no token approvals
-- no swap execution yet
 - no generic contract execution endpoints
 - no seed phrase exposure in the agent-facing path
 
@@ -77,9 +78,11 @@ The active network is persistent and can be switched without changing code.
 - `POST /v1/evm/address/resolve`
 - `POST /v1/evm/balance/get`
 - `POST /v1/evm/token-balance/get`
+- `POST /v1/evm/token-metadata/get`
 - `POST /v1/evm/fee-rates/get`
 - `POST /v1/evm/transaction/receipt/get`
 - `POST /v1/evm/swap/quote`
+- `POST /v1/evm/swap/send`
 - `POST /v1/evm/transfer/quote`
 - `POST /v1/evm/transfer/send`
 - `POST /v1/evm/token-transfer/quote`
@@ -141,4 +144,5 @@ Local security note:
 - unlocked seed phrases live only in memory
 - explicit `lock` or process restart clears the in-memory unlocked state
 - seed reveal is password-gated and separate from normal agent operations
-- Velora is currently integrated only as a read-only quote surface for `ethereum` and `base` ERC-20 pairs
+- Velora swap support is currently limited to `ethereum` and `base` ERC-20 pairs
+- the underlying WDK Velora package is still beta; test swap execution carefully before relying on it

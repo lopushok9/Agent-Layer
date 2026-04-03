@@ -77,6 +77,9 @@ class AgentWalletBackend(ABC):
     async def get_evm_token_balance(self, token_address: str) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support EVM token balance lookup.")
 
+    async def get_evm_token_metadata(self, token_address: str) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM token metadata lookup.")
+
     async def get_evm_fee_rates(self) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support EVM fee-rate lookup.")
 
@@ -91,6 +94,24 @@ class AgentWalletBackend(ABC):
         amount_in_raw: str,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support EVM swap quote lookup.")
+
+    async def preview_evm_swap(
+        self,
+        *,
+        token_in: str,
+        token_out: str,
+        amount_in_raw: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM swap previews.")
+
+    async def send_evm_swap(
+        self,
+        *,
+        token_in: str,
+        token_out: str,
+        amount_in_raw: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM swaps.")
 
     async def preview_evm_native_transfer(
         self,

@@ -29,6 +29,25 @@ function resolveBackend(api) {
     .toLowerCase();
 }
 
+function normalizeEvmNetwork(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  const aliases = {
+    mainnet: "ethereum",
+    eth: "ethereum",
+    "eth-mainnet": "ethereum",
+    "base-mainnet": "base",
+    base_sepolia: "base-sepolia",
+  };
+  return aliases[normalized] || normalized;
+}
+
+function supportsVeloraSwap(api) {
+  const config = resolvePluginConfig(api);
+  return ["ethereum", "base"].includes(
+    normalizeEvmNetwork(config.network || process.env.WDK_EVM_NETWORK)
+  );
+}
+
 function resolvePythonBin(config) {
   return config.pythonBin || process.env.OPENCLAW_AGENT_WALLET_PYTHON || "python3";
 }
@@ -710,6 +729,18 @@ const evmToolDefinitions = [
     },
   },
   {
+    name: "get_evm_token_metadata",
+    description: "Get ERC-20 token metadata for a contract address on the active EVM network.",
+    parameters: {
+      type: "object",
+      properties: {
+        token_address: { type: "string" },
+      },
+      required: ["token_address"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_evm_fee_rates",
     description: "Get current EVM fee-rate suggestions for the active network.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
@@ -737,6 +768,25 @@ const evmToolDefinitions = [
         amount_in_raw: { type: "string" },
       },
       required: ["token_in", "token_out", "amount_in_raw"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "swap_evm_tokens",
+    description: "Preview, prepare, or execute an ERC-20 to ERC-20 swap through Velora on supported EVM mainnet networks. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    optional: true,
+    parameters: {
+      type: "object",
+      properties: {
+        token_in: { type: "string" },
+        token_out: { type: "string" },
+        amount_in_raw: { type: "string" },
+        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
+        purpose: { type: "string" },
+        user_intent: { type: "boolean" },
+        approval_token: { type: "string" },
+      },
+      required: ["token_in", "token_out", "amount_in_raw", "mode", "purpose"],
       additionalProperties: false,
     },
   },
@@ -783,6 +833,11 @@ export default function registerAgentWalletPlugin(api) {
   api?.logger?.info?.("[agent-wallet] registering OpenClaw wallet plugin");
 
   const backend = resolveBackend(api);
+  const evmDefinitions = supportsVeloraSwap(api)
+    ? evmToolDefinitions
+    : evmToolDefinitions.filter(
+        (definition) => definition.name !== "get_evm_swap_quote" && definition.name !== "swap_evm_tokens"
+      );
   const toolDefinitions =
     backend === "wdk_btc_local" || backend === "wdk-btc-local" || backend === "btc_local"
       ? btcToolDefinitions
@@ -790,8 +845,8 @@ export default function registerAgentWalletPlugin(api) {
           backend === "wdk-evm-local" ||
           backend === "evm_local" ||
           backend === "evm-local"
-        ? evmToolDefinitions
-      : solanaToolDefinitions;
+        ? evmDefinitions
+        : solanaToolDefinitions;
 
   for (const definition of toolDefinitions) {
     registerTool(api, definition);

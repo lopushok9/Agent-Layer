@@ -2,6 +2,10 @@ import WDK from "@tetherto/wdk";
 import VeloraProtocolEvm from "@tetherto/wdk-protocol-swap-velora-evm";
 import WalletManagerEvm from "@tetherto/wdk-wallet-evm";
 
+const ERC20_NAME_SELECTOR = "0x06fdde03";
+const ERC20_SYMBOL_SELECTOR = "0x95d89b41";
+const ERC20_DECIMALS_SELECTOR = "0x313ce567";
+
 function createTaggedError(message, code, details = {}) {
   const error = new Error(message);
   if (typeof code === "string" && code.trim()) {
@@ -94,12 +98,64 @@ function assertVeloraSupportedNetwork(network) {
   }
 }
 
+function buildSwapRequest({ tokenIn, tokenOut, tokenInAmount }) {
+  const swapRequest = {
+    tokenIn: normalizeAddress(tokenIn, "tokenIn"),
+    tokenOut: normalizeAddress(tokenOut, "tokenOut"),
+    tokenInAmount: assertPositiveBigIntString(tokenInAmount, "tokenInAmount"),
+  };
+  assertDistinctAddresses(swapRequest.tokenIn, "tokenIn", swapRequest.tokenOut, "tokenOut");
+  return swapRequest;
+}
+
 function assertValidHash(value, fieldName) {
   const hash = assertNonEmptyString(value, fieldName);
   if (!/^0x[a-fA-F0-9]{64}$/.test(hash)) {
     throw new Error(`${fieldName} must be a valid 32-byte transaction hash.`);
   }
   return hash;
+}
+
+function stripHexPrefix(value) {
+  return String(value || "").startsWith("0x") ? String(value).slice(2) : String(value || "");
+}
+
+function decodeUint256Result(value, fieldName) {
+  const hex = stripHexPrefix(value);
+  if (!hex || !/^[0-9a-fA-F]+$/.test(hex)) {
+    throw new Error(`${fieldName} returned invalid hex data.`);
+  }
+  return BigInt(`0x${hex}`);
+}
+
+function decodeAbiStringResult(value, fieldName) {
+  const hex = stripHexPrefix(value);
+  if (!hex || !/^[0-9a-fA-F]+$/.test(hex) || hex.length % 2 !== 0) {
+    throw new Error(`${fieldName} returned invalid hex data.`);
+  }
+  if (hex.length === 64) {
+    const buffer = Buffer.from(hex, "hex");
+    const end = buffer.indexOf(0);
+    return buffer.slice(0, end >= 0 ? end : undefined).toString("utf8");
+  }
+  if (hex.length < 128) {
+    throw new Error(`${fieldName} returned an unsupported ABI payload.`);
+  }
+  const offset = Number(decodeUint256Result(`0x${hex.slice(0, 64)}`, fieldName));
+  const offsetHexIndex = offset * 2;
+  const lengthIndex = offsetHexIndex + 64;
+  if (offsetHexIndex + 64 > hex.length || lengthIndex > hex.length) {
+    throw new Error(`${fieldName} returned a truncated ABI payload.`);
+  }
+  const byteLength = Number(
+    decodeUint256Result(`0x${hex.slice(offsetHexIndex, offsetHexIndex + 64)}`, fieldName)
+  );
+  const dataStart = offsetHexIndex + 64;
+  const dataEnd = dataStart + byteLength * 2;
+  if (dataEnd > hex.length) {
+    throw new Error(`${fieldName} returned a truncated ABI string payload.`);
+  }
+  return Buffer.from(hex.slice(dataStart, dataEnd), "hex").toString("utf8");
 }
 
 function formatUnits(value, decimals = 18) {
@@ -170,6 +226,10 @@ async function rpcRequest(providerUrl, method, params = []) {
   return payload.result;
 }
 
+async function ethCall(providerUrl, to, data) {
+  return rpcRequest(providerUrl, "eth_call", [{ to, data }, "latest"]);
+}
+
 async function maybeDispose(value) {
   if (value && typeof value.dispose === "function") {
     await value.dispose();
@@ -182,6 +242,7 @@ async function maybeDispose(value) {
 export class WdkEvmWalletService {
   constructor(config) {
     this.config = config;
+    this._tokenMetadataCache = new Map();
   }
 
   generateSeedPhrase(words = 12) {
@@ -230,6 +291,7 @@ export class WdkEvmWalletService {
       const address = await account.getAddress();
       const token = normalizeAddress(tokenAddress, "tokenAddress");
       const balance = await account.getTokenBalance(token);
+      const tokenMetadata = await this.#getTokenMetadata(runtimeConfig, token);
       return {
         network: runtimeConfig.network,
         chainId: runtimeConfig.chainId,
@@ -237,9 +299,23 @@ export class WdkEvmWalletService {
         address,
         tokenAddress: token,
         balance,
+        balanceFormatted: formatUnits(BigInt(balance), tokenMetadata.decimals),
+        tokenMetadata,
         source: "wdk-wallet-evm",
       };
     });
+  }
+
+  async getTokenMetadata({ tokenAddress, network }) {
+    const runtimeConfig = this.#resolveRuntimeConfig(network);
+    const token = normalizeAddress(tokenAddress, "tokenAddress");
+    return {
+      network: runtimeConfig.network,
+      chainId: runtimeConfig.chainId,
+      tokenAddress: token,
+      tokenMetadata: await this.#getTokenMetadata(runtimeConfig, token),
+      source: "erc20-rpc",
+    };
   }
 
   async getFeeRates({ network } = {}) {
@@ -304,13 +380,12 @@ export class WdkEvmWalletService {
   }) {
     return this.#withAccount({ seedPhrase, accountIndex, network }, async (account, runtimeConfig) => {
       assertVeloraSupportedNetwork(runtimeConfig.network);
-      const swapRequest = {
-        tokenIn: normalizeAddress(tokenIn, "tokenIn"),
-        tokenOut: normalizeAddress(tokenOut, "tokenOut"),
-        tokenInAmount: assertPositiveBigIntString(tokenInAmount, "tokenInAmount"),
-      };
-      assertDistinctAddresses(swapRequest.tokenIn, "tokenIn", swapRequest.tokenOut, "tokenOut");
+      const swapRequest = buildSwapRequest({ tokenIn, tokenOut, tokenInAmount });
       const address = await account.getAddress();
+      const [tokenInMetadata, tokenOutMetadata] = await Promise.all([
+        this.#getTokenMetadata(runtimeConfig, swapRequest.tokenIn),
+        this.#getTokenMetadata(runtimeConfig, swapRequest.tokenOut),
+      ]);
       const readOnlyAccount =
         typeof account.toReadOnlyAccount === "function" ? await account.toReadOnlyAccount() : account;
       const protocolConfig =
@@ -326,8 +401,12 @@ export class WdkEvmWalletService {
           accountIndex,
           address,
           protocol: "velora",
-          executionSupported: false,
+          executionSupported: true,
           swapRequest,
+          tokenInMetadata,
+          tokenOutMetadata,
+          inputAmountFormatted: formatUnits(swapRequest.tokenInAmount, tokenInMetadata.decimals),
+          outputAmountFormatted: formatUnits(BigInt(quote.tokenOutAmount), tokenOutMetadata.decimals),
           quote,
           source: "wdk-protocol-swap-velora-evm",
         };
@@ -336,6 +415,50 @@ export class WdkEvmWalletService {
         if (readOnlyAccount !== account) {
           await maybeDispose(readOnlyAccount);
         }
+      }
+    });
+  }
+
+  async swap({
+    seedPhrase,
+    tokenIn,
+    tokenOut,
+    tokenInAmount,
+    accountIndex = 0,
+    network,
+  }) {
+    return this.#withAccount({ seedPhrase, accountIndex, network }, async (account, runtimeConfig) => {
+      assertVeloraSupportedNetwork(runtimeConfig.network);
+      const swapRequest = buildSwapRequest({ tokenIn, tokenOut, tokenInAmount });
+      const address = await account.getAddress();
+      const [tokenInMetadata, tokenOutMetadata] = await Promise.all([
+        this.#getTokenMetadata(runtimeConfig, swapRequest.tokenIn),
+        this.#getTokenMetadata(runtimeConfig, swapRequest.tokenOut),
+      ]);
+      const protocolConfig =
+        runtimeConfig.transferMaxFeeWei !== null
+          ? { swapMaxFee: runtimeConfig.transferMaxFeeWei }
+          : undefined;
+      const protocol = new VeloraProtocolEvm(account, protocolConfig);
+      try {
+        const result = await protocol.swap(swapRequest);
+        return {
+          network: runtimeConfig.network,
+          chainId: runtimeConfig.chainId,
+          accountIndex,
+          address,
+          protocol: "velora",
+          executionSupported: true,
+          swapRequest,
+          tokenInMetadata,
+          tokenOutMetadata,
+          inputAmountFormatted: formatUnits(swapRequest.tokenInAmount, tokenInMetadata.decimals),
+          outputAmountFormatted: formatUnits(BigInt(result.tokenOutAmount), tokenOutMetadata.decimals),
+          result,
+          source: "wdk-protocol-swap-velora-evm",
+        };
+      } finally {
+        await maybeDispose(protocol);
       }
     });
   }
@@ -390,12 +513,15 @@ export class WdkEvmWalletService {
         recipient: normalizeAddress(recipient, "recipient"),
         amount: assertPositiveBigIntString(amount, "amount"),
       };
+      const tokenMetadata = await this.#getTokenMetadata(runtimeConfig, transfer.token);
       const quote = await account.quoteTransfer(transfer);
       return {
         network: runtimeConfig.network,
         chainId: runtimeConfig.chainId,
         accountIndex,
         transfer,
+        tokenMetadata,
+        amountFormatted: formatUnits(transfer.amount, tokenMetadata.decimals),
         quote,
         source: "wdk-wallet-evm",
       };
@@ -416,12 +542,15 @@ export class WdkEvmWalletService {
         recipient: normalizeAddress(recipient, "recipient"),
         amount: assertPositiveBigIntString(amount, "amount"),
       };
+      const tokenMetadata = await this.#getTokenMetadata(runtimeConfig, transfer.token);
       const result = await account.transfer(transfer);
       return {
         network: runtimeConfig.network,
         chainId: runtimeConfig.chainId,
         accountIndex,
         transfer,
+        tokenMetadata,
+        amountFormatted: formatUnits(transfer.amount, tokenMetadata.decimals),
         result,
         source: "wdk-wallet-evm",
       };
@@ -466,5 +595,32 @@ export class WdkEvmWalletService {
       const account = await wallet.getAccount(assertNonNegativeInteger(accountIndex, "accountIndex"));
       return await callback(account, runtimeConfig);
     });
+  }
+
+  async #getTokenMetadata(runtimeConfig, tokenAddress) {
+    const cacheKey = `${runtimeConfig.network}:${tokenAddress.toLowerCase()}`;
+    const cached = this._tokenMetadataCache.get(cacheKey);
+    if (cached) {
+      return { ...cached };
+    }
+    const [name, symbol, decimalsRaw] = await Promise.all([
+      ethCall(runtimeConfig.providerUrl, tokenAddress, ERC20_NAME_SELECTOR),
+      ethCall(runtimeConfig.providerUrl, tokenAddress, ERC20_SYMBOL_SELECTOR),
+      ethCall(runtimeConfig.providerUrl, tokenAddress, ERC20_DECIMALS_SELECTOR),
+    ]);
+    const decimals = Number(decodeUint256Result(decimalsRaw, "decimals"));
+    if (!Number.isInteger(decimals) || decimals < 0 || decimals > 255) {
+      throw new Error("decimals must be an integer between 0 and 255.");
+    }
+    const metadata = {
+      address: tokenAddress,
+      name: decodeAbiStringResult(name, "name"),
+      symbol: decodeAbiStringResult(symbol, "symbol"),
+      decimals,
+      verified: false,
+      source: "erc20-rpc",
+    };
+    this._tokenMetadataCache.set(cacheKey, metadata);
+    return { ...metadata };
   }
 }
