@@ -31,6 +31,7 @@ function normalizeErrorCode(errorCode, pathname, message) {
     code === "swap_approval_required" ||
     code === "swap_approval_failed" ||
     code === "swap_approval_timeout" ||
+    code === "swap_cleanup_failed" ||
     code === "fee_limit_exceeded"
   ) {
     return code;
@@ -112,6 +113,7 @@ function errorStatusCode(errorCode, fallback = 400) {
     errorCode === "swap_approval_required" ||
     errorCode === "swap_approval_failed" ||
     errorCode === "swap_approval_timeout" ||
+    errorCode === "swap_cleanup_failed" ||
     errorCode === "fee_limit_exceeded"
   ) {
     return 400;

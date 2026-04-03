@@ -503,74 +503,86 @@ export class WdkEvmWalletService {
       });
 
       let finalPlan = initialPlan;
-      if (approvalExecution.performed) {
-        finalPlan = await this.#buildVeloraSwapPlan({
+      try {
+        if (approvalExecution.performed) {
+          finalPlan = await this.#buildVeloraSwapPlan({
+            account,
+            runtimeConfig,
+            swapRequest,
+          });
+          this.#assertExpectedSwapFingerprint(
+            normalizedExpectedQuoteFingerprint,
+            finalPlan.quoteFingerprint
+          );
+        }
+
+        if (finalPlan.approval.required) {
+          throw createTaggedError(
+            "Swap still requires token approval after the approval step completed.",
+            "swap_approval_required",
+            {
+              spender: finalPlan.spender,
+              requiredAllowance: finalPlan.tokenInAmount.toString(),
+              currentAllowance: finalPlan.currentAllowance.toString(),
+            }
+          );
+        }
+
+        this.#assertSimulationSucceeded(finalPlan.simulation);
+        const { hash } = await account.sendTransaction(finalPlan.swapTx);
+        const totalFee = approvalExecution.totalFee + finalPlan.swapFee;
+        const result = {
+          hash,
+          fee: totalFee.toString(),
+          swapFee: finalPlan.swapFee.toString(),
+          approvalFee: approvalExecution.totalFee.toString(),
+          tokenInAmount: finalPlan.tokenInAmount.toString(),
+          tokenOutAmount: finalPlan.tokenOutAmount.toString(),
+          ...(approvalExecution.approveHash ? { approveHash: approvalExecution.approveHash } : {}),
+          ...(approvalExecution.resetAllowanceHash
+            ? { resetAllowanceHash: approvalExecution.resetAllowanceHash }
+            : {}),
+        };
+        return {
+          network: runtimeConfig.network,
+          chainId: runtimeConfig.chainId,
+          accountIndex,
+          address,
+          protocol: "velora",
+          executionSupported: true,
+          swapRequest,
+          tokenInMetadata,
+          tokenOutMetadata,
+          inputAmountFormatted: formatUnits(swapRequest.tokenInAmount, tokenInMetadata.decimals),
+          outputAmountFormatted: formatUnits(finalPlan.tokenOutAmount, tokenOutMetadata.decimals),
+          quoteFingerprint: finalPlan.quoteFingerprint,
+          estimatedFeeWei: totalFee.toString(),
+          estimatedSwapFeeWei: finalPlan.swapFee.toString(),
+          estimatedApprovalFeeWei: approvalExecution.totalFee.toString(),
+          allowance: {
+            spender: finalPlan.spender,
+            currentAllowance: finalPlan.currentAllowance.toString(),
+            requiredAllowance: finalPlan.tokenInAmount.toString(),
+            approvalRequired: finalPlan.approval.required,
+            approvalSequence: finalPlan.approval.steps,
+          },
+          router: finalPlan.router,
+          simulation: finalPlan.simulation,
+          swapTransaction: finalPlan.swapTransaction,
+          result,
+          source: "wdk-protocol-swap-velora-evm",
+        };
+      } catch (error) {
+        const cleanup = await this.#restoreAllowanceAfterFailedSwap({
           account,
           runtimeConfig,
-          swapRequest,
+          tokenAddress: swapRequest.tokenIn,
+          spender: initialPlan.spender,
+          originalAllowance: initialPlan.currentAllowance,
+          approvalExecution,
         });
-        this.#assertExpectedSwapFingerprint(
-          normalizedExpectedQuoteFingerprint,
-          finalPlan.quoteFingerprint
-        );
+        this.#throwSwapFailureWithCleanup(error, cleanup);
       }
-
-      if (finalPlan.approval.required) {
-        throw createTaggedError(
-          "Swap still requires token approval after the approval step completed.",
-          "swap_approval_required",
-          {
-            spender: finalPlan.spender,
-            requiredAllowance: finalPlan.tokenInAmount.toString(),
-            currentAllowance: finalPlan.currentAllowance.toString(),
-          }
-        );
-      }
-
-      this.#assertSimulationSucceeded(finalPlan.simulation);
-      const { hash } = await account.sendTransaction(finalPlan.swapTx);
-      const totalFee = approvalExecution.totalFee + finalPlan.swapFee;
-      const result = {
-        hash,
-        fee: totalFee.toString(),
-        swapFee: finalPlan.swapFee.toString(),
-        approvalFee: approvalExecution.totalFee.toString(),
-        tokenInAmount: finalPlan.tokenInAmount.toString(),
-        tokenOutAmount: finalPlan.tokenOutAmount.toString(),
-        ...(approvalExecution.approveHash ? { approveHash: approvalExecution.approveHash } : {}),
-        ...(approvalExecution.resetAllowanceHash
-          ? { resetAllowanceHash: approvalExecution.resetAllowanceHash }
-          : {}),
-      };
-      return {
-        network: runtimeConfig.network,
-        chainId: runtimeConfig.chainId,
-        accountIndex,
-        address,
-        protocol: "velora",
-        executionSupported: true,
-        swapRequest,
-        tokenInMetadata,
-        tokenOutMetadata,
-        inputAmountFormatted: formatUnits(swapRequest.tokenInAmount, tokenInMetadata.decimals),
-        outputAmountFormatted: formatUnits(finalPlan.tokenOutAmount, tokenOutMetadata.decimals),
-        quoteFingerprint: finalPlan.quoteFingerprint,
-        estimatedFeeWei: totalFee.toString(),
-        estimatedSwapFeeWei: finalPlan.swapFee.toString(),
-        estimatedApprovalFeeWei: approvalExecution.totalFee.toString(),
-        allowance: {
-          spender: finalPlan.spender,
-          currentAllowance: finalPlan.currentAllowance.toString(),
-          requiredAllowance: finalPlan.tokenInAmount.toString(),
-          approvalRequired: finalPlan.approval.required,
-          approvalSequence: finalPlan.approval.steps,
-        },
-        router: finalPlan.router,
-        simulation: finalPlan.simulation,
-        swapTransaction: finalPlan.swapTransaction,
-        result,
-        source: "wdk-protocol-swap-velora-evm",
-      };
     });
   }
 
@@ -917,6 +929,59 @@ export class WdkEvmWalletService {
     };
   }
 
+  async #buildAllowanceRestorePlan({
+    account,
+    runtimeConfig,
+    tokenAddress,
+    spender,
+    targetAllowance,
+  }) {
+    const currentAllowance = await account.getAllowance(tokenAddress, spender);
+    const desiredAllowance = BigInt(targetAllowance);
+    if (currentAllowance === desiredAllowance) {
+      return {
+        currentAllowance,
+        targetAllowance: desiredAllowance,
+        required: false,
+        estimatedFee: 0n,
+        steps: [],
+      };
+    }
+    const steps = [];
+    if (
+      runtimeConfig.chainId === 1 &&
+      tokenAddress.toLowerCase() === USDT_MAINNET_ADDRESS &&
+      currentAllowance > 0n
+    ) {
+      steps.push({ type: "reset_allowance", amount: "0" });
+      if (desiredAllowance > 0n) {
+        steps.push({ type: "restore_allowance", amount: desiredAllowance.toString() });
+      }
+    } else {
+      steps.push({
+        type: desiredAllowance === 0n ? "reset_allowance" : "restore_allowance",
+        amount: desiredAllowance.toString(),
+      });
+    }
+    let estimatedFee = 0n;
+    for (const step of steps) {
+      const quote = await account.quoteSendTransaction(
+        buildErc20ApproveTransaction(tokenAddress, spender, step.amount)
+      );
+      const fee = BigInt(quote.fee);
+      this.#assertMaxFee(runtimeConfig, fee, `swap ${step.type}`);
+      step.estimatedFeeWei = fee.toString();
+      estimatedFee += fee;
+    }
+    return {
+      currentAllowance,
+      targetAllowance: desiredAllowance,
+      required: steps.length > 0,
+      estimatedFee,
+      steps,
+    };
+  }
+
   async #executeSwapApprovalsIfNeeded({ account, runtimeConfig, swapRequest, plan }) {
     if (!plan.approval.required) {
       return {
@@ -949,6 +1014,91 @@ export class WdkEvmWalletService {
       approveHash,
       resetAllowanceHash,
     };
+  }
+
+  async #restoreAllowanceAfterFailedSwap({
+    account,
+    runtimeConfig,
+    tokenAddress,
+    spender,
+    originalAllowance,
+    approvalExecution,
+  }) {
+    if (!approvalExecution?.performed) {
+      return {
+        attempted: false,
+        restored: false,
+        originalAllowance: BigInt(originalAllowance || 0n).toString(),
+      };
+    }
+    const cleanup = {
+      attempted: true,
+      restored: false,
+      originalAllowance: BigInt(originalAllowance || 0n).toString(),
+      restoreHashes: [],
+      restoreSteps: [],
+      error: null,
+    };
+    try {
+      const restorePlan = await this.#buildAllowanceRestorePlan({
+        account,
+        runtimeConfig,
+        tokenAddress,
+        spender,
+        targetAllowance: BigInt(originalAllowance || 0n),
+      });
+      cleanup.restoreSteps = restorePlan.steps.map((step) => ({ ...step }));
+      if (!restorePlan.required) {
+        cleanup.restored = true;
+        return cleanup;
+      }
+      for (const step of restorePlan.steps) {
+        const result = await account.approve({
+          token: tokenAddress,
+          spender,
+          amount: step.amount,
+        });
+        cleanup.restoreHashes.push({
+          type: step.type,
+          hash: result.hash,
+          fee: BigInt(result.fee || 0).toString(),
+        });
+        await this.#waitForTransactionReceipt(runtimeConfig, result.hash);
+      }
+      const finalAllowance = await account.getAllowance(tokenAddress, spender);
+      cleanup.finalAllowance = finalAllowance.toString();
+      cleanup.restored = finalAllowance === BigInt(originalAllowance || 0n);
+      return cleanup;
+    } catch (cleanupError) {
+      cleanup.error = {
+        message: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+        code:
+          cleanupError && typeof cleanupError === "object"
+            ? String(cleanupError.errorCode || cleanupError.code || "").trim() || null
+            : null,
+      };
+      return cleanup;
+    }
+  }
+
+  #throwSwapFailureWithCleanup(error, cleanup) {
+    if (cleanup?.attempted && cleanup.restored !== true) {
+      throw createTaggedError(
+        "Swap failed after approval and automatic allowance restore did not complete.",
+        "swap_cleanup_failed",
+        {
+          originalError:
+            error instanceof Error
+              ? {
+                  message: error.message,
+                  code: String(error.errorCode || error.code || "").trim() || null,
+                }
+              : { message: String(error), code: null },
+          cleanup,
+        }
+      );
+    }
+    throw error;
   }
 
   async #simulatePreparedTransaction({ runtimeConfig, from, tx }) {
