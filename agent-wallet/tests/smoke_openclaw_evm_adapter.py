@@ -477,6 +477,100 @@ async def _main() -> None:
     assert swap_executed.data["allowance"]["approval_required"] is False
     assert swap_executed.data["simulation"]["ok"] is True
 
+    class QuoteChangedEvmBackend(FakeEvmBackend):
+        async def send_evm_swap(
+            self,
+            *,
+            token_in: str,
+            token_out: str,
+            amount_in_raw: str,
+            expected_quote_fingerprint: str | None = None,
+        ) -> dict:
+            raise WalletBackendError(
+                "Swap quote changed since preview. Generate a new preview and approval before execute.",
+                code="swap_quote_changed",
+                details={"source": "wdk-evm-wallet"},
+            )
+
+    quote_changed_adapter = OpenClawWalletAdapter(QuoteChangedEvmBackend())
+    quote_changed_preview = await quote_changed_adapter.invoke(
+        "swap_evm_tokens",
+        {
+            "token_in": "0x2222222222222222222222222222222222222222",
+            "token_out": "0x3333333333333333333333333333333333333333",
+            "amount_in_raw": "1000000",
+            "mode": "preview",
+            "purpose": "test evm swap",
+        },
+    )
+    quote_changed_approval = issue_approval_token(
+        tool_name="swap_evm_tokens",
+        network="ethereum",
+        summary=quote_changed_preview.data["confirmation_summary"],
+        mainnet_confirmed=True,
+        issued_by="test",
+    )
+    quote_changed = await quote_changed_adapter.invoke(
+        "swap_evm_tokens",
+        {
+            "token_in": "0x2222222222222222222222222222222222222222",
+            "token_out": "0x3333333333333333333333333333333333333333",
+            "amount_in_raw": "1000000",
+            "mode": "execute",
+            "purpose": "test evm swap",
+            "approval_token": quote_changed_approval,
+        },
+    )
+    assert quote_changed.ok is False
+    assert quote_changed.error_code == "swap_quote_changed"
+
+    class CleanupFailedEvmBackend(FakeEvmBackend):
+        async def send_evm_swap(
+            self,
+            *,
+            token_in: str,
+            token_out: str,
+            amount_in_raw: str,
+            expected_quote_fingerprint: str | None = None,
+        ) -> dict:
+            raise WalletBackendError(
+                "Swap failed after approval and automatic allowance restore did not complete.",
+                code="swap_cleanup_failed",
+                details={"source": "wdk-evm-wallet", "cleanup": {"attempted": True, "restored": False}},
+            )
+
+    cleanup_failed_adapter = OpenClawWalletAdapter(CleanupFailedEvmBackend())
+    cleanup_failed_preview = await cleanup_failed_adapter.invoke(
+        "swap_evm_tokens",
+        {
+            "token_in": "0x2222222222222222222222222222222222222222",
+            "token_out": "0x3333333333333333333333333333333333333333",
+            "amount_in_raw": "1000000",
+            "mode": "preview",
+            "purpose": "test evm swap",
+        },
+    )
+    cleanup_failed_approval = issue_approval_token(
+        tool_name="swap_evm_tokens",
+        network="ethereum",
+        summary=cleanup_failed_preview.data["confirmation_summary"],
+        mainnet_confirmed=True,
+        issued_by="test",
+    )
+    cleanup_failed = await cleanup_failed_adapter.invoke(
+        "swap_evm_tokens",
+        {
+            "token_in": "0x2222222222222222222222222222222222222222",
+            "token_out": "0x3333333333333333333333333333333333333333",
+            "amount_in_raw": "1000000",
+            "mode": "execute",
+            "purpose": "test evm swap",
+            "approval_token": cleanup_failed_approval,
+        },
+    )
+    assert cleanup_failed.ok is False
+    assert cleanup_failed.error_code == "swap_cleanup_failed"
+
     approval = issue_approval_token(
         tool_name="transfer_evm_native",
         network="ethereum",
