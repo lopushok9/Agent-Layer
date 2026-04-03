@@ -137,6 +137,13 @@ function sha256Hex(value) {
   return crypto.createHash("sha256").update(String(value || ""), "utf8").digest("hex");
 }
 
+function normalizeErrorCodeValue(error) {
+  if (!error || typeof error !== "object") {
+    return "";
+  }
+  return String(error.errorCode || error.code || "").trim().toLowerCase();
+}
+
 function decodeUint256Result(value, fieldName) {
   const hex = stripHexPrefix(value);
   if (!hex || !/^[0-9a-fA-F]+$/.test(hex)) {
@@ -255,6 +262,27 @@ function buildErc20ApproveTransaction(tokenAddress, spender, amount) {
       normalizeAddress(spender, "spender")
     )}${leftPadHex(BigInt(amount).toString(16))}`,
   };
+}
+
+function isRecoverableSwapFeeEstimateFailure(error) {
+  const code = normalizeErrorCodeValue(error);
+  const message = error instanceof Error ? error.message : String(error || "");
+  const lower = message.toLowerCase();
+  if (
+    code === "insufficient_funds" ||
+    code === "call_exception" ||
+    code === "execution_reverted" ||
+    code === "bad_data"
+  ) {
+    return true;
+  }
+  return (
+    lower.includes("execution reverted") ||
+    lower.includes("insufficient funds") ||
+    lower.includes("estimategas") ||
+    lower.includes("missing revert data") ||
+    lower.includes("call_exception")
+  );
 }
 
 async function maybeDispose(value) {
@@ -422,7 +450,7 @@ export class WdkEvmWalletService {
           swapRequest,
         });
         const quote = {
-          fee: plan.swapFee.toString(),
+          fee: plan.swapFee !== null ? plan.swapFee.toString() : null,
           tokenInAmount: plan.tokenInAmount.toString(),
           tokenOutAmount: plan.tokenOutAmount.toString(),
           priceRoute: plan.priceRoute,
@@ -440,9 +468,12 @@ export class WdkEvmWalletService {
           inputAmountFormatted: formatUnits(swapRequest.tokenInAmount, tokenInMetadata.decimals),
           outputAmountFormatted: formatUnits(plan.tokenOutAmount, tokenOutMetadata.decimals),
           quoteFingerprint: plan.quoteFingerprint,
-          estimatedFeeWei: plan.totalEstimatedFee.toString(),
-          estimatedSwapFeeWei: plan.swapFee.toString(),
+          estimatedFeeWei:
+            plan.totalEstimatedFee !== null ? plan.totalEstimatedFee.toString() : null,
+          estimatedSwapFeeWei: plan.swapFee !== null ? plan.swapFee.toString() : null,
           estimatedApprovalFeeWei: plan.approval.estimatedFee.toString(),
+          feeEstimateAvailable: plan.swapFee !== null,
+          feeEstimateError: plan.swapFeeError,
           allowance: {
             spender: plan.spender,
             currentAllowance: plan.currentAllowance.toString(),
@@ -555,15 +586,17 @@ export class WdkEvmWalletService {
           tokenOutMetadata,
           inputAmountFormatted: formatUnits(swapRequest.tokenInAmount, tokenInMetadata.decimals),
           outputAmountFormatted: formatUnits(finalPlan.tokenOutAmount, tokenOutMetadata.decimals),
-          quoteFingerprint: finalPlan.quoteFingerprint,
-          estimatedFeeWei: totalFee.toString(),
-          estimatedSwapFeeWei: finalPlan.swapFee.toString(),
-          estimatedApprovalFeeWei: approvalExecution.totalFee.toString(),
-          allowance: {
-            spender: finalPlan.spender,
-            currentAllowance: finalPlan.currentAllowance.toString(),
-            requiredAllowance: finalPlan.tokenInAmount.toString(),
-            approvalRequired: finalPlan.approval.required,
+        quoteFingerprint: finalPlan.quoteFingerprint,
+        estimatedFeeWei: totalFee.toString(),
+        estimatedSwapFeeWei: finalPlan.swapFee.toString(),
+        estimatedApprovalFeeWei: approvalExecution.totalFee.toString(),
+        feeEstimateAvailable: true,
+        feeEstimateError: null,
+        allowance: {
+          spender: finalPlan.spender,
+          currentAllowance: finalPlan.currentAllowance.toString(),
+          requiredAllowance: finalPlan.tokenInAmount.toString(),
+          approvalRequired: finalPlan.approval.required,
             approvalSequence: finalPlan.approval.steps,
           },
           router: finalPlan.router,
@@ -814,15 +847,12 @@ export class WdkEvmWalletService {
           ignoreChecks: true,
         }
       );
-      const [swapQuote, spender, contracts] = await Promise.all([
-        account.quoteSendTransaction(swapTx),
+      const [spender, contracts] = await Promise.all([
         veloraSdk.swap.getSpender(),
         typeof veloraSdk.swap.getContracts === "function"
           ? veloraSdk.swap.getContracts()
           : Promise.resolve(null),
       ]);
-      const swapFee = BigInt(swapQuote.fee);
-      this.#assertMaxFee(runtimeConfig, swapFee, "swap");
       const router = normalizeAddress(
         String(
           contracts?.AugustusSwapper ||
@@ -841,6 +871,13 @@ export class WdkEvmWalletService {
         requiredAmount: swapRequest.tokenInAmount,
         currentAllowance,
       });
+      const swapFeeQuote = await this.#quoteSwapTransaction({
+        account,
+        runtimeConfig,
+        swapTx,
+        tolerateFailure: approval.required,
+      });
+      const swapFee = swapFeeQuote.fee;
       const simulation = approval.required
         ? {
             ok: null,
@@ -883,7 +920,8 @@ export class WdkEvmWalletService {
         tokenOutAmount: BigInt(priceRoute.destAmount),
         swapTx,
         swapFee,
-        totalEstimatedFee: swapFee + approval.estimatedFee,
+        swapFeeError: swapFeeQuote.error,
+        totalEstimatedFee: swapFee !== null ? swapFee + approval.estimatedFee : null,
         approval,
         simulation,
         swapTransaction,
@@ -1014,6 +1052,29 @@ export class WdkEvmWalletService {
       approveHash,
       resetAllowanceHash,
     };
+  }
+
+  async #quoteSwapTransaction({ account, runtimeConfig, swapTx, tolerateFailure }) {
+    try {
+      const quote = await account.quoteSendTransaction(swapTx);
+      const fee = BigInt(quote.fee);
+      this.#assertMaxFee(runtimeConfig, fee, "swap");
+      return {
+        fee,
+        error: null,
+      };
+    } catch (error) {
+      if (!tolerateFailure || !isRecoverableSwapFeeEstimateFailure(error)) {
+        throw error;
+      }
+      return {
+        fee: null,
+        error: {
+          code: normalizeErrorCodeValue(error) || null,
+          message: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
   }
 
   async #restoreAllowanceAfterFailedSwap({

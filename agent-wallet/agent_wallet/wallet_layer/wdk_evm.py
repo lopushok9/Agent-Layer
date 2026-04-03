@@ -266,9 +266,19 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "execution_supported": bool(data.get("executionSupported")) and not self.sign_only,
             "quote_fingerprint": str(data.get("quoteFingerprint") or "").strip() or None,
             "router": str(data.get("router") or "").strip() or None,
-            "estimated_fee_wei": str(data.get("estimatedFeeWei") or _extract_fee_wei(dict(data.get("quote") or {})) or "0"),
-            "estimated_swap_fee_wei": str(data.get("estimatedSwapFeeWei") or _extract_fee_wei(dict(data.get("quote") or {})) or "0"),
+            "estimated_fee_wei": (
+                str(data.get("estimatedFeeWei"))
+                if data.get("estimatedFeeWei") is not None
+                else (_extract_fee_wei(quote) if _extract_fee_wei(quote) is not None else None)
+            ),
+            "estimated_swap_fee_wei": (
+                str(data.get("estimatedSwapFeeWei"))
+                if data.get("estimatedSwapFeeWei") is not None
+                else (_extract_fee_wei(quote) if _extract_fee_wei(quote) is not None else None)
+            ),
             "estimated_approval_fee_wei": str(data.get("estimatedApprovalFeeWei") or "0"),
+            "fee_estimate_available": bool(data.get("feeEstimateAvailable", True)),
+            "fee_estimate_error": data.get("feeEstimateError"),
             "allowance": _normalize_swap_allowance(data.get("allowance")),
             "simulation": _normalize_swap_simulation(data.get("simulation")),
             "swap_transaction": {
@@ -322,9 +332,19 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "estimated_output_amount_ui": (
                 str(data.get("outputAmountFormatted")) if data.get("outputAmountFormatted") is not None else None
             ),
-            "estimated_fee_wei": str(data.get("estimatedFeeWei") or _extract_fee_wei(quote) or "0"),
-            "estimated_swap_fee_wei": str(data.get("estimatedSwapFeeWei") or _extract_fee_wei(quote) or "0"),
+            "estimated_fee_wei": (
+                str(data.get("estimatedFeeWei"))
+                if data.get("estimatedFeeWei") is not None
+                else (_extract_fee_wei(quote) if _extract_fee_wei(quote) is not None else None)
+            ),
+            "estimated_swap_fee_wei": (
+                str(data.get("estimatedSwapFeeWei"))
+                if data.get("estimatedSwapFeeWei") is not None
+                else (_extract_fee_wei(quote) if _extract_fee_wei(quote) is not None else None)
+            ),
             "estimated_approval_fee_wei": str(data.get("estimatedApprovalFeeWei") or "0"),
+            "fee_estimate_available": bool(data.get("feeEstimateAvailable", True)),
+            "fee_estimate_error": data.get("feeEstimateError"),
             "swap_provider": str(data.get("protocol") or "velora"),
             "execution_supported": bool(data.get("executionSupported")) and not self.sign_only,
             "route_plan": _normalize_swap_route(quote),

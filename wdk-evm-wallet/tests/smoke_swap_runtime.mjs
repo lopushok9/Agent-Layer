@@ -55,6 +55,7 @@ function createRuntimeHarness(options = {}) {
     approvalFee: BigInt(options.approvalFee ?? 2n),
     swapFee: BigInt(options.swapFee ?? 3n),
     failSimulationAfterApproval: Boolean(options.failSimulationAfterApproval),
+    failSwapFeeQuote: Boolean(options.failSwapFeeQuote),
     failSwapSend: Boolean(options.failSwapSend),
     failCleanupApprove: Boolean(options.failCleanupApprove),
     quoteDestAmounts: Array.isArray(options.quoteDestAmounts)
@@ -85,6 +86,11 @@ function createRuntimeHarness(options = {}) {
         kind: isApprove ? "approve" : "swap",
         to: tx?.to ? String(tx.to) : null,
       });
+      if (config.failSwapFeeQuote && !isApprove) {
+        throw Object.assign(new Error("execution reverted: preview gas unavailable"), {
+          code: "CALL_EXCEPTION",
+        });
+      }
       return { fee: isApprove ? config.approvalFee : config.swapFee };
     },
     async approve({ amount }) {
@@ -265,6 +271,29 @@ test("swap succeeds without approval when allowance is already sufficient", asyn
     assert.equal(state.sendCalls.length, 1);
     assert.equal(result.simulation.ok, true);
   });
+});
+
+test("quoteSwap degrades gracefully when swap gas estimate is unavailable before approval", async () => {
+  await withHarness(
+    {
+      failSwapFeeQuote: true,
+    },
+    async ({ service, state, config }) => {
+      const quote = await service.quoteSwap({
+        seedPhrase: VALID_MNEMONIC,
+        tokenIn: config.tokenIn,
+        tokenOut: config.tokenOut,
+        tokenInAmount: config.amountIn,
+        network: config.network,
+      });
+      assert.equal(quote.allowance.approvalRequired, true);
+      assert.equal(quote.estimatedSwapFeeWei, null);
+      assert.equal(quote.estimatedFeeWei, null);
+      assert.equal(quote.feeEstimateAvailable, false);
+      assert.match(String(quote.feeEstimateError?.message || ""), /preview gas unavailable/);
+      assert.equal(state.sendCalls.length, 0);
+    }
+  );
 });
 
 test("swap failure after approval restores original allowance", async () => {
