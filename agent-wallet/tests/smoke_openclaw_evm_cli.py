@@ -96,6 +96,7 @@ def main() -> None:
         assert onboard["session"]["backend"] == "wdk_evm_local"
         assert onboard["session"]["chain"] == "evm"
         assert onboard["session"]["network"] == "sepolia"
+        assert "get_evm_swap_quote" in {tool["name"] for tool in onboard["tools"]}
         assert "transfer_evm_native" in {tool["name"] for tool in onboard["tools"]}
         assert "transfer_sol" not in {tool["name"] for tool in onboard["tools"]}
 

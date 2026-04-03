@@ -67,6 +67,30 @@ class FakeEvmBackend(AgentWalletBackend):
             "source": "fake",
         }
 
+    async def get_evm_swap_quote(
+        self,
+        *,
+        token_in: str,
+        token_out: str,
+        amount_in_raw: str,
+    ) -> dict:
+        return {
+            "chain": "evm",
+            "network": "ethereum",
+            "address": await self.get_address(),
+            "token_in": token_in,
+            "token_out": token_out,
+            "amount_in_raw": amount_in_raw,
+            "quote": {
+                "tokenInAmount": amount_in_raw,
+                "tokenOutAmount": "995000",
+                "route": "fake-velora-route",
+            },
+            "protocol": "velora",
+            "execution_supported": False,
+            "source": "fake",
+        }
+
     async def preview_evm_native_transfer(
         self,
         *,
@@ -158,6 +182,7 @@ class FakeEvmBackend(AgentWalletBackend):
 async def _main() -> None:
     adapter = OpenClawWalletAdapter(FakeEvmBackend())
     tool_names = {tool.name for tool in adapter.list_tools()}
+    assert "get_evm_swap_quote" in tool_names
     assert "transfer_evm_native" in tool_names
     assert "transfer_evm_token" in tool_names
     assert "transfer_btc" not in tool_names
@@ -173,6 +198,18 @@ async def _main() -> None:
     )
     assert token_balance.ok is True
     assert token_balance.data["balance_raw"] == "42000000"
+
+    swap_quote = await adapter.invoke(
+        "get_evm_swap_quote",
+        {
+            "token_in": "0x2222222222222222222222222222222222222222",
+            "token_out": "0x3333333333333333333333333333333333333333",
+            "amount_in_raw": "1000000",
+        },
+    )
+    assert swap_quote.ok is True
+    assert swap_quote.data["protocol"] == "velora"
+    assert swap_quote.data["execution_supported"] is False
 
     preview = await adapter.invoke(
         "transfer_evm_native",

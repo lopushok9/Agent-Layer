@@ -17,6 +17,7 @@ Current scope:
 - fetch native balances
 - fetch ERC-20 balances
 - fetch fee-rate suggestions
+- fetch read-only Velora swap quotes for supported mainnet ERC-20 pairs
 - quote and send native transfers
 - quote and send ERC-20 transfers
 - fetch transaction receipts
@@ -28,6 +29,8 @@ The implementation follows the official WDK documentation:
 - EVM wallet overview: https://docs.wdk.tether.io/sdk/wallet-modules/wallet-evm
 - EVM wallet configuration: https://docs.wdk.tether.io/sdk/wallet-modules/wallet-evm/configuration
 - EVM wallet API reference: https://docs.wdk.tether.io/sdk/wallet-modules/wallet-evm/api-reference
+- Velora swap overview: https://docs.wdk.tether.io/sdk/swap-modules/swap-velora-evm
+- Velora swap API reference: https://docs.wdk.tether.io/sdk/swap-modules/swap-velora-evm/api-reference
 
 ## Why Separate
 
@@ -44,6 +47,7 @@ This service intentionally supports a narrow surface:
 - no ERC-4337 in this runtime
 - no arbitrary calldata on `sendTransaction`
 - no token approvals
+- no swap execution yet
 - no generic contract execution endpoints
 - no seed phrase exposure in the agent-facing path
 
@@ -75,6 +79,7 @@ The active network is persistent and can be switched without changing code.
 - `POST /v1/evm/token-balance/get`
 - `POST /v1/evm/fee-rates/get`
 - `POST /v1/evm/transaction/receipt/get`
+- `POST /v1/evm/swap/quote`
 - `POST /v1/evm/transfer/quote`
 - `POST /v1/evm/transfer/send`
 - `POST /v1/evm/token-transfer/quote`
@@ -136,3 +141,4 @@ Local security note:
 - unlocked seed phrases live only in memory
 - explicit `lock` or process restart clears the in-memory unlocked state
 - seed reveal is password-gated and separate from normal agent operations
+- Velora is currently integrated only as a read-only quote surface for `ethereum` and `base` ERC-20 pairs

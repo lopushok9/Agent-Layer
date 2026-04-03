@@ -52,6 +52,7 @@ def main() -> None:
         assert session.network == "sepolia"
         assert session.storage_format == "local_vault"
         assert session.address.startswith("0x")
+        assert "get_evm_swap_quote" in session.tool_names
         assert "transfer_evm_native" in session.tool_names
         assert "transfer_sol" not in session.tool_names
         assert bundle["session"]["address"] == session.address

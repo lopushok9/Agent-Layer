@@ -727,6 +727,20 @@ const evmToolDefinitions = [
     },
   },
   {
+    name: "get_evm_swap_quote",
+    description: "Get a read-only Velora quote for an ERC-20 to ERC-20 swap on supported EVM mainnet networks. This does not approve or execute a swap.",
+    parameters: {
+      type: "object",
+      properties: {
+        token_in: { type: "string" },
+        token_out: { type: "string" },
+        amount_in_raw: { type: "string" },
+      },
+      required: ["token_in", "token_out", "amount_in_raw"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "transfer_evm_native",
     description: "Preview, prepare, or execute a native EVM transfer using a wei amount. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
     optional: true,

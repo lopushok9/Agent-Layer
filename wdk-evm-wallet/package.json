@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@tetherto/wdk": "^1.0.0-beta.6",
+    "@tetherto/wdk-protocol-swap-velora-evm": "^1.0.0-beta.4",
     "@tetherto/wdk-wallet-evm": "^1.0.0-beta.4",
     "dotenv": "^16.4.5"
   }

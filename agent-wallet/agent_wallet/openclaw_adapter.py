@@ -469,6 +469,34 @@ class OpenClawWalletAdapter:
                     risk_level="low",
                 ),
                 AgentToolSpec(
+                    name="get_evm_swap_quote",
+                    description=(
+                        "Get a read-only Velora quote for an ERC-20 to ERC-20 swap on supported EVM mainnet networks. "
+                        "This does not approve or execute a swap."
+                    ),
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "token_in": {
+                                "type": "string",
+                                "description": "ERC-20 contract address for the input token.",
+                            },
+                            "token_out": {
+                                "type": "string",
+                                "description": "ERC-20 contract address for the output token.",
+                            },
+                            "amount_in_raw": {
+                                "type": "string",
+                                "description": "Input amount in token base units as a base-10 integer string.",
+                            },
+                        },
+                        "required": ["token_in", "token_out", "amount_in_raw"],
+                        "additionalProperties": False,
+                    },
+                    read_only=True,
+                    risk_level="low",
+                ),
+                AgentToolSpec(
                     name="transfer_evm_native",
                     description=(
                         "Preview, prepare, or execute a native EVM transfer using an amount in wei. "
@@ -1812,6 +1840,25 @@ class OpenClawWalletAdapter:
                 if not isinstance(tx_hash, str) or not tx_hash.strip():
                     raise WalletBackendError("tx_hash is required.")
                 data = await self.backend.get_evm_transaction_receipt(tx_hash.strip())
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_evm_swap_quote":
+                token_in = args.get("token_in")
+                token_out = args.get("token_out")
+                amount_in_raw = args.get("amount_in_raw")
+                if not isinstance(token_in, str) or not token_in.strip():
+                    raise WalletBackendError("token_in is required.")
+                if not isinstance(token_out, str) or not token_out.strip():
+                    raise WalletBackendError("token_out is required.")
+                if not isinstance(amount_in_raw, str) or not amount_in_raw.strip().isdigit():
+                    raise WalletBackendError("amount_in_raw must be a positive integer string.")
+                if int(amount_in_raw.strip()) <= 0:
+                    raise WalletBackendError("amount_in_raw must be greater than zero.")
+                data = await self.backend.get_evm_swap_quote(
+                    token_in=token_in.strip(),
+                    token_out=token_out.strip(),
+                    amount_in_raw=amount_in_raw.strip(),
+                )
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
 
             if tool_name == "get_wallet_portfolio":

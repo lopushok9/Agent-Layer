@@ -1,4 +1,5 @@
 import WDK from "@tetherto/wdk";
+import VeloraProtocolEvm from "@tetherto/wdk-protocol-swap-velora-evm";
 import WalletManagerEvm from "@tetherto/wdk-wallet-evm";
 
 function createTaggedError(message, code, details = {}) {
@@ -77,6 +78,20 @@ function normalizeAddress(value, fieldName) {
     throw new Error(`${fieldName} must not be the zero address.`);
   }
   return address;
+}
+
+function assertDistinctAddresses(left, leftName, right, rightName) {
+  if (left.toLowerCase() === right.toLowerCase()) {
+    throw new Error(`${leftName} and ${rightName} must be different addresses.`);
+  }
+}
+
+function assertVeloraSupportedNetwork(network) {
+  if (!["ethereum", "base"].includes(network)) {
+    throw new Error(
+      "Velora swap quotes are currently supported only on ethereum and base mainnet."
+    );
+  }
 }
 
 function assertValidHash(value, fieldName) {
@@ -277,6 +292,52 @@ export class WdkEvmWalletService {
       found: receipt !== null,
       source: "rpc",
     };
+  }
+
+  async quoteSwap({
+    seedPhrase,
+    tokenIn,
+    tokenOut,
+    tokenInAmount,
+    accountIndex = 0,
+    network,
+  }) {
+    return this.#withAccount({ seedPhrase, accountIndex, network }, async (account, runtimeConfig) => {
+      assertVeloraSupportedNetwork(runtimeConfig.network);
+      const swapRequest = {
+        tokenIn: normalizeAddress(tokenIn, "tokenIn"),
+        tokenOut: normalizeAddress(tokenOut, "tokenOut"),
+        tokenInAmount: assertPositiveBigIntString(tokenInAmount, "tokenInAmount"),
+      };
+      assertDistinctAddresses(swapRequest.tokenIn, "tokenIn", swapRequest.tokenOut, "tokenOut");
+      const address = await account.getAddress();
+      const readOnlyAccount =
+        typeof account.toReadOnlyAccount === "function" ? await account.toReadOnlyAccount() : account;
+      const protocolConfig =
+        runtimeConfig.transferMaxFeeWei !== null
+          ? { swapMaxFee: runtimeConfig.transferMaxFeeWei }
+          : undefined;
+      const protocol = new VeloraProtocolEvm(readOnlyAccount, protocolConfig);
+      try {
+        const quote = await protocol.quoteSwap(swapRequest);
+        return {
+          network: runtimeConfig.network,
+          chainId: runtimeConfig.chainId,
+          accountIndex,
+          address,
+          protocol: "velora",
+          executionSupported: false,
+          swapRequest,
+          quote,
+          source: "wdk-protocol-swap-velora-evm",
+        };
+      } finally {
+        await maybeDispose(protocol);
+        if (readOnlyAccount !== account) {
+          await maybeDispose(readOnlyAccount);
+        }
+      }
+    });
   }
 
   async quoteNativeTransfer({ seedPhrase, to, value, accountIndex = 0, network }) {

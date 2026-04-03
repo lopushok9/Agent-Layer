@@ -352,6 +352,32 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                     )
                     return
 
+                if self.path == "/v1/evm/swap/quote":
+                    self._send(
+                        200,
+                        {
+                            "ok": True,
+                            "data": {
+                                "network": requested_network,
+                                "chainId": requested_chain_id,
+                                "address": outer.address,
+                                "protocol": "velora",
+                                "executionSupported": False,
+                                "swapRequest": {
+                                    "tokenIn": str(body.get("tokenIn") or outer.token),
+                                    "tokenOut": "0x3333333333333333333333333333333333333333",
+                                    "tokenInAmount": str(body.get("tokenInAmount") or "1000000"),
+                                },
+                                "quote": {
+                                    "tokenInAmount": str(body.get("tokenInAmount") or "1000000"),
+                                    "tokenOutAmount": "995000",
+                                    "route": "fake-velora-route",
+                                },
+                            },
+                        },
+                    )
+                    return
+
                 if self.path == "/v1/evm/transfer/quote":
                     self._send(
                         200,

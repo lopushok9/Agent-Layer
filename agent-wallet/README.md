@@ -39,6 +39,7 @@ Current safe tools:
 - `get_evm_token_balance`
 - `get_evm_fee_rates`
 - `get_evm_transaction_receipt`
+- `get_evm_swap_quote`
 - `transfer_evm_native`
 - `transfer_evm_token`
 - `get_wallet_portfolio`

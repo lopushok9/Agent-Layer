@@ -83,6 +83,15 @@ class AgentWalletBackend(ABC):
     async def get_evm_transaction_receipt(self, tx_hash: str) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support EVM transaction receipt lookup.")
 
+    async def get_evm_swap_quote(
+        self,
+        *,
+        token_in: str,
+        token_out: str,
+        amount_in_raw: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM swap quote lookup.")
+
     async def preview_evm_native_transfer(
         self,
         *,
