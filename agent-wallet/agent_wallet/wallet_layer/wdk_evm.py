@@ -60,6 +60,30 @@ def _normalize_token_metadata(payload: Any, token_address: str | None = None) ->
     return normalized
 
 
+def _normalize_swap_allowance(payload: Any) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    return {
+        "spender": str(payload.get("spender") or "").strip() or None,
+        "current_allowance_raw": str(payload.get("currentAllowance") or "0"),
+        "required_allowance_raw": str(payload.get("requiredAllowance") or "0"),
+        "approval_required": bool(payload.get("approvalRequired")),
+        "approval_sequence": list(payload.get("approvalSequence") or []),
+    }
+
+
+def _normalize_swap_simulation(payload: Any) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    return {
+        "ok": payload.get("ok"),
+        "skipped": bool(payload.get("skipped")),
+        "reason": str(payload.get("reason") or "").strip() or None,
+        "message": str(payload.get("message") or "").strip() or None,
+        "details": dict(payload.get("details") or {}) if isinstance(payload.get("details"), dict) else None,
+    }
+
+
 class WdkEvmLocalWalletBackend(AgentWalletBackend):
     """EVM backend that delegates signing and execution to a local WDK service."""
 
@@ -224,6 +248,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
                 "tokenInAmount": amount_in_raw,
             },
         )
+        quote = dict(data.get("quote") or {})
         return {
             "chain": self.chain,
             "network": self.network,
@@ -232,12 +257,25 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "token_out": str((data.get("swapRequest") or {}).get("tokenOut") or token_out),
             "amount_in_raw": str((data.get("swapRequest") or {}).get("tokenInAmount") or amount_in_raw),
             "amount_in_ui": str(data.get("inputAmountFormatted")) if data.get("inputAmountFormatted") is not None else None,
+            "estimated_output_amount_raw": str(quote.get("tokenOutAmount") or "0"),
             "estimated_output_amount_ui": (
                 str(data.get("outputAmountFormatted")) if data.get("outputAmountFormatted") is not None else None
             ),
-            "quote": dict(data.get("quote") or {}),
+            "quote": quote,
             "protocol": str(data.get("protocol") or "velora"),
             "execution_supported": bool(data.get("executionSupported")) and not self.sign_only,
+            "quote_fingerprint": str(data.get("quoteFingerprint") or "").strip() or None,
+            "router": str(data.get("router") or "").strip() or None,
+            "estimated_fee_wei": str(data.get("estimatedFeeWei") or _extract_fee_wei(dict(data.get("quote") or {})) or "0"),
+            "estimated_swap_fee_wei": str(data.get("estimatedSwapFeeWei") or _extract_fee_wei(dict(data.get("quote") or {})) or "0"),
+            "estimated_approval_fee_wei": str(data.get("estimatedApprovalFeeWei") or "0"),
+            "allowance": _normalize_swap_allowance(data.get("allowance")),
+            "simulation": _normalize_swap_simulation(data.get("simulation")),
+            "swap_transaction": {
+                "to": str((data.get("swapTransaction") or {}).get("to") or "").strip() or None,
+                "value": str((data.get("swapTransaction") or {}).get("value") or "0"),
+                "data_hash": str((data.get("swapTransaction") or {}).get("dataHash") or "").strip() or None,
+            },
             "token_in_metadata": _normalize_token_metadata(
                 data.get("tokenInMetadata"),
                 str((data.get("swapRequest") or {}).get("tokenIn") or token_in),
@@ -284,10 +322,21 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "estimated_output_amount_ui": (
                 str(data.get("outputAmountFormatted")) if data.get("outputAmountFormatted") is not None else None
             ),
-            "estimated_fee_wei": _extract_fee_wei(quote),
+            "estimated_fee_wei": str(data.get("estimatedFeeWei") or _extract_fee_wei(quote) or "0"),
+            "estimated_swap_fee_wei": str(data.get("estimatedSwapFeeWei") or _extract_fee_wei(quote) or "0"),
+            "estimated_approval_fee_wei": str(data.get("estimatedApprovalFeeWei") or "0"),
             "swap_provider": str(data.get("protocol") or "velora"),
             "execution_supported": bool(data.get("executionSupported")) and not self.sign_only,
             "route_plan": _normalize_swap_route(quote),
+            "quote_fingerprint": str(data.get("quoteFingerprint") or "").strip() or None,
+            "router": str(data.get("router") or "").strip() or None,
+            "allowance": _normalize_swap_allowance(data.get("allowance")),
+            "simulation": _normalize_swap_simulation(data.get("simulation")),
+            "swap_transaction": {
+                "to": str((data.get("swapTransaction") or {}).get("to") or "").strip() or None,
+                "value": str((data.get("swapTransaction") or {}).get("value") or "0"),
+                "data_hash": str((data.get("swapTransaction") or {}).get("dataHash") or "").strip() or None,
+            },
             "token_in_metadata": _normalize_token_metadata(
                 data.get("tokenInMetadata"),
                 str((data.get("swapRequest") or {}).get("tokenIn") or token_in),
@@ -307,6 +356,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
         token_in: str,
         token_out: str,
         amount_in_raw: str,
+        expected_quote_fingerprint: str | None = None,
     ) -> dict[str, Any]:
         if self.sign_only:
             raise WalletBackendError("wdk_evm_local is configured as sign_only.")
@@ -319,6 +369,11 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
                 "tokenIn": token_in,
                 "tokenOut": token_out,
                 "tokenInAmount": amount_in_raw,
+                **(
+                    {"expectedQuoteFingerprint": expected_quote_fingerprint}
+                    if isinstance(expected_quote_fingerprint, str) and expected_quote_fingerprint.strip()
+                    else {}
+                ),
             },
         )
         result = dict(data.get("result") or {})
@@ -338,8 +393,19 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "estimated_output_amount_ui": (
                 str(data.get("outputAmountFormatted")) if data.get("outputAmountFormatted") is not None else None
             ),
-            "estimated_fee_wei": _extract_fee_wei(result),
+            "estimated_fee_wei": str(data.get("estimatedFeeWei") or result.get("fee") or "0"),
+            "estimated_swap_fee_wei": str(data.get("estimatedSwapFeeWei") or result.get("swapFee") or "0"),
+            "estimated_approval_fee_wei": str(data.get("estimatedApprovalFeeWei") or result.get("approvalFee") or "0"),
             "swap_provider": str(data.get("protocol") or "velora"),
+            "quote_fingerprint": str(data.get("quoteFingerprint") or "").strip() or None,
+            "router": str(data.get("router") or "").strip() or None,
+            "allowance": _normalize_swap_allowance(data.get("allowance")),
+            "simulation": _normalize_swap_simulation(data.get("simulation")),
+            "swap_transaction": {
+                "to": str((data.get("swapTransaction") or {}).get("to") or "").strip() or None,
+                "value": str((data.get("swapTransaction") or {}).get("value") or "0"),
+                "data_hash": str((data.get("swapTransaction") or {}).get("dataHash") or "").strip() or None,
+            },
             "token_in_metadata": _normalize_token_metadata(
                 data.get("tokenInMetadata"),
                 str((data.get("swapRequest") or {}).get("tokenIn") or token_in),

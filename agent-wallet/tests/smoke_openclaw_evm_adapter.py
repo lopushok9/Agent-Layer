@@ -115,6 +115,32 @@ class FakeEvmBackend(AgentWalletBackend):
             },
             "protocol": "velora",
             "execution_supported": True,
+            "quote_fingerprint": "evm-swap-fingerprint-1",
+            "router": "0x4444444444444444444444444444444444444444",
+            "estimated_fee_wei": "67000000000000",
+            "estimated_swap_fee_wei": "39000000000000",
+            "estimated_approval_fee_wei": "28000000000000",
+            "allowance": {
+                "spender": "0x5555555555555555555555555555555555555555",
+                "current_allowance_raw": "0",
+                "required_allowance_raw": amount_in_raw,
+                "approval_required": True,
+                "approval_sequence": [
+                    {"type": "approve", "amount": amount_in_raw, "estimatedFeeWei": "28000000000000"}
+                ],
+            },
+            "simulation": {
+                "ok": None,
+                "skipped": True,
+                "reason": "allowance_required",
+                "message": None,
+                "details": None,
+            },
+            "swap_transaction": {
+                "to": "0x4444444444444444444444444444444444444444",
+                "value": "0",
+                "data_hash": "swap-data-hash-1",
+            },
             "token_in_metadata": {
                 "address": token_in,
                 "name": "USD Coin",
@@ -154,10 +180,35 @@ class FakeEvmBackend(AgentWalletBackend):
             "input_amount_ui": "1",
             "estimated_output_amount_raw": "995000",
             "estimated_output_amount_ui": "0.995",
-            "estimated_fee_wei": "39000000000000",
+            "estimated_fee_wei": "67000000000000",
+            "estimated_swap_fee_wei": "39000000000000",
+            "estimated_approval_fee_wei": "28000000000000",
             "swap_provider": "velora",
             "execution_supported": True,
             "route_plan": "fake-velora-route",
+            "quote_fingerprint": "evm-swap-fingerprint-1",
+            "router": "0x4444444444444444444444444444444444444444",
+            "allowance": {
+                "spender": "0x5555555555555555555555555555555555555555",
+                "current_allowance_raw": "0",
+                "required_allowance_raw": amount_in_raw,
+                "approval_required": True,
+                "approval_sequence": [
+                    {"type": "approve", "amount": amount_in_raw, "estimatedFeeWei": "28000000000000"}
+                ],
+            },
+            "simulation": {
+                "ok": None,
+                "skipped": True,
+                "reason": "allowance_required",
+                "message": None,
+                "details": None,
+            },
+            "swap_transaction": {
+                "to": "0x4444444444444444444444444444444444444444",
+                "value": "0",
+                "data_hash": "swap-data-hash-1",
+            },
             "token_in_metadata": {
                 "address": token_in,
                 "name": "USD Coin",
@@ -183,14 +234,32 @@ class FakeEvmBackend(AgentWalletBackend):
         token_in: str,
         token_out: str,
         amount_in_raw: str,
+        expected_quote_fingerprint: str | None = None,
     ) -> dict:
-        preview = await self.preview_evm_swap(
-            token_in=token_in,
-            token_out=token_out,
-            amount_in_raw=amount_in_raw,
-        )
+        if expected_quote_fingerprint and expected_quote_fingerprint != "evm-swap-fingerprint-1":
+            raise WalletBackendError("swap quote changed", code="swap_quote_changed")
         return {
-            **preview,
+            **{
+                **(await self.preview_evm_swap(
+                    token_in=token_in,
+                    token_out=token_out,
+                    amount_in_raw=amount_in_raw,
+                )),
+                "allowance": {
+                    "spender": "0x5555555555555555555555555555555555555555",
+                    "current_allowance_raw": amount_in_raw,
+                    "required_allowance_raw": amount_in_raw,
+                    "approval_required": False,
+                    "approval_sequence": [],
+                },
+                "simulation": {
+                    "ok": True,
+                    "skipped": False,
+                    "reason": None,
+                    "message": None,
+                    "details": None,
+                },
+            },
             "output_amount_raw": "995000",
             "hash": "0x" + "d" * 64,
             "broadcasted": True,
@@ -335,6 +404,8 @@ async def _main() -> None:
     assert swap_quote.ok is True
     assert swap_quote.data["protocol"] == "velora"
     assert swap_quote.data["execution_supported"] is True
+    assert swap_quote.data["quote_fingerprint"] == "evm-swap-fingerprint-1"
+    assert swap_quote.data["allowance"]["approval_required"] is True
     assert swap_quote.data["token_in_metadata"]["symbol"] == "USDC"
     assert swap_quote.data["token_out_metadata"]["symbol"] == "USDT"
 
@@ -352,6 +423,9 @@ async def _main() -> None:
     assert swap_preview.data["asset_type"] == "evm-swap"
     assert swap_preview.data["estimated_output_amount_raw"] == "995000"
     assert swap_preview.data["estimated_output_amount_ui"] == "0.995"
+    assert swap_preview.data["quote_fingerprint"] == "evm-swap-fingerprint-1"
+    assert swap_preview.data["estimated_approval_fee_wei"] == "28000000000000"
+    assert swap_preview.data["swap_transaction"]["data_hash"] == "swap-data-hash-1"
 
     preview = await adapter.invoke(
         "transfer_evm_native",
@@ -400,6 +474,8 @@ async def _main() -> None:
     )
     assert swap_executed.ok is True
     assert swap_executed.data["hash"].startswith("0x")
+    assert swap_executed.data["allowance"]["approval_required"] is False
+    assert swap_executed.data["simulation"]["ok"] is True
 
     approval = issue_approval_token(
         tool_name="transfer_evm_native",

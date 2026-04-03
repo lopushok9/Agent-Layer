@@ -110,6 +110,7 @@ class AgentWalletBackend(ABC):
         token_in: str,
         token_out: str,
         amount_in_raw: str,
+        expected_quote_fingerprint: str | None = None,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support EVM swaps.")
 

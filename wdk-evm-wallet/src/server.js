@@ -26,6 +26,16 @@ function normalizeErrorCode(errorCode, pathname, message) {
     return "network_unavailable";
   }
   if (
+    code === "swap_quote_changed" ||
+    code === "swap_simulation_failed" ||
+    code === "swap_approval_required" ||
+    code === "swap_approval_failed" ||
+    code === "swap_approval_timeout" ||
+    code === "fee_limit_exceeded"
+  ) {
+    return code;
+  }
+  if (
     code === "call_exception" ||
     code === "bad_data" ||
     code === "execution_reverted" ||
@@ -93,6 +103,18 @@ function normalizeErrorCode(errorCode, pathname, message) {
 function errorStatusCode(errorCode, fallback = 400) {
   if (errorCode === "wallet_locked" || errorCode === "insufficient_funds") {
     return 409;
+  }
+  if (errorCode === "swap_quote_changed") {
+    return 409;
+  }
+  if (
+    errorCode === "swap_simulation_failed" ||
+    errorCode === "swap_approval_required" ||
+    errorCode === "swap_approval_failed" ||
+    errorCode === "swap_approval_timeout" ||
+    errorCode === "fee_limit_exceeded"
+  ) {
+    return 400;
   }
   if (errorCode === "network_unavailable") {
     return 503;

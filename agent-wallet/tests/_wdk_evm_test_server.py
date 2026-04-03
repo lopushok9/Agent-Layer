@@ -394,6 +394,34 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                                 "address": outer.address,
                                 "protocol": "velora",
                                 "executionSupported": True,
+                                "quoteFingerprint": "evm-swap-fingerprint-1",
+                                "estimatedFeeWei": "67000000000000",
+                                "estimatedSwapFeeWei": "39000000000000",
+                                "estimatedApprovalFeeWei": "28000000000000",
+                                "router": "0x4444444444444444444444444444444444444444",
+                                "allowance": {
+                                    "spender": "0x5555555555555555555555555555555555555555",
+                                    "currentAllowance": "0",
+                                    "requiredAllowance": str(body.get("tokenInAmount") or "1000000"),
+                                    "approvalRequired": True,
+                                    "approvalSequence": [
+                                        {
+                                            "type": "approve",
+                                            "amount": str(body.get("tokenInAmount") or "1000000"),
+                                            "estimatedFeeWei": "28000000000000",
+                                        }
+                                    ],
+                                },
+                                "simulation": {
+                                    "ok": None,
+                                    "skipped": True,
+                                    "reason": "allowance_required",
+                                },
+                                "swapTransaction": {
+                                    "to": "0x4444444444444444444444444444444444444444",
+                                    "value": "0",
+                                    "dataHash": "swap-data-hash-1",
+                                },
                                 "swapRequest": {
                                     "tokenIn": str(body.get("tokenIn") or outer.token),
                                     "tokenOut": "0x3333333333333333333333333333333333333333",
@@ -439,6 +467,30 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                                 "address": outer.address,
                                 "protocol": "velora",
                                 "executionSupported": True,
+                                "quoteFingerprint": str(
+                                    body.get("expectedQuoteFingerprint") or "evm-swap-fingerprint-1"
+                                ),
+                                "estimatedFeeWei": "39000000000000",
+                                "estimatedSwapFeeWei": "39000000000000",
+                                "estimatedApprovalFeeWei": "0",
+                                "router": "0x4444444444444444444444444444444444444444",
+                                "allowance": {
+                                    "spender": "0x5555555555555555555555555555555555555555",
+                                    "currentAllowance": str(body.get("tokenInAmount") or "1000000"),
+                                    "requiredAllowance": str(body.get("tokenInAmount") or "1000000"),
+                                    "approvalRequired": False,
+                                    "approvalSequence": [],
+                                },
+                                "simulation": {
+                                    "ok": True,
+                                    "skipped": False,
+                                    "reason": None,
+                                },
+                                "swapTransaction": {
+                                    "to": "0x4444444444444444444444444444444444444444",
+                                    "value": "0",
+                                    "dataHash": "swap-data-hash-1",
+                                },
                                 "swapRequest": {
                                     "tokenIn": str(body.get("tokenIn") or outer.token),
                                     "tokenOut": "0x3333333333333333333333333333333333333333",
@@ -465,6 +517,8 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                                 "result": {
                                     "hash": "0x" + "d" * 64,
                                     "fee": "39000000000000",
+                                    "swapFee": "39000000000000",
+                                    "approvalFee": "0",
                                     "tokenInAmount": str(body.get("tokenInAmount") or "1000000"),
                                     "tokenOutAmount": "995000",
                                 },

@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+
 import WDK from "@tetherto/wdk";
 import VeloraProtocolEvm from "@tetherto/wdk-protocol-swap-velora-evm";
 import WalletManagerEvm from "@tetherto/wdk-wallet-evm";
@@ -5,6 +7,8 @@ import WalletManagerEvm from "@tetherto/wdk-wallet-evm";
 const ERC20_NAME_SELECTOR = "0x06fdde03";
 const ERC20_SYMBOL_SELECTOR = "0x95d89b41";
 const ERC20_DECIMALS_SELECTOR = "0x313ce567";
+const ERC20_APPROVE_SELECTOR = "0x095ea7b3";
+const USDT_MAINNET_ADDRESS = "0xdac17f958d2ee523a2206206994597c13d831ec7";
 
 function createTaggedError(message, code, details = {}) {
   const error = new Error(message);
@@ -120,6 +124,19 @@ function stripHexPrefix(value) {
   return String(value || "").startsWith("0x") ? String(value).slice(2) : String(value || "");
 }
 
+function toRpcHex(value) {
+  const numeric = BigInt(value || 0);
+  return `0x${numeric.toString(16)}`;
+}
+
+function leftPadHex(value, length = 64) {
+  return stripHexPrefix(value).toLowerCase().padStart(length, "0");
+}
+
+function sha256Hex(value) {
+  return crypto.createHash("sha256").update(String(value || ""), "utf8").digest("hex");
+}
+
 function decodeUint256Result(value, fieldName) {
   const hex = stripHexPrefix(value);
   if (!hex || !/^[0-9a-fA-F]+$/.test(hex)) {
@@ -228,6 +245,16 @@ async function rpcRequest(providerUrl, method, params = []) {
 
 async function ethCall(providerUrl, to, data) {
   return rpcRequest(providerUrl, "eth_call", [{ to, data }, "latest"]);
+}
+
+function buildErc20ApproveTransaction(tokenAddress, spender, amount) {
+  return {
+    to: normalizeAddress(tokenAddress, "tokenAddress"),
+    value: 0n,
+    data: `${ERC20_APPROVE_SELECTOR}${leftPadHex(
+      normalizeAddress(spender, "spender")
+    )}${leftPadHex(BigInt(amount).toString(16))}`,
+  };
 }
 
 async function maybeDispose(value) {
@@ -388,13 +415,18 @@ export class WdkEvmWalletService {
       ]);
       const readOnlyAccount =
         typeof account.toReadOnlyAccount === "function" ? await account.toReadOnlyAccount() : account;
-      const protocolConfig =
-        runtimeConfig.transferMaxFeeWei !== null
-          ? { swapMaxFee: runtimeConfig.transferMaxFeeWei }
-          : undefined;
-      const protocol = new VeloraProtocolEvm(readOnlyAccount, protocolConfig);
       try {
-        const quote = await protocol.quoteSwap(swapRequest);
+        const plan = await this.#buildVeloraSwapPlan({
+          account: readOnlyAccount,
+          runtimeConfig,
+          swapRequest,
+        });
+        const quote = {
+          fee: plan.swapFee.toString(),
+          tokenInAmount: plan.tokenInAmount.toString(),
+          tokenOutAmount: plan.tokenOutAmount.toString(),
+          priceRoute: plan.priceRoute,
+        };
         return {
           network: runtimeConfig.network,
           chainId: runtimeConfig.chainId,
@@ -406,12 +438,25 @@ export class WdkEvmWalletService {
           tokenInMetadata,
           tokenOutMetadata,
           inputAmountFormatted: formatUnits(swapRequest.tokenInAmount, tokenInMetadata.decimals),
-          outputAmountFormatted: formatUnits(BigInt(quote.tokenOutAmount), tokenOutMetadata.decimals),
+          outputAmountFormatted: formatUnits(plan.tokenOutAmount, tokenOutMetadata.decimals),
+          quoteFingerprint: plan.quoteFingerprint,
+          estimatedFeeWei: plan.totalEstimatedFee.toString(),
+          estimatedSwapFeeWei: plan.swapFee.toString(),
+          estimatedApprovalFeeWei: plan.approval.estimatedFee.toString(),
+          allowance: {
+            spender: plan.spender,
+            currentAllowance: plan.currentAllowance.toString(),
+            requiredAllowance: plan.tokenInAmount.toString(),
+            approvalRequired: plan.approval.required,
+            approvalSequence: plan.approval.steps,
+          },
+          router: plan.router,
+          simulation: plan.simulation,
+          swapTransaction: plan.swapTransaction,
           quote,
           source: "wdk-protocol-swap-velora-evm",
         };
       } finally {
-        await maybeDispose(protocol);
         if (readOnlyAccount !== account) {
           await maybeDispose(readOnlyAccount);
         }
@@ -426,40 +471,106 @@ export class WdkEvmWalletService {
     tokenInAmount,
     accountIndex = 0,
     network,
+    expectedQuoteFingerprint = null,
   }) {
     return this.#withAccount({ seedPhrase, accountIndex, network }, async (account, runtimeConfig) => {
       assertVeloraSupportedNetwork(runtimeConfig.network);
       const swapRequest = buildSwapRequest({ tokenIn, tokenOut, tokenInAmount });
+      const normalizedExpectedQuoteFingerprint =
+        typeof expectedQuoteFingerprint === "string" && expectedQuoteFingerprint.trim()
+          ? expectedQuoteFingerprint.trim()
+          : null;
       const address = await account.getAddress();
       const [tokenInMetadata, tokenOutMetadata] = await Promise.all([
         this.#getTokenMetadata(runtimeConfig, swapRequest.tokenIn),
         this.#getTokenMetadata(runtimeConfig, swapRequest.tokenOut),
       ]);
-      const protocolConfig =
-        runtimeConfig.transferMaxFeeWei !== null
-          ? { swapMaxFee: runtimeConfig.transferMaxFeeWei }
-          : undefined;
-      const protocol = new VeloraProtocolEvm(account, protocolConfig);
-      try {
-        const result = await protocol.swap(swapRequest);
-        return {
-          network: runtimeConfig.network,
-          chainId: runtimeConfig.chainId,
-          accountIndex,
-          address,
-          protocol: "velora",
-          executionSupported: true,
+      let initialPlan = await this.#buildVeloraSwapPlan({
+        account,
+        runtimeConfig,
+        swapRequest,
+      });
+      this.#assertExpectedSwapFingerprint(
+        normalizedExpectedQuoteFingerprint,
+        initialPlan.quoteFingerprint
+      );
+
+      const approvalExecution = await this.#executeSwapApprovalsIfNeeded({
+        account,
+        runtimeConfig,
+        swapRequest,
+        plan: initialPlan,
+      });
+
+      let finalPlan = initialPlan;
+      if (approvalExecution.performed) {
+        finalPlan = await this.#buildVeloraSwapPlan({
+          account,
+          runtimeConfig,
           swapRequest,
-          tokenInMetadata,
-          tokenOutMetadata,
-          inputAmountFormatted: formatUnits(swapRequest.tokenInAmount, tokenInMetadata.decimals),
-          outputAmountFormatted: formatUnits(BigInt(result.tokenOutAmount), tokenOutMetadata.decimals),
-          result,
-          source: "wdk-protocol-swap-velora-evm",
-        };
-      } finally {
-        await maybeDispose(protocol);
+        });
+        this.#assertExpectedSwapFingerprint(
+          normalizedExpectedQuoteFingerprint,
+          finalPlan.quoteFingerprint
+        );
       }
+
+      if (finalPlan.approval.required) {
+        throw createTaggedError(
+          "Swap still requires token approval after the approval step completed.",
+          "swap_approval_required",
+          {
+            spender: finalPlan.spender,
+            requiredAllowance: finalPlan.tokenInAmount.toString(),
+            currentAllowance: finalPlan.currentAllowance.toString(),
+          }
+        );
+      }
+
+      this.#assertSimulationSucceeded(finalPlan.simulation);
+      const { hash } = await account.sendTransaction(finalPlan.swapTx);
+      const totalFee = approvalExecution.totalFee + finalPlan.swapFee;
+      const result = {
+        hash,
+        fee: totalFee.toString(),
+        swapFee: finalPlan.swapFee.toString(),
+        approvalFee: approvalExecution.totalFee.toString(),
+        tokenInAmount: finalPlan.tokenInAmount.toString(),
+        tokenOutAmount: finalPlan.tokenOutAmount.toString(),
+        ...(approvalExecution.approveHash ? { approveHash: approvalExecution.approveHash } : {}),
+        ...(approvalExecution.resetAllowanceHash
+          ? { resetAllowanceHash: approvalExecution.resetAllowanceHash }
+          : {}),
+      };
+      return {
+        network: runtimeConfig.network,
+        chainId: runtimeConfig.chainId,
+        accountIndex,
+        address,
+        protocol: "velora",
+        executionSupported: true,
+        swapRequest,
+        tokenInMetadata,
+        tokenOutMetadata,
+        inputAmountFormatted: formatUnits(swapRequest.tokenInAmount, tokenInMetadata.decimals),
+        outputAmountFormatted: formatUnits(finalPlan.tokenOutAmount, tokenOutMetadata.decimals),
+        quoteFingerprint: finalPlan.quoteFingerprint,
+        estimatedFeeWei: totalFee.toString(),
+        estimatedSwapFeeWei: finalPlan.swapFee.toString(),
+        estimatedApprovalFeeWei: approvalExecution.totalFee.toString(),
+        allowance: {
+          spender: finalPlan.spender,
+          currentAllowance: finalPlan.currentAllowance.toString(),
+          requiredAllowance: finalPlan.tokenInAmount.toString(),
+          approvalRequired: finalPlan.approval.required,
+          approvalSequence: finalPlan.approval.steps,
+        },
+        router: finalPlan.router,
+        simulation: finalPlan.simulation,
+        swapTransaction: finalPlan.swapTransaction,
+        result,
+        source: "wdk-protocol-swap-velora-evm",
+      };
     });
   }
 
@@ -622,5 +733,275 @@ export class WdkEvmWalletService {
     };
     this._tokenMetadataCache.set(cacheKey, metadata);
     return { ...metadata };
+  }
+
+  #assertMaxFee(runtimeConfig, fee, operation) {
+    if (
+      runtimeConfig.transferMaxFeeWei !== null &&
+      BigInt(fee) >= BigInt(runtimeConfig.transferMaxFeeWei)
+    ) {
+      throw createTaggedError(`Exceeded maximum fee cost for ${operation}.`, "fee_limit_exceeded", {
+        network: runtimeConfig.network,
+        operation,
+        fee: BigInt(fee).toString(),
+        maxFee: BigInt(runtimeConfig.transferMaxFeeWei).toString(),
+      });
+    }
+  }
+
+  #assertExpectedSwapFingerprint(expectedQuoteFingerprint, actualQuoteFingerprint) {
+    if (!expectedQuoteFingerprint) {
+      return;
+    }
+    if (expectedQuoteFingerprint !== actualQuoteFingerprint) {
+      throw createTaggedError(
+        "Swap quote changed since preview. Generate a new preview and approval before execute.",
+        "swap_quote_changed",
+        {
+          expectedQuoteFingerprint,
+          actualQuoteFingerprint,
+        }
+      );
+    }
+  }
+
+  #assertSimulationSucceeded(simulation) {
+    if (simulation?.ok === false) {
+      throw createTaggedError(
+        simulation.message || "Swap simulation failed.",
+        "swap_simulation_failed",
+        {
+          ...(simulation.details && typeof simulation.details === "object" ? simulation.details : {}),
+        }
+      );
+    }
+  }
+
+  async #buildVeloraSwapPlan({ account, runtimeConfig, swapRequest }) {
+    const protocol = new VeloraProtocolEvm(account);
+    try {
+      const veloraSdk = await protocol._getVeloraSdk();
+      const address = await account.getAddress();
+      const priceRoute = await veloraSdk.swap.getRate({
+        srcToken: swapRequest.tokenIn,
+        destToken: swapRequest.tokenOut,
+        amount: swapRequest.tokenInAmount.toString(),
+        side: "SELL",
+      });
+      const swapTx = await veloraSdk.swap.buildTx(
+        {
+          partner: "wdk",
+          srcToken: priceRoute.srcToken,
+          destToken: priceRoute.destToken,
+          srcAmount: priceRoute.srcAmount,
+          destAmount: priceRoute.destAmount,
+          userAddress: address,
+          priceRoute,
+        },
+        {
+          ignoreChecks: true,
+        }
+      );
+      const [swapQuote, spender, contracts] = await Promise.all([
+        account.quoteSendTransaction(swapTx),
+        veloraSdk.swap.getSpender(),
+        typeof veloraSdk.swap.getContracts === "function"
+          ? veloraSdk.swap.getContracts()
+          : Promise.resolve(null),
+      ]);
+      const swapFee = BigInt(swapQuote.fee);
+      this.#assertMaxFee(runtimeConfig, swapFee, "swap");
+      const router = normalizeAddress(
+        String(
+          contracts?.AugustusSwapper ||
+            swapTx.to ||
+            ""
+        ),
+        "router"
+      );
+      const normalizedSpender = normalizeAddress(spender, "spender");
+      const currentAllowance = await account.getAllowance(swapRequest.tokenIn, normalizedSpender);
+      const approval = await this.#buildSwapApprovalPlan({
+        account,
+        runtimeConfig,
+        tokenAddress: swapRequest.tokenIn,
+        spender: normalizedSpender,
+        requiredAmount: swapRequest.tokenInAmount,
+        currentAllowance,
+      });
+      const simulation = approval.required
+        ? {
+            ok: null,
+            skipped: true,
+            reason: "allowance_required",
+          }
+        : await this.#simulatePreparedTransaction({
+            runtimeConfig,
+            from: address,
+            tx: swapTx,
+          });
+      const swapTransaction = {
+        to: normalizeAddress(String(swapTx.to || ""), "swapTx.to"),
+        value: BigInt(swapTx.value || 0).toString(),
+        dataHash: sha256Hex(String(swapTx.data || "")),
+      };
+      const quoteFingerprint = sha256Hex(
+        JSON.stringify({
+          chainId: runtimeConfig.chainId,
+          network: runtimeConfig.network,
+          from: address.toLowerCase(),
+          router: router.toLowerCase(),
+          spender: normalizedSpender.toLowerCase(),
+          tokenIn: swapRequest.tokenIn.toLowerCase(),
+          tokenOut: swapRequest.tokenOut.toLowerCase(),
+          tokenInAmount: swapRequest.tokenInAmount.toString(),
+          tokenOutAmount: BigInt(priceRoute.destAmount).toString(),
+          swapTxTo: swapTransaction.to.toLowerCase(),
+          swapTxValue: swapTransaction.value,
+          swapTxDataHash: swapTransaction.dataHash,
+        })
+      );
+      return {
+        priceRoute,
+        quoteFingerprint,
+        router,
+        spender: normalizedSpender,
+        currentAllowance,
+        tokenInAmount: BigInt(priceRoute.srcAmount),
+        tokenOutAmount: BigInt(priceRoute.destAmount),
+        swapTx,
+        swapFee,
+        totalEstimatedFee: swapFee + approval.estimatedFee,
+        approval,
+        simulation,
+        swapTransaction,
+      };
+    } finally {
+      await maybeDispose(protocol);
+    }
+  }
+
+  async #buildSwapApprovalPlan({
+    account,
+    runtimeConfig,
+    tokenAddress,
+    spender,
+    requiredAmount,
+    currentAllowance,
+  }) {
+    const steps = [];
+    if (currentAllowance < requiredAmount) {
+      if (
+        runtimeConfig.chainId === 1 &&
+        tokenAddress.toLowerCase() === USDT_MAINNET_ADDRESS &&
+        currentAllowance > 0n
+      ) {
+        steps.push({ type: "reset_allowance", amount: "0" });
+      }
+      steps.push({ type: "approve", amount: requiredAmount.toString() });
+    }
+    let estimatedFee = 0n;
+    for (const step of steps) {
+      const quote = await account.quoteSendTransaction(
+        buildErc20ApproveTransaction(tokenAddress, spender, step.amount)
+      );
+      const fee = BigInt(quote.fee);
+      this.#assertMaxFee(runtimeConfig, fee, `swap ${step.type}`);
+      step.estimatedFeeWei = fee.toString();
+      estimatedFee += fee;
+    }
+    return {
+      required: steps.length > 0,
+      estimatedFee,
+      steps,
+    };
+  }
+
+  async #executeSwapApprovalsIfNeeded({ account, runtimeConfig, swapRequest, plan }) {
+    if (!plan.approval.required) {
+      return {
+        performed: false,
+        totalFee: 0n,
+        approveHash: null,
+        resetAllowanceHash: null,
+      };
+    }
+    let totalFee = 0n;
+    let approveHash = null;
+    let resetAllowanceHash = null;
+    for (const step of plan.approval.steps) {
+      const result = await account.approve({
+        token: swapRequest.tokenIn,
+        spender: plan.spender,
+        amount: step.amount,
+      });
+      totalFee += BigInt(result.fee || 0);
+      if (step.type === "reset_allowance") {
+        resetAllowanceHash = result.hash;
+      } else if (step.type === "approve") {
+        approveHash = result.hash;
+      }
+      await this.#waitForTransactionReceipt(runtimeConfig, result.hash);
+    }
+    return {
+      performed: true,
+      totalFee,
+      approveHash,
+      resetAllowanceHash,
+    };
+  }
+
+  async #simulatePreparedTransaction({ runtimeConfig, from, tx }) {
+    try {
+      await rpcRequest(runtimeConfig.providerUrl, "eth_call", [
+        {
+          from: normalizeAddress(from, "from"),
+          to: normalizeAddress(String(tx.to || ""), "to"),
+          data: assertNonEmptyString(String(tx.data || ""), "data"),
+          value: toRpcHex(tx.value || 0),
+        },
+        "latest",
+      ]);
+      return {
+        ok: true,
+        skipped: false,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        ok: false,
+        skipped: false,
+        message: `Swap simulation failed: ${message}`,
+        details:
+          error && typeof error === "object" && error.errorDetails && typeof error.errorDetails === "object"
+            ? { ...error.errorDetails }
+            : {},
+      };
+    }
+  }
+
+  async #waitForTransactionReceipt(runtimeConfig, txHash) {
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const receipt = await rpcRequest(runtimeConfig.providerUrl, "eth_getTransactionReceipt", [txHash]);
+      if (receipt) {
+        const status = String(receipt.status || "").toLowerCase();
+        if (status === "0x0") {
+          throw createTaggedError("Approval transaction reverted onchain.", "swap_approval_failed", {
+            txHash,
+            network: runtimeConfig.network,
+          });
+        }
+        return receipt;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    throw createTaggedError(
+      "Timed out waiting for approval transaction confirmation.",
+      "swap_approval_timeout",
+      {
+        txHash,
+        network: runtimeConfig.network,
+      }
+    );
   }
 }

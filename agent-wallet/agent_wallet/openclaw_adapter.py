@@ -137,6 +137,7 @@ class OpenClawWalletAdapter:
                 if payload.get("estimated_output_amount_raw") is not None
                 else payload.get("output_amount_raw")
             )
+            provided_fingerprint = payload.get("quote_fingerprint")
             evm_swap_binding = {
                 "swap_provider": payload.get("swap_provider"),
                 "token_in": payload.get("token_in"),
@@ -144,15 +145,21 @@ class OpenClawWalletAdapter:
                 "input_amount_raw": payload.get("input_amount_raw"),
                 "output_amount_raw": output_amount_raw,
                 "estimated_fee_wei": payload.get("estimated_fee_wei"),
-                "route_plan": payload.get("route_plan"),
+                "router": payload.get("router"),
+                "swap_transaction": payload.get("swap_transaction"),
+                "quote_fingerprint": provided_fingerprint,
             }
-            evm_swap_fingerprint = hashlib.sha256(
-                json.dumps(
-                    evm_swap_binding,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ).encode("utf-8")
-            ).hexdigest()
+            evm_swap_fingerprint = (
+                str(provided_fingerprint).strip()
+                if isinstance(provided_fingerprint, str) and str(provided_fingerprint).strip()
+                else hashlib.sha256(
+                    json.dumps(
+                        evm_swap_binding,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ).hexdigest()
+            )
             return {
                 "operation": action_label,
                 "network": str(payload.get("network") or getattr(self.backend, "network", "unknown")),
@@ -164,6 +171,10 @@ class OpenClawWalletAdapter:
                 "input_amount_raw": payload.get("input_amount_raw"),
                 "output_amount_raw": output_amount_raw,
                 "estimated_fee_wei": payload.get("estimated_fee_wei"),
+                "estimated_swap_fee_wei": payload.get("estimated_swap_fee_wei"),
+                "estimated_approval_fee_wei": payload.get("estimated_approval_fee_wei"),
+                "router": payload.get("router"),
+                "swap_transaction": payload.get("swap_transaction"),
                 "evm_swap_fingerprint": evm_swap_fingerprint,
             }
 
@@ -2036,7 +2047,13 @@ class OpenClawWalletAdapter:
                     ),
                     action_label="EVM swap",
                 )
-                result = await self.backend.send_evm_swap(**preview_kwargs)
+                if execute_preview.get("quote_fingerprint") is not None:
+                    result = await self.backend.send_evm_swap(
+                        **preview_kwargs,
+                        expected_quote_fingerprint=str(execute_preview.get("quote_fingerprint") or ""),
+                    )
+                else:
+                    result = await self.backend.send_evm_swap(**preview_kwargs)
                 return AgentToolResult(
                     tool=tool_name,
                     ok=True,
