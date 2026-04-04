@@ -11,10 +11,12 @@ const VALID_MNEMONIC =
   "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 const DEFAULT_TOKEN_IN = "0x2222222222222222222222222222222222222222";
 const DEFAULT_TOKEN_OUT = "0x3333333333333333333333333333333333333333";
+const DEFAULT_TOKEN_OUT_MIXED_CASE = "0xA0b86991c6218b36c1d19d4a2e9eb0ce3606eb48";
 const DEFAULT_ROUTER = "0x4444444444444444444444444444444444444444";
 const DEFAULT_SPENDER = "0x5555555555555555555555555555555555555555";
 const DEFAULT_ADDRESS = "0x1111111111111111111111111111111111111111";
 const USDT_MAINNET = "0xdac17f958d2ee523a2206206994597c13d831ec7";
+const NATIVE_ETH = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 const NAME_SELECTOR = "0x06fdde03";
 const SYMBOL_SELECTOR = "0x95d89b41";
 const DECIMALS_SELECTOR = "0x313ce567";
@@ -37,6 +39,7 @@ function createRuntimeHarness(options = {}) {
     buildTxCalls: 0,
     receiptPolls: 0,
     swapReceiptStatus: options.swapReceiptStatus ?? "0x1",
+    allowanceReadCalls: 0,
   };
   const config = {
     network: options.network ?? "ethereum",
@@ -56,12 +59,17 @@ function createRuntimeHarness(options = {}) {
     swapFee: BigInt(options.swapFee ?? 3n),
     failSimulationAfterApproval: Boolean(options.failSimulationAfterApproval),
     failSwapFeeQuote: Boolean(options.failSwapFeeQuote),
+    failAllowanceRead: Boolean(options.failAllowanceRead),
+    disallowAllowanceRead: Boolean(options.disallowAllowanceRead),
+    failDecimalsMetadata: Boolean(options.failDecimalsMetadata),
     failSwapSend: Boolean(options.failSwapSend),
     failCleanupApprove: Boolean(options.failCleanupApprove),
     quoteDestAmounts: Array.isArray(options.quoteDestAmounts)
       ? options.quoteDestAmounts.map((value) => String(value))
       : null,
     receiptReturnsNull: Boolean(options.receiptReturnsNull),
+    swapTxValue: String(options.swapTxValue ?? "0"),
+    failOnMixedCaseDestToken: Boolean(options.failOnMixedCaseDestToken),
   };
 
   const originals = {
@@ -78,6 +86,16 @@ function createRuntimeHarness(options = {}) {
       return DEFAULT_ADDRESS;
     },
     async getAllowance() {
+      state.allowanceReadCalls += 1;
+      if (config.disallowAllowanceRead) {
+        throw new Error("native token allowance should not be queried");
+      }
+      if (config.failAllowanceRead) {
+        throw Object.assign(
+          new Error('could not decode result data (value="0x", method="allowance(address,address)")'),
+          { code: "BAD_DATA" }
+        );
+      }
       return state.allowance;
     },
     async quoteSendTransaction(tx) {
@@ -130,6 +148,12 @@ function createRuntimeHarness(options = {}) {
     return {
       swap: {
         async getRate() {
+          if (
+            config.failOnMixedCaseDestToken &&
+            /[A-F]/.test(String(arguments[0]?.destToken || "").slice(2))
+          ) {
+            throw new Error('Validation failed: "destToken" does not match any of the allowed types');
+          }
           const index = state.routeCalls;
           state.routeCalls += 1;
           const destAmount =
@@ -138,7 +162,9 @@ function createRuntimeHarness(options = {}) {
               : config.baseDestAmount;
           return {
             srcToken: config.tokenIn,
+            srcDecimals: config.tokenDecimals,
             destToken: config.tokenOut,
+            destDecimals: config.tokenDecimals,
             srcAmount: config.amountIn,
             destAmount,
           };
@@ -147,7 +173,7 @@ function createRuntimeHarness(options = {}) {
           state.buildTxCalls += 1;
           return {
             to: config.router,
-            value: "0",
+            value: config.swapTxValue,
             data: "0xdeadbeef",
           };
         },
@@ -189,6 +215,9 @@ function createRuntimeHarness(options = {}) {
       }
       if (data === DECIMALS_SELECTOR) {
         state.metadataCalls.push("decimals");
+        if (config.failDecimalsMetadata) {
+          return ok("0x");
+        }
         return ok(`0x${config.tokenDecimals.toString(16).padStart(64, "0")}`);
       }
       if (config.failSimulationAfterApproval && state.allowance >= BigInt(config.amountIn)) {
@@ -292,6 +321,176 @@ test("quoteSwap degrades gracefully when swap gas estimate is unavailable before
       assert.equal(quote.feeEstimateAvailable, false);
       assert.match(String(quote.feeEstimateError?.message || ""), /preview gas unavailable/);
       assert.equal(state.sendCalls.length, 0);
+    }
+  );
+});
+
+test("quoteSwap lowercases token addresses before calling Velora", async () => {
+  await withHarness(
+    {
+      tokenOut: DEFAULT_TOKEN_OUT_MIXED_CASE,
+      failOnMixedCaseDestToken: true,
+    },
+    async ({ service, config }) => {
+      const quote = await service.quoteSwap({
+        seedPhrase: VALID_MNEMONIC,
+        tokenIn: config.tokenIn,
+        tokenOut: config.tokenOut,
+        tokenInAmount: config.amountIn,
+        network: config.network,
+      });
+      assert.equal(quote.tokenOutMetadata.address, DEFAULT_TOKEN_OUT_MIXED_CASE);
+      assert.equal(quote.allowance.approvalRequired, true);
+    }
+  );
+});
+
+test("quoteSwap falls back to Velora route decimals when ERC-20 metadata decimals is invalid", async () => {
+  await withHarness(
+    {
+      failDecimalsMetadata: true,
+    },
+    async ({ service, config }) => {
+      const quote = await service.quoteSwap({
+        seedPhrase: VALID_MNEMONIC,
+        tokenIn: config.tokenIn,
+        tokenOut: config.tokenOut,
+        tokenInAmount: config.amountIn,
+        network: config.network,
+      });
+      assert.equal(quote.tokenInMetadata.decimals, config.tokenDecimals);
+      assert.equal(quote.tokenOutMetadata.decimals, config.tokenDecimals);
+      assert.equal(quote.tokenInMetadata.source, "swap-route-fallback");
+      assert.equal(quote.tokenOutMetadata.source, "swap-route-fallback");
+      assert.equal(quote.inputAmountFormatted, "1");
+      assert.equal(quote.outputAmountFormatted, "0.995");
+      assert.equal(quote.allowance.approvalRequired, true);
+    }
+  );
+});
+
+test("quoteSwap skips allowance and approval for native token input", async () => {
+  await withHarness(
+    {
+      tokenIn: NATIVE_ETH,
+      amountIn: "1000000000000000000",
+      destAmount: "995000",
+      swapTxValue: "1000000000000000000",
+      disallowAllowanceRead: true,
+    },
+    async ({ service, state, config }) => {
+      const quote = await service.quoteSwap({
+        seedPhrase: VALID_MNEMONIC,
+        tokenIn: config.tokenIn,
+        tokenOut: config.tokenOut,
+        tokenInAmount: config.amountIn,
+        network: config.network,
+      });
+      assert.equal(state.allowanceReadCalls, 0);
+      assert.equal(quote.allowance.approvalRequired, false);
+      assert.deepEqual(quote.allowance.approvalSequence, []);
+      assert.equal(quote.allowance.readError, null);
+      assert.equal(quote.tokenInMetadata.symbol, "ETH");
+      assert.equal(quote.tokenInMetadata.decimals, 18);
+      assert.equal(quote.tokenInMetadata.source, "native-asset");
+      assert.equal(quote.inputAmountFormatted, "1");
+      assert.equal(quote.swapTransaction.value, config.amountIn);
+    }
+  );
+});
+
+test("quoteSwap degrades gracefully for native token input when fee estimate is unavailable", async () => {
+  await withHarness(
+    {
+      tokenIn: NATIVE_ETH,
+      amountIn: "1000000000000000000",
+      destAmount: "995000",
+      swapTxValue: "1000000000000000000",
+      disallowAllowanceRead: true,
+      failSwapFeeQuote: true,
+    },
+    async ({ service, state, config }) => {
+      const quote = await service.quoteSwap({
+        seedPhrase: VALID_MNEMONIC,
+        tokenIn: config.tokenIn,
+        tokenOut: config.tokenOut,
+        tokenInAmount: config.amountIn,
+        network: config.network,
+      });
+      assert.equal(state.allowanceReadCalls, 0);
+      assert.equal(quote.allowance.approvalRequired, false);
+      assert.equal(quote.estimatedSwapFeeWei, null);
+      assert.equal(quote.estimatedFeeWei, null);
+      assert.equal(quote.feeEstimateAvailable, false);
+      assert.match(String(quote.feeEstimateError?.message || ""), /preview gas unavailable/);
+    }
+  );
+});
+
+test("quoteSwap degrades gracefully when allowance read returns empty result data", async () => {
+  await withHarness(
+    {
+      failAllowanceRead: true,
+    },
+    async ({ service, config }) => {
+      const quote = await service.quoteSwap({
+        seedPhrase: VALID_MNEMONIC,
+        tokenIn: config.tokenIn,
+        tokenOut: config.tokenOut,
+        tokenInAmount: config.amountIn,
+        network: config.network,
+      });
+      assert.equal(quote.allowance.approvalRequired, true);
+      assert.equal(quote.allowance.currentAllowance, "0");
+      assert.equal(quote.allowance.readError.code, "bad_data");
+      assert.match(String(quote.allowance.readError.message || ""), /allowance\(address,address\)/);
+    }
+  );
+});
+
+test("swap succeeds for native token input without approval path", async () => {
+  await withHarness(
+    {
+      tokenIn: NATIVE_ETH,
+      amountIn: "1000000000000000000",
+      destAmount: "995000",
+      swapTxValue: "1000000000000000000",
+      disallowAllowanceRead: true,
+    },
+    async ({ service, state, config }) => {
+      const result = await service.swap({
+        seedPhrase: VALID_MNEMONIC,
+        tokenIn: config.tokenIn,
+        tokenOut: config.tokenOut,
+        tokenInAmount: config.amountIn,
+        network: config.network,
+      });
+      assert.equal(state.allowanceReadCalls, 0);
+      assert.equal(state.approveCalls.length, 0);
+      assert.equal(state.sendCalls.length, 1);
+      assert.equal(result.result.hash, `0x${"d".repeat(64)}`);
+      assert.equal(result.allowance.approvalRequired, false);
+    }
+  );
+});
+
+test("swap can proceed after approval when allowance read remains undecodable", async () => {
+  await withHarness(
+    {
+      failAllowanceRead: true,
+    },
+    async ({ service, state, config }) => {
+      const result = await service.swap({
+        seedPhrase: VALID_MNEMONIC,
+        tokenIn: config.tokenIn,
+        tokenOut: config.tokenOut,
+        tokenInAmount: config.amountIn,
+        network: config.network,
+      });
+      assert.equal(result.result.hash, `0x${"d".repeat(64)}`);
+      assert.deepEqual(state.approveCalls, [config.amountIn]);
+      assert.equal(result.simulation.ok, true);
+      assert.equal(result.allowance.readError.code, "bad_data");
     }
   );
 });

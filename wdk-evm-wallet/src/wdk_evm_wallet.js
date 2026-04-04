@@ -9,6 +9,7 @@ const ERC20_SYMBOL_SELECTOR = "0x95d89b41";
 const ERC20_DECIMALS_SELECTOR = "0x313ce567";
 const ERC20_APPROVE_SELECTOR = "0x095ea7b3";
 const USDT_MAINNET_ADDRESS = "0xdac17f958d2ee523a2206206994597c13d831ec7";
+const VELORA_NATIVE_TOKEN_ADDRESS = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 
 function createTaggedError(message, code, details = {}) {
   const error = new Error(message);
@@ -100,6 +101,10 @@ function assertVeloraSupportedNetwork(network) {
       "Velora swap quotes are currently supported only on ethereum and base mainnet."
     );
   }
+}
+
+function isVeloraNativeTokenAddress(value) {
+  return String(value || "").trim().toLowerCase() === VELORA_NATIVE_TOKEN_ADDRESS;
 }
 
 function buildSwapRequest({ tokenIn, tokenOut, tokenInAmount }) {
@@ -285,6 +290,22 @@ function isRecoverableSwapFeeEstimateFailure(error) {
   );
 }
 
+function isRecoverableAllowanceReadFailure(error) {
+  const code = normalizeErrorCodeValue(error);
+  const message = error instanceof Error ? error.message : String(error || "");
+  const lower = message.toLowerCase();
+  if (code === "bad_data" || code === "call_exception" || code === "buffer_overrun") {
+    return true;
+  }
+  return (
+    lower.includes("could not decode result data") ||
+    lower.includes("allowance(address,address)") ||
+    lower.includes('value="0x"') ||
+    lower.includes("bad data") ||
+    lower.includes("buffer overrun")
+  );
+}
+
 async function maybeDispose(value) {
   if (value && typeof value.dispose === "function") {
     await value.dispose();
@@ -437,10 +458,6 @@ export class WdkEvmWalletService {
       assertVeloraSupportedNetwork(runtimeConfig.network);
       const swapRequest = buildSwapRequest({ tokenIn, tokenOut, tokenInAmount });
       const address = await account.getAddress();
-      const [tokenInMetadata, tokenOutMetadata] = await Promise.all([
-        this.#getTokenMetadata(runtimeConfig, swapRequest.tokenIn),
-        this.#getTokenMetadata(runtimeConfig, swapRequest.tokenOut),
-      ]);
       const readOnlyAccount =
         typeof account.toReadOnlyAccount === "function" ? await account.toReadOnlyAccount() : account;
       try {
@@ -448,7 +465,12 @@ export class WdkEvmWalletService {
           account: readOnlyAccount,
           runtimeConfig,
           swapRequest,
+          tolerateSwapFeeFailure: true,
         });
+        const [tokenInMetadata, tokenOutMetadata] = await Promise.all([
+          this.#getSwapTokenMetadata(runtimeConfig, swapRequest.tokenIn, plan.priceRoute?.srcDecimals),
+          this.#getSwapTokenMetadata(runtimeConfig, swapRequest.tokenOut, plan.priceRoute?.destDecimals),
+        ]);
         const quote = {
           fee: plan.swapFee !== null ? plan.swapFee.toString() : null,
           tokenInAmount: plan.tokenInAmount.toString(),
@@ -480,6 +502,7 @@ export class WdkEvmWalletService {
             requiredAllowance: plan.tokenInAmount.toString(),
             approvalRequired: plan.approval.required,
             approvalSequence: plan.approval.steps,
+            readError: plan.allowanceReadError,
           },
           router: plan.router,
           simulation: plan.simulation,
@@ -512,15 +535,15 @@ export class WdkEvmWalletService {
           ? expectedQuoteFingerprint.trim()
           : null;
       const address = await account.getAddress();
-      const [tokenInMetadata, tokenOutMetadata] = await Promise.all([
-        this.#getTokenMetadata(runtimeConfig, swapRequest.tokenIn),
-        this.#getTokenMetadata(runtimeConfig, swapRequest.tokenOut),
-      ]);
       let initialPlan = await this.#buildVeloraSwapPlan({
         account,
         runtimeConfig,
         swapRequest,
       });
+      const [tokenInMetadata, tokenOutMetadata] = await Promise.all([
+        this.#getSwapTokenMetadata(runtimeConfig, swapRequest.tokenIn, initialPlan.priceRoute?.srcDecimals),
+        this.#getSwapTokenMetadata(runtimeConfig, swapRequest.tokenOut, initialPlan.priceRoute?.destDecimals),
+      ]);
       this.#assertExpectedSwapFingerprint(
         normalizedExpectedQuoteFingerprint,
         initialPlan.quoteFingerprint
@@ -547,7 +570,10 @@ export class WdkEvmWalletService {
           );
         }
 
-        if (finalPlan.approval.required) {
+        const allowanceReadUncertain =
+          approvalExecution.performed && finalPlan.allowanceReadError !== null;
+
+        if (finalPlan.approval.required && !allowanceReadUncertain) {
           throw createTaggedError(
             "Swap still requires token approval after the approval step completed.",
             "swap_approval_required",
@@ -559,7 +585,14 @@ export class WdkEvmWalletService {
           );
         }
 
-        this.#assertSimulationSucceeded(finalPlan.simulation);
+        const effectiveSimulation = allowanceReadUncertain
+          ? await this.#simulatePreparedTransaction({
+              runtimeConfig,
+              from: address,
+              tx: finalPlan.swapTx,
+            })
+          : finalPlan.simulation;
+        this.#assertSimulationSucceeded(effectiveSimulation);
         const { hash } = await account.sendTransaction(finalPlan.swapTx);
         const totalFee = approvalExecution.totalFee + finalPlan.swapFee;
         const result = {
@@ -598,9 +631,10 @@ export class WdkEvmWalletService {
           requiredAllowance: finalPlan.tokenInAmount.toString(),
           approvalRequired: finalPlan.approval.required,
             approvalSequence: finalPlan.approval.steps,
+            readError: finalPlan.allowanceReadError,
           },
           router: finalPlan.router,
-          simulation: finalPlan.simulation,
+          simulation: effectiveSimulation,
           swapTransaction: finalPlan.swapTransaction,
           result,
           source: "wdk-protocol-swap-velora-evm",
@@ -780,6 +814,35 @@ export class WdkEvmWalletService {
     return { ...metadata };
   }
 
+  async #getSwapTokenMetadata(runtimeConfig, tokenAddress, fallbackDecimals) {
+    if (isVeloraNativeTokenAddress(tokenAddress)) {
+      return {
+        address: tokenAddress,
+        name: runtimeConfig.nativeSymbol === "ETH" ? "Ether" : runtimeConfig.nativeSymbol,
+        symbol: runtimeConfig.nativeSymbol,
+        decimals: 18,
+        verified: true,
+        source: "native-asset",
+      };
+    }
+    try {
+      return await this.#getTokenMetadata(runtimeConfig, tokenAddress);
+    } catch (error) {
+      const decimals = Number(fallbackDecimals);
+      if (!Number.isInteger(decimals) || decimals < 0 || decimals > 255) {
+        throw error;
+      }
+      return {
+        address: tokenAddress,
+        name: null,
+        symbol: null,
+        decimals,
+        verified: false,
+        source: "swap-route-fallback",
+      };
+    }
+  }
+
   #assertMaxFee(runtimeConfig, fee, operation) {
     if (
       runtimeConfig.transferMaxFeeWei !== null &&
@@ -822,14 +885,41 @@ export class WdkEvmWalletService {
     }
   }
 
-  async #buildVeloraSwapPlan({ account, runtimeConfig, swapRequest }) {
+  async #getSwapAllowanceState({ account, tokenAddress, spender }) {
+    try {
+      return {
+        currentAllowance: await account.getAllowance(tokenAddress, spender),
+        error: null,
+      };
+    } catch (error) {
+      if (!isRecoverableAllowanceReadFailure(error)) {
+        throw error;
+      }
+      return {
+        currentAllowance: 0n,
+        error: {
+          code: normalizeErrorCodeValue(error) || null,
+          message: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+  }
+
+  async #buildVeloraSwapPlan({
+    account,
+    runtimeConfig,
+    swapRequest,
+    tolerateSwapFeeFailure = false,
+  }) {
     const protocol = new VeloraProtocolEvm(account);
     try {
       const veloraSdk = await protocol._getVeloraSdk();
       const address = await account.getAddress();
+      const normalizedTokenIn = swapRequest.tokenIn.toLowerCase();
+      const normalizedTokenOut = swapRequest.tokenOut.toLowerCase();
       const priceRoute = await veloraSdk.swap.getRate({
-        srcToken: swapRequest.tokenIn,
-        destToken: swapRequest.tokenOut,
+        srcToken: normalizedTokenIn,
+        destToken: normalizedTokenOut,
         amount: swapRequest.tokenInAmount.toString(),
         side: "SELL",
       });
@@ -862,20 +952,37 @@ export class WdkEvmWalletService {
         "router"
       );
       const normalizedSpender = normalizeAddress(spender, "spender");
-      const currentAllowance = await account.getAllowance(swapRequest.tokenIn, normalizedSpender);
-      const approval = await this.#buildSwapApprovalPlan({
-        account,
-        runtimeConfig,
-        tokenAddress: swapRequest.tokenIn,
-        spender: normalizedSpender,
-        requiredAmount: swapRequest.tokenInAmount,
-        currentAllowance,
-      });
+      const isNativeTokenIn = isVeloraNativeTokenAddress(swapRequest.tokenIn);
+      const allowanceState = isNativeTokenIn
+        ? {
+            currentAllowance: swapRequest.tokenInAmount,
+            error: null,
+          }
+        : await this.#getSwapAllowanceState({
+            account,
+            tokenAddress: swapRequest.tokenIn,
+            spender: normalizedSpender,
+          });
+      const currentAllowance = allowanceState.currentAllowance;
+      const approval = isNativeTokenIn
+        ? {
+            required: false,
+            estimatedFee: 0n,
+            steps: [],
+          }
+        : await this.#buildSwapApprovalPlan({
+            account,
+            runtimeConfig,
+            tokenAddress: swapRequest.tokenIn,
+            spender: normalizedSpender,
+            requiredAmount: swapRequest.tokenInAmount,
+            currentAllowance,
+          });
       const swapFeeQuote = await this.#quoteSwapTransaction({
         account,
         runtimeConfig,
         swapTx,
-        tolerateFailure: approval.required,
+        tolerateFailure: tolerateSwapFeeFailure || approval.required,
       });
       const swapFee = swapFeeQuote.fee;
       const simulation = approval.required
@@ -916,6 +1023,7 @@ export class WdkEvmWalletService {
         router,
         spender: normalizedSpender,
         currentAllowance,
+        allowanceReadError: allowanceState.error,
         tokenInAmount: BigInt(priceRoute.srcAmount),
         tokenOutAmount: BigInt(priceRoute.destAmount),
         swapTx,

@@ -63,6 +63,8 @@ def main() -> None:
         )
         assert binding["wallet"]["wallet_id"] == server.wallet_id
 
+        from agent_wallet.evm_user_wallets import resolve_user_evm_wallet_path  # noqa: E402
+
         locked = _run(
             config,
             "evm-wallet-lock",
@@ -73,6 +75,11 @@ def main() -> None:
         )
         assert locked["wallet"]["unlocked"] is False
 
+        binding_path = resolve_user_evm_wallet_path("evm-cli-user@example.com", network="ethereum")
+        stale_binding = json.loads(binding_path.read_text(encoding="utf-8"))
+        stale_binding["wallet_id"] = "stale-wallet-456"
+        binding_path.write_text(json.dumps(stale_binding, indent=2), encoding="utf-8")
+
         unlocked = _run(
             config,
             "evm-wallet-unlock",
@@ -80,10 +87,52 @@ def main() -> None:
             "evm-cli-user@example.com",
             "--password-stdin",
             "--config-json",
-            json.dumps(config),
+            json.dumps(
+                {
+                    **config,
+                    "wdkEvmWalletId": server.wallet_id,
+                }
+            ),
             stdin_text="cli-evm-password\n",
         )
         assert unlocked["wallet"]["unlocked"] is True
+        assert unlocked["wallet"]["wallet_id"] == server.wallet_id
+
+        balance = _run(
+            config,
+            "invoke",
+            "--user-id",
+            "evm-cli-user@example.com",
+            "--tool",
+            "get_wallet_balance",
+            "--arguments-json",
+            "{}",
+            "--config-json",
+            json.dumps(config),
+        )
+        assert balance["ok"] is True
+        assert balance["data"]["balance_native"] == "1.23"
+
+        swap_quote = _run(
+            config,
+            "invoke",
+            "--user-id",
+            "evm-cli-user@example.com",
+            "--tool",
+            "get_evm_swap_quote",
+            "--arguments-json",
+            json.dumps(
+                {
+                    "token_in": "0x2222222222222222222222222222222222222222",
+                    "token_out": "0x3333333333333333333333333333333333333333",
+                    "amount_in_raw": "1000000",
+                }
+            ),
+            "--config-json",
+            json.dumps(config),
+        )
+        assert swap_quote["ok"] is True
+        assert swap_quote["data"]["allowance"]["approval_required"] is True
 
         onboard = _run(
             config,

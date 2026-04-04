@@ -139,9 +139,16 @@ async def _run_onboard(user_id: str, config: dict[str, Any]) -> dict[str, Any]:
 
     context = onboard_openclaw_user_wallet(
         user_id,
+        backend=config.get("backend"),
         sign_only=config.get("signOnly"),
         network=config.get("network"),
         rpc_url=config.get("rpcUrl"),
+        wdk_btc_service_url=config.get("wdkBtcServiceUrl"),
+        wdk_btc_wallet_id=config.get("wdkBtcWalletId"),
+        wdk_btc_account_index=config.get("wdkBtcAccountIndex"),
+        wdk_evm_service_url=config.get("wdkEvmServiceUrl"),
+        wdk_evm_wallet_id=config.get("wdkEvmWalletId"),
+        wdk_evm_account_index=config.get("wdkEvmAccountIndex"),
     )
     return context.serializable_bundle()
 
@@ -156,9 +163,16 @@ async def _run_invoke(
 
     context = onboard_openclaw_user_wallet(
         user_id,
+        backend=config.get("backend"),
         sign_only=config.get("signOnly"),
         network=config.get("network"),
         rpc_url=config.get("rpcUrl"),
+        wdk_btc_service_url=config.get("wdkBtcServiceUrl"),
+        wdk_btc_wallet_id=config.get("wdkBtcWalletId"),
+        wdk_btc_account_index=config.get("wdkBtcAccountIndex"),
+        wdk_evm_service_url=config.get("wdkEvmServiceUrl"),
+        wdk_evm_wallet_id=config.get("wdkEvmWalletId"),
+        wdk_evm_account_index=config.get("wdkEvmAccountIndex"),
     )
     result = await context.adapter.invoke(tool_name, arguments)
     return result.model_dump()
@@ -177,9 +191,16 @@ async def _run_issue_approval(
 
     context = onboard_openclaw_user_wallet(
         user_id,
+        backend=config.get("backend"),
         sign_only=config.get("signOnly"),
         network=config.get("network"),
         rpc_url=config.get("rpcUrl"),
+        wdk_btc_service_url=config.get("wdkBtcServiceUrl"),
+        wdk_btc_wallet_id=config.get("wdkBtcWalletId"),
+        wdk_btc_account_index=config.get("wdkBtcAccountIndex"),
+        wdk_evm_service_url=config.get("wdkEvmServiceUrl"),
+        wdk_evm_wallet_id=config.get("wdkEvmWalletId"),
+        wdk_evm_account_index=config.get("wdkEvmAccountIndex"),
     )
     token = context.issue_execute_approval(
         tool_name=tool_name,
@@ -291,13 +312,16 @@ async def _run_btc_wallet_lock(user_id: str, config: dict[str, Any]) -> dict[str
 
 
 async def _run_evm_wallet_get(user_id: str, config: dict[str, Any]) -> dict[str, Any]:
-    from agent_wallet.evm_user_wallets import get_user_evm_wallet_binding
+    from agent_wallet.evm_user_wallets import resolve_user_evm_wallet_binding
 
     return {
         "ok": True,
-        "wallet": get_user_evm_wallet_binding(
+        "wallet": resolve_user_evm_wallet_binding(
             user_id,
             network=config.get("network"),
+            service_url=config.get("wdkEvmServiceUrl"),
+            wallet_id=config.get("wdkEvmWalletId"),
+            account_index=config.get("wdkEvmAccountIndex"),
         ),
     }
 
@@ -365,6 +389,8 @@ async def _run_evm_wallet_unlock(
             password=password,
             network=config.get("network"),
             service_url=config.get("wdkEvmServiceUrl"),
+            wallet_id=config.get("wdkEvmWalletId"),
+            account_index=config.get("wdkEvmAccountIndex"),
         ),
     }
 
@@ -378,6 +404,8 @@ async def _run_evm_wallet_lock(user_id: str, config: dict[str, Any]) -> dict[str
             user_id,
             network=config.get("network"),
             service_url=config.get("wdkEvmServiceUrl"),
+            wallet_id=config.get("wdkEvmWalletId"),
+            account_index=config.get("wdkEvmAccountIndex"),
         ),
     }
 

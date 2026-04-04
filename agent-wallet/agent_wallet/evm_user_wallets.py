@@ -59,6 +59,27 @@ def get_user_evm_wallet_binding(user_id: str, network: str | None = None) -> dic
     return payload
 
 
+def resolve_user_evm_wallet_binding(
+    user_id: str,
+    *,
+    network: str | None = None,
+    service_url: str | None = None,
+    wallet_id: str | None = None,
+    account_index: int | None = None,
+) -> dict[str, Any]:
+    effective_network = _normalize_evm_network(network or settings.solana_network)
+    explicit_wallet_id = str(wallet_id or "").strip()
+    if explicit_wallet_id:
+        return ensure_user_evm_wallet_binding(
+            user_id,
+            network=effective_network,
+            service_url=service_url,
+            wallet_id=explicit_wallet_id,
+            account_index=account_index,
+        )
+    return get_user_evm_wallet_binding(user_id, network=effective_network)
+
+
 def list_user_evm_wallet_bindings(user_id: str) -> list[dict[str, Any]]:
     user_dir = _resolve_user_evm_wallet_dir(user_id)
     if not user_dir.exists():
@@ -84,6 +105,8 @@ def bind_user_evm_wallet(
     network: str | None = None,
     service_url: str | None = None,
     account_index: int | None = None,
+    tolerate_locked: bool = False,
+    fallback_address: str | None = None,
 ) -> dict[str, Any]:
     effective_network = _normalize_evm_network(network or settings.solana_network)
     effective_account_index = settings.wdk_evm_account_index if account_index is None else int(account_index)
@@ -93,21 +116,29 @@ def bind_user_evm_wallet(
 
     client = WdkEvmLocalClient(_resolve_service_url(service_url))
     wallet_meta = client.post_sync("/v1/evm/wallets/get", {"walletId": effective_wallet_id})
-    address = client.post_sync(
-        "/v1/evm/address/resolve",
-        {
-            "walletId": effective_wallet_id,
-            "accountIndex": effective_account_index,
-            "network": effective_network,
-        },
-    )
+    resolved_address = str(fallback_address or "").strip()
+    try:
+        address = client.post_sync(
+            "/v1/evm/address/resolve",
+            {
+                "walletId": effective_wallet_id,
+                "accountIndex": effective_account_index,
+                "network": effective_network,
+            },
+        )
+    except WalletBackendError as exc:
+        is_locked = exc.code == "wallet_locked" or "wallet is locked" in str(exc).strip().lower()
+        if not (tolerate_locked and is_locked):
+            raise
+    else:
+        resolved_address = str(address.get("address") or "").strip()
     binding = {
         "user_id": user_id,
         "wallet_id": effective_wallet_id,
         "label": str(wallet_meta.get("label") or "Agent EVM Wallet"),
         "network": effective_network,
         "account_index": effective_account_index,
-        "address": str(address.get("address") or ""),
+        "address": resolved_address,
         "storage_format": "local_vault",
         "service_kind": "wdk-evm-wallet",
         "created_at": wallet_meta.get("createdAt"),
@@ -127,10 +158,21 @@ def ensure_user_evm_wallet_binding(
 ) -> dict[str, Any]:
     effective_network = _normalize_evm_network(network or settings.solana_network)
     path = resolve_user_evm_wallet_path(user_id, network=effective_network)
-    if path.exists():
-        return get_user_evm_wallet_binding(user_id, network=effective_network)
-
     explicit_wallet_id = str(wallet_id or "").strip()
+    if path.exists():
+        existing = get_user_evm_wallet_binding(user_id, network=effective_network)
+        if explicit_wallet_id and str(existing.get("wallet_id") or "").strip() != explicit_wallet_id:
+            return bind_user_evm_wallet(
+                user_id,
+                wallet_id=explicit_wallet_id,
+                network=effective_network,
+                service_url=service_url,
+                account_index=account_index,
+                tolerate_locked=True,
+                fallback_address=str(existing.get("address") or "").strip() or None,
+            )
+        return existing
+
     if explicit_wallet_id:
         return bind_user_evm_wallet(
             user_id,
@@ -138,6 +180,7 @@ def ensure_user_evm_wallet_binding(
             network=effective_network,
             service_url=service_url,
             account_index=account_index,
+            tolerate_locked=True,
         )
 
     bindings = list_user_evm_wallet_bindings(user_id)
@@ -272,8 +315,16 @@ def unlock_user_evm_wallet(
     password: str,
     network: str | None = None,
     service_url: str | None = None,
+    wallet_id: str | None = None,
+    account_index: int | None = None,
 ) -> dict[str, Any]:
-    binding = get_user_evm_wallet_binding(user_id, network=network)
+    binding = resolve_user_evm_wallet_binding(
+        user_id,
+        network=network,
+        service_url=service_url,
+        wallet_id=wallet_id,
+        account_index=account_index,
+    )
     client = WdkEvmLocalClient(_resolve_service_url(service_url))
     payload = client.post_sync(
         "/v1/evm/wallets/unlock",
@@ -295,8 +346,16 @@ def lock_user_evm_wallet(
     *,
     network: str | None = None,
     service_url: str | None = None,
+    wallet_id: str | None = None,
+    account_index: int | None = None,
 ) -> dict[str, Any]:
-    binding = get_user_evm_wallet_binding(user_id, network=network)
+    binding = resolve_user_evm_wallet_binding(
+        user_id,
+        network=network,
+        service_url=service_url,
+        wallet_id=wallet_id,
+        account_index=account_index,
+    )
     client = WdkEvmLocalClient(_resolve_service_url(service_url))
     payload = client.post_sync(
         "/v1/evm/wallets/lock",

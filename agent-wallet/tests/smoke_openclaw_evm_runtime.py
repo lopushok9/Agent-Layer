@@ -42,6 +42,15 @@ def main() -> None:
         )
         assert created["wallet_id"] == server.wallet_id
 
+        server.error_responses["POST /v1/evm/address/resolve"] = {
+            "status": 400,
+            "payload": {
+                "ok": False,
+                "error": "Wallet is locked.",
+                "error_code": "wallet_locked",
+            },
+        }
+
         context = onboard_openclaw_user_wallet("runtime-evm@example.com", network="sepolia")
         session = context.session_metadata()
         bundle = context.serializable_bundle()
@@ -58,6 +67,8 @@ def main() -> None:
         assert "transfer_evm_native" in session.tool_names
         assert "transfer_sol" not in session.tool_names
         assert bundle["session"]["address"] == session.address
+
+        server.error_responses.pop("POST /v1/evm/address/resolve", None)
 
         autobind_user = "runtime-evm-autobind@example.com"
         created_autobind = create_user_evm_wallet(

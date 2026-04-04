@@ -85,18 +85,30 @@ class OpenClawWalletRuntimeContext:
 def onboard_openclaw_user_wallet(
     user_id: str,
     *,
+    backend: str | None = None,
     sign_only: bool | None = None,
     network: str | None = None,
     rpc_url: str | None = None,
+    wdk_btc_service_url: str | None = None,
+    wdk_btc_wallet_id: str | None = None,
+    wdk_btc_account_index: int | None = None,
+    wdk_evm_service_url: str | None = None,
+    wdk_evm_wallet_id: str | None = None,
+    wdk_evm_account_index: int | None = None,
 ) -> OpenClawWalletRuntimeContext:
     """Provision and assemble a runtime-ready wallet context for one OpenClaw user."""
-    backend_name = settings.agent_wallet_backend.strip().lower()
+    backend_name = str(backend or settings.agent_wallet_backend).strip().lower()
     if backend_name in {"wdk_btc_local", "wdk-btc-local", "btc_local", "btc-local"}:
-        service_url = settings.wdk_btc_service_url.strip()
+        service_url = str(wdk_btc_service_url or settings.wdk_btc_service_url).strip()
+        account_index = (
+            settings.wdk_btc_account_index
+            if wdk_btc_account_index is None
+            else int(wdk_btc_account_index)
+        )
         requested_network = (network or settings.solana_network).strip().lower() or "bitcoin"
         effective_network = "bitcoin" if requested_network == "mainnet" else requested_network
         binding: dict[str, Any] | None = None
-        wallet_id = settings.wdk_btc_wallet_id.strip()
+        wallet_id = str(wdk_btc_wallet_id or settings.wdk_btc_wallet_id).strip()
         if not service_url:
             raise WalletBackendError("wdk_btc_service_url is required for backend=wdk_btc_local.")
         if not wallet_id:
@@ -113,7 +125,7 @@ def onboard_openclaw_user_wallet(
             "/v1/btc/address/resolve",
             {
                 "walletId": wallet_id,
-                "accountIndex": settings.wdk_btc_account_index,
+                "accountIndex": account_index,
                 "network": effective_network,
             },
         )
@@ -121,7 +133,7 @@ def onboard_openclaw_user_wallet(
             service_url=service_url,
             wallet_id=wallet_id,
             network=effective_network,
-            account_index=settings.wdk_btc_account_index,
+            account_index=account_index,
             sign_only=settings.agent_wallet_sign_only if sign_only is None else sign_only,
             address=str(address_payload.get("address") or "").strip() or None,
         )
@@ -146,7 +158,12 @@ def onboard_openclaw_user_wallet(
         )
 
     if backend_name in {"wdk_evm_local", "wdk-evm-local", "evm_local", "evm-local"}:
-        service_url = settings.wdk_evm_service_url.strip()
+        service_url = str(wdk_evm_service_url or settings.wdk_evm_service_url).strip()
+        account_index = (
+            settings.wdk_evm_account_index
+            if wdk_evm_account_index is None
+            else int(wdk_evm_account_index)
+        )
         requested_network = (network or settings.solana_network).strip().lower() or "ethereum"
         aliases = {
             "mainnet": "ethereum",
@@ -157,7 +174,7 @@ def onboard_openclaw_user_wallet(
         }
         effective_network = aliases.get(requested_network, requested_network)
         binding: dict[str, Any] | None = None
-        wallet_id = settings.wdk_evm_wallet_id.strip()
+        wallet_id = str(wdk_evm_wallet_id or settings.wdk_evm_wallet_id).strip()
         if not service_url:
             raise WalletBackendError("wdk_evm_service_url is required for backend=wdk_evm_local.")
         if wallet_id:
@@ -169,7 +186,7 @@ def onboard_openclaw_user_wallet(
                     network=effective_network,
                     service_url=service_url,
                     wallet_id=wallet_id,
-                    account_index=settings.wdk_evm_account_index,
+                    account_index=account_index,
                 )
             else:
                 if str(binding.get("wallet_id") or "").strip() != wallet_id:
@@ -178,14 +195,14 @@ def onboard_openclaw_user_wallet(
                         network=effective_network,
                         service_url=service_url,
                         wallet_id=wallet_id,
-                        account_index=settings.wdk_evm_account_index,
+                        account_index=account_index,
                     )
         else:
             binding = ensure_user_evm_wallet_binding(
                 user_id,
                 network=effective_network,
                 service_url=service_url,
-                account_index=settings.wdk_evm_account_index,
+                account_index=account_index,
             )
             wallet_id = str(binding.get("wallet_id") or "").strip()
         if not wallet_id:
@@ -195,25 +212,28 @@ def onboard_openclaw_user_wallet(
 
         client = WdkEvmLocalClient(service_url)
         wallet_meta = client.post_sync("/v1/evm/wallets/get", {"walletId": wallet_id})
-        address_payload = client.post_sync(
-            "/v1/evm/address/resolve",
-            {
-                "walletId": wallet_id,
-                "accountIndex": settings.wdk_evm_account_index,
-                "network": effective_network,
-            },
-        )
+        resolved_address = str((binding or {}).get("address") or "").strip()
+        if not resolved_address:
+            address_payload = client.post_sync(
+                "/v1/evm/address/resolve",
+                {
+                    "walletId": wallet_id,
+                    "accountIndex": account_index,
+                    "network": effective_network,
+                },
+            )
+            resolved_address = str(address_payload.get("address") or "").strip()
         backend = WdkEvmLocalWalletBackend(
             service_url=service_url,
             wallet_id=wallet_id,
             network=effective_network,
-            account_index=settings.wdk_evm_account_index,
+            account_index=account_index,
             sign_only=settings.agent_wallet_sign_only if sign_only is None else sign_only,
-            address=str(address_payload.get("address") or "").strip() or None,
+            address=resolved_address or None,
         )
         wallet_info = {
             "user_id": user_id,
-            "address": str(address_payload.get("address") or (binding or {}).get("address") or ""),
+            "address": resolved_address,
             "path": f"{service_url}#walletId={wallet_id}",
             "storage_format": "local_vault",
             "key_scope": "host-managed",

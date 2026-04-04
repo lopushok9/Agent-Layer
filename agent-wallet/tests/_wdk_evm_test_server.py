@@ -28,6 +28,7 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
         self.address = "0x1111111111111111111111111111111111111111"
         self.token = "0x2222222222222222222222222222222222222222"
         self.sent_payloads: list[dict[str, Any]] = []
+        self.unlocked_wallet_ids: set[str] = set()
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -113,8 +114,8 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                                     "label": "Agent EVM Wallet",
                                     "network": outer.network,
                                     "source": "created",
-                                    "unlocked": True,
-                                    "unlockExpiresAt": None,
+                                    "unlocked": outer.wallet_id in outer.unlocked_wallet_ids,
+                                    "unlockExpiresAt": None if outer.wallet_id in outer.unlocked_wallet_ids else None,
                                 }
                             ],
                         },
@@ -179,12 +180,15 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                                 "source": "created",
                                 "createdAt": "2026-03-25T00:00:00Z",
                                 "updatedAt": "2026-03-25T00:00:00Z",
+                                "unlocked": outer.wallet_id in outer.unlocked_wallet_ids,
+                                "unlockExpiresAt": None if outer.wallet_id in outer.unlocked_wallet_ids else None,
                             },
                         },
                     )
                     return
 
                 if self.path == "/v1/evm/wallets/create":
+                    outer.unlocked_wallet_ids.add(outer.wallet_id)
                     self._send(
                         200,
                         {
@@ -214,6 +218,7 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                     return
 
                 if self.path == "/v1/evm/wallets/import":
+                    outer.unlocked_wallet_ids.add(outer.wallet_id)
                     self._send(
                         200,
                         {
@@ -233,6 +238,10 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                     return
 
                 if self.path == "/v1/evm/wallets/unlock":
+                    if wallet_id != outer.wallet_id:
+                        self._send(400, {"ok": False, "error": "Unknown walletId."})
+                        return
+                    outer.unlocked_wallet_ids.add(wallet_id)
                     self._send(
                         200,
                         {
@@ -248,6 +257,10 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                     return
 
                 if self.path == "/v1/evm/wallets/lock":
+                    if wallet_id != outer.wallet_id:
+                        self._send(400, {"ok": False, "error": "Unknown walletId."})
+                        return
+                    outer.unlocked_wallet_ids.discard(wallet_id)
                     self._send(
                         200,
                         {
@@ -261,7 +274,7 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                     return
 
                 if self.path == "/v1/evm/address/resolve":
-                    if wallet_id != outer.wallet_id:
+                    if wallet_id != outer.wallet_id or wallet_id not in outer.unlocked_wallet_ids:
                         self._send(400, {"ok": False, "error": "Wallet is locked."})
                         return
                     self._send(
@@ -278,6 +291,16 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                     return
 
                 if self.path == "/v1/evm/balance/get":
+                    if wallet_id != outer.wallet_id or wallet_id not in outer.unlocked_wallet_ids:
+                        self._send(
+                            400,
+                            {
+                                "ok": False,
+                                "error": "Wallet is locked.",
+                                "error_code": "wallet_locked",
+                            },
+                        )
+                        return
                     self._send(
                         200,
                         {
@@ -295,6 +318,16 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                     return
 
                 if self.path == "/v1/evm/token-balance/get":
+                    if wallet_id != outer.wallet_id or wallet_id not in outer.unlocked_wallet_ids:
+                        self._send(
+                            400,
+                            {
+                                "ok": False,
+                                "error": "Wallet is locked.",
+                                "error_code": "wallet_locked",
+                            },
+                        )
+                        return
                     self._send(
                         200,
                         {
@@ -384,6 +417,16 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                     return
 
                 if self.path == "/v1/evm/swap/quote":
+                    if wallet_id != outer.wallet_id or wallet_id not in outer.unlocked_wallet_ids:
+                        self._send(
+                            400,
+                            {
+                                "ok": False,
+                                "error": "Wallet is locked.",
+                                "error_code": "wallet_locked",
+                            },
+                        )
+                        return
                     self._send(
                         200,
                         {
@@ -456,6 +499,16 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                     return
 
                 if self.path == "/v1/evm/swap/send":
+                    if wallet_id != outer.wallet_id or wallet_id not in outer.unlocked_wallet_ids:
+                        self._send(
+                            400,
+                            {
+                                "ok": False,
+                                "error": "Wallet is locked.",
+                                "error_code": "wallet_locked",
+                            },
+                        )
+                        return
                     outer.sent_payloads.append(body)
                     self._send(
                         200,
