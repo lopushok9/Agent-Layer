@@ -20,6 +20,7 @@ const NATIVE_ETH = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 const NAME_SELECTOR = "0x06fdde03";
 const SYMBOL_SELECTOR = "0x95d89b41";
 const DECIMALS_SELECTOR = "0x313ce567";
+const BALANCE_OF_SELECTOR = "0x70a08231";
 
 function encodeAbiString(value) {
   const data = Buffer.from(value, "utf8").toString("hex");
@@ -40,6 +41,9 @@ function createRuntimeHarness(options = {}) {
     receiptPolls: 0,
     swapReceiptStatus: options.swapReceiptStatus ?? "0x1",
     allowanceReadCalls: 0,
+    directBalanceReadCalls: 0,
+    tokenTransferQuoteCalls: 0,
+    tokenTransferSendCalls: 0,
   };
   const config = {
     network: options.network ?? "ethereum",
@@ -70,6 +74,11 @@ function createRuntimeHarness(options = {}) {
     receiptReturnsNull: Boolean(options.receiptReturnsNull),
     swapTxValue: String(options.swapTxValue ?? "0"),
     failOnMixedCaseDestToken: Boolean(options.failOnMixedCaseDestToken),
+    tokenBalance: BigInt(options.tokenBalance ?? 5529342504n),
+    failTokenBalanceRead: Boolean(options.failTokenBalanceRead),
+    emptyBalanceResponse: Boolean(options.emptyBalanceResponse),
+    failTokenMetadata: Boolean(options.failTokenMetadata),
+    failTokenTransferEstimate: Boolean(options.failTokenTransferEstimate),
   };
 
   const originals = {
@@ -98,6 +107,14 @@ function createRuntimeHarness(options = {}) {
       }
       return state.allowance;
     },
+    async getTokenBalance() {
+      if (config.failTokenBalanceRead) {
+        throw Object.assign(new Error("missing revert data"), {
+          code: "CALL_EXCEPTION",
+        });
+      }
+      return config.tokenBalance;
+    },
     async quoteSendTransaction(tx) {
       const isApprove = String(tx?.data || "").startsWith("0x095ea7b3");
       state.quoteCalls.push({
@@ -110,6 +127,27 @@ function createRuntimeHarness(options = {}) {
         });
       }
       return { fee: isApprove ? config.approvalFee : config.swapFee };
+    },
+    async quoteTransfer() {
+      state.tokenTransferQuoteCalls += 1;
+      if (config.failTokenTransferEstimate) {
+        throw Object.assign(new Error("missing revert data"), {
+          code: "CALL_EXCEPTION",
+        });
+      }
+      return { fee: config.swapFee };
+    },
+    async transfer() {
+      state.tokenTransferSendCalls += 1;
+      if (config.failTokenTransferEstimate) {
+        throw Object.assign(new Error("missing revert data"), {
+          code: "CALL_EXCEPTION",
+        });
+      }
+      return {
+        hash: `0x${"e".repeat(64)}`,
+        fee: config.swapFee,
+      };
     },
     async approve({ amount }) {
       if (config.failCleanupApprove && state.approveCalls.length >= 1) {
@@ -207,23 +245,64 @@ function createRuntimeHarness(options = {}) {
       const data = String(body.params?.[0]?.data || "");
       if (data === NAME_SELECTOR) {
         state.metadataCalls.push("name");
+        if (config.failTokenMetadata) {
+          return ok("0x");
+        }
         return ok(encodeAbiString(config.tokenName));
       }
       if (data === SYMBOL_SELECTOR) {
         state.metadataCalls.push("symbol");
+        if (config.failTokenMetadata) {
+          return ok("0x");
+        }
         return ok(encodeAbiString(config.tokenSymbol));
       }
       if (data === DECIMALS_SELECTOR) {
         state.metadataCalls.push("decimals");
-        if (config.failDecimalsMetadata) {
+        if (config.failDecimalsMetadata || config.failTokenMetadata) {
           return ok("0x");
         }
         return ok(`0x${config.tokenDecimals.toString(16).padStart(64, "0")}`);
+      }
+      if (data.startsWith(BALANCE_OF_SELECTOR)) {
+        state.directBalanceReadCalls += 1;
+        if (config.emptyBalanceResponse) {
+          return ok("0x");
+        }
+        return ok(`0x${config.tokenBalance.toString(16).padStart(64, "0")}`);
       }
       if (config.failSimulationAfterApproval && state.allowance >= BigInt(config.amountIn)) {
         return rpcError("execution reverted: simulated swap failure");
       }
       return ok("0x");
+    }
+
+    if (method === "eth_getCode") {
+      return ok(config.tokenIn ? "0x1234" : "0x");
+    }
+
+    if (method === "eth_getBalance") {
+      return ok("0x0");
+    }
+
+    if (method === "eth_estimateGas") {
+      return ok("0x5208");
+    }
+
+    if (method === "eth_gasPrice") {
+      return ok("0x1");
+    }
+
+    if (method === "eth_maxPriorityFeePerGas") {
+      return ok("0x1");
+    }
+
+    if (method === "eth_feeHistory") {
+      return ok({ baseFeePerGas: ["0x1", "0x1"], gasUsedRatio: [0.5], oldestBlock: "0x1" });
+    }
+
+    if (method === "eth_chainId") {
+      return ok(`0x${config.chainId.toString(16)}`);
     }
 
     if (method === "eth_getTransactionReceipt") {
@@ -284,6 +363,147 @@ test("quoteSwap returns approval and fingerprint details", async () => {
     assert.match(quote.quoteFingerprint, /^[0-9a-f]{64}$/);
     assert.equal(state.metadataCalls.length, 6);
   });
+});
+
+test("getTokenBalance falls back to raw eth_call when WDK balance read throws missing revert data", async () => {
+  await withHarness(
+    {
+      failTokenBalanceRead: true,
+      tokenBalance: 5529342504n,
+    },
+    async ({ service, state, config }) => {
+      const result = await service.getTokenBalance({
+        seedPhrase: VALID_MNEMONIC,
+        tokenAddress: config.tokenIn,
+        network: config.network,
+      });
+      assert.equal(result.balance.toString(), "5529342504");
+      assert.equal(result.balanceFormatted, "5529.342504");
+      assert.equal(state.directBalanceReadCalls, 1);
+    }
+  );
+});
+
+test("getTokenBalance degrades metadata without failing the balance read", async () => {
+  await withHarness(
+    {
+      failTokenMetadata: true,
+      tokenBalance: 1000n,
+    },
+    async ({ service, config }) => {
+      const result = await service.getTokenBalance({
+        seedPhrase: VALID_MNEMONIC,
+        tokenAddress: config.tokenIn,
+        network: config.network,
+      });
+      assert.equal(result.balance.toString(), "1000");
+      assert.equal(result.balanceFormatted, null);
+      assert.equal(result.tokenMetadata.source, "erc20-rpc-unavailable");
+      assert.equal(result.tokenMetadata.decimals, null);
+    }
+  );
+});
+
+test("getTokenBalance returns token_read_failed when the token exists but balanceOf stays undecodable", async () => {
+  await withHarness(
+    {
+      failTokenBalanceRead: true,
+      emptyBalanceResponse: true,
+    },
+    async ({ service, config }) => {
+      await assert.rejects(
+        () =>
+          service.getTokenBalance({
+            seedPhrase: VALID_MNEMONIC,
+            tokenAddress: config.tokenIn,
+            network: config.network,
+          }),
+        (error) => {
+          assert.equal(error.errorCode, "token_read_failed");
+          assert.match(String(error.message || ""), /Token balance could not be read/);
+          return true;
+        }
+      );
+    }
+  );
+});
+
+test("quoteTokenTransfer returns insufficient_funds when token balance is below requested amount", async () => {
+  await withHarness(
+    {
+      tokenBalance: 0n,
+    },
+    async ({ service, state, config }) => {
+      await assert.rejects(
+        () =>
+          service.quoteTokenTransfer({
+            seedPhrase: VALID_MNEMONIC,
+            tokenAddress: config.tokenIn,
+            recipient: DEFAULT_TOKEN_OUT,
+            amount: "1",
+            network: config.network,
+          }),
+        (error) => {
+          assert.equal(error.errorCode, "insufficient_funds");
+          assert.match(String(error.message || ""), /Insufficient token balance/);
+          assert.equal(state.tokenTransferQuoteCalls, 0);
+          return true;
+        }
+      );
+    }
+  );
+});
+
+test("quoteTokenTransfer maps token transfer simulation revert to token_transfer_failed", async () => {
+  await withHarness(
+    {
+      tokenBalance: 5n,
+      failTokenTransferEstimate: true,
+    },
+    async ({ service, config }) => {
+      await assert.rejects(
+        () =>
+          service.quoteTokenTransfer({
+            seedPhrase: VALID_MNEMONIC,
+            tokenAddress: config.tokenIn,
+            recipient: DEFAULT_TOKEN_OUT,
+            amount: "1",
+            network: config.network,
+          }),
+        (error) => {
+          assert.equal(error.errorCode, "token_transfer_failed");
+          assert.match(String(error.message || ""), /could not be simulated/);
+          return true;
+        }
+      );
+    }
+  );
+});
+
+test("sendTokenTransfer returns insufficient_funds when token balance is below requested amount", async () => {
+  await withHarness(
+    {
+      tokenBalance: 0n,
+    },
+    async ({ service, state, config }) => {
+      await assert.rejects(
+        () =>
+          service.sendTokenTransfer({
+            seedPhrase: VALID_MNEMONIC,
+            tokenAddress: config.tokenIn,
+            recipient: DEFAULT_TOKEN_OUT,
+            amount: "1",
+            network: config.network,
+          }),
+        (error) => {
+          assert.equal(error.errorCode, "insufficient_funds");
+          assert.match(String(error.message || ""), /Insufficient token balance/);
+          assert.equal(state.tokenTransferSendCalls, 0);
+          return true;
+        }
+      );
+    }
+  );
 });
 
 test("swap succeeds without approval when allowance is already sufficient", async () => {

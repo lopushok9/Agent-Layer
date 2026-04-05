@@ -18,6 +18,8 @@ function normalizeErrorCode(errorCode, pathname, message) {
   const code = String(errorCode || "").trim().toLowerCase();
   const lower = String(message || "").toLowerCase();
   const isTokenPath = pathname.includes("/token");
+  const isTokenReadPath =
+    pathname.includes("/token-balance/") || pathname.includes("/token-metadata/");
 
   if (code === "insufficient_funds") {
     return "insufficient_funds";
@@ -32,7 +34,9 @@ function normalizeErrorCode(errorCode, pathname, message) {
     code === "swap_approval_failed" ||
     code === "swap_approval_timeout" ||
     code === "swap_cleanup_failed" ||
-    code === "fee_limit_exceeded"
+    code === "token_transfer_failed" ||
+    code === "fee_limit_exceeded" ||
+    code === "token_read_failed"
   ) {
     return code;
   }
@@ -42,7 +46,7 @@ function normalizeErrorCode(errorCode, pathname, message) {
     code === "execution_reverted" ||
     code === "contract_not_found"
   ) {
-    if (isTokenPath) {
+    if (isTokenReadPath) {
       return "token_not_found";
     }
   }
@@ -72,7 +76,7 @@ function normalizeErrorCode(errorCode, pathname, message) {
     return "recipient_invalid";
   }
   if (
-    isTokenPath &&
+    isTokenReadPath &&
     (lower.includes("missing revert data") ||
       lower.includes("call exception") ||
       lower.includes("could not decode result data") ||
@@ -114,9 +118,13 @@ function errorStatusCode(errorCode, fallback = 400) {
     errorCode === "swap_approval_failed" ||
     errorCode === "swap_approval_timeout" ||
     errorCode === "swap_cleanup_failed" ||
+    errorCode === "token_transfer_failed" ||
     errorCode === "fee_limit_exceeded"
   ) {
     return 400;
+  }
+  if (errorCode === "token_read_failed") {
+    return 502;
   }
   if (errorCode === "network_unavailable") {
     return 503;
@@ -189,6 +197,17 @@ async function withResolvedSeed(body = {}) {
     credentialSource: resolved.source,
     unlockExpiresAt: resolved.unlockExpiresAt ?? null,
   };
+}
+
+async function withResolvedSeedOrAddress(body = {}) {
+  const address = typeof body.address === "string" ? body.address.trim() : "";
+  if (address) {
+    return {
+      ...body,
+      address,
+    };
+  }
+  return withResolvedSeed(body);
 }
 
 async function withResolvedNetwork(body = {}) {
@@ -330,13 +349,13 @@ async function handleRequest(request, response) {
     }
 
     if (method === "POST" && url.pathname === "/v1/evm/balance/get") {
-      const body = await withResolvedNetwork(await withResolvedSeed(await readJsonBody(request)));
+      const body = await withResolvedNetwork(await withResolvedSeedOrAddress(await readJsonBody(request)));
       const data = await service.getBalance(body);
       return sendJson(response, 200, { ok: true, data });
     }
 
     if (method === "POST" && url.pathname === "/v1/evm/token-balance/get") {
-      const body = await withResolvedNetwork(await withResolvedSeed(await readJsonBody(request)));
+      const body = await withResolvedNetwork(await withResolvedSeedOrAddress(await readJsonBody(request)));
       const data = await service.getTokenBalance(body);
       return sendJson(response, 200, { ok: true, data });
     }
@@ -360,7 +379,7 @@ async function handleRequest(request, response) {
     }
 
     if (method === "POST" && url.pathname === "/v1/evm/swap/quote") {
-      const body = await withResolvedNetwork(await withResolvedSeed(await readJsonBody(request)));
+      const body = await withResolvedNetwork(await withResolvedSeedOrAddress(await readJsonBody(request)));
       const data = await service.quoteSwap(body);
       return sendJson(response, 200, { ok: true, data });
     }

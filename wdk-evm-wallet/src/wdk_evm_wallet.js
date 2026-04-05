@@ -2,11 +2,12 @@ import crypto from "node:crypto";
 
 import WDK from "@tetherto/wdk";
 import VeloraProtocolEvm from "@tetherto/wdk-protocol-swap-velora-evm";
-import WalletManagerEvm from "@tetherto/wdk-wallet-evm";
+import WalletManagerEvm, { WalletAccountReadOnlyEvm } from "@tetherto/wdk-wallet-evm";
 
 const ERC20_NAME_SELECTOR = "0x06fdde03";
 const ERC20_SYMBOL_SELECTOR = "0x95d89b41";
 const ERC20_DECIMALS_SELECTOR = "0x313ce567";
+const ERC20_BALANCE_OF_SELECTOR = "0x70a08231";
 const ERC20_APPROVE_SELECTOR = "0x095ea7b3";
 const USDT_MAINNET_ADDRESS = "0xdac17f958d2ee523a2206206994597c13d831ec7";
 const VELORA_NATIVE_TOKEN_ADDRESS = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
@@ -136,6 +137,10 @@ function toRpcHex(value) {
 
 function leftPadHex(value, length = 64) {
   return stripHexPrefix(value).toLowerCase().padStart(length, "0");
+}
+
+function buildBalanceOfCallData(owner) {
+  return `${ERC20_BALANCE_OF_SELECTOR}${leftPadHex(normalizeAddress(owner, "owner"))}`;
 }
 
 function sha256Hex(value) {
@@ -306,6 +311,42 @@ function isRecoverableAllowanceReadFailure(error) {
   );
 }
 
+function isRecoverableTokenBalanceReadFailure(error) {
+  const code = normalizeErrorCodeValue(error);
+  const message = error instanceof Error ? error.message : String(error || "");
+  const lower = message.toLowerCase();
+  if (code === "bad_data" || code === "call_exception" || code === "buffer_overrun") {
+    return true;
+  }
+  return (
+    lower.includes("missing revert data") ||
+    lower.includes("could not decode result data") ||
+    lower.includes("balanceof(address)") ||
+    lower.includes('value="0x"') ||
+    lower.includes("bad data") ||
+    lower.includes("buffer overrun")
+  );
+}
+
+function isRecoverableTokenTransferSimulationFailure(error) {
+  const code = normalizeErrorCodeValue(error);
+  const message = error instanceof Error ? error.message : String(error || "");
+  const lower = message.toLowerCase();
+  if (code === "insufficient_funds" || lower.includes("insufficient funds")) {
+    return false;
+  }
+  if (code === "bad_data" || code === "call_exception" || code === "execution_reverted") {
+    return true;
+  }
+  return (
+    lower.includes("missing revert data") ||
+    lower.includes("execution reverted") ||
+    lower.includes("call exception") ||
+    lower.includes("call_exception") ||
+    lower.includes("could not decode result data")
+  );
+}
+
 async function maybeDispose(value) {
   if (value && typeof value.dispose === "function") {
     await value.dispose();
@@ -345,41 +386,55 @@ export class WdkEvmWalletService {
     }));
   }
 
-  async getBalance({ seedPhrase, accountIndex = 0, network }) {
-    return this.#withAccount({ seedPhrase, accountIndex, network }, async (account, runtimeConfig) => {
-      const address = await account.getAddress();
-      const balance = await account.getBalance();
-      return {
-        network: runtimeConfig.network,
-        chainId: runtimeConfig.chainId,
-        nativeSymbol: runtimeConfig.nativeSymbol,
-        accountIndex,
-        address,
-        balance,
-        balanceFormatted: formatUnits(BigInt(balance), 18),
-        source: "wdk-wallet-evm",
-      };
-    });
+  async getBalance({ seedPhrase, address, accountIndex = 0, network }) {
+    return this.#withReadableAccount(
+      { seedPhrase, address, accountIndex, network },
+      async (account, runtimeConfig) => {
+        const address = await account.getAddress();
+        const balance = await account.getBalance();
+        return {
+          network: runtimeConfig.network,
+          chainId: runtimeConfig.chainId,
+          nativeSymbol: runtimeConfig.nativeSymbol,
+          accountIndex,
+          address,
+          balance,
+          balanceFormatted: formatUnits(BigInt(balance), 18),
+          source: "wdk-wallet-evm",
+        };
+      }
+    );
   }
 
-  async getTokenBalance({ seedPhrase, tokenAddress, accountIndex = 0, network }) {
-    return this.#withAccount({ seedPhrase, accountIndex, network }, async (account, runtimeConfig) => {
-      const address = await account.getAddress();
-      const token = normalizeAddress(tokenAddress, "tokenAddress");
-      const balance = await account.getTokenBalance(token);
-      const tokenMetadata = await this.#getTokenMetadata(runtimeConfig, token);
-      return {
-        network: runtimeConfig.network,
-        chainId: runtimeConfig.chainId,
-        accountIndex,
-        address,
-        tokenAddress: token,
-        balance,
-        balanceFormatted: formatUnits(BigInt(balance), tokenMetadata.decimals),
-        tokenMetadata,
-        source: "wdk-wallet-evm",
-      };
-    });
+  async getTokenBalance({ seedPhrase, address, tokenAddress, accountIndex = 0, network }) {
+    return this.#withReadableAccount(
+      { seedPhrase, address, accountIndex, network },
+      async (account, runtimeConfig) => {
+        const address = await account.getAddress();
+        const token = normalizeAddress(tokenAddress, "tokenAddress");
+        const balance = await this.#readTokenBalanceWithFallback({
+          account,
+          runtimeConfig,
+          tokenAddress: token,
+          ownerAddress: address,
+        });
+        const tokenMetadata = await this.#getBestEffortTokenMetadata(runtimeConfig, token);
+        return {
+          network: runtimeConfig.network,
+          chainId: runtimeConfig.chainId,
+          accountIndex,
+          address,
+          tokenAddress: token,
+          balance,
+          balanceFormatted:
+            tokenMetadata && Number.isInteger(tokenMetadata.decimals)
+              ? formatUnits(BigInt(balance), tokenMetadata.decimals)
+              : null,
+          tokenMetadata,
+          source: "wdk-wallet-evm",
+        };
+      }
+    );
   }
 
   async getTokenMetadata({ tokenAddress, network }) {
@@ -448,74 +503,78 @@ export class WdkEvmWalletService {
 
   async quoteSwap({
     seedPhrase,
+    address,
     tokenIn,
     tokenOut,
     tokenInAmount,
     accountIndex = 0,
     network,
   }) {
-    return this.#withAccount({ seedPhrase, accountIndex, network }, async (account, runtimeConfig) => {
-      assertVeloraSupportedNetwork(runtimeConfig.network);
-      const swapRequest = buildSwapRequest({ tokenIn, tokenOut, tokenInAmount });
-      const address = await account.getAddress();
-      const readOnlyAccount =
-        typeof account.toReadOnlyAccount === "function" ? await account.toReadOnlyAccount() : account;
-      try {
-        const plan = await this.#buildVeloraSwapPlan({
-          account: readOnlyAccount,
-          runtimeConfig,
-          swapRequest,
-          tolerateSwapFeeFailure: true,
-        });
-        const [tokenInMetadata, tokenOutMetadata] = await Promise.all([
-          this.#getSwapTokenMetadata(runtimeConfig, swapRequest.tokenIn, plan.priceRoute?.srcDecimals),
-          this.#getSwapTokenMetadata(runtimeConfig, swapRequest.tokenOut, plan.priceRoute?.destDecimals),
-        ]);
-        const quote = {
-          fee: plan.swapFee !== null ? plan.swapFee.toString() : null,
-          tokenInAmount: plan.tokenInAmount.toString(),
-          tokenOutAmount: plan.tokenOutAmount.toString(),
-          priceRoute: plan.priceRoute,
-        };
-        return {
-          network: runtimeConfig.network,
-          chainId: runtimeConfig.chainId,
-          accountIndex,
-          address,
-          protocol: "velora",
-          executionSupported: true,
-          swapRequest,
-          tokenInMetadata,
-          tokenOutMetadata,
-          inputAmountFormatted: formatUnits(swapRequest.tokenInAmount, tokenInMetadata.decimals),
-          outputAmountFormatted: formatUnits(plan.tokenOutAmount, tokenOutMetadata.decimals),
-          quoteFingerprint: plan.quoteFingerprint,
-          estimatedFeeWei:
-            plan.totalEstimatedFee !== null ? plan.totalEstimatedFee.toString() : null,
-          estimatedSwapFeeWei: plan.swapFee !== null ? plan.swapFee.toString() : null,
-          estimatedApprovalFeeWei: plan.approval.estimatedFee.toString(),
-          feeEstimateAvailable: plan.swapFee !== null,
-          feeEstimateError: plan.swapFeeError,
-          allowance: {
-            spender: plan.spender,
-            currentAllowance: plan.currentAllowance.toString(),
-            requiredAllowance: plan.tokenInAmount.toString(),
-            approvalRequired: plan.approval.required,
-            approvalSequence: plan.approval.steps,
-            readError: plan.allowanceReadError,
-          },
-          router: plan.router,
-          simulation: plan.simulation,
-          swapTransaction: plan.swapTransaction,
-          quote,
-          source: "wdk-protocol-swap-velora-evm",
-        };
-      } finally {
-        if (readOnlyAccount !== account) {
-          await maybeDispose(readOnlyAccount);
+    return this.#withReadableAccount(
+      { seedPhrase, address, accountIndex, network },
+      async (account, runtimeConfig) => {
+        assertVeloraSupportedNetwork(runtimeConfig.network);
+        const swapRequest = buildSwapRequest({ tokenIn, tokenOut, tokenInAmount });
+        const address = await account.getAddress();
+        const readOnlyAccount =
+          typeof account.toReadOnlyAccount === "function" ? await account.toReadOnlyAccount() : account;
+        try {
+          const plan = await this.#buildVeloraSwapPlan({
+            account: readOnlyAccount,
+            runtimeConfig,
+            swapRequest,
+            tolerateSwapFeeFailure: true,
+          });
+          const [tokenInMetadata, tokenOutMetadata] = await Promise.all([
+            this.#getSwapTokenMetadata(runtimeConfig, swapRequest.tokenIn, plan.priceRoute?.srcDecimals),
+            this.#getSwapTokenMetadata(runtimeConfig, swapRequest.tokenOut, plan.priceRoute?.destDecimals),
+          ]);
+          const quote = {
+            fee: plan.swapFee !== null ? plan.swapFee.toString() : null,
+            tokenInAmount: plan.tokenInAmount.toString(),
+            tokenOutAmount: plan.tokenOutAmount.toString(),
+            priceRoute: plan.priceRoute,
+          };
+          return {
+            network: runtimeConfig.network,
+            chainId: runtimeConfig.chainId,
+            accountIndex,
+            address,
+            protocol: "velora",
+            executionSupported: true,
+            swapRequest,
+            tokenInMetadata,
+            tokenOutMetadata,
+            inputAmountFormatted: formatUnits(swapRequest.tokenInAmount, tokenInMetadata.decimals),
+            outputAmountFormatted: formatUnits(plan.tokenOutAmount, tokenOutMetadata.decimals),
+            quoteFingerprint: plan.quoteFingerprint,
+            estimatedFeeWei:
+              plan.totalEstimatedFee !== null ? plan.totalEstimatedFee.toString() : null,
+            estimatedSwapFeeWei: plan.swapFee !== null ? plan.swapFee.toString() : null,
+            estimatedApprovalFeeWei: plan.approval.estimatedFee.toString(),
+            feeEstimateAvailable: plan.swapFee !== null,
+            feeEstimateError: plan.swapFeeError,
+            allowance: {
+              spender: plan.spender,
+              currentAllowance: plan.currentAllowance.toString(),
+              requiredAllowance: plan.tokenInAmount.toString(),
+              approvalRequired: plan.approval.required,
+              approvalSequence: plan.approval.steps,
+              readError: plan.allowanceReadError,
+            },
+            router: plan.router,
+            simulation: plan.simulation,
+            swapTransaction: plan.swapTransaction,
+            quote,
+            source: "wdk-protocol-swap-velora-evm",
+          };
+        } finally {
+          if (readOnlyAccount !== account) {
+            await maybeDispose(readOnlyAccount);
+          }
         }
       }
-    });
+    );
   }
 
   async swap({
@@ -703,8 +762,42 @@ export class WdkEvmWalletService {
         recipient: normalizeAddress(recipient, "recipient"),
         amount: assertPositiveBigIntString(amount, "amount"),
       };
-      const tokenMetadata = await this.#getTokenMetadata(runtimeConfig, transfer.token);
-      const quote = await account.quoteTransfer(transfer);
+      const ownerAddress = await account.getAddress();
+      const { tokenMetadata } = await this.#prepareTokenTransferContext({
+        account,
+        runtimeConfig,
+        transfer,
+        ownerAddress,
+      });
+      let quote;
+      try {
+        quote = await account.quoteTransfer(transfer);
+      } catch (error) {
+        if (isRecoverableTokenTransferSimulationFailure(error)) {
+          throw createTaggedError(
+            "Token transfer could not be simulated by the token contract.",
+            "token_transfer_failed",
+            {
+              network: runtimeConfig.network,
+              tokenAddress: transfer.token,
+              ownerAddress,
+              recipient: transfer.recipient,
+              amount: transfer.amount.toString(),
+              underlying:
+                error instanceof Error
+                  ? {
+                      message: error.message,
+                      code: String(error.errorCode || error.code || "").trim() || null,
+                    }
+                  : {
+                      message: String(error),
+                      code: null,
+                    },
+            }
+          );
+        }
+        throw error;
+      }
       return {
         network: runtimeConfig.network,
         chainId: runtimeConfig.chainId,
@@ -732,8 +825,42 @@ export class WdkEvmWalletService {
         recipient: normalizeAddress(recipient, "recipient"),
         amount: assertPositiveBigIntString(amount, "amount"),
       };
-      const tokenMetadata = await this.#getTokenMetadata(runtimeConfig, transfer.token);
-      const result = await account.transfer(transfer);
+      const ownerAddress = await account.getAddress();
+      const { tokenMetadata } = await this.#prepareTokenTransferContext({
+        account,
+        runtimeConfig,
+        transfer,
+        ownerAddress,
+      });
+      let result;
+      try {
+        result = await account.transfer(transfer);
+      } catch (error) {
+        if (isRecoverableTokenTransferSimulationFailure(error)) {
+          throw createTaggedError(
+            "Token transfer could not be simulated by the token contract.",
+            "token_transfer_failed",
+            {
+              network: runtimeConfig.network,
+              tokenAddress: transfer.token,
+              ownerAddress,
+              recipient: transfer.recipient,
+              amount: transfer.amount.toString(),
+              underlying:
+                error instanceof Error
+                  ? {
+                      message: error.message,
+                      code: String(error.errorCode || error.code || "").trim() || null,
+                    }
+                  : {
+                      message: String(error),
+                      code: null,
+                    },
+            }
+          );
+        }
+        throw error;
+      }
       return {
         network: runtimeConfig.network,
         chainId: runtimeConfig.chainId,
@@ -787,6 +914,23 @@ export class WdkEvmWalletService {
     });
   }
 
+  async #withReadableAccount({ seedPhrase, address, accountIndex, network }, callback) {
+    const normalizedAddress = String(address || "").trim();
+    if (normalizedAddress) {
+      const runtimeConfig = this.#resolveRuntimeConfig(network);
+      const account = new WalletAccountReadOnlyEvm(
+        normalizeAddress(normalizedAddress, "address"),
+        { provider: runtimeConfig.providerUrl }
+      );
+      try {
+        return await callback(account, runtimeConfig);
+      } finally {
+        await maybeDispose(account);
+      }
+    }
+    return this.#withAccount({ seedPhrase, accountIndex, network }, callback);
+  }
+
   async #getTokenMetadata(runtimeConfig, tokenAddress) {
     const cacheKey = `${runtimeConfig.network}:${tokenAddress.toLowerCase()}`;
     const cached = this._tokenMetadataCache.get(cacheKey);
@@ -812,6 +956,103 @@ export class WdkEvmWalletService {
     };
     this._tokenMetadataCache.set(cacheKey, metadata);
     return { ...metadata };
+  }
+
+  async #getBestEffortTokenMetadata(runtimeConfig, tokenAddress) {
+    try {
+      return await this.#getTokenMetadata(runtimeConfig, tokenAddress);
+    } catch {
+      return {
+        address: tokenAddress,
+        name: null,
+        symbol: null,
+        decimals: null,
+        verified: false,
+        source: "erc20-rpc-unavailable",
+      };
+    }
+  }
+
+  async #prepareTokenTransferContext({ account, runtimeConfig, transfer, ownerAddress }) {
+    const currentBalance = await this.#readTokenBalanceWithFallback({
+      account,
+      runtimeConfig,
+      tokenAddress: transfer.token,
+      ownerAddress,
+    });
+    if (currentBalance < transfer.amount) {
+      throw createTaggedError("Insufficient token balance for transfer.", "insufficient_funds", {
+        network: runtimeConfig.network,
+        tokenAddress: transfer.token,
+        ownerAddress,
+        recipient: transfer.recipient,
+        currentBalance: currentBalance.toString(),
+        requiredAmount: transfer.amount.toString(),
+        assetType: "erc20",
+      });
+    }
+    const tokenMetadata = await this.#getBestEffortTokenMetadata(runtimeConfig, transfer.token);
+    return {
+      currentBalance,
+      tokenMetadata,
+    };
+  }
+
+  async #readTokenBalanceWithFallback({ account, runtimeConfig, tokenAddress, ownerAddress }) {
+    try {
+      return await account.getTokenBalance(tokenAddress);
+    } catch (error) {
+      if (!isRecoverableTokenBalanceReadFailure(error)) {
+        throw error;
+      }
+      const code = await rpcRequest(runtimeConfig.providerUrl, "eth_getCode", [
+        normalizeAddress(tokenAddress, "tokenAddress"),
+        "latest",
+      ]);
+      if (!code || String(code).toLowerCase() === "0x") {
+        throw createTaggedError("Token contract could not be resolved on this network.", "token_not_found", {
+          network: runtimeConfig.network,
+          tokenAddress,
+        });
+      }
+      return await this.#readTokenBalanceDirect(runtimeConfig, tokenAddress, ownerAddress);
+    }
+  }
+
+  async #readTokenBalanceDirect(runtimeConfig, tokenAddress, ownerAddress) {
+    const data = buildBalanceOfCallData(ownerAddress);
+    let lastError = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const raw = await ethCall(runtimeConfig.providerUrl, tokenAddress, data);
+        return decodeUint256Result(raw, "balanceOf");
+      } catch (error) {
+        lastError = error;
+        if (
+          attempt >= 2 ||
+          !isRecoverableTokenBalanceReadFailure(error) ||
+          normalizeErrorCodeValue(error) === "network_unavailable"
+        ) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 150 * (attempt + 1)));
+      }
+    }
+    throw createTaggedError("Token balance could not be read from the token contract.", "token_read_failed", {
+      network: runtimeConfig.network,
+      tokenAddress,
+      ownerAddress,
+      underlying:
+        lastError instanceof Error
+          ? {
+              message: lastError.message,
+              code: String(lastError.errorCode || lastError.code || "").trim() || null,
+            }
+          : {
+              message: String(lastError),
+              code: null,
+            },
+    });
   }
 
   async #getSwapTokenMetadata(runtimeConfig, tokenAddress, fallbackDecimals) {

@@ -137,6 +137,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "/v1/evm/balance/get",
             {
                 "walletId": self.wallet_id,
+                "address": resolved_address,
                 "accountIndex": self.account_index,
                 "network": self.network,
             },
@@ -153,10 +154,12 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
         }
 
     async def get_evm_token_balance(self, token_address: str) -> dict[str, Any]:
+        resolved_address = await self.get_address()
         data = await self.client.post(
             "/v1/evm/token-balance/get",
             {
                 "walletId": self.wallet_id,
+                "address": resolved_address,
                 "accountIndex": self.account_index,
                 "network": self.network,
                 "tokenAddress": token_address,
@@ -165,7 +168,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
         return {
             "chain": self.chain,
             "network": self.network,
-            "address": str(data.get("address") or await self.get_address() or ""),
+            "address": str(data.get("address") or resolved_address or ""),
             "token_address": str(data.get("tokenAddress") or token_address),
             "balance_raw": str(data.get("balance") or "0"),
             "balance_ui": str(data.get("balanceFormatted")) if data.get("balanceFormatted") is not None else None,
@@ -237,10 +240,12 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
         token_out: str,
         amount_in_raw: str,
     ) -> dict[str, Any]:
+        resolved_address = await self.get_address()
         data = await self.client.post(
             "/v1/evm/swap/quote",
             {
                 "walletId": self.wallet_id,
+                "address": resolved_address,
                 "accountIndex": self.account_index,
                 "network": self.network,
                 "tokenIn": token_in,
@@ -252,7 +257,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
         return {
             "chain": self.chain,
             "network": self.network,
-            "address": str(data.get("address") or await self.get_address() or ""),
+            "address": str(data.get("address") or resolved_address or ""),
             "token_in": str((data.get("swapRequest") or {}).get("tokenIn") or token_in),
             "token_out": str((data.get("swapRequest") or {}).get("tokenOut") or token_out),
             "amount_in_raw": str((data.get("swapRequest") or {}).get("tokenInAmount") or amount_in_raw),
@@ -305,10 +310,12 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
         token_out: str,
         amount_in_raw: str,
     ) -> dict[str, Any]:
+        resolved_address = await self.get_address()
         data = await self.client.post(
             "/v1/evm/swap/quote",
             {
                 "walletId": self.wallet_id,
+                "address": resolved_address,
                 "accountIndex": self.account_index,
                 "network": self.network,
                 "tokenIn": token_in,
@@ -323,7 +330,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "asset_type": "evm-swap",
             "asset": "ERC20",
             "wallet": self.wallet_id,
-            "from_address": await self.get_address(),
+            "from_address": resolved_address,
             "token_in": str((data.get("swapRequest") or {}).get("tokenIn") or token_in),
             "token_out": str((data.get("swapRequest") or {}).get("tokenOut") or token_out),
             "input_amount_raw": str((data.get("swapRequest") or {}).get("tokenInAmount") or amount_in_raw),
