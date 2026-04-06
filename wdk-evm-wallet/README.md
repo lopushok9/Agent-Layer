@@ -132,10 +132,24 @@ Environment variables:
 - `WDK_EVM_LOCAL_TOKEN_PATH`
 - `WDK_EVM_UNLOCK_TIMEOUT_SECONDS`
 - `WDK_EVM_TRANSFER_MAX_FEE_WEI`
+- `WDK_EVM_RPC_PROVIDER_MODE`
+- `WDK_EVM_RPC_GATEWAY_PROVIDER`
+- `PROVIDER_GATEWAY_URL`
+- `PROVIDER_GATEWAY_BEARER_TOKEN`
 - `WDK_EVM_ETHEREUM_RPC_URL`
 - `WDK_EVM_SEPOLIA_RPC_URL`
 - `WDK_EVM_BASE_RPC_URL`
 - `WDK_EVM_BASE_SEPOLIA_RPC_URL`
+
+Gateway mode:
+
+- set `WDK_EVM_RPC_PROVIDER_MODE=gateway`
+- `PROVIDER_GATEWAY_URL` defaults to `https://agent-layer-production.up.railway.app`
+- set `PROVIDER_GATEWAY_URL=https://...` only when overriding the hosted default
+- `PROVIDER_GATEWAY_BEARER_TOKEN` is optional and only needed when the gateway is protected
+- optionally set `WDK_EVM_RPC_GATEWAY_PROVIDER=alchemy|shared|auto`
+- in gateway mode, `ethereum` and `base` use the provider gateway raw EVM RPC route
+- explicit `WDK_EVM_<NETWORK>_RPC_URL` values still override gateway mode per network
 
 Local security note:
 

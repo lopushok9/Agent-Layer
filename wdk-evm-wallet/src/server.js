@@ -135,6 +135,34 @@ function errorStatusCode(errorCode, fallback = 400) {
   return fallback;
 }
 
+function sanitizeProviderUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return raw;
+  }
+  try {
+    const url = new URL(raw);
+    if (url.searchParams.has("token")) {
+      url.searchParams.set("token", "***");
+    }
+    return url.toString();
+  } catch {
+    return raw;
+  }
+}
+
+function sanitizeProfiles(profiles = {}) {
+  return Object.fromEntries(
+    Object.entries(profiles).map(([network, profile]) => [
+      network,
+      {
+        ...profile,
+        providerUrl: sanitizeProviderUrl(profile?.providerUrl),
+      },
+    ])
+  );
+}
+
 function toErrorResponse(error, pathname, fallbackStatus = 400) {
   const message = error instanceof Error ? error.message : String(error);
   const explicitCode =
@@ -242,8 +270,8 @@ async function handleRequest(request, response) {
         authRequired: config.authRequired,
         unlockTimeoutSeconds: config.unlockTimeoutSeconds,
         availableNetworks: Object.keys(config.networkProfiles),
-        provider: runtimeConfig.providerUrl,
-        networkProfiles: networkInfo.profiles,
+        provider: sanitizeProviderUrl(runtimeConfig.providerUrl),
+        networkProfiles: sanitizeProfiles(networkInfo.profiles),
         source: "wdk",
       });
     }

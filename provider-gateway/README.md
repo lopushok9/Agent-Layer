@@ -13,6 +13,7 @@ This service is deliberately narrow:
 - shared Bags token launch relay
 - shared Jupiter Earn relay
 - shared Solana RPC gateway with method allowlist
+- shared EVM RPC gateway for ethereum/base with method allowlist
 - no wallet custody
 - no transaction signing
 
@@ -27,6 +28,7 @@ Implemented endpoints:
 - `GET /health` — public health and capability snapshot
 - `GET /v1/status` — authenticated status and provider capabilities
 - `POST /v1/rpc` — authenticated Solana JSON-RPC proxy with method allowlist
+- `POST /v1/evm/rpc/{network}` — authenticated raw EVM JSON-RPC proxy for `ethereum` / `base`
 - `GET /v1/bags/trade/quote` — authenticated Bags trade quote
 - `POST /v1/bags/trade/swap` — authenticated Bags swap transaction creation
 - `POST /v1/bags/launch/token-info` — authenticated Bags token metadata creation
@@ -68,6 +70,10 @@ Configure the surfaces you want to expose:
 - shared Solana RPC:
   - `SHARED_SOLANA_RPC_URL`, or
   - `HELIUS_API_KEY`, or
+  - `ALCHEMY_API_KEY`
+- shared EVM RPC:
+  - `SHARED_EVM_ETHEREUM_RPC_URL` / `SHARED_EVM_BASE_RPC_URL`, or
+  - `ALCHEMY_ETHEREUM_RPC_URL` / `ALCHEMY_BASE_RPC_URL`, or
   - `ALCHEMY_API_KEY`
 - Bags relay:
   - `BAGS_API_KEY`
@@ -116,6 +122,21 @@ curl http://localhost:8000/v1/rpc \
   }'
 ```
 
+Shared EVM RPC:
+
+```bash
+curl "http://localhost:8000/v1/evm/rpc/ethereum?provider=alchemy" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "eth_chainId",
+    "params": []
+  }'
+```
+
+For machine JSON-RPC clients that cannot set a bearer header, the protected EVM RPC route also accepts `?token=<PROVIDER_GATEWAY_BEARER_TOKEN>`.
+
 Bags quote:
 
 ```bash
@@ -162,6 +183,7 @@ If you switch back to protected mode with `REQUIRE_BEARER_AUTH=true`, add:
 - security first: no raw generic Bags proxy, no raw unrestricted RPC passthrough
 - user friendly: good default shared mode, while future `agent-wallet` integration can switch to direct user RPC when user keys are configured
 - launch flow stays non-custodial: gateway prepares metadata/config/launch tx, user wallet still signs and broadcasts
+- EVM shared RPC remains allowlisted. It is intended for wallet reads, simulation, fee estimation, and raw tx broadcast from the local signer, not as a generic public Ethereum proxy.
 
 ## Agent-wallet mode
 
@@ -170,6 +192,7 @@ If you switch back to protected mode with `REQUIRE_BEARER_AUTH=true`, add:
 - shared RPC mode via `PROVIDER_GATEWAY_URL` for onboarding-friendly defaults
 - explicit Bags launch / fees mode via the gateway-backed Bags client
 - explicit Jupiter Earn mode via the gateway-backed Earn client
+- `wdk-evm-wallet` can also use this service as its upstream RPC transport for `ethereum` / `base`
 
 Default Jupiter swap routing stays direct regardless of whether RPC is shared or user-owned. The gateway is used here for Bags launch/fees and Jupiter Earn, not for ordinary swaps.
 
@@ -189,6 +212,12 @@ Recommended setup:
      - `SHARED_SOLANA_RPC_URL`, or
      - `HELIUS_API_KEY`, or
      - `ALCHEMY_API_KEY`
+   - optional shared EVM RPC:
+     - `SHARED_EVM_ETHEREUM_RPC_URL`
+     - `SHARED_EVM_BASE_RPC_URL`
+     - `ALCHEMY_ETHEREUM_RPC_URL`
+     - `ALCHEMY_BASE_RPC_URL`
+     - or reuse `ALCHEMY_API_KEY`
    - optional:
      - `PROVIDER_GATEWAY_BEARER_TOKEN`
      - `BAGS_API_BASE_URL`
@@ -230,7 +259,17 @@ Example production variable sets:
      - `HELIUS_API_KEY=...`
      - `ALCHEMY_API_KEY=...`
 
-4. Protected gateway
+4. Shared EVM RPC gateway
+   - `REQUIRE_BEARER_AUTH=true`
+   - `PROVIDER_GATEWAY_BEARER_TOKEN=...`
+   - plus one of:
+     - `SHARED_EVM_ETHEREUM_RPC_URL=...`
+     - `SHARED_EVM_BASE_RPC_URL=...`
+     - `ALCHEMY_ETHEREUM_RPC_URL=...`
+     - `ALCHEMY_BASE_RPC_URL=...`
+     - `ALCHEMY_API_KEY=...`
+
+5. Protected gateway
    - `REQUIRE_BEARER_AUTH=true`
    - `PROVIDER_GATEWAY_BEARER_TOKEN=...`
    - `BAGS_API_KEY=...`

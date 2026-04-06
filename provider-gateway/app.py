@@ -37,6 +37,22 @@ ALLOWED_RPC_METHODS = {
     "sendTransaction",
 }
 
+ALLOWED_EVM_RPC_METHODS = {
+    "eth_blockNumber",
+    "eth_call",
+    "eth_chainId",
+    "eth_estimateGas",
+    "eth_feeHistory",
+    "eth_gasPrice",
+    "eth_getBalance",
+    "eth_getBlockByNumber",
+    "eth_getCode",
+    "eth_getTransactionCount",
+    "eth_getTransactionReceipt",
+    "eth_maxPriorityFeePerGas",
+    "eth_sendRawTransaction",
+}
+
 
 def _bool_env(name: str, default: bool = False) -> bool:
     raw = os.getenv(name)
@@ -64,7 +80,7 @@ def _json_error(message: str, status_code: int = 400, extra: dict[str, Any] | No
 
 
 def _require_bearer(request: Request) -> str | None:
-    if not _bool_env("REQUIRE_BEARER_AUTH", True):
+    if not _bool_env("REQUIRE_BEARER_AUTH", False):
         return None
 
     expected = _trim(os.getenv("PROVIDER_GATEWAY_BEARER_TOKEN"))
@@ -77,6 +93,27 @@ def _require_bearer(request: Request) -> str | None:
     if actual != f"Bearer {expected}":
         return "Unauthorized"
     return None
+
+
+def _require_machine_token(request: Request) -> str | None:
+    if not _bool_env("REQUIRE_BEARER_AUTH", False):
+        return None
+
+    expected = _trim(os.getenv("PROVIDER_GATEWAY_BEARER_TOKEN"))
+    if not expected:
+        raise RuntimeError(
+            "REQUIRE_BEARER_AUTH=true but PROVIDER_GATEWAY_BEARER_TOKEN is not configured"
+        )
+
+    actual = request.headers.get("authorization", "")
+    if actual == f"Bearer {expected}":
+        return None
+
+    query_token = request.query_params.get("token", "").strip()
+    if query_token == expected:
+        return None
+
+    return "Unauthorized"
 
 
 def _http_timeout_seconds() -> float:
@@ -154,6 +191,52 @@ def _resolve_rpc_url(provider: str, network: str) -> tuple[str, str]:
     )
 
 
+def _resolve_evm_rpc_url(provider: str, network: str) -> tuple[str, str]:
+    network_key = network.strip().lower()
+    if network_key not in {"ethereum", "base"}:
+        raise RuntimeError("Shared EVM provider gateway RPC currently supports only ethereum and base.")
+
+    shared_by_network = {
+        "ethereum": _provider_url_from_env("SHARED_EVM_ETHEREUM_RPC_URL"),
+        "base": _provider_url_from_env("SHARED_EVM_BASE_RPC_URL"),
+    }
+    alchemy_url_by_network = {
+        "ethereum": _provider_url_from_env("ALCHEMY_ETHEREUM_RPC_URL"),
+        "base": _provider_url_from_env("ALCHEMY_BASE_RPC_URL"),
+    }
+
+    alchemy_key = _trim(os.getenv("ALCHEMY_API_KEY"))
+    if alchemy_key:
+        if not alchemy_url_by_network["ethereum"]:
+            alchemy_url_by_network["ethereum"] = f"https://eth-mainnet.g.alchemy.com/v2/{alchemy_key}"
+        if not alchemy_url_by_network["base"]:
+            alchemy_url_by_network["base"] = f"https://base-mainnet.g.alchemy.com/v2/{alchemy_key}"
+
+    if provider == "shared":
+        shared_url = shared_by_network[network_key]
+        if shared_url:
+            return ("shared", shared_url)
+        raise RuntimeError(f"Shared EVM RPC is not configured for {network_key}")
+
+    if provider == "alchemy":
+        alchemy_url = alchemy_url_by_network[network_key]
+        if alchemy_url:
+            return ("alchemy", alchemy_url)
+        raise RuntimeError(f"Alchemy EVM RPC is not configured for {network_key}")
+
+    if provider != "auto":
+        raise RuntimeError(f"Unsupported EVM RPC provider: {provider}")
+
+    if shared_by_network[network_key]:
+        return ("shared", shared_by_network[network_key])
+    if alchemy_url_by_network[network_key]:
+        return ("alchemy", alchemy_url_by_network[network_key])
+    raise RuntimeError(
+        f"No shared EVM RPC is configured for {network_key}. "
+        "Set SHARED_EVM_<NETWORK>_RPC_URL, ALCHEMY_<NETWORK>_RPC_URL, or ALCHEMY_API_KEY."
+    )
+
+
 def _status_payload() -> dict[str, Any]:
     configured_rpc = []
     for provider in ("shared", "helius", "alchemy"):
@@ -163,14 +246,28 @@ def _status_payload() -> dict[str, Any]:
         except Exception:
             continue
 
+    evm_rpc_upstreams: dict[str, list[str]] = {}
+    for network in ("ethereum", "base"):
+        available: list[str] = []
+        for provider in ("shared", "alchemy"):
+            try:
+                resolved, _ = _resolve_evm_rpc_url(provider, network)
+                available.append(resolved)
+            except Exception:
+                continue
+        if available:
+            evm_rpc_upstreams[network] = available
+
     return {
         "ok": True,
         "service": APP_NAME,
         "version": APP_VERSION,
-        "auth_required": _bool_env("REQUIRE_BEARER_AUTH", True),
+        "auth_required": _bool_env("REQUIRE_BEARER_AUTH", False),
         "bags_configured": bool(_trim(os.getenv("BAGS_API_KEY"))),
         "rpc_upstreams": configured_rpc,
         "allowed_rpc_methods": sorted(ALLOWED_RPC_METHODS),
+        "evm_rpc_upstreams": evm_rpc_upstreams,
+        "allowed_evm_rpc_methods": sorted(ALLOWED_EVM_RPC_METHODS),
         "bags_features": {
             "trade_quote": True,
             "trade_swap": True,
@@ -413,6 +510,57 @@ async def rpc_proxy(request: Request) -> JSONResponse:
         },
         status_code=200 if status_code < 500 else 502,
     )
+
+
+async def evm_rpc_proxy(request: Request) -> JSONResponse:
+    auth_error = _require_machine_token(request)
+    if auth_error:
+        return _json_error(auth_error, 401)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return _json_error("Invalid JSON body", 400)
+
+    if not isinstance(body, dict):
+        return _json_error("JSON body must be an object", 400)
+
+    method = str(body.get("method", "")).strip()
+    if not method:
+        return _json_error("Field 'method' is required", 400)
+    if method not in ALLOWED_EVM_RPC_METHODS:
+        return _json_error(
+            f"EVM RPC method '{method}' is not allowed",
+            403,
+            {"allowed_methods": sorted(ALLOWED_EVM_RPC_METHODS)},
+        )
+
+    params = body.get("params", [])
+    if not isinstance(params, list):
+        return _json_error("Field 'params' must be an array", 400)
+
+    provider = str(request.query_params.get("provider", "auto")).strip().lower() or "auto"
+    network = str(request.path_params.get("network", "")).strip().lower()
+
+    try:
+        resolved_provider, rpc_url = _resolve_evm_rpc_url(provider, network)
+    except Exception as exc:
+        return _json_error(str(exc), 403 if "supports only" in str(exc) else 500)
+
+    payload = dict(body)
+    payload["jsonrpc"] = str(body.get("jsonrpc", "2.0") or "2.0")
+    if "id" not in payload:
+        payload["id"] = 1
+
+    try:
+        status_code, upstream = await _http_post(rpc_url, json_body=payload)
+    except httpx.HTTPError as exc:
+        return _json_error(f"EVM RPC upstream error: {exc}", 502)
+
+    response = JSONResponse(upstream, status_code=200 if status_code < 500 else 502)
+    response.headers["X-Provider-Gateway-Upstream"] = resolved_provider
+    response.headers["X-Provider-Gateway-Network"] = network
+    return response
 
 
 async def bags_trade_quote(request: Request) -> JSONResponse:
@@ -797,6 +945,7 @@ routes = [
     Route("/health", health, methods=["GET"]),
     Route("/v1/status", status, methods=["GET"]),
     Route("/v1/rpc", rpc_proxy, methods=["POST"]),
+    Route("/v1/evm/rpc/{network:str}", evm_rpc_proxy, methods=["POST"]),
     Route("/v1/bags/trade/quote", bags_trade_quote, methods=["GET"]),
     Route("/v1/bags/trade/swap", bags_trade_swap, methods=["POST"]),
     Route("/v1/bags/launch/token-info", bags_launch_token_info, methods=["POST"]),

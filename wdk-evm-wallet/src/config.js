@@ -9,6 +9,7 @@ const DEFAULTS = {
   network: "sepolia",
   unlockTimeoutSeconds: 0,
 };
+const DEFAULT_PROVIDER_GATEWAY_URL = "https://agent-layer-production.up.railway.app";
 
 const DEFAULT_NETWORK_PROFILES = {
   ethereum: {
@@ -32,6 +33,30 @@ const DEFAULT_NETWORK_PROFILES = {
     nativeSymbol: "ETH",
   },
 };
+
+const SUPPORTED_GATEWAY_PROVIDERS = new Set(["auto", "shared", "alchemy"]);
+
+function parseProviderMode(value, fallback = "public") {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) {
+    return fallback;
+  }
+  if (!["public", "gateway"].includes(normalized)) {
+    throw new Error("WDK_EVM_RPC_PROVIDER_MODE must be either 'public' or 'gateway'.");
+  }
+  return normalized;
+}
+
+function parseGatewayProvider(value, fallback = "alchemy") {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) {
+    return fallback;
+  }
+  if (!SUPPORTED_GATEWAY_PROVIDERS.has(normalized)) {
+    throw new Error("WDK_EVM_RPC_GATEWAY_PROVIDER must be one of: auto, shared, alchemy.");
+  }
+  return normalized;
+}
 
 function parseInteger(value, fallback, fieldName) {
   const normalized = String(value ?? "").trim();
@@ -119,6 +144,29 @@ function normalizeNetworkKey(value) {
   return aliases[normalized] || normalized;
 }
 
+function joinUrl(base, pathname) {
+  const normalizedBase = String(base || "").trim();
+  if (!normalizedBase) {
+    return "";
+  }
+  const url = new URL(pathname.replace(/^\//, ""), normalizedBase.endsWith("/") ? normalizedBase : `${normalizedBase}/`);
+  return url;
+}
+
+function buildGatewayEvmRpcUrl(baseUrl, network, provider, token) {
+  const url = joinUrl(baseUrl, `/v1/evm/rpc/${network}`);
+  if (!url) {
+    return "";
+  }
+  if (provider && provider !== "auto") {
+    url.searchParams.set("provider", provider);
+  }
+  if (String(token || "").trim()) {
+    url.searchParams.set("token", String(token).trim());
+  }
+  return url.toString();
+}
+
 export function loadConfig(env = process.env) {
   const host = String(env.HOST ?? DEFAULTS.host).trim() || DEFAULTS.host;
   const network = normalizeNetworkKey(env.WDK_EVM_NETWORK ?? DEFAULTS.network) || DEFAULTS.network;
@@ -135,32 +183,62 @@ export function loadConfig(env = process.env) {
   const authTokenPath =
     String(env.WDK_EVM_LOCAL_TOKEN_PATH ?? "").trim() ||
     path.join(openClawHome, "wdk-evm-wallet", "local-auth-token");
+  const providerMode = parseProviderMode(env.WDK_EVM_RPC_PROVIDER_MODE, "gateway");
+  const providerGatewayUrl =
+    String(env.PROVIDER_GATEWAY_URL ?? "").trim() || DEFAULT_PROVIDER_GATEWAY_URL;
+  const providerGatewayToken = String(env.PROVIDER_GATEWAY_BEARER_TOKEN ?? "").trim();
+  const gatewayProvider = parseGatewayProvider(env.WDK_EVM_RPC_GATEWAY_PROVIDER, "alchemy");
+
+  function resolveProviderUrl(networkKey, envValue, fallbackUrl) {
+    const direct = String(envValue ?? "").trim();
+    if (direct) {
+      return direct;
+    }
+    if (
+      providerMode === "gateway" &&
+      providerGatewayUrl &&
+      ["ethereum", "base"].includes(networkKey)
+    ) {
+      return (
+        buildGatewayEvmRpcUrl(providerGatewayUrl, networkKey, gatewayProvider, providerGatewayToken) ||
+        fallbackUrl
+      );
+    }
+    return fallbackUrl;
+  }
 
   const networkProfiles = {
     ethereum: {
       ...DEFAULT_NETWORK_PROFILES.ethereum,
-      providerUrl:
-        String(env.WDK_EVM_ETHEREUM_RPC_URL ?? DEFAULT_NETWORK_PROFILES.ethereum.providerUrl).trim() ||
-        DEFAULT_NETWORK_PROFILES.ethereum.providerUrl,
+      providerUrl: resolveProviderUrl(
+        "ethereum",
+        env.WDK_EVM_ETHEREUM_RPC_URL,
+        DEFAULT_NETWORK_PROFILES.ethereum.providerUrl
+      ),
     },
     sepolia: {
       ...DEFAULT_NETWORK_PROFILES.sepolia,
-      providerUrl:
-        String(env.WDK_EVM_SEPOLIA_RPC_URL ?? DEFAULT_NETWORK_PROFILES.sepolia.providerUrl).trim() ||
-        DEFAULT_NETWORK_PROFILES.sepolia.providerUrl,
+      providerUrl: resolveProviderUrl(
+        "sepolia",
+        env.WDK_EVM_SEPOLIA_RPC_URL,
+        DEFAULT_NETWORK_PROFILES.sepolia.providerUrl
+      ),
     },
     base: {
       ...DEFAULT_NETWORK_PROFILES.base,
-      providerUrl:
-        String(env.WDK_EVM_BASE_RPC_URL ?? DEFAULT_NETWORK_PROFILES.base.providerUrl).trim() ||
-        DEFAULT_NETWORK_PROFILES.base.providerUrl,
+      providerUrl: resolveProviderUrl(
+        "base",
+        env.WDK_EVM_BASE_RPC_URL,
+        DEFAULT_NETWORK_PROFILES.base.providerUrl
+      ),
     },
     "base-sepolia": {
       ...DEFAULT_NETWORK_PROFILES["base-sepolia"],
-      providerUrl:
-        String(
-          env.WDK_EVM_BASE_SEPOLIA_RPC_URL ?? DEFAULT_NETWORK_PROFILES["base-sepolia"].providerUrl
-        ).trim() || DEFAULT_NETWORK_PROFILES["base-sepolia"].providerUrl,
+      providerUrl: resolveProviderUrl(
+        "base-sepolia",
+        env.WDK_EVM_BASE_SEPOLIA_RPC_URL,
+        DEFAULT_NETWORK_PROFILES["base-sepolia"].providerUrl
+      ),
     },
   };
 
@@ -173,6 +251,9 @@ export function loadConfig(env = process.env) {
     authRequired: true,
     authTokenPath,
     authToken: ensureLocalAuthToken(authTokenPath, env.WDK_EVM_LOCAL_TOKEN),
+    rpcProviderMode: providerMode,
+    rpcGatewayUrl: providerGatewayUrl,
+    rpcGatewayProvider: gatewayProvider,
     unlockTimeoutSeconds: parseNonNegativeInteger(
       env.WDK_EVM_UNLOCK_TIMEOUT_SECONDS,
       DEFAULTS.unlockTimeoutSeconds,
