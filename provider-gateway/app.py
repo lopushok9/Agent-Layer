@@ -350,6 +350,34 @@ def _require_body_dict(body: Any) -> dict[str, Any]:
     return body
 
 
+def _validate_evm_rpc_payload(body: Any) -> tuple[dict[str, Any] | list[dict[str, Any]], str]:
+    if isinstance(body, dict):
+        entries = [body]
+        normalized_body: dict[str, Any] | list[dict[str, Any]] = body
+    elif isinstance(body, list) and body:
+        if any(not isinstance(item, dict) for item in body):
+            raise ValueError("JSON-RPC batch body must contain only objects")
+        entries = body
+        normalized_body = body
+    else:
+        raise ValueError("JSON body must be an object or a non-empty array of objects")
+
+    for entry in entries:
+        method = str(entry.get("method", "")).strip()
+        if not method:
+            raise ValueError("Field 'method' is required")
+        if method not in ALLOWED_EVM_RPC_METHODS:
+            raise PermissionError(method)
+        params = entry.get("params", [])
+        if not isinstance(params, list):
+            raise TypeError("Field 'params' must be an array")
+        entry["jsonrpc"] = str(entry.get("jsonrpc", "2.0") or "2.0")
+        if "id" not in entry:
+            entry["id"] = 1
+
+    return normalized_body, entries[0]["method"]
+
+
 def _require_string_field(body: dict[str, Any], name: str) -> str:
     value = body.get(name)
     if not isinstance(value, str) or not value.strip():
@@ -522,22 +550,18 @@ async def evm_rpc_proxy(request: Request) -> JSONResponse:
     except Exception:
         return _json_error("Invalid JSON body", 400)
 
-    if not isinstance(body, dict):
-        return _json_error("JSON body must be an object", 400)
-
-    method = str(body.get("method", "")).strip()
-    if not method:
-        return _json_error("Field 'method' is required", 400)
-    if method not in ALLOWED_EVM_RPC_METHODS:
+    try:
+        payload, method = _validate_evm_rpc_payload(body)
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except TypeError as exc:
+        return _json_error(str(exc), 400)
+    except PermissionError as exc:
         return _json_error(
-            f"EVM RPC method '{method}' is not allowed",
+            f"EVM RPC method '{str(exc)}' is not allowed",
             403,
             {"allowed_methods": sorted(ALLOWED_EVM_RPC_METHODS)},
         )
-
-    params = body.get("params", [])
-    if not isinstance(params, list):
-        return _json_error("Field 'params' must be an array", 400)
 
     provider = str(request.query_params.get("provider", "auto")).strip().lower() or "auto"
     network = str(request.path_params.get("network", "")).strip().lower()
@@ -546,11 +570,6 @@ async def evm_rpc_proxy(request: Request) -> JSONResponse:
         resolved_provider, rpc_url = _resolve_evm_rpc_url(provider, network)
     except Exception as exc:
         return _json_error(str(exc), 403 if "supports only" in str(exc) else 500)
-
-    payload = dict(body)
-    payload["jsonrpc"] = str(body.get("jsonrpc", "2.0") or "2.0")
-    if "id" not in payload:
-        payload["id"] = 1
 
     try:
         status_code, upstream = await _http_post(rpc_url, json_body=payload)

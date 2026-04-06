@@ -25,6 +25,11 @@ def main() -> None:
 
     async def fake_http_post(url: str, *, headers=None, json_body=None):
         seen["post"] = {"url": url, "headers": headers, "json_body": json_body}
+        if isinstance(json_body, list):
+            return 200, [
+                {"jsonrpc": "2.0", "id": item.get("id"), "result": "0x1"}
+                for item in json_body
+            ]
         return 200, {"jsonrpc": "2.0", "id": json_body.get("id"), "result": "0x1"}
 
     try:
@@ -66,6 +71,19 @@ def main() -> None:
         )
         assert base_allowed.status_code == 200
         assert seen["post"]["url"] == "https://base-mainnet.g.alchemy.com/v2/alchemy-key"
+
+        batch_allowed = client.post(
+            "/v1/evm/rpc/ethereum?provider=alchemy&token=test-token",
+            json=[
+                {"jsonrpc": "2.0", "id": 11, "method": "eth_chainId", "params": []},
+                {"jsonrpc": "2.0", "id": 12, "method": "eth_blockNumber", "params": []},
+            ],
+        )
+        assert batch_allowed.status_code == 200
+        assert seen["post"]["json_body"] == [
+            {"jsonrpc": "2.0", "id": 11, "method": "eth_chainId", "params": []},
+            {"jsonrpc": "2.0", "id": 12, "method": "eth_blockNumber", "params": []},
+        ]
 
         forbidden_method = client.post(
             "/v1/evm/rpc/ethereum?provider=alchemy&token=test-token",
