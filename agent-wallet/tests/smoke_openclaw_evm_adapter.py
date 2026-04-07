@@ -476,6 +476,60 @@ async def _main() -> None:
     assert swap_executed.data["hash"].startswith("0x")
     assert swap_executed.data["allowance"]["approval_required"] is False
     assert swap_executed.data["simulation"]["ok"] is True
+    assert swap_preview.data["confirmation_summary"]["quote_fingerprint"] == "evm-swap-fingerprint-1"
+
+    class NoRepreviewEvmBackend(FakeEvmBackend):
+        def __init__(self) -> None:
+            self.preview_calls = 0
+
+        async def preview_evm_swap(
+            self,
+            *,
+            token_in: str,
+            token_out: str,
+            amount_in_raw: str,
+        ) -> dict:
+            self.preview_calls += 1
+            if self.preview_calls > 1:
+                raise WalletBackendError("execute should not request a second preview")
+            return await super().preview_evm_swap(
+                token_in=token_in,
+                token_out=token_out,
+                amount_in_raw=amount_in_raw,
+            )
+
+    no_repreview_backend = NoRepreviewEvmBackend()
+    no_repreview_adapter = OpenClawWalletAdapter(no_repreview_backend)
+    no_repreview_preview = await no_repreview_adapter.invoke(
+        "swap_evm_tokens",
+        {
+            "token_in": "0x2222222222222222222222222222222222222222",
+            "token_out": "0x3333333333333333333333333333333333333333",
+            "amount_in_raw": "1000000",
+            "mode": "preview",
+            "purpose": "test evm swap",
+        },
+    )
+    no_repreview_approval = issue_approval_token(
+        tool_name="swap_evm_tokens",
+        network="ethereum",
+        summary=no_repreview_preview.data["confirmation_summary"],
+        mainnet_confirmed=True,
+        issued_by="test",
+    )
+    no_repreview_execute = await no_repreview_adapter.invoke(
+        "swap_evm_tokens",
+        {
+            "token_in": "0x2222222222222222222222222222222222222222",
+            "token_out": "0x3333333333333333333333333333333333333333",
+            "amount_in_raw": "1000000",
+            "mode": "execute",
+            "purpose": "test evm swap",
+            "approval_token": no_repreview_approval,
+        },
+    )
+    assert no_repreview_execute.ok is True
+    assert no_repreview_backend.preview_calls == 1
 
     class QuoteChangedEvmBackend(FakeEvmBackend):
         async def send_evm_swap(

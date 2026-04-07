@@ -6,7 +6,7 @@ import hashlib
 import json
 from typing import Any
 
-from agent_wallet.approval import verify_approval_token
+from agent_wallet.approval import inspect_approval_token, verify_approval_token
 from agent_wallet.models import AgentToolResult, AgentToolSpec
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendError
 
@@ -173,6 +173,7 @@ class OpenClawWalletAdapter:
                 "estimated_fee_wei": payload.get("estimated_fee_wei"),
                 "estimated_swap_fee_wei": payload.get("estimated_swap_fee_wei"),
                 "estimated_approval_fee_wei": payload.get("estimated_approval_fee_wei"),
+                "quote_fingerprint": provided_fingerprint,
                 "router": payload.get("router"),
                 "swap_transaction": payload.get("swap_transaction"),
                 "evm_swap_fingerprint": evm_swap_fingerprint,
@@ -2037,20 +2038,42 @@ class OpenClawWalletAdapter:
                         ),
                     )
 
-                execute_preview = await self.backend.preview_evm_swap(**preview_kwargs)
+                approval_payload = inspect_approval_token(
+                    approval_token,
+                    tool_name=tool_name,
+                    network=str(getattr(self.backend, "network", "unknown")),
+                    require_mainnet_confirmation=getattr(self.backend, "is_mainnet", False),
+                )
+                approval_summary = approval_payload.get("binding", {}).get("summary")
+                if not isinstance(approval_summary, dict):
+                    raise WalletBackendError(
+                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                    )
+                expected_summary = {
+                    "operation": "EVM swap",
+                    "network": str(getattr(self.backend, "network", "unknown")),
+                    "token_in": token_in.strip(),
+                    "token_out": token_out.strip(),
+                    "input_amount_raw": amount_in_raw.strip(),
+                }
+                for key, expected_value in expected_summary.items():
+                    if approval_summary.get(key) != expected_value:
+                        raise WalletBackendError(
+                            "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                        )
+
+                approval_summary_copy = dict(approval_summary)
                 self._require_execute_approval(
                     approval_token=approval_token,
                     tool_name=tool_name,
-                    summary=self._build_confirmation_summary(
-                        action_label="EVM swap",
-                        payload=execute_preview,
-                    ),
+                    summary=approval_summary_copy,
                     action_label="EVM swap",
                 )
-                if execute_preview.get("quote_fingerprint") is not None:
+                bound_quote_fingerprint = approval_summary_copy.get("quote_fingerprint")
+                if isinstance(bound_quote_fingerprint, str) and bound_quote_fingerprint.strip():
                     result = await self.backend.send_evm_swap(
                         **preview_kwargs,
-                        expected_quote_fingerprint=str(execute_preview.get("quote_fingerprint") or ""),
+                        expected_quote_fingerprint=bound_quote_fingerprint.strip(),
                     )
                 else:
                     result = await self.backend.send_evm_swap(**preview_kwargs)

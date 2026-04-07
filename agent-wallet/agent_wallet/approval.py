@@ -115,3 +115,47 @@ def verify_approval_token(
     if require_mainnet_confirmation and payload.get("mainnet_confirmed") is not True:
         raise WalletBackendError("approval_token is missing explicit mainnet confirmation.")
     return payload
+
+
+def inspect_approval_token(
+    token: str,
+    *,
+    tool_name: str,
+    network: str,
+    require_mainnet_confirmation: bool,
+) -> dict[str, Any]:
+    secret = _approval_secret()
+    if not isinstance(token, str) or "." not in token:
+        raise WalletBackendError("A valid approval_token is required for execute mode.")
+
+    encoded_payload, encoded_sig = token.split(".", 1)
+    try:
+        payload = json.loads(_urlsafe_b64_decode(encoded_payload).decode("utf-8"))
+    except Exception as exc:
+        raise WalletBackendError("approval_token could not be parsed.") from exc
+
+    if not isinstance(payload, dict) or int(payload.get("v") or 0) != APPROVAL_TOKEN_VERSION:
+        raise WalletBackendError("approval_token version is invalid.")
+
+    expected_sig = _sign_payload(payload, secret)
+    if not hmac.compare_digest(encoded_sig, expected_sig):
+        raise WalletBackendError("approval_token signature is invalid.")
+
+    now = int(time.time())
+    if int(payload.get("exp") or 0) < now:
+        raise WalletBackendError("approval_token has expired.")
+
+    binding = payload.get("binding")
+    if not isinstance(binding, dict):
+        raise WalletBackendError("approval_token binding is invalid.")
+    if str(binding.get("tool") or "") != tool_name:
+        raise WalletBackendError(
+            "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+        )
+    if str(binding.get("network") or "").strip().lower() != str(network).strip().lower():
+        raise WalletBackendError(
+            "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+        )
+    if require_mainnet_confirmation and payload.get("mainnet_confirmed") is not True:
+        raise WalletBackendError("approval_token is missing explicit mainnet confirmation.")
+    return payload
