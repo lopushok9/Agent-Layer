@@ -56,6 +56,7 @@ function createRuntimeHarness(options = {}) {
     router: options.router ?? DEFAULT_ROUTER,
     amountIn: String(options.amountIn ?? "1000000"),
     baseDestAmount: String(options.destAmount ?? "995000"),
+    routeGasCost: String(options.routeGasCost ?? "995000"),
     tokenName: options.tokenName ?? "USD Coin",
     tokenSymbol: options.tokenSymbol ?? "USDC",
     tokenDecimals: options.tokenDecimals ?? 6,
@@ -63,6 +64,8 @@ function createRuntimeHarness(options = {}) {
     swapFee: BigInt(options.swapFee ?? 3n),
     failSimulationAfterApproval: Boolean(options.failSimulationAfterApproval),
     failSwapFeeQuote: Boolean(options.failSwapFeeQuote),
+    failSwapFeeQuoteInsufficientFunds: Boolean(options.failSwapFeeQuoteInsufficientFunds),
+    failRpcEstimateGas: Boolean(options.failRpcEstimateGas),
     failAllowanceRead: Boolean(options.failAllowanceRead),
     disallowAllowanceRead: Boolean(options.disallowAllowanceRead),
     failDecimalsMetadata: Boolean(options.failDecimalsMetadata),
@@ -125,6 +128,16 @@ function createRuntimeHarness(options = {}) {
         throw Object.assign(new Error("execution reverted: preview gas unavailable"), {
           code: "CALL_EXCEPTION",
         });
+      }
+      if (config.failSwapFeeQuoteInsufficientFunds && !isApprove) {
+        throw Object.assign(
+          new Error(
+            "insufficient funds for gas * price + value: have 1000000000000000 want 2440000000000000"
+          ),
+          {
+            code: "INSUFFICIENT_FUNDS",
+          }
+        );
       }
       return { fee: isApprove ? config.approvalFee : config.swapFee };
     },
@@ -205,6 +218,7 @@ function createRuntimeHarness(options = {}) {
             destDecimals: config.tokenDecimals,
             srcAmount: config.amountIn,
             destAmount,
+            gasCost: config.routeGasCost,
           };
         },
         async buildTx() {
@@ -286,6 +300,9 @@ function createRuntimeHarness(options = {}) {
     }
 
     if (method === "eth_estimateGas") {
+      if (config.failRpcEstimateGas) {
+        return rpcError("request timeout", "TIMEOUT");
+      }
       return ok("0x5208");
     }
 
@@ -541,6 +558,51 @@ test("quoteSwap degrades gracefully when swap gas estimate is unavailable before
       assert.equal(quote.feeEstimateAvailable, false);
       assert.match(String(quote.feeEstimateError?.message || ""), /preview gas unavailable/);
       assert.equal(state.sendCalls.length, 0);
+    }
+  );
+});
+
+test("quoteSwap falls back to raw rpc gas estimate when wallet fee quote fails with insufficient funds", async () => {
+  await withHarness(
+    {
+      failSwapFeeQuoteInsufficientFunds: true,
+    },
+    async ({ service, config }) => {
+      const quote = await service.quoteSwap({
+        seedPhrase: VALID_MNEMONIC,
+        tokenIn: config.tokenIn,
+        tokenOut: config.tokenOut,
+        tokenInAmount: config.amountIn,
+        network: config.network,
+      });
+      assert.equal(quote.allowance.approvalRequired, true);
+      assert.equal(quote.estimatedSwapFeeWei, "42000");
+      assert.equal(quote.estimatedFeeWei, "42002");
+      assert.equal(quote.feeEstimateAvailable, true);
+      assert.equal(quote.feeEstimateError, null);
+    }
+  );
+});
+
+test("quoteSwap falls back to route gasCost when rpc gas estimate is unavailable", async () => {
+  await withHarness(
+    {
+      failSwapFeeQuoteInsufficientFunds: true,
+      failRpcEstimateGas: true,
+    },
+    async ({ service, config }) => {
+      const quote = await service.quoteSwap({
+        seedPhrase: VALID_MNEMONIC,
+        tokenIn: config.tokenIn,
+        tokenOut: config.tokenOut,
+        tokenInAmount: config.amountIn,
+        network: config.network,
+      });
+      assert.equal(quote.allowance.approvalRequired, true);
+      assert.equal(quote.estimatedSwapFeeWei, "1990000");
+      assert.equal(quote.estimatedFeeWei, "1990002");
+      assert.equal(quote.feeEstimateAvailable, true);
+      assert.equal(quote.feeEstimateError, null);
     }
   );
 });

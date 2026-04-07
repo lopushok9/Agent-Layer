@@ -118,6 +118,14 @@ function buildSwapRequest({ tokenIn, tokenOut, tokenInAmount }) {
   return swapRequest;
 }
 
+function parseOptionalDecimalBigInt(value) {
+  const normalized = String(value ?? "").trim();
+  if (!/^[0-9]+$/.test(normalized)) {
+    return null;
+  }
+  return BigInt(normalized);
+}
+
 function assertValidHash(value, fieldName) {
   const hash = assertNonEmptyString(value, fieldName);
   if (!/^0x[a-fA-F0-9]{64}$/.test(hash)) {
@@ -293,6 +301,21 @@ function isRecoverableSwapFeeEstimateFailure(error) {
     lower.includes("missing revert data") ||
     lower.includes("call_exception")
   );
+}
+
+function parseInsufficientFundsHint(error) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  const match = message.match(/have\s+([0-9]+)\s+want\s+([0-9]+)/i);
+  if (!match) {
+    return null;
+  }
+  const available = BigInt(match[1]);
+  const required = BigInt(match[2]);
+  return {
+    availableNativeBalanceWei: available.toString(),
+    requiredNativeBalanceWei: required.toString(),
+    missingNativeBalanceWei: (required > available ? required - available : 0n).toString(),
+  };
 }
 
 function isRecoverableAllowanceReadFailure(error) {
@@ -1222,7 +1245,9 @@ export class WdkEvmWalletService {
       const swapFeeQuote = await this.#quoteSwapTransaction({
         account,
         runtimeConfig,
+        from: address,
         swapTx,
+        fallbackGasLimit: parseOptionalDecimalBigInt(priceRoute?.gasCost),
         tolerateFailure: tolerateSwapFeeFailure || approval.required,
       });
       const swapFee = swapFeeQuote.fee;
@@ -1403,7 +1428,14 @@ export class WdkEvmWalletService {
     };
   }
 
-  async #quoteSwapTransaction({ account, runtimeConfig, swapTx, tolerateFailure }) {
+  async #quoteSwapTransaction({
+    account,
+    runtimeConfig,
+    from,
+    swapTx,
+    fallbackGasLimit = null,
+    tolerateFailure,
+  }) {
     try {
       const quote = await account.quoteSendTransaction(swapTx);
       const fee = BigInt(quote.fee);
@@ -1413,6 +1445,73 @@ export class WdkEvmWalletService {
         error: null,
       };
     } catch (error) {
+      const insufficientFundsHint = parseInsufficientFundsHint(error);
+      if (
+        normalizeErrorCodeValue(error) === "insufficient_funds" ||
+        insufficientFundsHint !== null
+      ) {
+        try {
+          const rpcQuote = await this.#quotePreparedTransactionFromRpc({
+            runtimeConfig,
+            from,
+            tx: swapTx,
+          });
+          return {
+            fee: rpcQuote.fee,
+            error: null,
+          };
+        } catch (rpcEstimateError) {
+          if (fallbackGasLimit !== null) {
+            try {
+              const routeQuote = await this.#quotePreparedTransactionFromGasLimit({
+                runtimeConfig,
+                gasLimit: fallbackGasLimit,
+              });
+              return {
+                fee: routeQuote.fee,
+                error: null,
+              };
+            } catch {
+              // Fall through to degraded error reporting below.
+            }
+          }
+          if (!tolerateFailure || !isRecoverableSwapFeeEstimateFailure(rpcEstimateError)) {
+            if (tolerateFailure) {
+              return {
+                fee: null,
+                error: {
+                  code: normalizeErrorCodeValue(error) || null,
+                  message:
+                    error instanceof Error
+                      ? error.message
+                      : String(error),
+                  ...(insufficientFundsHint ? insufficientFundsHint : {}),
+                  fallbackError: {
+                    code: normalizeErrorCodeValue(rpcEstimateError) || null,
+                    message:
+                      rpcEstimateError instanceof Error
+                        ? rpcEstimateError.message
+                        : String(rpcEstimateError),
+                  },
+                },
+              };
+            }
+            throw rpcEstimateError;
+          }
+          const hint = parseInsufficientFundsHint(rpcEstimateError);
+          return {
+            fee: null,
+            error: {
+              code: normalizeErrorCodeValue(rpcEstimateError) || null,
+              message:
+                rpcEstimateError instanceof Error
+                  ? rpcEstimateError.message
+                  : String(rpcEstimateError),
+              ...(hint ? hint : {}),
+            },
+          };
+        }
+      }
       if (!tolerateFailure || !isRecoverableSwapFeeEstimateFailure(error)) {
         throw error;
       }
@@ -1421,9 +1520,64 @@ export class WdkEvmWalletService {
         error: {
           code: normalizeErrorCodeValue(error) || null,
           message: error instanceof Error ? error.message : String(error),
+          ...(insufficientFundsHint ? insufficientFundsHint : {}),
         },
       };
     }
+  }
+
+  async #quotePreparedTransactionFromRpc({ runtimeConfig, from, tx }) {
+    const gasLimitHex = await rpcRequest(runtimeConfig.providerUrl, "eth_estimateGas", [
+      {
+        from: normalizeAddress(from, "from"),
+        to: normalizeAddress(String(tx.to || ""), "to"),
+        data: assertNonEmptyString(String(tx.data || ""), "data"),
+        value: toRpcHex(tx.value || 0),
+      },
+    ]);
+    const gasLimit = BigInt(gasLimitHex || "0x0");
+    const effectiveFeePerGas = await this.#getEffectiveGasPrice(runtimeConfig);
+    const fee = gasLimit * effectiveFeePerGas;
+    this.#assertMaxFee(runtimeConfig, fee, "swap");
+    return {
+      gasLimit,
+      effectiveFeePerGas,
+      fee,
+    };
+  }
+
+  async #quotePreparedTransactionFromGasLimit({ runtimeConfig, gasLimit }) {
+    const normalizedGasLimit = BigInt(gasLimit);
+    const effectiveFeePerGas = await this.#getEffectiveGasPrice(runtimeConfig);
+    const fee = normalizedGasLimit * effectiveFeePerGas;
+    this.#assertMaxFee(runtimeConfig, fee, "swap");
+    return {
+      gasLimit: normalizedGasLimit,
+      effectiveFeePerGas,
+      fee,
+    };
+  }
+
+  async #getEffectiveGasPrice(runtimeConfig) {
+    const gasPriceHex = await rpcRequest(runtimeConfig.providerUrl, "eth_gasPrice", []);
+    const priorityHex = await rpcRequest(
+      runtimeConfig.providerUrl,
+      "eth_maxPriorityFeePerGas",
+      []
+    );
+    const feeHistory = await rpcRequest(
+      runtimeConfig.providerUrl,
+      "eth_feeHistory",
+      ["0x1", "latest", []]
+    );
+    const baseFeeItems = Array.isArray(feeHistory?.baseFeePerGas) ? feeHistory.baseFeePerGas : [];
+    const latestBaseFeeHex = baseFeeItems.length ? baseFeeItems[baseFeeItems.length - 1] : "0x0";
+    const baseFeePerGas = BigInt(latestBaseFeeHex || "0x0");
+    const priorityFeePerGas = BigInt(priorityHex || "0x0");
+    const gasPrice = BigInt(gasPriceHex || "0x0");
+    return gasPrice > baseFeePerGas + priorityFeePerGas
+      ? gasPrice
+      : baseFeePerGas + priorityFeePerGas;
   }
 
   async #restoreAllowanceAfterFailedSwap({
