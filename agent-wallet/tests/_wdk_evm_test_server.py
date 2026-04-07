@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from contextlib import AbstractContextManager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -19,12 +20,16 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
         port: int = 0,
         auth_token: str = "test-local-evm-token",
         error_responses: dict[str, dict[str, Any]] | None = None,
+        response_delays: dict[str, float] | None = None,
     ):
         self.network = network
         self.host = host
         self.port = int(port)
         self.auth_token = str(auth_token).strip()
         self.error_responses = dict(error_responses or {})
+        self.response_delays = {
+            str(key): float(value) for key, value in (response_delays or {}).items()
+        }
         self.address = "0x1111111111111111111111111111111111111111"
         self.token = "0x2222222222222222222222222222222222222222"
         self.sent_payloads: list[dict[str, Any]] = []
@@ -81,6 +86,9 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                 return json.loads(raw.decode("utf-8"))
 
             def do_GET(self) -> None:  # noqa: N802
+                delay = outer.response_delays.get(f"GET {self.path}")
+                if delay and delay > 0:
+                    time.sleep(delay)
                 error_config = outer.error_responses.get(f"GET {self.path}")
                 if error_config is not None:
                     self._send(
@@ -150,6 +158,9 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                 self._send(404, {"ok": False, "error": "Not Found"})
 
             def do_POST(self) -> None:  # noqa: N802
+                delay = outer.response_delays.get(f"POST {self.path}")
+                if delay and delay > 0:
+                    time.sleep(delay)
                 error_config = outer.error_responses.get(f"POST {self.path}")
                 if error_config is not None:
                     self._send(

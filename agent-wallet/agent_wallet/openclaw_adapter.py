@@ -144,6 +144,8 @@ class OpenClawWalletAdapter:
                 "token_out": payload.get("token_out"),
                 "input_amount_raw": payload.get("input_amount_raw"),
                 "output_amount_raw": output_amount_raw,
+                "minimum_output_amount_raw": payload.get("minimum_output_amount_raw"),
+                "slippage_bps": payload.get("slippage_bps"),
                 "estimated_fee_wei": payload.get("estimated_fee_wei"),
                 "router": payload.get("router"),
                 "swap_transaction": payload.get("swap_transaction"),
@@ -170,6 +172,8 @@ class OpenClawWalletAdapter:
                 "token_out": payload.get("token_out"),
                 "input_amount_raw": payload.get("input_amount_raw"),
                 "output_amount_raw": output_amount_raw,
+                "minimum_output_amount_raw": payload.get("minimum_output_amount_raw"),
+                "slippage_bps": payload.get("slippage_bps"),
                 "estimated_fee_wei": payload.get("estimated_fee_wei"),
                 "estimated_swap_fee_wei": payload.get("estimated_swap_fee_wei"),
                 "estimated_approval_fee_wei": payload.get("estimated_approval_fee_wei"),
@@ -2070,13 +2074,26 @@ class OpenClawWalletAdapter:
                     action_label="EVM swap",
                 )
                 bound_quote_fingerprint = approval_summary_copy.get("quote_fingerprint")
+                bound_minimum_output_amount_raw = approval_summary_copy.get("minimum_output_amount_raw")
                 if isinstance(bound_quote_fingerprint, str) and bound_quote_fingerprint.strip():
                     result = await self.backend.send_evm_swap(
                         **preview_kwargs,
                         expected_quote_fingerprint=bound_quote_fingerprint.strip(),
+                        minimum_output_amount_raw=(
+                            str(bound_minimum_output_amount_raw).strip()
+                            if bound_minimum_output_amount_raw is not None
+                            else None
+                        ),
                     )
                 else:
-                    result = await self.backend.send_evm_swap(**preview_kwargs)
+                    result = await self.backend.send_evm_swap(
+                        **preview_kwargs,
+                        minimum_output_amount_raw=(
+                            str(bound_minimum_output_amount_raw).strip()
+                            if bound_minimum_output_amount_raw is not None
+                            else None
+                        ),
+                    )
                 return AgentToolResult(
                     tool=tool_name,
                     ok=True,

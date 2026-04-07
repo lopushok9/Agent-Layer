@@ -11,6 +11,7 @@ const ERC20_BALANCE_OF_SELECTOR = "0x70a08231";
 const ERC20_APPROVE_SELECTOR = "0x095ea7b3";
 const USDT_MAINNET_ADDRESS = "0xdac17f958d2ee523a2206206994597c13d831ec7";
 const VELORA_NATIVE_TOKEN_ADDRESS = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+const DEFAULT_SWAP_SLIPPAGE_BPS = 100;
 
 function createTaggedError(message, code, details = {}) {
   const error = new Error(message);
@@ -124,6 +125,15 @@ function parseOptionalDecimalBigInt(value) {
     return null;
   }
   return BigInt(normalized);
+}
+
+function computeMinimumOutputAmount(destAmount, slippageBps) {
+  const amount = BigInt(destAmount);
+  const bps = BigInt(slippageBps);
+  if (bps <= 0n) {
+    return amount;
+  }
+  return (amount * (10000n - bps)) / 10000n;
 }
 
 function assertValidHash(value, fieldName) {
@@ -577,6 +587,8 @@ export class WdkEvmWalletService {
             estimatedApprovalFeeWei: plan.approval.estimatedFee.toString(),
             feeEstimateAvailable: plan.swapFee !== null,
             feeEstimateError: plan.swapFeeError,
+            slippageBps: plan.slippageBps,
+            minimumOutputAmountRaw: plan.minimumTokenOutAmount.toString(),
             allowance: {
               spender: plan.spender,
               currentAllowance: plan.currentAllowance.toString(),
@@ -608,6 +620,7 @@ export class WdkEvmWalletService {
     accountIndex = 0,
     network,
     expectedQuoteFingerprint = null,
+    minimumTokenOutAmount = null,
   }) {
     return this.#withAccount({ seedPhrase, accountIndex, network }, async (account, runtimeConfig) => {
       assertVeloraSupportedNetwork(runtimeConfig.network);
@@ -615,6 +628,10 @@ export class WdkEvmWalletService {
       const normalizedExpectedQuoteFingerprint =
         typeof expectedQuoteFingerprint === "string" && expectedQuoteFingerprint.trim()
           ? expectedQuoteFingerprint.trim()
+          : null;
+      const requestedMinimumTokenOutAmount =
+        minimumTokenOutAmount !== null && minimumTokenOutAmount !== undefined
+          ? assertPositiveBigIntString(minimumTokenOutAmount, "minimumTokenOutAmount")
           : null;
       const address = await account.getAddress();
       let initialPlan = await this.#buildVeloraSwapPlan({
@@ -629,6 +646,11 @@ export class WdkEvmWalletService {
       this.#assertExpectedSwapFingerprint(
         normalizedExpectedQuoteFingerprint,
         initialPlan.quoteFingerprint
+      );
+      this.#assertMinimumSwapOutput(
+        requestedMinimumTokenOutAmount,
+        initialPlan.minimumTokenOutAmount,
+        initialPlan.tokenOutAmount
       );
 
       const approvalExecution = await this.#executeSwapApprovalsIfNeeded({
@@ -651,6 +673,11 @@ export class WdkEvmWalletService {
             finalPlan.quoteFingerprint
           );
         }
+        this.#assertMinimumSwapOutput(
+          requestedMinimumTokenOutAmount,
+          finalPlan.minimumTokenOutAmount,
+          finalPlan.tokenOutAmount
+        );
 
         const allowanceReadUncertain =
           approvalExecution.performed && finalPlan.allowanceReadError !== null;
@@ -707,6 +734,8 @@ export class WdkEvmWalletService {
         estimatedApprovalFeeWei: approvalExecution.totalFee.toString(),
         feeEstimateAvailable: true,
         feeEstimateError: null,
+        slippageBps: finalPlan.slippageBps,
+        minimumOutputAmountRaw: finalPlan.minimumTokenOutAmount.toString(),
         allowance: {
           spender: finalPlan.spender,
           currentAllowance: finalPlan.currentAllowance.toString(),
@@ -1137,6 +1166,23 @@ export class WdkEvmWalletService {
     }
   }
 
+  #assertMinimumSwapOutput(expectedMinimumTokenOutAmount, actualMinimumTokenOutAmount, actualTokenOutAmount) {
+    if (expectedMinimumTokenOutAmount === null || expectedMinimumTokenOutAmount === undefined) {
+      return;
+    }
+    if (BigInt(actualTokenOutAmount) < BigInt(expectedMinimumTokenOutAmount)) {
+      throw createTaggedError(
+        "Swap quote changed beyond the allowed slippage window. Generate a new preview and approval before execute.",
+        "swap_quote_changed",
+        {
+          expectedMinimumTokenOutAmount: BigInt(expectedMinimumTokenOutAmount).toString(),
+          actualMinimumTokenOutAmount: BigInt(actualMinimumTokenOutAmount).toString(),
+          actualTokenOutAmount: BigInt(actualTokenOutAmount).toString(),
+        }
+      );
+    }
+  }
+
   #assertSimulationSucceeded(simulation) {
     if (simulation?.ok === false) {
       throw createTaggedError(
@@ -1181,6 +1227,7 @@ export class WdkEvmWalletService {
       const address = await account.getAddress();
       const normalizedTokenIn = swapRequest.tokenIn.toLowerCase();
       const normalizedTokenOut = swapRequest.tokenOut.toLowerCase();
+      const slippageBps = DEFAULT_SWAP_SLIPPAGE_BPS;
       const priceRoute = await veloraSdk.swap.getRate({
         srcToken: normalizedTokenIn,
         destToken: normalizedTokenOut,
@@ -1193,7 +1240,7 @@ export class WdkEvmWalletService {
           srcToken: priceRoute.srcToken,
           destToken: priceRoute.destToken,
           srcAmount: priceRoute.srcAmount,
-          destAmount: priceRoute.destAmount,
+          slippage: slippageBps,
           userAddress: address,
           priceRoute,
         },
@@ -1267,6 +1314,7 @@ export class WdkEvmWalletService {
         value: BigInt(swapTx.value || 0).toString(),
         dataHash: sha256Hex(String(swapTx.data || "")),
       };
+      const minimumTokenOutAmount = computeMinimumOutputAmount(priceRoute.destAmount, slippageBps);
       const quoteFingerprint = sha256Hex(
         JSON.stringify({
           chainId: runtimeConfig.chainId,
@@ -1277,15 +1325,16 @@ export class WdkEvmWalletService {
           tokenIn: swapRequest.tokenIn.toLowerCase(),
           tokenOut: swapRequest.tokenOut.toLowerCase(),
           tokenInAmount: swapRequest.tokenInAmount.toString(),
-          tokenOutAmount: BigInt(priceRoute.destAmount).toString(),
+          slippageBps,
           swapTxTo: swapTransaction.to.toLowerCase(),
           swapTxValue: swapTransaction.value,
-          swapTxDataHash: swapTransaction.dataHash,
         })
       );
       return {
         priceRoute,
         quoteFingerprint,
+        slippageBps,
+        minimumTokenOutAmount,
         router,
         spender: normalizedSpender,
         currentAllowance,

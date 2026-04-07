@@ -756,6 +756,77 @@ test("swap succeeds for native token input without approval path", async () => {
   );
 });
 
+test("swap tolerates refreshed quote drift within slippage window", async () => {
+  await withHarness(
+    {
+      tokenIn: NATIVE_ETH,
+      amountIn: "1000000000000000000",
+      destAmount: "995000",
+      quoteDestAmounts: ["995000", "990500"],
+      swapTxValue: "1000000000000000000",
+      disallowAllowanceRead: true,
+    },
+    async ({ service, config }) => {
+      const preview = await service.quoteSwap({
+        seedPhrase: VALID_MNEMONIC,
+        tokenIn: config.tokenIn,
+        tokenOut: config.tokenOut,
+        tokenInAmount: config.amountIn,
+        network: config.network,
+      });
+      const result = await service.swap({
+        seedPhrase: VALID_MNEMONIC,
+        tokenIn: config.tokenIn,
+        tokenOut: config.tokenOut,
+        tokenInAmount: config.amountIn,
+        network: config.network,
+        expectedQuoteFingerprint: preview.quoteFingerprint,
+        minimumTokenOutAmount: preview.minimumOutputAmountRaw,
+      });
+      assert.equal(result.result.hash, `0x${"d".repeat(64)}`);
+      assert.equal(result.minimumOutputAmountRaw, "980595");
+    }
+  );
+});
+
+test("swap rejects refreshed quote drift beyond slippage window", async () => {
+  await withHarness(
+    {
+      tokenIn: NATIVE_ETH,
+      amountIn: "1000000000000000000",
+      destAmount: "995000",
+      quoteDestAmounts: ["995000", "980000"],
+      swapTxValue: "1000000000000000000",
+      disallowAllowanceRead: true,
+    },
+    async ({ service, config }) => {
+      const preview = await service.quoteSwap({
+        seedPhrase: VALID_MNEMONIC,
+        tokenIn: config.tokenIn,
+        tokenOut: config.tokenOut,
+        tokenInAmount: config.amountIn,
+        network: config.network,
+      });
+      await assert.rejects(
+        () =>
+          service.swap({
+            seedPhrase: VALID_MNEMONIC,
+            tokenIn: config.tokenIn,
+            tokenOut: config.tokenOut,
+            tokenInAmount: config.amountIn,
+            network: config.network,
+            expectedQuoteFingerprint: preview.quoteFingerprint,
+            minimumTokenOutAmount: preview.minimumOutputAmountRaw,
+          }),
+        (error) => {
+          assert.equal(error.errorCode, "swap_quote_changed");
+          return true;
+        }
+      );
+    }
+  );
+});
+
 test("swap can proceed after approval when allowance read remains undecodable", async () => {
   await withHarness(
     {
@@ -798,7 +869,7 @@ test("swap failure after approval restores original allowance", async () => {
 test("quote mismatch after approval triggers restore and blocks execute", async () => {
   await withHarness(
     {
-      quoteDestAmounts: ["995000", "995000", "990000"],
+      quoteDestAmounts: ["995000", "995000", "980000"],
     },
     async ({ service, state, config }) => {
       const preview = await service.quoteSwap({
@@ -817,8 +888,9 @@ test("quote mismatch after approval triggers restore and blocks execute", async 
             tokenInAmount: config.amountIn,
             network: config.network,
             expectedQuoteFingerprint: preview.quoteFingerprint,
+            minimumTokenOutAmount: preview.minimumOutputAmountRaw,
           }),
-        /Swap quote changed since preview/
+        /allowed slippage window/
       );
       assert.equal(state.allowance, 0n);
       assert.deepEqual(state.approveCalls, [config.amountIn, "0"]);

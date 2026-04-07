@@ -9,10 +9,16 @@ from urllib.parse import urlparse
 
 import httpx
 
-from agent_wallet.config import resolve_openclaw_home
+from agent_wallet.config import resolve_openclaw_home, settings
 from agent_wallet.wallet_layer.base import WalletBackendError
 
 LOCAL_WDK_EVM_HOSTS = {"127.0.0.1", "localhost", "::1"}
+LONG_RUNNING_SEND_PATHS = {
+    "/v1/evm/swap/send",
+    "/v1/evm/transfer/send",
+    "/v1/evm/token-transfer/send",
+}
+LONG_RUNNING_SEND_TIMEOUT_SECONDS = 120.0
 
 
 def _error_details_from_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
@@ -50,6 +56,14 @@ def _load_local_token() -> str:
     if not token:
         raise WalletBackendError(f"WDK EVM local auth token file is empty: {token_path}")
     return token
+
+
+def _timeout_for_path(path: str) -> float:
+    normalized = str(path or "").strip()
+    base_timeout = float(settings.http_timeout)
+    if normalized in LONG_RUNNING_SEND_PATHS:
+        return max(base_timeout, LONG_RUNNING_SEND_TIMEOUT_SECONDS)
+    return base_timeout
 
 
 def _unwrap_payload(response: httpx.Response) -> dict[str, Any]:
@@ -90,7 +104,7 @@ class WdkEvmLocalClient:
     async def post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         try:
             async with httpx.AsyncClient(
-                timeout=10.0,
+                timeout=_timeout_for_path(path),
                 headers=self._headers,
                 follow_redirects=False,
                 trust_env=False,
@@ -113,7 +127,7 @@ class WdkEvmLocalClient:
     async def get(self, path: str) -> dict[str, Any]:
         try:
             async with httpx.AsyncClient(
-                timeout=10.0,
+                timeout=_timeout_for_path(path),
                 headers=self._headers,
                 follow_redirects=False,
                 trust_env=False,
@@ -136,7 +150,7 @@ class WdkEvmLocalClient:
     def post_sync(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         try:
             with httpx.Client(
-                timeout=10.0,
+                timeout=_timeout_for_path(path),
                 headers=self._headers,
                 follow_redirects=False,
                 trust_env=False,
@@ -159,7 +173,7 @@ class WdkEvmLocalClient:
     def get_sync(self, path: str) -> dict[str, Any]:
         try:
             with httpx.Client(
-                timeout=10.0,
+                timeout=_timeout_for_path(path),
                 headers=self._headers,
                 follow_redirects=False,
                 trust_env=False,

@@ -284,6 +284,12 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "estimated_approval_fee_wei": str(data.get("estimatedApprovalFeeWei") or "0"),
             "fee_estimate_available": bool(data.get("feeEstimateAvailable", True)),
             "fee_estimate_error": data.get("feeEstimateError"),
+            "slippage_bps": int(data.get("slippageBps") or 0) if data.get("slippageBps") is not None else None,
+            "minimum_output_amount_raw": (
+                str(data.get("minimumOutputAmountRaw"))
+                if data.get("minimumOutputAmountRaw") is not None
+                else None
+            ),
             "allowance": _normalize_swap_allowance(data.get("allowance")),
             "simulation": _normalize_swap_simulation(data.get("simulation")),
             "swap_transaction": {
@@ -352,6 +358,12 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "estimated_approval_fee_wei": str(data.get("estimatedApprovalFeeWei") or "0"),
             "fee_estimate_available": bool(data.get("feeEstimateAvailable", True)),
             "fee_estimate_error": data.get("feeEstimateError"),
+            "slippage_bps": int(data.get("slippageBps") or 0) if data.get("slippageBps") is not None else None,
+            "minimum_output_amount_raw": (
+                str(data.get("minimumOutputAmountRaw"))
+                if data.get("minimumOutputAmountRaw") is not None
+                else None
+            ),
             "swap_provider": str(data.get("protocol") or "velora"),
             "execution_supported": bool(data.get("executionSupported")) and not self.sign_only,
             "route_plan": _normalize_swap_route(quote),
@@ -384,6 +396,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
         token_out: str,
         amount_in_raw: str,
         expected_quote_fingerprint: str | None = None,
+        minimum_output_amount_raw: str | None = None,
     ) -> dict[str, Any]:
         if self.sign_only:
             raise WalletBackendError("wdk_evm_local is configured as sign_only.")
@@ -399,6 +412,11 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
                 **(
                     {"expectedQuoteFingerprint": expected_quote_fingerprint}
                     if isinstance(expected_quote_fingerprint, str) and expected_quote_fingerprint.strip()
+                    else {}
+                ),
+                **(
+                    {"minimumTokenOutAmount": minimum_output_amount_raw}
+                    if isinstance(minimum_output_amount_raw, str) and minimum_output_amount_raw.strip()
                     else {}
                 ),
             },
@@ -423,6 +441,12 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "estimated_fee_wei": str(data.get("estimatedFeeWei") or result.get("fee") or "0"),
             "estimated_swap_fee_wei": str(data.get("estimatedSwapFeeWei") or result.get("swapFee") or "0"),
             "estimated_approval_fee_wei": str(data.get("estimatedApprovalFeeWei") or result.get("approvalFee") or "0"),
+            "slippage_bps": int(data.get("slippageBps") or 0) if data.get("slippageBps") is not None else None,
+            "minimum_output_amount_raw": (
+                str(data.get("minimumOutputAmountRaw"))
+                if data.get("minimumOutputAmountRaw") is not None
+                else None
+            ),
             "swap_provider": str(data.get("protocol") or "velora"),
             "quote_fingerprint": str(data.get("quoteFingerprint") or "").strip() or None,
             "router": str(data.get("router") or "").strip() or None,

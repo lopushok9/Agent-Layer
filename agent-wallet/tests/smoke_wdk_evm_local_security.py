@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from _wdk_evm_test_server import FakeWdkEvmWalletServer  # noqa: E402
-from agent_wallet.providers.wdk_evm_local import WdkEvmLocalClient  # noqa: E402
+from agent_wallet.providers.wdk_evm_local import WdkEvmLocalClient, _timeout_for_path  # noqa: E402
 from agent_wallet.wallet_layer.base import WalletBackendError  # noqa: E402
 
 
@@ -50,6 +50,33 @@ def main() -> None:
             {"walletId": server.wallet_id},
         )
         assert payload["walletId"] == server.wallet_id
+
+    with FakeWdkEvmWalletServer(
+        network="base",
+        auth_token="correct-token",
+        response_delays={"POST /v1/evm/swap/send": 11.0},
+    ) as server:
+        os.environ["WDK_EVM_LOCAL_TOKEN"] = "correct-token"
+        client = WdkEvmLocalClient(server.base_url)
+        unlock = client.post_sync("/v1/evm/wallets/unlock", {"walletId": server.wallet_id})
+        assert unlock["unlocked"] is True
+        sent = client.post_sync(
+            "/v1/evm/swap/send",
+            {
+                "walletId": server.wallet_id,
+                "network": "base",
+                "tokenIn": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "tokenOut": server.token,
+                "tokenInAmount": "465000000000000",
+                "expectedQuoteFingerprint": "evm-swap-fingerprint-1",
+            },
+        )
+        assert sent["protocol"] == "velora"
+
+    assert _timeout_for_path("/v1/evm/swap/send") >= 120.0
+    assert _timeout_for_path("/v1/evm/transfer/send") >= 120.0
+    assert _timeout_for_path("/v1/evm/token-transfer/send") >= 120.0
+    assert _timeout_for_path("/v1/evm/swap/quote") == 10.0
 
     print("smoke_wdk_evm_local_security: ok")
 

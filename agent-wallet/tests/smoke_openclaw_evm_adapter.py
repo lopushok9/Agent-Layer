@@ -120,6 +120,8 @@ class FakeEvmBackend(AgentWalletBackend):
             "estimated_fee_wei": "67000000000000",
             "estimated_swap_fee_wei": "39000000000000",
             "estimated_approval_fee_wei": "28000000000000",
+            "slippage_bps": 100,
+            "minimum_output_amount_raw": "985050",
             "allowance": {
                 "spender": "0x5555555555555555555555555555555555555555",
                 "current_allowance_raw": "0",
@@ -183,6 +185,8 @@ class FakeEvmBackend(AgentWalletBackend):
             "estimated_fee_wei": "67000000000000",
             "estimated_swap_fee_wei": "39000000000000",
             "estimated_approval_fee_wei": "28000000000000",
+            "slippage_bps": 100,
+            "minimum_output_amount_raw": "985050",
             "swap_provider": "velora",
             "execution_supported": True,
             "route_plan": "fake-velora-route",
@@ -235,9 +239,12 @@ class FakeEvmBackend(AgentWalletBackend):
         token_out: str,
         amount_in_raw: str,
         expected_quote_fingerprint: str | None = None,
+        minimum_output_amount_raw: str | None = None,
     ) -> dict:
         if expected_quote_fingerprint and expected_quote_fingerprint != "evm-swap-fingerprint-1":
             raise WalletBackendError("swap quote changed", code="swap_quote_changed")
+        if minimum_output_amount_raw and minimum_output_amount_raw != "985050":
+            raise WalletBackendError("minimum output mismatch", code="swap_quote_changed")
         return {
             **{
                 **(await self.preview_evm_swap(
@@ -426,6 +433,8 @@ async def _main() -> None:
     assert swap_preview.data["quote_fingerprint"] == "evm-swap-fingerprint-1"
     assert swap_preview.data["estimated_approval_fee_wei"] == "28000000000000"
     assert swap_preview.data["swap_transaction"]["data_hash"] == "swap-data-hash-1"
+    assert swap_preview.data["minimum_output_amount_raw"] == "985050"
+    assert swap_preview.data["slippage_bps"] == 100
 
     preview = await adapter.invoke(
         "transfer_evm_native",
@@ -477,6 +486,8 @@ async def _main() -> None:
     assert swap_executed.data["allowance"]["approval_required"] is False
     assert swap_executed.data["simulation"]["ok"] is True
     assert swap_preview.data["confirmation_summary"]["quote_fingerprint"] == "evm-swap-fingerprint-1"
+    assert swap_preview.data["confirmation_summary"]["minimum_output_amount_raw"] == "985050"
+    assert swap_preview.data["confirmation_summary"]["slippage_bps"] == 100
 
     class NoRepreviewEvmBackend(FakeEvmBackend):
         def __init__(self) -> None:
@@ -539,6 +550,7 @@ async def _main() -> None:
             token_out: str,
             amount_in_raw: str,
             expected_quote_fingerprint: str | None = None,
+            minimum_output_amount_raw: str | None = None,
         ) -> dict:
             raise WalletBackendError(
                 "Swap quote changed since preview. Generate a new preview and approval before execute.",
@@ -586,6 +598,7 @@ async def _main() -> None:
             token_out: str,
             amount_in_raw: str,
             expected_quote_fingerprint: str | None = None,
+            minimum_output_amount_raw: str | None = None,
         ) -> dict:
             raise WalletBackendError(
                 "Swap failed after approval and automatic allowance restore did not complete.",
