@@ -17,6 +17,8 @@ __pycache__/
 *.pyc
 .venv/
 **/.venv/
+.runtime-venv/
+**/.runtime-venv/
 
 # Local environment files
 .env

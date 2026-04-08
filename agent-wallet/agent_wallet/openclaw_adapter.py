@@ -488,7 +488,7 @@ class OpenClawWalletAdapter:
                 ),
                 AgentToolSpec(
                     name="get_wallet_balance",
-                    description="Get the EVM wallet balance with native asset, discovered ERC-20 balances, and USD values when available.",
+                    description="Get the EVM wallet balance with native asset, discovered ERC-20 balances, and USD portfolio values including total_value_usd when available.",
                     input_schema={
                         "type": "object",
                         "properties": {

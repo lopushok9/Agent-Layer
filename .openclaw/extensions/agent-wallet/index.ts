@@ -161,7 +161,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "get_wallet_balance",
-    description: "Get the native token balance for the configured wallet address.",
+    description: "Get the wallet balance. For EVM this returns native balance, discovered ERC-20 balances, and USD portfolio fields including total_value_usd when available.",
     parameters: {
       type: "object",
       properties: {
@@ -704,7 +704,7 @@ const evmToolDefinitions = [
   },
   {
     name: "get_wallet_balance",
-    description: "Get the EVM wallet balance with native asset, discovered ERC-20 balances, and USD values when available.",
+    description: "Get the EVM wallet balance with native asset, discovered ERC-20 balances, and USD portfolio values including total_value_usd when available.",
     parameters: {
       type: "object",
       properties: {
