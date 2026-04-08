@@ -55,6 +55,9 @@ class AgentWalletBackend(ABC):
     async def get_balance(self, address: str | None = None) -> dict[str, Any]:
         """Return the wallet balance for the configured or provided address."""
 
+    def with_network(self, network: str) -> "AgentWalletBackend":
+        raise WalletBackendError(f"{self.name} does not support network overrides.")
+
     async def get_btc_transfer_history(
         self,
         *,
@@ -76,6 +79,9 @@ class AgentWalletBackend(ABC):
 
     async def get_evm_token_balance(self, token_address: str) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support EVM token balance lookup.")
+
+    async def get_evm_network_info(self) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM network inspection.")
 
     async def get_evm_token_metadata(self, token_address: str) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support EVM token metadata lookup.")
@@ -111,6 +117,7 @@ class AgentWalletBackend(ABC):
         token_out: str,
         amount_in_raw: str,
         expected_quote_fingerprint: str | None = None,
+        minimum_output_amount_raw: str | None = None,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support EVM swaps.")
 

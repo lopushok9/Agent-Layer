@@ -85,6 +85,23 @@ def main() -> None:
             {"jsonrpc": "2.0", "id": 12, "method": "eth_blockNumber", "params": []},
         ]
 
+        alchemy_balances = client.post(
+            "/v1/evm/rpc/ethereum?provider=alchemy&token=test-token",
+            json={
+                "jsonrpc": "2.0",
+                "id": 13,
+                "method": "alchemy_getTokenBalances",
+                "params": ["0x1111111111111111111111111111111111111111", "erc20"],
+            },
+        )
+        assert alchemy_balances.status_code == 200
+        assert seen["post"]["json_body"] == {
+            "jsonrpc": "2.0",
+            "id": 13,
+            "method": "alchemy_getTokenBalances",
+            "params": ["0x1111111111111111111111111111111111111111", "erc20"],
+        }
+
         forbidden_method = client.post(
             "/v1/evm/rpc/ethereum?provider=alchemy&token=test-token",
             json={"jsonrpc": "2.0", "id": 3, "method": "debug_traceTransaction", "params": []},

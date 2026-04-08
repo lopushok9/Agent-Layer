@@ -21,24 +21,70 @@ class FakeEvmBackend(AgentWalletBackend):
     network = "ethereum"
     sign_only = False
 
+    def with_network(self, network: str) -> "FakeEvmBackend":
+        clone = self.__class__()
+        clone.network = str(network).strip().lower()
+        return clone
+
     async def get_address(self) -> str | None:
         return "0x1111111111111111111111111111111111111111"
 
     async def get_balance(self, address: str | None = None) -> dict:
         return {
             "chain": "evm",
-            "network": "ethereum",
+            "network": self.network,
             "address": address or await self.get_address(),
             "balance_wei": "1230000000000000000",
             "balance_native": "1.23",
             "asset": "ETH",
+            "native_price_usd": "3200",
+            "native_value_usd": "3936",
+            "tokens": [
+                {
+                    "token_address": "0x2222222222222222222222222222222222222222",
+                    "balance_raw": "42000000",
+                    "balance_ui": "42",
+                    "token_metadata": {
+                        "address": "0x2222222222222222222222222222222222222222",
+                        "name": "USD Coin",
+                        "symbol": "USDC",
+                        "decimals": 6,
+                        "verified": False,
+                        "source": "fake",
+                    },
+                    "price_usd": "1",
+                    "value_usd": "42",
+                }
+            ],
+            "token_count": 1,
+            "total_value_usd": "3978",
+            "source": "fake",
+        }
+
+    async def get_evm_network_info(self) -> dict:
+        return {
+            "chain": "evm",
+            "network": self.network,
+            "configured_network": self.network,
+            "service_active_network": self.network,
+            "available_networks": ["base", "ethereum"],
+            "agent_selectable_networks": ["ethereum", "base"],
+            "swap_supported_networks": ["ethereum", "base"],
+            "network_profiles": {
+                "ethereum": {"chainId": 1, "providerUrl": "https://gateway.example/v1/evm/rpc/ethereum?provider=alchemy"},
+                "base": {"chainId": 8453, "providerUrl": "https://gateway.example/v1/evm/rpc/base?provider=alchemy"},
+            },
+            "selected_profile": {
+                "chainId": 1 if self.network == "ethereum" else 8453,
+                "providerUrl": f"https://gateway.example/v1/evm/rpc/{self.network}?provider=alchemy",
+            },
             "source": "fake",
         }
 
     async def get_evm_token_balance(self, token_address: str) -> dict:
         return {
             "chain": "evm",
-            "network": "ethereum",
+            "network": self.network,
             "address": await self.get_address(),
             "token_address": token_address,
             "balance_raw": "42000000",
@@ -57,7 +103,7 @@ class FakeEvmBackend(AgentWalletBackend):
     async def get_evm_token_metadata(self, token_address: str) -> dict:
         return {
             "chain": "evm",
-            "network": "ethereum",
+            "network": self.network,
             "token_address": token_address,
             "token_metadata": {
                 "address": token_address,
@@ -73,7 +119,7 @@ class FakeEvmBackend(AgentWalletBackend):
     async def get_evm_fee_rates(self) -> dict:
         return {
             "chain": "evm",
-            "network": "ethereum",
+            "network": self.network,
             "fee_rates": {
                 "slow": "1200000000",
                 "normal": "2000000000",
@@ -85,7 +131,7 @@ class FakeEvmBackend(AgentWalletBackend):
     async def get_evm_transaction_receipt(self, tx_hash: str) -> dict:
         return {
             "chain": "evm",
-            "network": "ethereum",
+            "network": self.network,
             "tx_hash": tx_hash,
             "found": True,
             "receipt": {"transactionHash": tx_hash, "status": "0x1"},
@@ -101,7 +147,7 @@ class FakeEvmBackend(AgentWalletBackend):
     ) -> dict:
         return {
             "chain": "evm",
-            "network": "ethereum",
+            "network": self.network,
             "address": await self.get_address(),
             "token_in": token_in,
             "token_out": token_out,
@@ -171,7 +217,7 @@ class FakeEvmBackend(AgentWalletBackend):
     ) -> dict:
         return {
             "chain": "evm",
-            "network": "ethereum",
+            "network": self.network,
             "asset_type": "evm-swap",
             "asset": "ERC20",
             "wallet": "evm-wallet-123",
@@ -246,31 +292,66 @@ class FakeEvmBackend(AgentWalletBackend):
         if minimum_output_amount_raw and minimum_output_amount_raw != "985050":
             raise WalletBackendError("minimum output mismatch", code="swap_quote_changed")
         return {
-            **{
-                **(await self.preview_evm_swap(
-                    token_in=token_in,
-                    token_out=token_out,
-                    amount_in_raw=amount_in_raw,
-                )),
-                "allowance": {
-                    "spender": "0x5555555555555555555555555555555555555555",
-                    "current_allowance_raw": amount_in_raw,
-                    "required_allowance_raw": amount_in_raw,
-                    "approval_required": False,
-                    "approval_sequence": [],
-                },
-                "simulation": {
-                    "ok": True,
-                    "skipped": False,
-                    "reason": None,
-                    "message": None,
-                    "details": None,
-                },
+            "chain": "evm",
+            "network": self.network,
+            "asset_type": "evm-swap",
+            "asset": "ERC20",
+            "wallet": "evm-wallet-123",
+            "from_address": await self.get_address(),
+            "token_in": token_in,
+            "token_out": token_out,
+            "input_amount_raw": amount_in_raw,
+            "input_amount_ui": "1",
+            "estimated_output_amount_raw": "995000",
+            "estimated_output_amount_ui": "0.995",
+            "estimated_fee_wei": "67000000000000",
+            "estimated_swap_fee_wei": "39000000000000",
+            "estimated_approval_fee_wei": "28000000000000",
+            "slippage_bps": 100,
+            "minimum_output_amount_raw": "985050",
+            "swap_provider": "velora",
+            "quote_fingerprint": "evm-swap-fingerprint-1",
+            "router": "0x4444444444444444444444444444444444444444",
+            "allowance": {
+                "spender": "0x5555555555555555555555555555555555555555",
+                "current_allowance_raw": amount_in_raw,
+                "required_allowance_raw": amount_in_raw,
+                "approval_required": False,
+                "approval_sequence": [],
+            },
+            "simulation": {
+                "ok": True,
+                "skipped": False,
+                "reason": None,
+                "message": None,
+                "details": None,
+            },
+            "swap_transaction": {
+                "to": "0x4444444444444444444444444444444444444444",
+                "value": "0",
+                "data_hash": "swap-data-hash-1",
+            },
+            "token_in_metadata": {
+                "address": token_in,
+                "name": "USD Coin",
+                "symbol": "USDC",
+                "decimals": 6,
+                "verified": False,
+                "source": "fake",
+            },
+            "token_out_metadata": {
+                "address": token_out,
+                "name": "Tether USD",
+                "symbol": "USDT",
+                "decimals": 6,
+                "verified": False,
+                "source": "fake",
             },
             "output_amount_raw": "995000",
             "hash": "0x" + "d" * 64,
             "broadcasted": True,
             "confirmed": False,
+            "source": "fake",
         }
 
     async def preview_evm_native_transfer(
@@ -281,7 +362,7 @@ class FakeEvmBackend(AgentWalletBackend):
     ) -> dict:
         return {
             "chain": "evm",
-            "network": "sepolia",
+            "network": self.network,
             "asset_type": "evm-native-transfer",
             "asset": "ETH",
             "wallet": "evm-wallet-123",
@@ -315,7 +396,7 @@ class FakeEvmBackend(AgentWalletBackend):
     ) -> dict:
         return {
             "chain": "evm",
-            "network": "sepolia",
+            "network": self.network,
             "asset_type": "evm-token-transfer",
             "wallet": "evm-wallet-123",
             "from_address": await self.get_address(),
@@ -373,6 +454,7 @@ class FakeEvmBackend(AgentWalletBackend):
 async def _main() -> None:
     adapter = OpenClawWalletAdapter(FakeEvmBackend())
     tool_names = {tool.name for tool in adapter.list_tools()}
+    assert "get_evm_network" in tool_names
     assert "get_evm_token_metadata" in tool_names
     assert "get_evm_swap_quote" in tool_names
     assert "swap_evm_tokens" in tool_names
@@ -384,21 +466,35 @@ async def _main() -> None:
     balance = await adapter.invoke("get_wallet_balance", {})
     assert balance.ok is True
     assert balance.data["balance_wei"] == "1230000000000000000"
+    assert balance.data["token_count"] == 1
+    assert balance.data["total_value_usd"] == "3978"
+
+    base_balance = await adapter.invoke("get_wallet_balance", {"network": "base"})
+    assert base_balance.ok is True
+    assert base_balance.data["network"] == "base"
+
+    network_info = await adapter.invoke("get_evm_network", {"network": "base"})
+    assert network_info.ok is True
+    assert network_info.data["configured_network"] == "base"
+    assert "ethereum" in network_info.data["agent_selectable_networks"]
+    assert "base" in network_info.data["agent_selectable_networks"]
 
     token_balance = await adapter.invoke(
         "get_evm_token_balance",
-        {"token_address": "0x2222222222222222222222222222222222222222"},
+        {"token_address": "0x2222222222222222222222222222222222222222", "network": "base"},
     )
     assert token_balance.ok is True
     assert token_balance.data["balance_raw"] == "42000000"
     assert token_balance.data["token_metadata"]["symbol"] == "USDC"
+    assert token_balance.data["network"] == "base"
 
     token_metadata = await adapter.invoke(
         "get_evm_token_metadata",
-        {"token_address": "0x2222222222222222222222222222222222222222"},
+        {"token_address": "0x2222222222222222222222222222222222222222", "network": "base"},
     )
     assert token_metadata.ok is True
     assert token_metadata.data["token_metadata"]["decimals"] == 6
+    assert token_metadata.data["network"] == "base"
 
     swap_quote = await adapter.invoke(
         "get_evm_swap_quote",
@@ -406,10 +502,12 @@ async def _main() -> None:
             "token_in": "0x2222222222222222222222222222222222222222",
             "token_out": "0x3333333333333333333333333333333333333333",
             "amount_in_raw": "1000000",
+            "network": "base",
         },
     )
     assert swap_quote.ok is True
     assert swap_quote.data["protocol"] == "velora"
+    assert swap_quote.data["network"] == "base"
     assert swap_quote.data["execution_supported"] is True
     assert swap_quote.data["quote_fingerprint"] == "evm-swap-fingerprint-1"
     assert swap_quote.data["allowance"]["approval_required"] is True

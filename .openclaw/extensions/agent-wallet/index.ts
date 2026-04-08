@@ -704,7 +704,7 @@ const evmToolDefinitions = [
   },
   {
     name: "get_wallet_balance",
-    description: "Get the native EVM balance for the configured wallet address.",
+    description: "Get the EVM wallet balance with native asset, discovered ERC-20 balances, and USD values when available.",
     parameters: {
       type: "object",
       properties: {
@@ -712,17 +712,37 @@ const evmToolDefinitions = [
           type: "string",
           description: "Optional wallet address override.",
         },
+        network: {
+          type: "string",
+          enum: ["ethereum", "base"],
+          description: "Optional EVM network override for this request.",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_evm_network",
+    description: "Show the effective EVM network context, available networks, and swap-supported networks.",
+    parameters: {
+      type: "object",
+      properties: {
+        network: {
+          type: "string",
+          enum: ["ethereum", "base"],
+        },
       },
       additionalProperties: false,
     },
   },
   {
     name: "get_evm_token_balance",
-    description: "Get the raw ERC-20 balance for the configured EVM wallet account.",
+    description: "Get the ERC-20 balance for the configured EVM wallet account.",
     parameters: {
       type: "object",
       properties: {
         token_address: { type: "string" },
+        network: { type: "string", enum: ["ethereum", "base"] },
       },
       required: ["token_address"],
       additionalProperties: false,
@@ -735,6 +755,7 @@ const evmToolDefinitions = [
       type: "object",
       properties: {
         token_address: { type: "string" },
+        network: { type: "string", enum: ["ethereum", "base"] },
       },
       required: ["token_address"],
       additionalProperties: false,
@@ -743,7 +764,13 @@ const evmToolDefinitions = [
   {
     name: "get_evm_fee_rates",
     description: "Get current EVM fee-rate suggestions for the active network.",
-    parameters: { type: "object", properties: {}, additionalProperties: false },
+    parameters: {
+      type: "object",
+      properties: {
+        network: { type: "string", enum: ["ethereum", "base"] },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: "get_evm_transaction_receipt",
@@ -752,6 +779,7 @@ const evmToolDefinitions = [
       type: "object",
       properties: {
         tx_hash: { type: "string" },
+        network: { type: "string", enum: ["ethereum", "base"] },
       },
       required: ["tx_hash"],
       additionalProperties: false,
@@ -766,6 +794,7 @@ const evmToolDefinitions = [
         token_in: { type: "string" },
         token_out: { type: "string" },
         amount_in_raw: { type: "string" },
+        network: { type: "string", enum: ["ethereum", "base"] },
       },
       required: ["token_in", "token_out", "amount_in_raw"],
       additionalProperties: false,
@@ -785,6 +814,7 @@ const evmToolDefinitions = [
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
         approval_token: { type: "string" },
+        network: { type: "string", enum: ["ethereum", "base"] },
       },
       required: ["token_in", "token_out", "amount_in_raw", "mode", "purpose"],
       additionalProperties: false,
@@ -803,6 +833,7 @@ const evmToolDefinitions = [
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
         approval_token: { type: "string" },
+        network: { type: "string", enum: ["ethereum", "base"] },
       },
       required: ["recipient", "amount_wei", "mode", "purpose"],
       additionalProperties: false,
@@ -822,6 +853,7 @@ const evmToolDefinitions = [
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
         approval_token: { type: "string" },
+        network: { type: "string", enum: ["ethereum", "base"] },
       },
       required: ["token_address", "recipient", "amount_raw", "mode", "purpose"],
       additionalProperties: false,

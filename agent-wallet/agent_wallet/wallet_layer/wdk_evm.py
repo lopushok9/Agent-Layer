@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from typing import Any
 
+from agent_wallet.providers.evm_portfolio import build_portfolio_snapshot
 from agent_wallet.providers.wdk_evm_local import WdkEvmLocalClient
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendError, WalletCapabilities
 
@@ -84,6 +86,23 @@ def _normalize_swap_simulation(payload: Any) -> dict[str, Any] | None:
     }
 
 
+def _sanitize_provider_url(value: Any) -> str | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        split = urlsplit(raw)
+    except Exception:
+        return raw
+    query = []
+    for key, item in parse_qsl(split.query, keep_blank_values=True):
+        if key.lower() in {"token", "apikey", "api_key"}:
+            query.append((key, "***"))
+        else:
+            query.append((key, item))
+    return urlunsplit((split.scheme, split.netloc, split.path, urlencode(query), split.fragment))
+
+
 class WdkEvmLocalWalletBackend(AgentWalletBackend):
     """EVM backend that delegates signing and execution to a local WDK service."""
 
@@ -109,6 +128,16 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
         self.address = address.strip() if isinstance(address, str) and address.strip() else None
         self.chain = "evm"
         self.custody_model = "local_service_vault"
+
+    def with_network(self, network: str) -> "WdkEvmLocalWalletBackend":
+        return WdkEvmLocalWalletBackend(
+            service_url=self.client.base_url,
+            wallet_id=self.wallet_id,
+            network=_normalize_evm_network(network),
+            account_index=self.account_index,
+            sign_only=self.sign_only,
+            address=self.address,
+        )
 
     async def get_address(self) -> str | None:
         if self.address:
@@ -142,7 +171,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
                 "network": self.network,
             },
         )
-        return {
+        result = {
             "chain": self.chain,
             "network": self.network,
             "address": str(data.get("address") or resolved_address or ""),
@@ -150,6 +179,63 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "balance_native": str(data.get("balanceFormatted") or "0"),
             "asset": str(data.get("nativeSymbol") or "ETH"),
             "chain_id": int(data.get("chainId") or 0),
+            "source": "wdk-evm-wallet",
+        }
+        try:
+            portfolio = await build_portfolio_snapshot(
+                address=result["address"],
+                network=self.network,
+                native_symbol=result["asset"],
+                native_balance_wei=result["balance_wei"],
+                native_balance=result["balance_native"],
+            )
+        except Exception as exc:
+            result["portfolio_error"] = str(exc)
+            result["tokens"] = []
+            result["token_count"] = 0
+            result["total_value_usd"] = None
+            result["native_price_usd"] = None
+            result["native_value_usd"] = None
+            return result
+
+        result.update(
+            {
+                "native_price_usd": portfolio.get("native_price_usd"),
+                "native_value_usd": portfolio.get("native_value_usd"),
+                "tokens": list(portfolio.get("tokens") or []),
+                "token_count": int(portfolio.get("token_count") or 0),
+                "total_value_usd": portfolio.get("total_value_usd"),
+                "pricing_source": portfolio.get("pricing_source"),
+                "token_discovery_source": portfolio.get("token_discovery_source"),
+            }
+        )
+        return result
+
+    async def get_evm_network_info(self) -> dict[str, Any]:
+        data = await self.client.get("/v1/evm/network")
+        profiles = data.get("profiles") or {}
+        return {
+            "chain": self.chain,
+            "network": self.network,
+            "configured_network": self.network,
+            "service_active_network": str(data.get("activeNetwork") or "").strip() or None,
+            "available_networks": sorted(str(key) for key in profiles.keys()),
+            "agent_selectable_networks": ["ethereum", "base"],
+            "swap_supported_networks": ["ethereum", "base"],
+            "network_profiles": {
+                str(network): {
+                    **dict(profile),
+                    "providerUrl": _sanitize_provider_url((profile or {}).get("providerUrl")),
+                }
+                for network, profile in profiles.items()
+                if isinstance(profile, dict)
+            },
+            "selected_profile": {
+                **dict(data.get("selectedProfile") or {}),
+                "providerUrl": _sanitize_provider_url((data.get("selectedProfile") or {}).get("providerUrl")),
+            }
+            if isinstance(data.get("selectedProfile"), dict)
+            else data.get("selectedProfile"),
             "source": "wdk-evm-wallet",
         }
 

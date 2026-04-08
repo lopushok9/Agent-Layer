@@ -38,6 +38,7 @@ ALLOWED_RPC_METHODS = {
 }
 
 ALLOWED_EVM_RPC_METHODS = {
+    "alchemy_getTokenBalances",
     "eth_blockNumber",
     "eth_call",
     "eth_chainId",
