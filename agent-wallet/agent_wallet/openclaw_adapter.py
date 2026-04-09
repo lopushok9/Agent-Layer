@@ -72,6 +72,22 @@ class OpenClawWalletAdapter:
             raise WalletBackendError("network must be a non-empty string when provided.")
         return self.backend.with_network(requested_network.strip())
 
+    def _normalize_positive_limit(self, value: Any, *, field_name: str, default: int, maximum: int) -> int:
+        if value is None:
+            return default
+        if not isinstance(value, int) or value <= 0:
+            raise WalletBackendError(f"{field_name} must be a positive integer.")
+        return min(value, maximum)
+
+    def _normalize_mayan_slippage(self, value: Any) -> int | str:
+        if value is None:
+            return "auto"
+        if isinstance(value, str) and value.strip().lower() == "auto":
+            return "auto"
+        if isinstance(value, int) and value >= 0:
+            return value
+        raise WalletBackendError("slippage_bps must be a non-negative integer or 'auto'.")
+
     def _require_prepare_intent(self, user_intent: Any) -> None:
         if user_intent is not True:
             raise WalletBackendError(
@@ -148,6 +164,36 @@ class OpenClawWalletAdapter:
                 if value is not None:
                     summary[key] = value
             return summary
+
+        if asset_type == "cross-chain-swap":
+            mayan_quote = payload.get("quote_response")
+            mayan_quote_fingerprint = hashlib.sha256(
+                json.dumps(
+                    mayan_quote if isinstance(mayan_quote, dict) else payload,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()
+            return {
+                "operation": action_label,
+                "network": str(payload.get("network") or getattr(self.backend, "network", "unknown")),
+                "swap_provider": payload.get("swap_provider"),
+                "source_chain": payload.get("source_chain"),
+                "destination_chain": payload.get("destination_chain"),
+                "owner": payload.get("owner"),
+                "input_mint": payload.get("input_mint"),
+                "output_token": payload.get("output_token"),
+                "destination_address": payload.get("destination_address"),
+                "input_amount_ui": payload.get("input_amount_ui"),
+                "input_amount_raw": payload.get("input_amount_raw"),
+                "estimated_output_amount_raw": payload.get("estimated_output_amount_raw"),
+                "minimum_output_amount_raw": payload.get("minimum_output_amount_raw"),
+                "slippage_bps": payload.get("slippage_bps"),
+                "quote_type": payload.get("quote_type"),
+                "quote_id": payload.get("quote_id"),
+                "mayan_quote_fingerprint": mayan_quote_fingerprint,
+                "quote_response": mayan_quote,
+            }
 
         if asset_type == "evm-swap":
             output_amount_raw = (
@@ -502,6 +548,104 @@ class OpenClawWalletAdapter:
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
+                        "additionalProperties": False,
+                    },
+                    read_only=True,
+                    risk_level="low",
+                ),
+                AgentToolSpec(
+                    name="get_mayan_supported_chains",
+                    description="List the chains currently supported by Mayan cross-chain swaps.",
+                    input_schema={
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": False,
+                    },
+                    read_only=True,
+                    risk_level="low",
+                ),
+                AgentToolSpec(
+                    name="get_mayan_tokens",
+                    description="List or search Mayan-supported tokens for a specific chain.",
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "chain": {
+                                "type": "string",
+                                "enum": [
+                                    "solana",
+                                    "ethereum",
+                                    "base",
+                                    "arbitrum",
+                                    "optimism",
+                                    "polygon",
+                                    "avalanche",
+                                    "bsc",
+                                    "unichain",
+                                    "linea",
+                                    "monad",
+                                ],
+                            },
+                            "query": {
+                                "type": "string",
+                                "description": "Optional symbol, name, mint, or contract substring filter.",
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "description": "Maximum number of token matches to return. Defaults to 20.",
+                            },
+                        },
+                        "required": ["chain"],
+                        "additionalProperties": False,
+                    },
+                    read_only=True,
+                    risk_level="low",
+                ),
+                AgentToolSpec(
+                    name="get_mayan_quote",
+                    description="Get a read-only Mayan cross-chain quote between supported Solana and EVM tokens.",
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "from_chain": {"type": "string"},
+                            "to_chain": {"type": "string"},
+                            "from_token": {"type": "string"},
+                            "to_token": {"type": "string"},
+                            "amount_in_raw": {
+                                "type": "string",
+                                "description": "Input amount in token base units as a base-10 integer string.",
+                            },
+                            "slippage_bps": {
+                                "oneOf": [
+                                    {"type": "integer"},
+                                    {"type": "string", "enum": ["auto"]},
+                                ],
+                                "description": "Optional Mayan slippage setting. Use an integer in basis points or 'auto'.",
+                            },
+                            "gas_drop": {
+                                "type": "number",
+                                "description": "Optional native gas amount to drop on the destination chain.",
+                            },
+                            "destination_address": {
+                                "type": "string",
+                                "description": "Optional destination wallet address override.",
+                            },
+                        },
+                        "required": ["from_chain", "to_chain", "from_token", "to_token", "amount_in_raw"],
+                        "additionalProperties": False,
+                    },
+                    read_only=True,
+                    risk_level="low",
+                ),
+                AgentToolSpec(
+                    name="get_mayan_swap_status",
+                    description="Get the Mayan status for a cross-chain swap using the source transaction hash.",
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "source_tx_hash": {"type": "string"},
+                        },
+                        "required": ["source_tx_hash"],
                         "additionalProperties": False,
                     },
                     read_only=True,
@@ -920,6 +1064,104 @@ class OpenClawWalletAdapter:
                             "description": "Optional wallet address override. If omitted, use the configured wallet address.",
                         }
                     },
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+            AgentToolSpec(
+                name="get_mayan_supported_chains",
+                description="List the chains currently supported by Mayan cross-chain swaps.",
+                input_schema={
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+            AgentToolSpec(
+                name="get_mayan_tokens",
+                description="List or search Mayan-supported tokens for a specific chain.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "chain": {
+                            "type": "string",
+                            "enum": [
+                                "solana",
+                                "ethereum",
+                                "base",
+                                "arbitrum",
+                                "optimism",
+                                "polygon",
+                                "avalanche",
+                                "bsc",
+                                "unichain",
+                                "linea",
+                                "monad",
+                            ],
+                        },
+                        "query": {
+                            "type": "string",
+                            "description": "Optional symbol, name, mint, or contract substring filter.",
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of token matches to return. Defaults to 20.",
+                        },
+                    },
+                    "required": ["chain"],
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+            AgentToolSpec(
+                name="get_mayan_quote",
+                description="Get a read-only Mayan cross-chain quote between supported Solana and EVM tokens.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "from_chain": {"type": "string"},
+                        "to_chain": {"type": "string"},
+                        "from_token": {"type": "string"},
+                        "to_token": {"type": "string"},
+                        "amount_in_raw": {
+                            "type": "string",
+                            "description": "Input amount in token base units as a base-10 integer string.",
+                        },
+                        "slippage_bps": {
+                            "oneOf": [
+                                {"type": "integer"},
+                                {"type": "string", "enum": ["auto"]},
+                            ],
+                            "description": "Optional Mayan slippage setting. Use an integer in basis points or 'auto'.",
+                        },
+                        "gas_drop": {
+                            "type": "number",
+                            "description": "Optional native gas amount to drop on the destination chain.",
+                        },
+                        "destination_address": {
+                            "type": "string",
+                            "description": "Optional destination wallet address override.",
+                        },
+                    },
+                    "required": ["from_chain", "to_chain", "from_token", "to_token", "amount_in_raw"],
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+            AgentToolSpec(
+                name="get_mayan_swap_status",
+                description="Get the Mayan status for a cross-chain swap using the source transaction hash.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "source_tx_hash": {"type": "string"},
+                    },
+                    "required": ["source_tx_hash"],
                     "additionalProperties": False,
                 },
                 read_only=True,
@@ -1496,6 +1738,53 @@ class OpenClawWalletAdapter:
 
             tools.append(
                 AgentToolSpec(
+                    name="swap_solana_cross_chain_tokens",
+                    description=(
+                        "Preview, prepare, or execute a Solana-origin cross-chain swap via Mayan. "
+                        "Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation."
+                    ),
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "input_mint": {"type": "string"},
+                            "destination_chain": {"type": "string", "enum": ["ethereum", "base"]},
+                            "output_token": {"type": "string"},
+                            "destination_address": {"type": "string"},
+                            "amount": {"type": "number"},
+                            "slippage_bps": {
+                                "oneOf": [
+                                    {"type": "integer"},
+                                    {"type": "string", "enum": ["auto"]},
+                                ]
+                            },
+                            "gas_drop": {"type": "number"},
+                            "mode": {
+                                "type": "string",
+                                "enum": ["preview", "prepare", "execute"],
+                            },
+                            "purpose": {"type": "string"},
+                            "user_intent": {"type": "boolean"},
+                            "approval_token": {"type": "string"},
+                        },
+                        "required": [
+                            "input_mint",
+                            "destination_chain",
+                            "output_token",
+                            "destination_address",
+                            "amount",
+                            "mode",
+                            "purpose",
+                        ],
+                        "additionalProperties": False,
+                    },
+                    read_only=False,
+                    requires_explicit_user_intent=True,
+                    risk_level="high",
+                )
+            )
+
+            tools.append(
+                AgentToolSpec(
                     name="launch_bags_token",
                     description=(
                         "Preview, prepare, or execute a Bags token launch with fee-share config on mainnet. "
@@ -1994,6 +2283,74 @@ class OpenClawWalletAdapter:
                 if address is not None and not isinstance(address, str):
                     raise WalletBackendError("address must be a string when provided.")
                 data = await active_backend.get_balance(address=address)
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_mayan_supported_chains":
+                data = await active_backend.get_mayan_supported_chains()
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_mayan_tokens":
+                chain = args.get("chain")
+                query = args.get("query")
+                limit = self._normalize_positive_limit(
+                    args.get("limit"),
+                    field_name="limit",
+                    default=20,
+                    maximum=100,
+                )
+                if not isinstance(chain, str) or not chain.strip():
+                    raise WalletBackendError("chain is required.")
+                if query is not None and not isinstance(query, str):
+                    raise WalletBackendError("query must be a string when provided.")
+                data = await active_backend.get_mayan_tokens(
+                    chain=chain.strip(),
+                    query=query.strip() if isinstance(query, str) else None,
+                    limit=limit,
+                )
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_mayan_quote":
+                from_chain = args.get("from_chain")
+                to_chain = args.get("to_chain")
+                from_token = args.get("from_token")
+                to_token = args.get("to_token")
+                amount_in_raw = args.get("amount_in_raw")
+                destination_address = args.get("destination_address")
+                gas_drop = args.get("gas_drop")
+                slippage_bps = self._normalize_mayan_slippage(args.get("slippage_bps"))
+                if not isinstance(from_chain, str) or not from_chain.strip():
+                    raise WalletBackendError("from_chain is required.")
+                if not isinstance(to_chain, str) or not to_chain.strip():
+                    raise WalletBackendError("to_chain is required.")
+                if not isinstance(from_token, str) or not from_token.strip():
+                    raise WalletBackendError("from_token is required.")
+                if not isinstance(to_token, str) or not to_token.strip():
+                    raise WalletBackendError("to_token is required.")
+                if not isinstance(amount_in_raw, str) or not amount_in_raw.strip().isdigit():
+                    raise WalletBackendError("amount_in_raw must be a positive integer string.")
+                if int(amount_in_raw.strip()) <= 0:
+                    raise WalletBackendError("amount_in_raw must be greater than zero.")
+                if destination_address is not None and not isinstance(destination_address, str):
+                    raise WalletBackendError("destination_address must be a string when provided.")
+                if gas_drop is not None and not isinstance(gas_drop, (int, float)):
+                    raise WalletBackendError("gas_drop must be a number when provided.")
+                data = await active_backend.get_mayan_quote(
+                    from_chain=from_chain.strip(),
+                    to_chain=to_chain.strip(),
+                    from_token=from_token.strip(),
+                    to_token=to_token.strip(),
+                    amount_in_raw=amount_in_raw.strip(),
+                    slippage_bps=slippage_bps,
+                    gas_drop=gas_drop,
+                    destination_address=destination_address.strip() if isinstance(destination_address, str) and destination_address.strip() else None,
+                )
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_mayan_swap_status":
+                source_tx_hash = args.get("source_tx_hash")
+                if not isinstance(source_tx_hash, str) or not source_tx_hash.strip():
+                    raise WalletBackendError("source_tx_hash is required.")
+                data = await active_backend.get_mayan_swap_status(source_tx_hash=source_tx_hash.strip())
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
 
             if tool_name == "get_btc_transfer_history":
@@ -3064,6 +3421,140 @@ class OpenClawWalletAdapter:
                     data=self._annotate_sensitive_payload(
                         result,
                         action_label="Swap",
+                        mode="execute",
+                    ),
+                )
+
+            if tool_name == "swap_solana_cross_chain_tokens":
+                input_mint = args.get("input_mint")
+                destination_chain = args.get("destination_chain")
+                output_token = args.get("output_token")
+                destination_address = args.get("destination_address")
+                amount = args.get("amount")
+                slippage_bps = self._normalize_mayan_slippage(args.get("slippage_bps"))
+                gas_drop = args.get("gas_drop")
+                mode = args.get("mode")
+                purpose = args.get("purpose")
+                user_intent = args.get("user_intent", False)
+                approval_token = args.get("approval_token")
+
+                if not isinstance(input_mint, str) or not input_mint.strip():
+                    raise WalletBackendError("input_mint is required.")
+                if not isinstance(destination_chain, str) or not destination_chain.strip():
+                    raise WalletBackendError("destination_chain is required.")
+                if not isinstance(output_token, str) or not output_token.strip():
+                    raise WalletBackendError("output_token is required.")
+                if not isinstance(destination_address, str) or not destination_address.strip():
+                    raise WalletBackendError("destination_address is required.")
+                if not isinstance(amount, (int, float)) or amount <= 0:
+                    raise WalletBackendError("amount must be a positive number.")
+                if gas_drop is not None and not isinstance(gas_drop, (int, float)):
+                    raise WalletBackendError("gas_drop must be a number when provided.")
+                if mode not in {"preview", "prepare", "execute"}:
+                    raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
+                if not isinstance(purpose, str) or not purpose.strip():
+                    raise WalletBackendError("purpose is required.")
+
+                preview_kwargs = {
+                    "input_mint": input_mint.strip(),
+                    "destination_chain": destination_chain.strip(),
+                    "output_token": output_token.strip(),
+                    "destination_address": destination_address.strip(),
+                    "amount_ui": float(amount),
+                    "slippage_bps": slippage_bps,
+                    "gas_drop": gas_drop,
+                }
+
+                if mode == "preview":
+                    preview = await self.backend.preview_solana_cross_chain_swap(**preview_kwargs)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            preview,
+                            action_label="Cross-chain swap",
+                            mode="preview",
+                        ),
+                    )
+
+                if mode == "prepare":
+                    self._require_prepare_intent(user_intent)
+                    preview = await self.backend.preview_solana_cross_chain_swap(**preview_kwargs)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            self._build_prepare_plan(
+                                preview_payload=preview,
+                                action_label="Cross-chain swap",
+                            ),
+                            action_label="Cross-chain swap",
+                            mode="prepare",
+                        ),
+                    )
+
+                approval_payload = inspect_approval_token(
+                    approval_token,
+                    tool_name=tool_name,
+                    network=str(getattr(self.backend, "network", "unknown")),
+                    require_mainnet_confirmation=self._is_mainnet(),
+                )
+                approval_summary = approval_payload.get("binding", {}).get("summary")
+                if not isinstance(approval_summary, dict):
+                    raise WalletBackendError(
+                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                    )
+                expected_summary = {
+                    "operation": "Cross-chain swap",
+                    "network": str(getattr(self.backend, "network", "unknown")),
+                    "source_chain": "solana",
+                    "destination_chain": destination_chain.strip(),
+                    "input_mint": input_mint.strip(),
+                    "output_token": output_token.strip(),
+                    "destination_address": destination_address.strip(),
+                }
+                for key, expected_value in expected_summary.items():
+                    if approval_summary.get(key) != expected_value:
+                        raise WalletBackendError(
+                            "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                        )
+
+                approval_summary_copy = dict(approval_summary)
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=approval_summary_copy,
+                    action_label="Cross-chain swap",
+                )
+                result = await self.backend.execute_solana_cross_chain_swap_from_preview(
+                    {
+                        "chain": "solana",
+                        "network": str(getattr(self.backend, "network", "unknown")),
+                        "mode": "preview",
+                        "asset_type": "cross-chain-swap",
+                        "owner": approval_summary_copy.get("owner"),
+                        "source_chain": approval_summary_copy.get("source_chain"),
+                        "destination_chain": approval_summary_copy.get("destination_chain"),
+                        "input_mint": approval_summary_copy.get("input_mint"),
+                        "output_token": approval_summary_copy.get("output_token"),
+                        "destination_address": approval_summary_copy.get("destination_address"),
+                        "input_amount_ui": approval_summary_copy.get("input_amount_ui"),
+                        "input_amount_raw": approval_summary_copy.get("input_amount_raw"),
+                        "estimated_output_amount_raw": approval_summary_copy.get("estimated_output_amount_raw"),
+                        "minimum_output_amount_raw": approval_summary_copy.get("minimum_output_amount_raw"),
+                        "slippage_bps": approval_summary_copy.get("slippage_bps"),
+                        "quote_type": approval_summary_copy.get("quote_type"),
+                        "quote_id": approval_summary_copy.get("quote_id"),
+                        "swap_provider": "mayan",
+                        "quote_response": approval_summary_copy.get("quote_response"),
+                    }
+                )
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=self._annotate_sensitive_payload(
+                        result,
+                        action_label="Cross-chain swap",
                         mode="execute",
                     ),
                 )

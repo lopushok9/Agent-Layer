@@ -6,6 +6,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from typing import Any
 
 from agent_wallet.providers.evm_portfolio import build_portfolio_snapshot
+from agent_wallet.providers import mayan
 from agent_wallet.providers.wdk_evm_local import WdkEvmLocalClient
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendError, WalletCapabilities
 
@@ -237,6 +238,123 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             if isinstance(data.get("selectedProfile"), dict)
             else data.get("selectedProfile"),
             "source": "wdk-evm-wallet",
+        }
+
+    async def get_mayan_supported_chains(self) -> dict[str, Any]:
+        chains = await mayan.fetch_supported_chains()
+        items = [
+            {
+                "name": str(item.get("nameId") or item.get("chainName") or "").strip(),
+                "display_name": str(item.get("chainName") or item.get("fullChainName") or "").strip(),
+                "full_name": str(item.get("fullChainName") or item.get("chainName") or "").strip(),
+                "mode": str(item.get("mode") or "").strip() or None,
+                "chain_id": item.get("chainId"),
+                "wormhole_chain_id": item.get("wChainId"),
+                "currency_symbol": str(item.get("currencySymbol") or "").strip() or None,
+                "origin_active": bool(item.get("originActive")),
+                "destination_active": bool(item.get("destinationActive")),
+                "base_token": item.get("baseToken"),
+            }
+            for item in chains
+        ]
+        return {
+            "provider": "mayan",
+            "chain": "cross-chain",
+            "network": "mainnet",
+            "chain_count": len(items),
+            "chains": items,
+            "source": "mayan",
+        }
+
+    async def get_mayan_tokens(
+        self,
+        *,
+        chain: str,
+        query: str | None = None,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        normalized_chain = mayan.normalize_chain_name(chain, field_name="chain")
+        all_tokens = await mayan.fetch_tokens(chain=normalized_chain)
+        text = str(query or "").strip().lower()
+        filtered = [
+            token
+            for token in all_tokens
+            if not text
+            or text in str(token.get("symbol") or "").lower()
+            or text in str(token.get("name") or "").lower()
+            or text in str(token.get("contract") or "").lower()
+            or text in str(token.get("mint") or "").lower()
+        ]
+        filtered.sort(
+            key=lambda item: (
+                0 if item.get("verified") else 1,
+                str(item.get("symbol") or ""),
+            )
+        )
+        selected = filtered[:limit]
+        return {
+            "provider": "mayan",
+            "chain": normalized_chain,
+            "query": query,
+            "count": len(selected),
+            "total_matches": len(filtered),
+            "tokens": selected,
+            "source": "mayan",
+        }
+
+    async def get_mayan_quote(
+        self,
+        *,
+        from_chain: str,
+        to_chain: str,
+        from_token: str,
+        to_token: str,
+        amount_in_raw: str,
+        slippage_bps: int | str = "auto",
+        gas_drop: int | float | None = None,
+        destination_address: str | None = None,
+    ) -> dict[str, Any]:
+        payload = await mayan.fetch_quote(
+            from_chain=from_chain,
+            to_chain=to_chain,
+            from_token=from_token,
+            to_token=to_token,
+            amount_in_raw=amount_in_raw,
+            slippage_bps=slippage_bps,
+            gas_drop=gas_drop,
+            destination_address=destination_address,
+        )
+        quotes = list(payload.get("quotes") or [])
+        best_quote = quotes[0] if quotes else None
+        return {
+            "provider": "mayan",
+            "chain": "cross-chain",
+            "network": "mainnet",
+            "from_chain": mayan.normalize_chain_name(from_chain, field_name="from_chain"),
+            "to_chain": mayan.normalize_chain_name(to_chain, field_name="to_chain"),
+            "from_token": from_token,
+            "to_token": to_token,
+            "amount_in_raw": amount_in_raw,
+            "slippage_bps": slippage_bps,
+            "gas_drop": gas_drop,
+            "destination_address": destination_address,
+            "quote_count": len(quotes),
+            "best_quote": best_quote,
+            "quotes": quotes,
+            "minimum_sdk_version": payload.get("minimumSdkVersion"),
+            "source": "mayan",
+        }
+
+    async def get_mayan_swap_status(self, *, source_tx_hash: str) -> dict[str, Any]:
+        payload = await mayan.fetch_swap_status_by_tx_hash(source_tx_hash)
+        return {
+            "provider": "mayan",
+            "chain": "cross-chain",
+            "network": "mainnet",
+            "source_tx_hash": source_tx_hash,
+            "swap": payload,
+            "client_status": payload.get("clientStatus") or payload.get("status"),
+            "source": "mayan",
         }
 
     async def get_evm_token_balance(self, token_address: str) -> dict[str, Any]:

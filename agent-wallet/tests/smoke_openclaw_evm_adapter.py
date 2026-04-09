@@ -81,6 +81,103 @@ class FakeEvmBackend(AgentWalletBackend):
             "source": "fake",
         }
 
+    async def get_mayan_supported_chains(self) -> dict:
+        return {
+            "provider": "mayan",
+            "chain": "cross-chain",
+            "network": "mainnet",
+            "chain_count": 2,
+            "chains": [
+                {"name": "solana", "display_name": "Solana", "mode": "SOLANA"},
+                {"name": "base", "display_name": "Base", "mode": "EVM"},
+            ],
+            "source": "mayan",
+        }
+
+    async def get_mayan_tokens(
+        self,
+        *,
+        chain: str,
+        query: str | None = None,
+        limit: int = 20,
+    ) -> dict:
+        return {
+            "provider": "mayan",
+            "chain": chain,
+            "query": query,
+            "count": min(limit, 1),
+            "total_matches": 1,
+            "tokens": [
+                {
+                    "symbol": "USDC",
+                    "name": "USD Coin",
+                    "contract": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+                    "mint": "EfqRM8ZGWhDTKJ7BHmFvNagKVu3AxQRDQs8WMMaoBCu6",
+                    "decimals": 6,
+                    "verified": True,
+                }
+            ],
+            "source": "mayan",
+        }
+
+    async def get_mayan_quote(
+        self,
+        *,
+        from_chain: str,
+        to_chain: str,
+        from_token: str,
+        to_token: str,
+        amount_in_raw: str,
+        slippage_bps: int | str = "auto",
+        gas_drop: int | float | None = None,
+        destination_address: str | None = None,
+    ) -> dict:
+        return {
+            "provider": "mayan",
+            "chain": "cross-chain",
+            "network": "mainnet",
+            "from_chain": from_chain,
+            "to_chain": to_chain,
+            "from_token": from_token,
+            "to_token": to_token,
+            "amount_in_raw": amount_in_raw,
+            "slippage_bps": slippage_bps,
+            "gas_drop": gas_drop,
+            "destination_address": destination_address,
+            "quote_count": 1,
+            "best_quote": {
+                "type": "FAST_MCTP",
+                "expectedAmountOutBaseUnits": "995530",
+                "minAmountOutBaseUnits": "995122",
+                "etaSeconds": 35,
+            },
+            "quotes": [
+                {
+                    "type": "FAST_MCTP",
+                    "expectedAmountOutBaseUnits": "995530",
+                    "minAmountOutBaseUnits": "995122",
+                    "etaSeconds": 35,
+                }
+            ],
+            "minimum_sdk_version": [7, 0, 0],
+            "source": "mayan",
+        }
+
+    async def get_mayan_swap_status(self, *, source_tx_hash: str) -> dict:
+        return {
+            "provider": "mayan",
+            "chain": "cross-chain",
+            "network": "mainnet",
+            "source_tx_hash": source_tx_hash,
+            "client_status": "COMPLETED",
+            "swap": {
+                "sourceTxHash": source_tx_hash,
+                "status": "COMPLETED",
+                "fulfillTxHash": "0xfulfilled",
+            },
+            "source": "mayan",
+        }
+
     async def get_evm_token_balance(self, token_address: str) -> dict:
         return {
             "chain": "evm",
@@ -454,6 +551,10 @@ class FakeEvmBackend(AgentWalletBackend):
 async def _main() -> None:
     adapter = OpenClawWalletAdapter(FakeEvmBackend())
     tool_names = {tool.name for tool in adapter.list_tools()}
+    assert "get_mayan_supported_chains" in tool_names
+    assert "get_mayan_tokens" in tool_names
+    assert "get_mayan_quote" in tool_names
+    assert "get_mayan_swap_status" in tool_names
     assert "get_evm_network" in tool_names
     assert "get_evm_token_metadata" in tool_names
     assert "get_evm_swap_quote" in tool_names
@@ -495,6 +596,38 @@ async def _main() -> None:
     assert token_metadata.ok is True
     assert token_metadata.data["token_metadata"]["decimals"] == 6
     assert token_metadata.data["network"] == "base"
+
+    mayan_chains = await adapter.invoke("get_mayan_supported_chains", {})
+    assert mayan_chains.ok is True
+    assert mayan_chains.data["chain_count"] == 2
+
+    mayan_tokens = await adapter.invoke(
+        "get_mayan_tokens",
+        {"chain": "base", "query": "usdc", "limit": 5},
+    )
+    assert mayan_tokens.ok is True
+    assert mayan_tokens.data["tokens"][0]["symbol"] == "USDC"
+
+    mayan_quote = await adapter.invoke(
+        "get_mayan_quote",
+        {
+            "from_chain": "solana",
+            "to_chain": "base",
+            "from_token": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "to_token": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+            "amount_in_raw": "1000000",
+            "slippage_bps": "auto",
+        },
+    )
+    assert mayan_quote.ok is True
+    assert mayan_quote.data["best_quote"]["type"] == "FAST_MCTP"
+
+    mayan_status = await adapter.invoke(
+        "get_mayan_swap_status",
+        {"source_tx_hash": "0xsourcehash"},
+    )
+    assert mayan_status.ok is True
+    assert mayan_status.data["client_status"] == "COMPLETED"
 
     swap_quote = await adapter.invoke(
         "get_evm_swap_quote",

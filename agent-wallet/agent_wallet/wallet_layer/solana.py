@@ -10,7 +10,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from agent_wallet.models import AgentWalletCapabilities, SolanaWalletState
-from agent_wallet.providers import bags, jupiter, kamino, solana_rpc
+from agent_wallet.providers import bags, jupiter, kamino, mayan, mayan_bridge, solana_rpc
 from agent_wallet.solana_stake import (
     STAKE_STATE_V2_SIZE,
     deactivate_stake as build_deactivate_stake_instruction,
@@ -114,6 +114,16 @@ def _require_positive_decimal_string(value: Any, *, field_name: str) -> str:
     if "." in normalized:
         normalized = normalized.rstrip("0").rstrip(".")
     return normalized or "0"
+
+
+def _coerce_positive_int_from_any(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        parsed = int(str(value))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
 
 
 def _coerce_non_negative_integer(value: Any, *, field_name: str) -> int:
@@ -302,6 +312,320 @@ class SolanaWalletBackend(AgentWalletBackend):
             "count": len(items),
             "prices": items,
             "source": "jupiter",
+        }
+
+    async def get_mayan_supported_chains(self) -> dict[str, Any]:
+        chains = await mayan.fetch_supported_chains()
+        items = [
+            {
+                "name": str(item.get("nameId") or item.get("chainName") or "").strip(),
+                "display_name": str(item.get("chainName") or item.get("fullChainName") or "").strip(),
+                "full_name": str(item.get("fullChainName") or item.get("chainName") or "").strip(),
+                "mode": str(item.get("mode") or "").strip() or None,
+                "chain_id": item.get("chainId"),
+                "wormhole_chain_id": item.get("wChainId"),
+                "currency_symbol": str(item.get("currencySymbol") or "").strip() or None,
+                "origin_active": bool(item.get("originActive")),
+                "destination_active": bool(item.get("destinationActive")),
+                "base_token": item.get("baseToken"),
+            }
+            for item in chains
+        ]
+        return {
+            "provider": "mayan",
+            "chain": "cross-chain",
+            "network": "mainnet",
+            "chain_count": len(items),
+            "chains": items,
+            "source": "mayan",
+        }
+
+    async def get_mayan_tokens(
+        self,
+        *,
+        chain: str,
+        query: str | None = None,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        normalized_chain = mayan.normalize_chain_name(chain, field_name="chain")
+        all_tokens = await mayan.fetch_tokens(chain=normalized_chain)
+        text = str(query or "").strip().lower()
+        filtered = [
+            token
+            for token in all_tokens
+            if not text
+            or text in str(token.get("symbol") or "").lower()
+            or text in str(token.get("name") or "").lower()
+            or text in str(token.get("contract") or "").lower()
+            or text in str(token.get("mint") or "").lower()
+        ]
+        filtered.sort(
+            key=lambda item: (
+                0 if item.get("verified") else 1,
+                str(item.get("symbol") or ""),
+            )
+        )
+        selected = filtered[:limit]
+        return {
+            "provider": "mayan",
+            "chain": normalized_chain,
+            "query": query,
+            "count": len(selected),
+            "total_matches": len(filtered),
+            "tokens": selected,
+            "source": "mayan",
+        }
+
+    async def get_mayan_quote(
+        self,
+        *,
+        from_chain: str,
+        to_chain: str,
+        from_token: str,
+        to_token: str,
+        amount_in_raw: str,
+        slippage_bps: int | str = "auto",
+        gas_drop: int | float | None = None,
+        destination_address: str | None = None,
+    ) -> dict[str, Any]:
+        payload = await mayan.fetch_quote(
+            from_chain=from_chain,
+            to_chain=to_chain,
+            from_token=from_token,
+            to_token=to_token,
+            amount_in_raw=amount_in_raw,
+            slippage_bps=slippage_bps,
+            gas_drop=gas_drop,
+            destination_address=destination_address,
+        )
+        quotes = list(payload.get("quotes") or [])
+        best_quote = quotes[0] if quotes else None
+        return {
+            "provider": "mayan",
+            "chain": "cross-chain",
+            "network": "mainnet",
+            "from_chain": mayan.normalize_chain_name(from_chain, field_name="from_chain"),
+            "to_chain": mayan.normalize_chain_name(to_chain, field_name="to_chain"),
+            "from_token": from_token,
+            "to_token": to_token,
+            "amount_in_raw": amount_in_raw,
+            "slippage_bps": slippage_bps,
+            "gas_drop": gas_drop,
+            "destination_address": destination_address,
+            "quote_count": len(quotes),
+            "best_quote": best_quote,
+            "quotes": quotes,
+            "minimum_sdk_version": payload.get("minimumSdkVersion"),
+            "source": "mayan",
+        }
+
+    async def get_mayan_swap_status(self, *, source_tx_hash: str) -> dict[str, Any]:
+        payload = await mayan.fetch_swap_status_by_tx_hash(source_tx_hash)
+        return {
+            "provider": "mayan",
+            "chain": "cross-chain",
+            "network": "mainnet",
+            "source_tx_hash": source_tx_hash,
+            "swap": payload,
+            "client_status": payload.get("clientStatus") or payload.get("status"),
+            "source": "mayan",
+        }
+
+    def _build_mayan_fee_summary(
+        self,
+        *,
+        quote: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "swap_provider": "mayan",
+            "route_type": quote.get("type"),
+            "bridge_fee": quote.get("bridgeFee"),
+            "swap_relayer_fee": quote.get("swapRelayerFee"),
+            "redeem_relayer_fee": quote.get("redeemRelayerFee"),
+            "refund_relayer_fee": quote.get("refundRelayerFee"),
+            "solana_relayer_fee": quote.get("solanaRelayerFee"),
+            "gas_drop": quote.get("gasDrop"),
+            "suggested_priority_fee": quote.get("suggestedPriorityFee"),
+            "send_transaction_cost": quote.get("sendTransactionCost"),
+            "eta_seconds": quote.get("etaSeconds"),
+            "quoted_output_includes_route_fees": True,
+        }
+
+    async def preview_solana_cross_chain_swap(
+        self,
+        *,
+        input_mint: str,
+        destination_chain: str,
+        output_token: str,
+        destination_address: str,
+        amount_ui: float,
+        slippage_bps: int | str = "auto",
+        gas_drop: int | float | None = None,
+    ) -> dict[str, Any]:
+        if self.network != "mainnet":
+            raise WalletBackendError("Mayan cross-chain swaps are only enabled for Solana mainnet.")
+        if amount_ui <= 0:
+            raise WalletBackendError("amount must be greater than zero.")
+
+        input_mint = validate_solana_mint(input_mint)
+        if not isinstance(output_token, str) or not output_token.strip():
+            raise WalletBackendError("output_token is required.")
+        if not isinstance(destination_address, str) or not destination_address.strip():
+            raise WalletBackendError("destination_address is required.")
+
+        normalized_destination_chain = mayan.normalize_chain_name(
+            destination_chain,
+            field_name="destination_chain",
+        )
+        if normalized_destination_chain == "solana":
+            raise WalletBackendError("Use swap_solana_tokens for Solana-only swaps.")
+
+        input_decimals = await self._resolve_mint_decimals(input_mint)
+        raw_amount = int(round(amount_ui * (10**input_decimals)))
+        if raw_amount <= 0:
+            raise WalletBackendError("amount is too small for the input token decimals.")
+
+        sender = await self.get_address()
+        payload = await mayan.fetch_quote(
+            from_chain="solana",
+            to_chain=normalized_destination_chain,
+            from_token=input_mint,
+            to_token=output_token.strip(),
+            amount_in_raw=str(raw_amount),
+            slippage_bps=slippage_bps,
+            gas_drop=gas_drop,
+            destination_address=destination_address.strip(),
+        )
+        quotes = list(payload.get("quotes") or [])
+        if not quotes or not isinstance(quotes[0], dict):
+            raise WalletBackendError("Mayan did not return a usable quote.")
+        best_quote = quotes[0]
+
+        output_decimals = _coerce_int((best_quote.get("toToken") or {}).get("decimals")) or 0
+        estimated_output_amount_raw = (
+            _coerce_positive_int_from_any(best_quote.get("expectedAmountOutBaseUnits"))
+            or _coerce_positive_int_from_any(best_quote.get("minReceivedBaseUnits"))
+            or 0
+        )
+        minimum_output_amount_raw = (
+            _coerce_positive_int_from_any(best_quote.get("minAmountOutBaseUnits"))
+            or _coerce_positive_int_from_any(best_quote.get("minReceivedBaseUnits"))
+            or estimated_output_amount_raw
+        )
+        fee_summary = self._build_mayan_fee_summary(quote=best_quote)
+
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "mode": "preview",
+            "asset_type": "cross-chain-swap",
+            "owner": sender,
+            "source_chain": "solana",
+            "destination_chain": normalized_destination_chain,
+            "input_mint": input_mint,
+            "output_token": output_token.strip(),
+            "destination_address": destination_address.strip(),
+            "input_amount_ui": amount_ui,
+            "input_amount_raw": str(raw_amount),
+            "input_decimals": input_decimals,
+            "input_symbol": (best_quote.get("fromToken") or {}).get("symbol"),
+            "estimated_output_amount_raw": str(estimated_output_amount_raw),
+            "minimum_output_amount_raw": str(minimum_output_amount_raw),
+            "output_decimals": output_decimals,
+            "output_symbol": (best_quote.get("toToken") or {}).get("symbol"),
+            "estimated_output_amount_ui": estimated_output_amount_raw / (10**output_decimals),
+            "minimum_output_amount_ui": minimum_output_amount_raw / (10**output_decimals),
+            "slippage_bps": best_quote.get("slippageBps", slippage_bps),
+            "eta_seconds": best_quote.get("etaSeconds"),
+            "quote_type": best_quote.get("type"),
+            "quote_id": best_quote.get("quoteId"),
+            "fee_summary": fee_summary,
+            "quote_response": best_quote,
+            "swap_provider": "mayan",
+            "can_send": self.get_capabilities().can_send_transaction,
+            "sign_only": self.sign_only,
+            "source": "mayan",
+        }
+
+    async def execute_solana_cross_chain_swap_from_preview(
+        self,
+        preview: dict[str, Any],
+    ) -> dict[str, Any]:
+        if not self.signer:
+            raise WalletBackendError("Solana signer is not configured.")
+        if self.sign_only:
+            raise WalletBackendError(
+                "This wallet backend is in sign-only mode. Disable sign_only to broadcast transactions."
+            )
+        if str(preview.get("asset_type") or "").strip().lower() != "cross-chain-swap":
+            raise WalletBackendError("preview payload is not a Mayan cross-chain swap preview.")
+        if str(preview.get("network") or self.network).strip().lower() != self.network:
+            raise WalletBackendError("preview payload network does not match the wallet backend.")
+
+        sender = await self.get_address()
+        if not sender:
+            raise WalletBackendError(
+                "No Solana wallet address configured. Set SOLANA_AGENT_PUBLIC_KEY or a signer."
+            )
+        if str(preview.get("owner") or sender).strip() != sender:
+            raise WalletBackendError("preview payload owner does not match the connected wallet.")
+
+        quote = preview.get("quote_response")
+        if not isinstance(quote, dict):
+            raise WalletBackendError("preview payload is missing the Mayan execution quote.")
+
+        destination_address = str(preview.get("destination_address") or "").strip()
+        if not destination_address:
+            raise WalletBackendError("preview payload is missing destination_address.")
+
+        submitted = await mayan_bridge.swap_from_solana(
+            quote=quote,
+            swapper_wallet_address=sender,
+            destination_address=destination_address,
+            rpc_url=self.rpc_urls[0],
+            extra_rpc_urls=self.rpc_urls[1:],
+            solana_keypair_bytes=self.signer.export_keypair_bytes(),
+        )
+        source_tx_hash = str(submitted.get("signature") or "").strip()
+        confirmed = False
+        status = None
+        if source_tx_hash and not bool(quote.get("gasless")):
+            status = await solana_rpc.wait_for_confirmation(
+                signature=source_tx_hash,
+                rpc_url=self.rpc_urls,
+            )
+            confirmed = status is not None
+
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "mode": "execute",
+            "asset_type": "cross-chain-swap",
+            "owner": sender,
+            "source_chain": "solana",
+            "destination_chain": preview.get("destination_chain"),
+            "input_mint": preview.get("input_mint"),
+            "output_token": preview.get("output_token"),
+            "destination_address": destination_address,
+            "input_amount_ui": preview.get("input_amount_ui"),
+            "input_amount_raw": preview.get("input_amount_raw"),
+            "estimated_output_amount_ui": preview.get("estimated_output_amount_ui"),
+            "estimated_output_amount_raw": preview.get("estimated_output_amount_raw"),
+            "minimum_output_amount_ui": preview.get("minimum_output_amount_ui"),
+            "minimum_output_amount_raw": preview.get("minimum_output_amount_raw"),
+            "slippage_bps": preview.get("slippage_bps"),
+            "quote_type": preview.get("quote_type"),
+            "quote_id": preview.get("quote_id"),
+            "signature": source_tx_hash or None,
+            "source_tx_hash": source_tx_hash or None,
+            "broadcasted": bool(source_tx_hash),
+            "confirmed": confirmed,
+            "confirmation_status": status.get("confirmationStatus") if status else None,
+            "slot": status.get("slot") if status else None,
+            "fee_summary": preview.get("fee_summary"),
+            "swap_provider": "mayan",
+            "execute_response": submitted,
+            "source": "mayan",
         }
 
     async def get_bags_claimable_positions(

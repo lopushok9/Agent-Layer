@@ -178,6 +178,54 @@ class AgentWalletBackend(ABC):
     async def get_portfolio(self, address: str | None = None) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support portfolio lookup.")
 
+    async def get_mayan_supported_chains(self) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Mayan chain lookup.")
+
+    async def get_mayan_tokens(
+        self,
+        *,
+        chain: str,
+        query: str | None = None,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Mayan token lookup.")
+
+    async def get_mayan_quote(
+        self,
+        *,
+        from_chain: str,
+        to_chain: str,
+        from_token: str,
+        to_token: str,
+        amount_in_raw: str,
+        slippage_bps: int | str = "auto",
+        gas_drop: int | float | None = None,
+        destination_address: str | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Mayan quotes.")
+
+    async def get_mayan_swap_status(self, *, source_tx_hash: str) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Mayan swap status lookup.")
+
+    async def preview_solana_cross_chain_swap(
+        self,
+        *,
+        input_mint: str,
+        destination_chain: str,
+        output_token: str,
+        destination_address: str,
+        amount_ui: float,
+        slippage_bps: int | str = "auto",
+        gas_drop: int | float | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Solana-origin Mayan swap previews.")
+
+    async def execute_solana_cross_chain_swap_from_preview(
+        self,
+        preview: dict[str, Any],
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Solana-origin Mayan swaps.")
+
     async def get_token_prices(self, mints: list[str]) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support token price lookup.")
 
