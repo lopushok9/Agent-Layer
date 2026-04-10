@@ -2,11 +2,14 @@
 
 ## Unreleased
 
-- No unreleased changes recorded yet.
+- Replaced the repo license with `PolyForm Small Business 1.0.0`.
+- Clarified in `README.md` that individuals can audit, fork, run, and modify
+  the code for themselves, and that company use follows the PolyForm small
+  business limits.
 
 ## v0.1.0-beta.2 - 2026-03-31
 
-Second public beta release that expands the stack beyond the initial MCP, wallet, and OpenClaw bridge scope.
+Second public beta release that expands the stack beyond the initial MCP, wallet, and AgentLayer bridge scope.
 
 ### Added
 
@@ -22,13 +25,13 @@ Second public beta release that expands the stack beyond the initial MCP, wallet
 
 ## v0.1.0-beta.1 - 2026-03-21
 
-First public beta centered on the repo's three primary deliverables: `mcp-server`, `agent-wallet`, and `.openclaw/extensions/agent-wallet`.
+First public beta centered on the repo's three primary deliverables: `mcp-server`, `agent-wallet`, and the AgentLayer bridge in `.openclaw/extensions/agent-wallet`.
 
 ### Added
 
 - `mcp-server/`: finance and crypto MCP server with market, DeFi, on-chain, and agent identity tooling.
 - `agent-wallet/`: Python wallet backend for local Solana wallet operations with guarded read, preview, prepare, and execute flows.
-- `.openclaw/extensions/agent-wallet/`: repo-shipped OpenClaw extension bridge that forwards tool execution into the Python wallet backend.
+- `.openclaw/extensions/agent-wallet/`: repo-shipped AgentLayer extension bridge that forwards tool execution into the Python wallet backend.
 
 ### Notes
 

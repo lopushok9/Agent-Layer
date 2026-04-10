@@ -1,4 +1,4 @@
-![OpenClaw](logo+name.png)
+![AgentLayer](logo+name.png)
 
 # AgentLayer
 
@@ -6,8 +6,8 @@ AgentLayer is a beta local-first wallet and finance stack for agents.
 
 The repository includes:
 
-- `agent-wallet/` — the main wallet backend for OpenClaw
-- `.openclaw/` — the local OpenClaw bridge
+- `agent-wallet/` — the main wallet backend for AgentLayer
+- `.openclaw/` — the local AgentLayer bridge layer
 - `wdk-btc-wallet/` — the local Bitcoin wallet service
 - `provider-gateway/` — shared provider access for Solana RPC, Bags, and Jupiter Earn
 - `mcp-server/` — the finance and crypto MCP layer
@@ -35,7 +35,7 @@ Start the local BTC wallet service:
 cd wdk-btc-wallet && sh run-local.sh
 ```
 
-Then connect it to OpenClaw:
+Then connect it to AgentLayer:
 
 ```bash
 sh agent-wallet/scripts/setup_btc_wallet.sh
@@ -97,3 +97,21 @@ That means:
 - `provider-gateway/` stays non-custodial
 - `mcp-server/` is part of the system and provides finance and crypto data access
 - the BTC wallet is built as a separate local service on top of Tether WDK
+
+## License and Community Use
+
+This repository is public and source-available under the `PolyForm Small
+Business License 1.0.0`.
+
+If you are an individual developer, researcher, student, security reviewer, or
+hobbyist, you can comfortably:
+
+- read and audit the code
+- fork the repo
+- run it locally
+- modify it for yourself
+- open issues and send pull requests
+
+If you are using the project for a company, the license allows use for small
+businesses covered by the PolyForm thresholds. If you need rights beyond that,
+you should reach out for a separate commercial license.
