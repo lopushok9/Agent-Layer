@@ -451,6 +451,124 @@ class FakeEvmBackend(AgentWalletBackend):
             "source": "fake",
         }
 
+    async def preview_evm_cross_chain_swap(
+        self,
+        *,
+        token_in: str,
+        destination_chain: str,
+        output_token: str,
+        destination_address: str,
+        amount_in_raw: str,
+        slippage_bps: int | str = "auto",
+        gas_drop: int | float | None = None,
+    ) -> dict:
+        return {
+            "chain": "evm",
+            "network": self.network,
+            "asset_type": "evm-cross-chain-swap",
+            "asset": "EVM",
+            "wallet": "evm-wallet-123",
+            "from_address": await self.get_address(),
+            "source_chain": self.network,
+            "destination_chain": destination_chain,
+            "token_in": token_in,
+            "output_token": output_token,
+            "destination_address": destination_address,
+            "input_amount_raw": amount_in_raw,
+            "input_amount_ui": "1",
+            "estimated_output_amount_raw": "995530",
+            "estimated_output_amount_ui": "0.99553",
+            "estimated_fee_wei": "74000000000000",
+            "estimated_swap_fee_wei": "46000000000000",
+            "estimated_approval_fee_wei": "28000000000000",
+            "slippage_bps": 100 if slippage_bps == "auto" else slippage_bps,
+            "gas_drop": gas_drop,
+            "minimum_output_amount_raw": "985122",
+            "swap_provider": "mayan",
+            "execution_supported": True,
+            "route_plan": {
+                "type": "FAST_MCTP",
+                "quoteId": "mayan-quote-1",
+                "expectedAmountOutBaseUnits": "995530",
+                "minAmountOutBaseUnits": "985122",
+            },
+            "quote_fingerprint": "mayan-evm-fingerprint-1",
+            "quote_type": "FAST_MCTP",
+            "quote_id": "mayan-quote-1",
+            "router": "0x337685fdaB40D39bd02028545a4FfA7D287cC3E2",
+            "allowance": {
+                "spender": "0x337685fdaB40D39bd02028545a4FfA7D287cC3E2",
+                "current_allowance_raw": "0",
+                "required_allowance_raw": amount_in_raw,
+                "approval_required": token_in.lower() != "0x0000000000000000000000000000000000000000",
+                "approval_sequence": (
+                    [{"type": "approve", "amount": amount_in_raw, "estimatedFeeWei": "28000000000000"}]
+                    if token_in.lower() != "0x0000000000000000000000000000000000000000"
+                    else []
+                ),
+            },
+            "simulation": {
+                "ok": None if token_in.lower() != "0x0000000000000000000000000000000000000000" else True,
+                "skipped": token_in.lower() != "0x0000000000000000000000000000000000000000",
+                "reason": "allowance_required" if token_in.lower() != "0x0000000000000000000000000000000000000000" else None,
+                "message": None,
+                "details": None,
+            },
+            "swap_transaction": {
+                "to": "0x337685fdaB40D39bd02028545a4FfA7D287cC3E2",
+                "value": "0",
+                "data_hash": "mayan-evm-data-hash-1",
+            },
+            "token_in_metadata": {
+                "address": token_in,
+                "name": "USD Coin" if token_in.lower() != "0x0000000000000000000000000000000000000000" else "Ether",
+                "symbol": "USDC" if token_in.lower() != "0x0000000000000000000000000000000000000000" else "ETH",
+                "decimals": 6 if token_in.lower() != "0x0000000000000000000000000000000000000000" else 18,
+                "verified": False,
+                "source": "fake",
+            },
+            "output_token_metadata": {
+                "address": output_token,
+                "name": "USD Coin",
+                "symbol": "USDC",
+                "decimals": 6,
+                "verified": False,
+                "source": "fake",
+            },
+            "source": "fake",
+        }
+
+    async def send_evm_cross_chain_swap(
+        self,
+        *,
+        token_in: str,
+        destination_chain: str,
+        output_token: str,
+        destination_address: str,
+        amount_in_raw: str,
+        slippage_bps: int | str = "auto",
+        gas_drop: int | float | None = None,
+        minimum_output_amount_raw: str | None = None,
+    ) -> dict:
+        if minimum_output_amount_raw and minimum_output_amount_raw != "985122":
+            raise WalletBackendError("minimum output mismatch", code="swap_quote_changed")
+        preview = await self.preview_evm_cross_chain_swap(
+            token_in=token_in,
+            destination_chain=destination_chain,
+            output_token=output_token,
+            destination_address=destination_address,
+            amount_in_raw=amount_in_raw,
+            slippage_bps=slippage_bps,
+            gas_drop=gas_drop,
+        )
+        return {
+            **preview,
+            "output_amount_raw": "995530",
+            "hash": "0x" + "e" * 64,
+            "broadcasted": True,
+            "confirmed": False,
+        }
+
     async def preview_evm_native_transfer(
         self,
         *,
@@ -559,6 +677,7 @@ async def _main() -> None:
     assert "get_evm_token_metadata" in tool_names
     assert "get_evm_swap_quote" in tool_names
     assert "swap_evm_tokens" in tool_names
+    assert "swap_evm_cross_chain_tokens" in tool_names
     assert "transfer_evm_native" in tool_names
     assert "transfer_evm_token" in tool_names
     assert "transfer_btc" not in tool_names
@@ -666,6 +785,68 @@ async def _main() -> None:
     assert swap_preview.data["swap_transaction"]["data_hash"] == "swap-data-hash-1"
     assert swap_preview.data["minimum_output_amount_raw"] == "985050"
     assert swap_preview.data["slippage_bps"] == 100
+
+    cross_chain_preview = await adapter.invoke(
+        "swap_evm_cross_chain_tokens",
+        {
+            "token_in": "0x2222222222222222222222222222222222222222",
+            "destination_chain": "solana",
+            "output_token": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "destination_address": "ENsytooJVSZyNHbxvueUeX8Am8gcNqPivVVE8USCBiy5",
+            "amount_in_raw": "1000000",
+            "mode": "preview",
+            "purpose": "test evm cross-chain swap",
+        },
+    )
+    assert cross_chain_preview.ok is True
+    assert cross_chain_preview.data["asset_type"] == "evm-cross-chain-swap"
+    assert cross_chain_preview.data["swap_provider"] == "mayan"
+    assert cross_chain_preview.data["minimum_output_amount_raw"] == "985122"
+    assert cross_chain_preview.data["quote_type"] == "FAST_MCTP"
+
+    cross_chain_prepare = await adapter.invoke(
+        "swap_evm_cross_chain_tokens",
+        {
+            "token_in": "0x2222222222222222222222222222222222222222",
+            "destination_chain": "solana",
+            "output_token": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "destination_address": "ENsytooJVSZyNHbxvueUeX8Am8gcNqPivVVE8USCBiy5",
+            "amount_in_raw": "1000000",
+            "mode": "prepare",
+            "purpose": "test evm cross-chain swap",
+            "user_intent": True,
+        },
+    )
+    assert cross_chain_prepare.ok is True
+    assert cross_chain_prepare.data["execution_plan_only"] is True
+
+    cross_chain_approval = issue_approval_token(
+        tool_name="swap_evm_cross_chain_tokens",
+        network="ethereum",
+        summary=cross_chain_preview.data["confirmation_summary"],
+        mainnet_confirmed=True,
+        issued_by="test",
+    )
+    cross_chain_execute = await adapter.invoke(
+        "swap_evm_cross_chain_tokens",
+        {
+            "token_in": "0x2222222222222222222222222222222222222222",
+            "destination_chain": "solana",
+            "output_token": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "destination_address": "ENsytooJVSZyNHbxvueUeX8Am8gcNqPivVVE8USCBiy5",
+            "amount_in_raw": "1000000",
+            "mode": "execute",
+            "purpose": "test evm cross-chain swap",
+            "approval_token": cross_chain_approval,
+        },
+    )
+    assert cross_chain_execute.ok is True
+    assert cross_chain_execute.data["hash"].startswith("0x")
+    assert cross_chain_execute.data["minimum_output_amount_raw"] == "985122"
+    assert cross_chain_preview.data["confirmation_summary"]["destination_chain"] == "solana"
+    assert (
+        cross_chain_preview.data["confirmation_summary"]["minimum_output_amount_raw"] == "985122"
+    )
 
     preview = await adapter.invoke(
         "transfer_evm_native",

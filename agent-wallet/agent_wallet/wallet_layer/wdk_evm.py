@@ -679,6 +679,209 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "source": "wdk-evm-wallet",
         }
 
+    async def preview_evm_cross_chain_swap(
+        self,
+        *,
+        token_in: str,
+        destination_chain: str,
+        output_token: str,
+        destination_address: str,
+        amount_in_raw: str,
+        slippage_bps: int | str = "auto",
+        gas_drop: int | float | None = None,
+    ) -> dict[str, Any]:
+        resolved_address = await self.get_address()
+        data = await self.client.post(
+            "/v1/evm/mayan/quote",
+            {
+                "walletId": self.wallet_id,
+                "address": resolved_address,
+                "accountIndex": self.account_index,
+                "network": self.network,
+                "tokenIn": token_in,
+                "destinationChain": destination_chain,
+                "outputToken": output_token,
+                "destinationAddress": destination_address,
+                "tokenInAmount": amount_in_raw,
+                "slippageBps": slippage_bps,
+                **({"gasDrop": gas_drop} if gas_drop is not None else {}),
+            },
+        )
+        quote = dict(data.get("quote") or {})
+        return {
+            "chain": self.chain,
+            "network": self.network,
+            "asset_type": "evm-cross-chain-swap",
+            "asset": "EVM",
+            "wallet": self.wallet_id,
+            "from_address": str(data.get("address") or resolved_address or ""),
+            "source_chain": str(data.get("sourceChain") or self.network),
+            "destination_chain": str(data.get("destinationChain") or destination_chain),
+            "token_in": str((data.get("swapRequest") or {}).get("tokenIn") or token_in),
+            "output_token": str((data.get("swapRequest") or {}).get("outputToken") or output_token),
+            "destination_address": str(
+                (data.get("swapRequest") or {}).get("destinationAddress") or destination_address
+            ),
+            "input_amount_raw": str((data.get("swapRequest") or {}).get("tokenInAmount") or amount_in_raw),
+            "input_amount_ui": str(data.get("inputAmountFormatted")) if data.get("inputAmountFormatted") is not None else None,
+            "estimated_output_amount_raw": str(
+                quote.get("expectedAmountOutBaseUnits")
+                or quote.get("minAmountOutBaseUnits")
+                or quote.get("minReceivedBaseUnits")
+                or "0"
+            ),
+            "estimated_output_amount_ui": (
+                str(data.get("outputAmountFormatted")) if data.get("outputAmountFormatted") is not None else None
+            ),
+            "estimated_fee_wei": (
+                str(data.get("estimatedFeeWei"))
+                if data.get("estimatedFeeWei") is not None
+                else (_extract_fee_wei(quote) if _extract_fee_wei(quote) is not None else None)
+            ),
+            "estimated_swap_fee_wei": (
+                str(data.get("estimatedSwapFeeWei"))
+                if data.get("estimatedSwapFeeWei") is not None
+                else (_extract_fee_wei(quote) if _extract_fee_wei(quote) is not None else None)
+            ),
+            "estimated_approval_fee_wei": str(data.get("estimatedApprovalFeeWei") or "0"),
+            "fee_estimate_available": bool(data.get("feeEstimateAvailable", True)),
+            "fee_estimate_error": data.get("feeEstimateError"),
+            "slippage_bps": int(data.get("slippageBps") or 0) if data.get("slippageBps") is not None else None,
+            "gas_drop": gas_drop,
+            "minimum_output_amount_raw": (
+                str(data.get("minimumOutputAmountRaw"))
+                if data.get("minimumOutputAmountRaw") is not None
+                else str(quote.get("minAmountOutBaseUnits") or quote.get("minReceivedBaseUnits") or "0")
+            ),
+            "swap_provider": str(data.get("protocol") or "mayan"),
+            "execution_supported": bool(data.get("executionSupported")) and not self.sign_only,
+            "route_plan": quote,
+            "quote_fingerprint": str(data.get("quoteFingerprint") or "").strip() or None,
+            "router": str(data.get("router") or "").strip() or None,
+            "quote_type": str(data.get("quoteType") or quote.get("type") or "").strip() or None,
+            "quote_id": str(data.get("quoteId") or quote.get("quoteId") or "").strip() or None,
+            "allowance": _normalize_swap_allowance(data.get("allowance")),
+            "simulation": _normalize_swap_simulation(data.get("simulation")),
+            "swap_transaction": {
+                "to": str((data.get("swapTransaction") or {}).get("to") or "").strip() or None,
+                "value": str((data.get("swapTransaction") or {}).get("value") or "0"),
+                "data_hash": str((data.get("swapTransaction") or {}).get("dataHash") or "").strip() or None,
+            },
+            "token_in_metadata": _normalize_token_metadata(
+                data.get("tokenInMetadata"),
+                str((data.get("swapRequest") or {}).get("tokenIn") or token_in),
+            ),
+            "output_token_metadata": _normalize_token_metadata(
+                data.get("outputTokenMetadata"),
+                str((data.get("swapRequest") or {}).get("outputToken") or output_token),
+            ),
+            "quote": quote,
+            "chain_id": int(data.get("chainId") or 0),
+            "source": "wdk-evm-wallet",
+        }
+
+    async def send_evm_cross_chain_swap(
+        self,
+        *,
+        token_in: str,
+        destination_chain: str,
+        output_token: str,
+        destination_address: str,
+        amount_in_raw: str,
+        slippage_bps: int | str = "auto",
+        gas_drop: int | float | None = None,
+        minimum_output_amount_raw: str | None = None,
+    ) -> dict[str, Any]:
+        if self.sign_only:
+            raise WalletBackendError("wdk_evm_local is configured as sign_only.")
+        data = await self.client.post(
+            "/v1/evm/mayan/send",
+            {
+                "walletId": self.wallet_id,
+                "accountIndex": self.account_index,
+                "network": self.network,
+                "tokenIn": token_in,
+                "destinationChain": destination_chain,
+                "outputToken": output_token,
+                "destinationAddress": destination_address,
+                "tokenInAmount": amount_in_raw,
+                "slippageBps": slippage_bps,
+                **({"gasDrop": gas_drop} if gas_drop is not None else {}),
+                **(
+                    {"minimumTokenOutAmount": minimum_output_amount_raw}
+                    if isinstance(minimum_output_amount_raw, str) and minimum_output_amount_raw.strip()
+                    else {}
+                ),
+            },
+        )
+        result = dict(data.get("result") or {})
+        quote = dict(data.get("quote") or {})
+        return {
+            "chain": self.chain,
+            "network": self.network,
+            "asset_type": "evm-cross-chain-swap",
+            "asset": "EVM",
+            "wallet": self.wallet_id,
+            "from_address": await self.get_address(),
+            "source_chain": str(data.get("sourceChain") or self.network),
+            "destination_chain": str(data.get("destinationChain") or destination_chain),
+            "token_in": str((data.get("swapRequest") or {}).get("tokenIn") or token_in),
+            "output_token": str((data.get("swapRequest") or {}).get("outputToken") or output_token),
+            "destination_address": str(
+                (data.get("swapRequest") or {}).get("destinationAddress") or destination_address
+            ),
+            "input_amount_raw": str((data.get("swapRequest") or {}).get("tokenInAmount") or amount_in_raw),
+            "input_amount_ui": str(data.get("inputAmountFormatted")) if data.get("inputAmountFormatted") is not None else None,
+            "output_amount_raw": str(result.get("tokenOutAmount") or "0"),
+            "estimated_output_amount_raw": str(
+                result.get("tokenOutAmount")
+                or quote.get("expectedAmountOutBaseUnits")
+                or quote.get("minAmountOutBaseUnits")
+                or "0"
+            ),
+            "estimated_output_amount_ui": (
+                str(data.get("outputAmountFormatted")) if data.get("outputAmountFormatted") is not None else None
+            ),
+            "estimated_fee_wei": str(data.get("estimatedFeeWei") or result.get("fee") or "0"),
+            "estimated_swap_fee_wei": str(data.get("estimatedSwapFeeWei") or result.get("swapFee") or "0"),
+            "estimated_approval_fee_wei": str(data.get("estimatedApprovalFeeWei") or result.get("approvalFee") or "0"),
+            "slippage_bps": int(data.get("slippageBps") or 0) if data.get("slippageBps") is not None else None,
+            "gas_drop": gas_drop,
+            "minimum_output_amount_raw": (
+                str(data.get("minimumOutputAmountRaw"))
+                if data.get("minimumOutputAmountRaw") is not None
+                else str(quote.get("minAmountOutBaseUnits") or quote.get("minReceivedBaseUnits") or "0")
+            ),
+            "swap_provider": str(data.get("protocol") or "mayan"),
+            "quote_fingerprint": str(data.get("quoteFingerprint") or "").strip() or None,
+            "router": str(data.get("router") or "").strip() or None,
+            "quote_type": str(data.get("quoteType") or quote.get("type") or "").strip() or None,
+            "quote_id": str(data.get("quoteId") or quote.get("quoteId") or "").strip() or None,
+            "allowance": _normalize_swap_allowance(data.get("allowance")),
+            "simulation": _normalize_swap_simulation(data.get("simulation")),
+            "swap_transaction": {
+                "to": str((data.get("swapTransaction") or {}).get("to") or "").strip() or None,
+                "value": str((data.get("swapTransaction") or {}).get("value") or "0"),
+                "data_hash": str((data.get("swapTransaction") or {}).get("dataHash") or "").strip() or None,
+            },
+            "token_in_metadata": _normalize_token_metadata(
+                data.get("tokenInMetadata"),
+                str((data.get("swapRequest") or {}).get("tokenIn") or token_in),
+            ),
+            "output_token_metadata": _normalize_token_metadata(
+                data.get("outputTokenMetadata"),
+                str((data.get("swapRequest") or {}).get("outputToken") or output_token),
+            ),
+            "hash": result.get("hash"),
+            "approve_hash": result.get("approveHash"),
+            "reset_allowance_hash": result.get("resetAllowanceHash"),
+            "result": result,
+            "chain_id": int(data.get("chainId") or 0),
+            "broadcasted": True,
+            "confirmed": False,
+            "source": "wdk-evm-wallet",
+        }
+
     async def preview_evm_native_transfer(
         self,
         *,

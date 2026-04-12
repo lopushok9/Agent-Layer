@@ -964,6 +964,40 @@ const evmToolDefinitions = [
     },
   },
   {
+    name: "swap_evm_cross_chain_tokens",
+    description: "Preview, prepare, or execute an EVM-origin cross-chain swap through Mayan. This currently supports ethereum/base as the source network and Solana as the destination chain. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    optional: true,
+    parameters: {
+      type: "object",
+      properties: {
+        token_in: { type: "string" },
+        destination_chain: { type: "string", enum: ["solana"] },
+        output_token: { type: "string" },
+        destination_address: { type: "string" },
+        amount_in_raw: { type: "string" },
+        slippage_bps: {
+          oneOf: [{ type: "integer" }, { type: "string", enum: ["auto"] }],
+        },
+        gas_drop: { type: "number" },
+        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
+        purpose: { type: "string" },
+        user_intent: { type: "boolean" },
+        approval_token: { type: "string" },
+        network: { type: "string", enum: ["ethereum", "base"] },
+      },
+      required: [
+        "token_in",
+        "destination_chain",
+        "output_token",
+        "destination_address",
+        "amount_in_raw",
+        "mode",
+        "purpose",
+      ],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "transfer_evm_native",
     description: "Preview, prepare, or execute a native EVM transfer using a wei amount. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
     optional: true,
@@ -1011,7 +1045,10 @@ export default function registerAgentWalletPlugin(api) {
   const evmDefinitions = supportsVeloraSwap(api)
     ? evmToolDefinitions
     : evmToolDefinitions.filter(
-        (definition) => definition.name !== "get_evm_swap_quote" && definition.name !== "swap_evm_tokens"
+        (definition) =>
+          definition.name !== "get_evm_swap_quote" &&
+          definition.name !== "swap_evm_tokens" &&
+          definition.name !== "swap_evm_cross_chain_tokens"
       );
   const toolDefinitions =
     backend === "wdk_btc_local" || backend === "wdk-btc-local" || backend === "btc_local"

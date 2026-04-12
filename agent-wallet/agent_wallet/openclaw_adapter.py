@@ -195,6 +195,31 @@ class OpenClawWalletAdapter:
                 "quote_response": mayan_quote,
             }
 
+        if asset_type == "evm-cross-chain-swap":
+            return {
+                "operation": action_label,
+                "network": str(payload.get("network") or getattr(self.backend, "network", "unknown")),
+                "wallet": payload.get("wallet"),
+                "from_address": payload.get("from_address"),
+                "swap_provider": payload.get("swap_provider"),
+                "source_chain": payload.get("source_chain"),
+                "destination_chain": payload.get("destination_chain"),
+                "token_in": payload.get("token_in"),
+                "output_token": payload.get("output_token"),
+                "destination_address": payload.get("destination_address"),
+                "input_amount_raw": payload.get("input_amount_raw"),
+                "estimated_output_amount_raw": payload.get("estimated_output_amount_raw"),
+                "minimum_output_amount_raw": payload.get("minimum_output_amount_raw"),
+                "slippage_bps": payload.get("slippage_bps"),
+                "gas_drop": payload.get("gas_drop"),
+                "quote_type": payload.get("quote_type"),
+                "quote_id": payload.get("quote_id"),
+                "estimated_fee_wei": payload.get("estimated_fee_wei"),
+                "estimated_swap_fee_wei": payload.get("estimated_swap_fee_wei"),
+                "estimated_approval_fee_wei": payload.get("estimated_approval_fee_wei"),
+                "router": payload.get("router"),
+            }
+
         if asset_type == "evm-swap":
             output_amount_raw = (
                 payload.get("estimated_output_amount_raw")
@@ -890,6 +915,71 @@ class OpenClawWalletAdapter:
                                 },
                             },
                             "required": ["token_in", "token_out", "amount_in_raw", "mode", "purpose"],
+                            "additionalProperties": False,
+                        },
+                        read_only=False,
+                        requires_explicit_user_intent=True,
+                        risk_level="high",
+                    ),
+                )
+                tools.insert(
+                    8,
+                    AgentToolSpec(
+                        name="swap_evm_cross_chain_tokens",
+                        description=(
+                            "Preview, prepare, or execute an EVM-origin cross-chain swap through Mayan. "
+                            "This currently supports ethereum/base as the source network and Solana as the destination chain. "
+                            "Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation."
+                        ),
+                        input_schema={
+                            "type": "object",
+                            "properties": {
+                                "token_in": {
+                                    "type": "string",
+                                    "description": "Source EVM token contract address, or the zero address for native ETH.",
+                                },
+                                "destination_chain": {
+                                    "type": "string",
+                                    "enum": ["solana"],
+                                },
+                                "output_token": {
+                                    "type": "string",
+                                    "description": "Destination chain token identifier.",
+                                },
+                                "destination_address": {
+                                    "type": "string",
+                                    "description": "Destination wallet address on the target chain.",
+                                },
+                                "amount_in_raw": {
+                                    "type": "string",
+                                    "description": "Input amount in token base units as a base-10 integer string.",
+                                },
+                                "slippage_bps": {
+                                    "oneOf": [{"type": "integer"}, {"type": "string", "enum": ["auto"]}],
+                                },
+                                "gas_drop": {"type": "number"},
+                                "mode": {
+                                    "type": "string",
+                                    "enum": ["preview", "prepare", "execute"],
+                                },
+                                "purpose": {"type": "string"},
+                                "user_intent": {"type": "boolean"},
+                                "approval_token": {"type": "string"},
+                                "network": {
+                                    "type": "string",
+                                    "enum": ["ethereum", "base"],
+                                    "description": "Optional EVM network override for this request.",
+                                },
+                            },
+                            "required": [
+                                "token_in",
+                                "destination_chain",
+                                "output_token",
+                                "destination_address",
+                                "amount_in_raw",
+                                "mode",
+                                "purpose",
+                            ],
                             "additionalProperties": False,
                         },
                         read_only=False,
@@ -2544,6 +2634,139 @@ class OpenClawWalletAdapter:
                     data=self._annotate_sensitive_payload(
                         result,
                         action_label="EVM swap",
+                        mode="execute",
+                    ),
+                )
+
+            if tool_name == "swap_evm_cross_chain_tokens":
+                token_in = args.get("token_in")
+                destination_chain = args.get("destination_chain")
+                output_token = args.get("output_token")
+                destination_address = args.get("destination_address")
+                amount_in_raw = args.get("amount_in_raw")
+                slippage_bps = self._normalize_mayan_slippage(args.get("slippage_bps"))
+                gas_drop = args.get("gas_drop")
+                mode = args.get("mode")
+                purpose = args.get("purpose")
+                user_intent = args.get("user_intent", False)
+                approval_token = args.get("approval_token")
+
+                if not isinstance(token_in, str) or not token_in.strip():
+                    raise WalletBackendError("token_in is required.")
+                if not isinstance(destination_chain, str) or not destination_chain.strip():
+                    raise WalletBackendError("destination_chain is required.")
+                if not isinstance(output_token, str) or not output_token.strip():
+                    raise WalletBackendError("output_token is required.")
+                if not isinstance(destination_address, str) or not destination_address.strip():
+                    raise WalletBackendError("destination_address is required.")
+                if not isinstance(amount_in_raw, str) or not amount_in_raw.strip().isdigit():
+                    raise WalletBackendError("amount_in_raw must be a positive integer string.")
+                if int(amount_in_raw.strip()) <= 0:
+                    raise WalletBackendError("amount_in_raw must be greater than zero.")
+                if gas_drop is not None and not isinstance(gas_drop, (int, float)):
+                    raise WalletBackendError("gas_drop must be a number when provided.")
+                if mode not in {"preview", "prepare", "execute"}:
+                    raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
+                if not isinstance(purpose, str) or not purpose.strip():
+                    raise WalletBackendError("purpose is required.")
+
+                preview_kwargs = {
+                    "token_in": token_in.strip(),
+                    "destination_chain": destination_chain.strip(),
+                    "output_token": output_token.strip(),
+                    "destination_address": destination_address.strip(),
+                    "amount_in_raw": amount_in_raw.strip(),
+                    "slippage_bps": slippage_bps,
+                    "gas_drop": gas_drop,
+                }
+
+                if mode == "preview":
+                    preview = await active_backend.preview_evm_cross_chain_swap(**preview_kwargs)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            preview,
+                            action_label="EVM cross-chain swap",
+                            mode="preview",
+                        ),
+                    )
+
+                if mode == "prepare":
+                    self._require_prepare_intent(user_intent)
+                    preview = await active_backend.preview_evm_cross_chain_swap(**preview_kwargs)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            self._build_prepare_plan(
+                                preview_payload=preview,
+                                action_label="EVM cross-chain swap",
+                            ),
+                            action_label="EVM cross-chain swap",
+                            mode="prepare",
+                        ),
+                    )
+
+                approval_payload = inspect_approval_token(
+                    approval_token,
+                    tool_name=tool_name,
+                    network=str(getattr(active_backend, "network", "unknown")),
+                    require_mainnet_confirmation=self._is_mainnet_for_backend(active_backend),
+                )
+                approval_summary = approval_payload.get("binding", {}).get("summary")
+                if not isinstance(approval_summary, dict):
+                    raise WalletBackendError(
+                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                    )
+                expected_summary = {
+                    "operation": "EVM cross-chain swap",
+                    "network": str(getattr(active_backend, "network", "unknown")),
+                    "source_chain": str(getattr(active_backend, "network", "unknown")),
+                    "destination_chain": destination_chain.strip(),
+                    "token_in": token_in.strip(),
+                    "output_token": output_token.strip(),
+                    "destination_address": destination_address.strip(),
+                    "input_amount_raw": amount_in_raw.strip(),
+                }
+                for key, expected_value in expected_summary.items():
+                    if approval_summary.get(key) != expected_value:
+                        raise WalletBackendError(
+                            "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                        )
+
+                approval_summary_copy = dict(approval_summary)
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=approval_summary_copy,
+                    action_label="EVM cross-chain swap",
+                    backend=active_backend,
+                )
+                result = await active_backend.send_evm_cross_chain_swap(
+                    token_in=str(approval_summary_copy.get("token_in") or token_in).strip(),
+                    destination_chain=str(
+                        approval_summary_copy.get("destination_chain") or destination_chain
+                    ).strip(),
+                    output_token=str(approval_summary_copy.get("output_token") or output_token).strip(),
+                    destination_address=str(
+                        approval_summary_copy.get("destination_address") or destination_address
+                    ).strip(),
+                    amount_in_raw=str(approval_summary_copy.get("input_amount_raw") or amount_in_raw).strip(),
+                    slippage_bps=approval_summary_copy.get("slippage_bps", slippage_bps),
+                    gas_drop=approval_summary_copy.get("gas_drop"),
+                    minimum_output_amount_raw=(
+                        str(approval_summary_copy.get("minimum_output_amount_raw")).strip()
+                        if approval_summary_copy.get("minimum_output_amount_raw") is not None
+                        else None
+                    ),
+                )
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=self._annotate_sensitive_payload(
+                        result,
+                        action_label="EVM cross-chain swap",
                         mode="execute",
                     ),
                 )

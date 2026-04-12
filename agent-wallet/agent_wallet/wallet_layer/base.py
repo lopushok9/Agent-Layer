@@ -121,6 +121,33 @@ class AgentWalletBackend(ABC):
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support EVM swaps.")
 
+    async def preview_evm_cross_chain_swap(
+        self,
+        *,
+        token_in: str,
+        destination_chain: str,
+        output_token: str,
+        destination_address: str,
+        amount_in_raw: str,
+        slippage_bps: int | str = "auto",
+        gas_drop: int | float | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM-origin cross-chain swap previews.")
+
+    async def send_evm_cross_chain_swap(
+        self,
+        *,
+        token_in: str,
+        destination_chain: str,
+        output_token: str,
+        destination_address: str,
+        amount_in_raw: str,
+        slippage_bps: int | str = "auto",
+        gas_drop: int | float | None = None,
+        minimum_output_amount_raw: str | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM-origin cross-chain swaps.")
+
     async def preview_evm_native_transfer(
         self,
         *,

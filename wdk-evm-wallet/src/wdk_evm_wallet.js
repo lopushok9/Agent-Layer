@@ -1,5 +1,10 @@
 import crypto from "node:crypto";
 
+import {
+  fetchQuote as fetchMayanQuote,
+  getSwapFromEvmTxPayload as getMayanSwapFromEvmTxPayload,
+  estimateQuoteRequiredGasAprox2 as estimateMayanQuoteRequiredGas,
+} from "@mayanfinance/swap-sdk";
 import WDK from "@tetherto/wdk";
 import VeloraProtocolEvm from "@tetherto/wdk-protocol-swap-velora-evm";
 import WalletManagerEvm, { WalletAccountReadOnlyEvm } from "@tetherto/wdk-wallet-evm";
@@ -10,8 +15,29 @@ const ERC20_DECIMALS_SELECTOR = "0x313ce567";
 const ERC20_BALANCE_OF_SELECTOR = "0x70a08231";
 const ERC20_APPROVE_SELECTOR = "0x095ea7b3";
 const USDT_MAINNET_ADDRESS = "0xdac17f958d2ee523a2206206994597c13d831ec7";
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const VELORA_NATIVE_TOKEN_ADDRESS = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+const MAYAN_FORWARDER_CONTRACT = "0x337685fdab40d39bd02028545a4ffa7d287cc3e2";
 const DEFAULT_SWAP_SLIPPAGE_BPS = 100;
+const MAYAN_SUPPORTED_CHAINS = new Set([
+  "solana",
+  "ethereum",
+  "base",
+  "arbitrum",
+  "optimism",
+  "polygon",
+  "bsc",
+  "avalanche",
+  "sui",
+  "aptos",
+  "linea",
+  "unichain",
+  "hypercore",
+  "sonic",
+  "hyperevm",
+  "fogo",
+  "monad",
+]);
 
 function createTaggedError(message, code, details = {}) {
   const error = new Error(message);
@@ -105,8 +131,43 @@ function assertVeloraSupportedNetwork(network) {
   }
 }
 
+function assertMayanSupportedNetwork(network) {
+  if (!["ethereum", "base"].includes(network)) {
+    throw new Error(
+      "Mayan EVM-origin swaps are currently supported only on ethereum and base mainnet."
+    );
+  }
+}
+
 function isVeloraNativeTokenAddress(value) {
   return String(value || "").trim().toLowerCase() === VELORA_NATIVE_TOKEN_ADDRESS;
+}
+
+function isZeroAddress(value) {
+  return String(value || "").trim().toLowerCase() === ZERO_ADDRESS;
+}
+
+function normalizeEvmTokenAddressAllowingNative(value, fieldName) {
+  const address = assertNonEmptyString(value, fieldName);
+  if (isZeroAddress(address)) {
+    return ZERO_ADDRESS;
+  }
+  return normalizeAddress(address, fieldName);
+}
+
+function normalizeMayanChain(value, fieldName = "destinationChain") {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  const aliases = {
+    eth: "ethereum",
+    mainnet: "ethereum",
+    "eth-mainnet": "ethereum",
+    "base-mainnet": "base",
+  };
+  const effective = aliases[normalized] || normalized;
+  if (!MAYAN_SUPPORTED_CHAINS.has(effective)) {
+    throw new Error(`${fieldName} is not supported by Mayan.`);
+  }
+  return effective;
 }
 
 function buildSwapRequest({ tokenIn, tokenOut, tokenInAmount }) {
@@ -117,6 +178,54 @@ function buildSwapRequest({ tokenIn, tokenOut, tokenInAmount }) {
   };
   assertDistinctAddresses(swapRequest.tokenIn, "tokenIn", swapRequest.tokenOut, "tokenOut");
   return swapRequest;
+}
+
+function parseMayanSlippageBps(value, fallback = DEFAULT_SWAP_SLIPPAGE_BPS) {
+  if (value === undefined || value === null || value === "" || value === "auto") {
+    return fallback;
+  }
+  if (typeof value === "boolean") {
+    throw new Error("slippageBps must be a non-negative integer or 'auto'.");
+  }
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error("slippageBps must be a non-negative integer or 'auto'.");
+  }
+  return parsed;
+}
+
+function parseOptionalNonNegativeNumber(value, fieldName) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+  if (typeof value === "boolean") {
+    throw new Error(`${fieldName} must be a non-negative number when provided.`);
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(`${fieldName} must be a non-negative number when provided.`);
+  }
+  return parsed;
+}
+
+function buildMayanEvmSwapRequest({
+  tokenIn,
+  destinationChain,
+  outputToken,
+  destinationAddress,
+  tokenInAmount,
+  slippageBps,
+  gasDrop,
+}) {
+  return {
+    tokenIn: normalizeEvmTokenAddressAllowingNative(tokenIn, "tokenIn"),
+    destinationChain: normalizeMayanChain(destinationChain, "destinationChain"),
+    outputToken: assertNonEmptyString(outputToken, "outputToken"),
+    destinationAddress: assertNonEmptyString(destinationAddress, "destinationAddress"),
+    tokenInAmount: assertPositiveBigIntString(tokenInAmount, "tokenInAmount"),
+    slippageBps: parseMayanSlippageBps(slippageBps),
+    gasDrop: parseOptionalNonNegativeNumber(gasDrop, "gasDrop"),
+  };
 }
 
 function parseOptionalDecimalBigInt(value) {
@@ -612,6 +721,88 @@ export class WdkEvmWalletService {
     );
   }
 
+  async quoteMayanSwap({
+    seedPhrase,
+    address,
+    tokenIn,
+    destinationChain,
+    outputToken,
+    destinationAddress,
+    tokenInAmount,
+    slippageBps = DEFAULT_SWAP_SLIPPAGE_BPS,
+    gasDrop = null,
+    accountIndex = 0,
+    network,
+  }) {
+    return this.#withReadableAccount(
+      { seedPhrase, address, accountIndex, network },
+      async (account, runtimeConfig) => {
+        assertMayanSupportedNetwork(runtimeConfig.network);
+        const swapRequest = buildMayanEvmSwapRequest({
+          tokenIn,
+          destinationChain,
+          outputToken,
+          destinationAddress,
+          tokenInAmount,
+          slippageBps,
+          gasDrop,
+        });
+        const address = await account.getAddress();
+        const plan = await this.#buildMayanEvmSwapPlan({
+          account,
+          runtimeConfig,
+          address,
+          swapRequest,
+          tolerateSwapFeeFailure: true,
+        });
+        return {
+          network: runtimeConfig.network,
+          chainId: runtimeConfig.chainId,
+          accountIndex,
+          address,
+          protocol: "mayan",
+          executionSupported: true,
+          sourceChain: runtimeConfig.network,
+          destinationChain: swapRequest.destinationChain,
+          swapRequest: {
+            tokenIn: swapRequest.tokenIn,
+            outputToken: swapRequest.outputToken,
+            destinationAddress: swapRequest.destinationAddress,
+            tokenInAmount: swapRequest.tokenInAmount.toString(),
+          },
+          tokenInMetadata: plan.tokenInMetadata,
+          outputTokenMetadata: plan.outputTokenMetadata,
+          inputAmountFormatted: formatUnits(swapRequest.tokenInAmount, plan.tokenInMetadata.decimals),
+          outputAmountFormatted: formatUnits(plan.tokenOutAmount, plan.outputTokenMetadata.decimals),
+          quoteFingerprint: plan.quoteFingerprint,
+          estimatedFeeWei:
+            plan.totalEstimatedFee !== null ? plan.totalEstimatedFee.toString() : null,
+          estimatedSwapFeeWei: plan.swapFee !== null ? plan.swapFee.toString() : null,
+          estimatedApprovalFeeWei: plan.approval.estimatedFee.toString(),
+          feeEstimateAvailable: plan.swapFee !== null,
+          feeEstimateError: plan.swapFeeError,
+          slippageBps: plan.slippageBps,
+          minimumOutputAmountRaw: plan.minimumTokenOutAmount.toString(),
+          allowance: {
+            spender: plan.spender,
+            currentAllowance: plan.currentAllowance.toString(),
+            requiredAllowance: plan.tokenInAmount.toString(),
+            approvalRequired: plan.approval.required,
+            approvalSequence: plan.approval.steps,
+            readError: plan.allowanceReadError,
+          },
+          router: plan.router,
+          simulation: plan.simulation,
+          swapTransaction: plan.swapTransaction,
+          quoteType: plan.quoteType,
+          quoteId: plan.quoteId,
+          quote: plan.quote,
+          source: "mayan",
+        };
+      }
+    );
+  }
+
   async swap({
     seedPhrase,
     tokenIn,
@@ -749,6 +940,168 @@ export class WdkEvmWalletService {
           swapTransaction: finalPlan.swapTransaction,
           result,
           source: "wdk-protocol-swap-velora-evm",
+        };
+      } catch (error) {
+        const cleanup = await this.#restoreAllowanceAfterFailedSwap({
+          account,
+          runtimeConfig,
+          tokenAddress: swapRequest.tokenIn,
+          spender: initialPlan.spender,
+          originalAllowance: initialPlan.currentAllowance,
+          approvalExecution,
+        });
+        this.#throwSwapFailureWithCleanup(error, cleanup);
+      }
+    });
+  }
+
+  async sendMayanSwap({
+    seedPhrase,
+    tokenIn,
+    destinationChain,
+    outputToken,
+    destinationAddress,
+    tokenInAmount,
+    slippageBps = DEFAULT_SWAP_SLIPPAGE_BPS,
+    gasDrop = null,
+    accountIndex = 0,
+    network,
+    minimumTokenOutAmount = null,
+  }) {
+    return this.#withAccount({ seedPhrase, accountIndex, network }, async (account, runtimeConfig) => {
+      assertMayanSupportedNetwork(runtimeConfig.network);
+      const swapRequest = buildMayanEvmSwapRequest({
+        tokenIn,
+        destinationChain,
+        outputToken,
+        destinationAddress,
+        tokenInAmount,
+        slippageBps,
+        gasDrop,
+      });
+      const requestedMinimumTokenOutAmount =
+        minimumTokenOutAmount !== null && minimumTokenOutAmount !== undefined
+          ? assertPositiveBigIntString(minimumTokenOutAmount, "minimumTokenOutAmount")
+          : null;
+      const address = await account.getAddress();
+      let initialPlan = await this.#buildMayanEvmSwapPlan({
+        account,
+        runtimeConfig,
+        address,
+        swapRequest,
+      });
+      this.#assertMinimumSwapOutput(
+        requestedMinimumTokenOutAmount,
+        initialPlan.minimumTokenOutAmount,
+        initialPlan.tokenOutAmount
+      );
+
+      const approvalExecution = await this.#executeSwapApprovalsIfNeeded({
+        account,
+        runtimeConfig,
+        swapRequest: {
+          tokenIn: swapRequest.tokenIn,
+        },
+        plan: initialPlan,
+      });
+
+      let finalPlan = initialPlan;
+      try {
+        if (approvalExecution.performed) {
+          finalPlan = await this.#buildMayanEvmSwapPlan({
+            account,
+            runtimeConfig,
+            address,
+            swapRequest,
+          });
+        }
+        this.#assertMinimumSwapOutput(
+          requestedMinimumTokenOutAmount,
+          finalPlan.minimumTokenOutAmount,
+          finalPlan.tokenOutAmount
+        );
+
+        const allowanceReadUncertain =
+          approvalExecution.performed && finalPlan.allowanceReadError !== null;
+
+        if (finalPlan.approval.required && !allowanceReadUncertain) {
+          throw createTaggedError(
+            "Cross-chain swap still requires token approval after the approval step completed.",
+            "swap_approval_required",
+            {
+              spender: finalPlan.spender,
+              requiredAllowance: finalPlan.tokenInAmount.toString(),
+              currentAllowance: finalPlan.currentAllowance.toString(),
+            }
+          );
+        }
+
+        const effectiveSimulation = allowanceReadUncertain
+          ? await this.#simulatePreparedTransaction({
+              runtimeConfig,
+              from: address,
+              tx: finalPlan.swapTx,
+            })
+          : finalPlan.simulation;
+        this.#assertSimulationSucceeded(effectiveSimulation);
+
+        const { hash } = await account.sendTransaction(finalPlan.swapTx);
+        const totalFee = approvalExecution.totalFee + finalPlan.swapFee;
+        const result = {
+          hash,
+          fee: totalFee.toString(),
+          swapFee: finalPlan.swapFee.toString(),
+          approvalFee: approvalExecution.totalFee.toString(),
+          tokenInAmount: finalPlan.tokenInAmount.toString(),
+          tokenOutAmount: finalPlan.tokenOutAmount.toString(),
+          ...(approvalExecution.approveHash ? { approveHash: approvalExecution.approveHash } : {}),
+          ...(approvalExecution.resetAllowanceHash
+            ? { resetAllowanceHash: approvalExecution.resetAllowanceHash }
+            : {}),
+        };
+        return {
+          network: runtimeConfig.network,
+          chainId: runtimeConfig.chainId,
+          accountIndex,
+          address,
+          protocol: "mayan",
+          executionSupported: true,
+          sourceChain: runtimeConfig.network,
+          destinationChain: swapRequest.destinationChain,
+          swapRequest: {
+            tokenIn: swapRequest.tokenIn,
+            outputToken: swapRequest.outputToken,
+            destinationAddress: swapRequest.destinationAddress,
+            tokenInAmount: swapRequest.tokenInAmount.toString(),
+          },
+          tokenInMetadata: finalPlan.tokenInMetadata,
+          outputTokenMetadata: finalPlan.outputTokenMetadata,
+          inputAmountFormatted: formatUnits(swapRequest.tokenInAmount, finalPlan.tokenInMetadata.decimals),
+          outputAmountFormatted: formatUnits(finalPlan.tokenOutAmount, finalPlan.outputTokenMetadata.decimals),
+          quoteFingerprint: finalPlan.quoteFingerprint,
+          estimatedFeeWei: totalFee.toString(),
+          estimatedSwapFeeWei: finalPlan.swapFee.toString(),
+          estimatedApprovalFeeWei: approvalExecution.totalFee.toString(),
+          feeEstimateAvailable: true,
+          feeEstimateError: null,
+          slippageBps: finalPlan.slippageBps,
+          minimumOutputAmountRaw: finalPlan.minimumTokenOutAmount.toString(),
+          allowance: {
+            spender: finalPlan.spender,
+            currentAllowance: finalPlan.currentAllowance.toString(),
+            requiredAllowance: finalPlan.tokenInAmount.toString(),
+            approvalRequired: finalPlan.approval.required,
+            approvalSequence: finalPlan.approval.steps,
+            readError: finalPlan.allowanceReadError,
+          },
+          router: finalPlan.router,
+          simulation: effectiveSimulation,
+          swapTransaction: finalPlan.swapTransaction,
+          quoteType: finalPlan.quoteType,
+          quoteId: finalPlan.quoteId,
+          quote: finalPlan.quote,
+          result,
+          source: "mayan",
         };
       } catch (error) {
         const cleanup = await this.#restoreAllowanceAfterFailedSwap({
@@ -1136,6 +1489,20 @@ export class WdkEvmWalletService {
     }
   }
 
+  #buildMayanTokenMetadata(token, fallbackAddress, fallbackSource = "mayan-quote") {
+    const payload = token && typeof token === "object" ? token : {};
+    const contract = String(payload.contract || fallbackAddress || "").trim();
+    const decimals = Number(payload.decimals ?? 0);
+    return {
+      address: contract || fallbackAddress || "",
+      name: payload.name ? String(payload.name) : null,
+      symbol: payload.symbol ? String(payload.symbol) : null,
+      decimals: Number.isInteger(decimals) && decimals >= 0 ? decimals : 0,
+      verified: Boolean(payload.verified),
+      source: fallbackSource,
+    };
+  }
+
   #assertMaxFee(runtimeConfig, fee, operation) {
     if (
       runtimeConfig.transferMaxFeeWei !== null &&
@@ -1148,6 +1515,204 @@ export class WdkEvmWalletService {
         maxFee: BigInt(runtimeConfig.transferMaxFeeWei).toString(),
       });
     }
+  }
+
+  #selectSupportedMayanQuote(quotes = []) {
+    for (const quote of Array.isArray(quotes) ? quotes : []) {
+      if (!quote || typeof quote !== "object") {
+        continue;
+      }
+      if (quote.type === "SHUTTLE") {
+        continue;
+      }
+      if (quote.type === "SWIFT" && quote.gasless) {
+        continue;
+      }
+      return quote;
+    }
+    throw createTaggedError(
+      "Mayan did not return a supported EVM-origin route for this swap.",
+      "route_not_found"
+    );
+  }
+
+  async #buildMayanEvmSwapPlan({
+    account,
+    runtimeConfig,
+    address,
+    swapRequest,
+    tolerateSwapFeeFailure = false,
+  }) {
+    const quotes = await fetchMayanQuote(
+      {
+        fromChain: runtimeConfig.network,
+        toChain: swapRequest.destinationChain,
+        fromToken: swapRequest.tokenIn,
+        toToken: swapRequest.outputToken,
+        amountIn64: swapRequest.tokenInAmount.toString(),
+        slippageBps: swapRequest.slippageBps,
+        ...(swapRequest.gasDrop !== null ? { gasDrop: swapRequest.gasDrop } : {}),
+        destinationAddress: swapRequest.destinationAddress,
+      },
+      {
+        wormhole: true,
+        swift: true,
+        mctp: true,
+        fastMctp: true,
+        shuttle: false,
+        gasless: false,
+        monoChain: true,
+      }
+    );
+    const quote = this.#selectSupportedMayanQuote(quotes);
+    const txPayload = await getMayanSwapFromEvmTxPayload(
+      quote,
+      address,
+      swapRequest.destinationAddress,
+      null,
+      address,
+      runtimeConfig.chainId,
+      null,
+      null
+    );
+    const spender = normalizeAddress(String(txPayload.to || MAYAN_FORWARDER_CONTRACT), "spender");
+    const swapTx = {
+      to: spender,
+      data: assertNonEmptyString(String(txPayload.data || ""), "swapTx.data"),
+      value: BigInt(txPayload.value || 0),
+    };
+    const isNativeTokenIn = isZeroAddress(swapRequest.tokenIn);
+    const allowanceState = isNativeTokenIn
+      ? {
+          currentAllowance: swapRequest.tokenInAmount,
+          error: null,
+        }
+      : await this.#getSwapAllowanceState({
+          account,
+          tokenAddress: swapRequest.tokenIn,
+          spender,
+        });
+    const currentAllowance = allowanceState.currentAllowance;
+    const approval = isNativeTokenIn
+      ? {
+          required: false,
+          estimatedFee: 0n,
+          steps: [],
+        }
+      : await this.#buildSwapApprovalPlan({
+          account,
+          runtimeConfig,
+          tokenAddress: swapRequest.tokenIn,
+          spender,
+          requiredAmount: swapRequest.tokenInAmount,
+          currentAllowance,
+        });
+
+    let swapFee = null;
+    let swapFeeError = null;
+    try {
+      const mayanFeeQuote = await estimateMayanQuoteRequiredGas(quote, null);
+      this.#assertMaxFee(runtimeConfig, mayanFeeQuote.requiredNative, "mayan swap");
+      swapFee = BigInt(mayanFeeQuote.requiredNative);
+    } catch (estimateError) {
+      const fallbackQuote = await this.#quoteSwapTransaction({
+        account,
+        runtimeConfig,
+        from: address,
+        swapTx,
+        tolerateFailure: tolerateSwapFeeFailure || approval.required,
+      });
+      swapFee = fallbackQuote.fee;
+      swapFeeError = fallbackQuote.error;
+      if (swapFee === null && !tolerateSwapFeeFailure && !approval.required) {
+        throw estimateError;
+      }
+    }
+
+    const simulation = approval.required
+      ? {
+          ok: null,
+          skipped: true,
+          reason: "allowance_required",
+        }
+      : await this.#simulatePreparedTransaction({
+          runtimeConfig,
+          from: address,
+          tx: swapTx,
+        });
+    const tokenOutAmount = BigInt(
+      String(
+        quote.expectedAmountOutBaseUnits ||
+          quote.minAmountOutBaseUnits ||
+          quote.minReceivedBaseUnits ||
+          "0"
+      )
+    );
+    const minimumTokenOutAmount = BigInt(
+      String(
+        quote.minAmountOutBaseUnits ||
+          quote.minReceivedBaseUnits ||
+          quote.expectedAmountOutBaseUnits ||
+          "0"
+      )
+    );
+    const swapTransaction = {
+      to: swapTx.to,
+      value: swapTx.value.toString(),
+      dataHash: sha256Hex(swapTx.data),
+    };
+    const quoteFingerprint = sha256Hex(
+      JSON.stringify({
+        chainId: runtimeConfig.chainId,
+        network: runtimeConfig.network,
+        from: address.toLowerCase(),
+        sourceChain: runtimeConfig.network,
+        destinationChain: swapRequest.destinationChain,
+        tokenIn: swapRequest.tokenIn.toLowerCase(),
+        outputToken: swapRequest.outputToken,
+        destinationAddress: swapRequest.destinationAddress,
+        tokenInAmount: swapRequest.tokenInAmount.toString(),
+        minimumTokenOutAmount: minimumTokenOutAmount.toString(),
+        slippageBps: swapRequest.slippageBps,
+        quoteType: quote.type,
+      })
+    );
+    return {
+      quote,
+      quoteType: String(quote.type || "").trim() || null,
+      quoteId: String(quote.quoteId || "").trim() || null,
+      quoteFingerprint,
+      slippageBps: swapRequest.slippageBps,
+      minimumTokenOutAmount,
+      router: spender,
+      spender,
+      currentAllowance,
+      allowanceReadError: allowanceState.error,
+      tokenInAmount: swapRequest.tokenInAmount,
+      tokenOutAmount,
+      swapTx,
+      swapFee,
+      swapFeeError,
+      totalEstimatedFee: swapFee !== null ? swapFee + approval.estimatedFee : null,
+      approval,
+      simulation,
+      swapTransaction,
+      tokenInMetadata: isNativeTokenIn
+        ? {
+            address: ZERO_ADDRESS,
+            name: runtimeConfig.nativeSymbol === "ETH" ? "Ether" : runtimeConfig.nativeSymbol,
+            symbol: runtimeConfig.nativeSymbol,
+            decimals: 18,
+            verified: true,
+            source: "native-asset",
+          }
+        : this.#buildMayanTokenMetadata(quote.fromToken, swapRequest.tokenIn),
+      outputTokenMetadata: this.#buildMayanTokenMetadata(
+        quote.toToken,
+        swapRequest.outputToken,
+        "mayan-destination-token"
+      ),
+    };
   }
 
   #assertExpectedSwapFingerprint(expectedQuoteFingerprint, actualQuoteFingerprint) {
