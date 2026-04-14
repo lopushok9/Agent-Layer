@@ -178,6 +178,77 @@ class FakeEvmBackend(AgentWalletBackend):
             "source": "mayan",
         }
 
+    async def get_lifi_supported_chains(self) -> dict:
+        return {
+            "provider": "lifi",
+            "chain": "cross-chain",
+            "network": "mainnet",
+            "chain_count": 3,
+            "chains": [
+                {"chain_id": "1", "name": "Ethereum"},
+                {"chain_id": "8453", "name": "Base"},
+                {"chain_id": "1151111081099710", "name": "Solana"},
+            ],
+            "source": "lifi",
+        }
+
+    async def get_lifi_quote(
+        self,
+        *,
+        from_chain: str,
+        to_chain: str,
+        from_token: str,
+        to_token: str,
+        amount_in_raw: str,
+        from_address: str | None = None,
+        to_address: str | None = None,
+        slippage: float | int | None = None,
+        allow_bridges: list[str] | None = None,
+        deny_bridges: list[str] | None = None,
+        prefer_bridges: list[str] | None = None,
+    ) -> dict:
+        return {
+            "provider": "lifi",
+            "chain": "cross-chain",
+            "network": "mainnet",
+            "from_chain": from_chain,
+            "to_chain": to_chain,
+            "from_token": from_token,
+            "to_token": to_token,
+            "amount_in_raw": amount_in_raw,
+            "from_address": from_address or await self.get_address(),
+            "to_address": to_address,
+            "slippage": slippage,
+            "allow_bridges": allow_bridges,
+            "deny_bridges": deny_bridges,
+            "prefer_bridges": prefer_bridges,
+            "tool": "relay",
+            "estimate": {"toAmount": "995000", "toAmountMin": "985000"},
+            "transaction_request": {"to": "0xrouter", "data": "0x"},
+            "quote": {"tool": "relay"},
+            "source": "lifi",
+        }
+
+    async def get_lifi_transfer_status(
+        self,
+        *,
+        tx_hash: str,
+        bridge: str | None = None,
+        from_chain: str | None = None,
+        to_chain: str | None = None,
+    ) -> dict:
+        return {
+            "provider": "lifi",
+            "chain": "cross-chain",
+            "network": "mainnet",
+            "tx_hash": tx_hash,
+            "bridge": bridge,
+            "from_chain": from_chain,
+            "to_chain": to_chain,
+            "status": "DONE",
+            "source": "lifi",
+        }
+
     async def get_evm_token_balance(self, token_address: str) -> dict:
         return {
             "chain": "evm",
@@ -569,6 +640,142 @@ class FakeEvmBackend(AgentWalletBackend):
             "confirmed": False,
         }
 
+    async def preview_evm_lifi_cross_chain_swap(
+        self,
+        *,
+        token_in: str,
+        destination_chain: str,
+        output_token: str,
+        destination_address: str,
+        amount_in_raw: str,
+        slippage: float | int | None = None,
+        allow_bridges: list[str] | None = None,
+        deny_bridges: list[str] | None = None,
+        prefer_bridges: list[str] | None = None,
+    ) -> dict:
+        destination_chain_ids = {
+            "ethereum": "1",
+            "1": "1",
+            "base": "8453",
+            "8453": "8453",
+            "solana": "1151111081099710",
+            "1151111081099710": "1151111081099710",
+        }
+        destination_chain_id = destination_chain_ids.get(destination_chain, destination_chain)
+        zero_address = "0x0000000000000000000000000000000000000000"
+        normalized_token_in = zero_address if token_in.lower() in {"native", "eth"} else token_in
+        normalized_output_token = (
+            zero_address
+            if destination_chain_id in {"1", "8453"} and output_token.lower() in {"native", "eth"}
+            else output_token
+        )
+        return {
+            "chain": "evm",
+            "network": self.network,
+            "asset_type": "evm-lifi-cross-chain-swap",
+            "asset": "EVM",
+            "wallet": "evm-wallet-123",
+            "from_address": await self.get_address(),
+            "source_chain": self.network,
+            "destination_chain": destination_chain,
+            "destination_chain_id": destination_chain_id,
+            "token_in": normalized_token_in,
+            "output_token": normalized_output_token,
+            "destination_address": destination_address,
+            "input_amount_raw": amount_in_raw,
+            "input_amount_ui": "1",
+            "estimated_output_amount_raw": "996830",
+            "estimated_output_amount_ui": "0.99683",
+            "estimated_fee_wei": "73000000000000",
+            "estimated_swap_fee_wei": "45000000000000",
+            "estimated_approval_fee_wei": "28000000000000",
+            "slippage": 0.01 if slippage is None else slippage,
+            "minimum_output_amount_raw": "996000",
+            "swap_provider": "lifi",
+            "execution_supported": True,
+            "route_plan": {"tool": "across", "estimate": {"toAmount": "996830"}},
+            "quote_fingerprint": "lifi-evm-fingerprint-1",
+            "quote_type": "lifi",
+            "quote_id": "lifi-quote-1",
+            "tool": "across",
+            "router": "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE",
+            "allowance": {
+                "spender": "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE",
+                "current_allowance_raw": "0",
+                "required_allowance_raw": amount_in_raw,
+                "approval_required": normalized_token_in.lower() != zero_address,
+                "approval_sequence": (
+                    [{"type": "approve", "amount": amount_in_raw, "estimatedFeeWei": "28000000000000"}]
+                    if normalized_token_in.lower() != zero_address
+                    else []
+                ),
+            },
+            "simulation": {
+                "ok": None if normalized_token_in.lower() != zero_address else True,
+                "skipped": normalized_token_in.lower() != zero_address,
+                "reason": "allowance_required" if normalized_token_in.lower() != zero_address else None,
+                "message": None,
+                "details": None,
+            },
+            "swap_transaction": {
+                "to": "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE",
+                "value": "0",
+                "data_hash": "lifi-evm-data-hash-1",
+            },
+            "token_in_metadata": {
+                "address": normalized_token_in,
+                "name": "USD Coin",
+                "symbol": "USDC",
+                "decimals": 6,
+                "verified": False,
+                "source": "fake",
+            },
+            "output_token_metadata": {
+                "address": normalized_output_token,
+                "name": "USD Coin",
+                "symbol": "USDC",
+                "decimals": 6,
+                "verified": True,
+                "source": "fake",
+            },
+            "source": "fake",
+        }
+
+    async def send_evm_lifi_cross_chain_swap(
+        self,
+        *,
+        token_in: str,
+        destination_chain: str,
+        output_token: str,
+        destination_address: str,
+        amount_in_raw: str,
+        slippage: float | int | None = None,
+        allow_bridges: list[str] | None = None,
+        deny_bridges: list[str] | None = None,
+        prefer_bridges: list[str] | None = None,
+        minimum_output_amount_raw: str | None = None,
+    ) -> dict:
+        if minimum_output_amount_raw and minimum_output_amount_raw != "996000":
+            raise WalletBackendError("minimum output mismatch", code="swap_quote_changed")
+        preview = await self.preview_evm_lifi_cross_chain_swap(
+            token_in=token_in,
+            destination_chain=destination_chain,
+            output_token=output_token,
+            destination_address=destination_address,
+            amount_in_raw=amount_in_raw,
+            slippage=slippage,
+            allow_bridges=allow_bridges,
+            deny_bridges=deny_bridges,
+            prefer_bridges=prefer_bridges,
+        )
+        return {
+            **preview,
+            "output_amount_raw": "996830",
+            "hash": "0x" + "f" * 64,
+            "broadcasted": True,
+            "confirmed": False,
+        }
+
     async def preview_evm_native_transfer(
         self,
         *,
@@ -673,6 +880,10 @@ async def _main() -> None:
     assert "get_mayan_tokens" in tool_names
     assert "get_mayan_quote" in tool_names
     assert "get_mayan_swap_status" in tool_names
+    assert "get_lifi_supported_chains" in tool_names
+    assert "get_lifi_quote" in tool_names
+    assert "get_lifi_transfer_status" in tool_names
+    assert "swap_evm_lifi_cross_chain_tokens" in tool_names
     assert "get_evm_network" in tool_names
     assert "get_evm_token_metadata" in tool_names
     assert "get_evm_swap_quote" in tool_names
@@ -682,6 +893,11 @@ async def _main() -> None:
     assert "transfer_evm_token" in tool_names
     assert "transfer_btc" not in tool_names
     assert "transfer_sol" not in tool_names
+    lifi_swap_tool = next(tool for tool in adapter.list_tools() if tool.name == "swap_evm_lifi_cross_chain_tokens")
+    lifi_destination_enum = lifi_swap_tool.input_schema["properties"]["destination_chain"]["enum"]
+    assert "ethereum" in lifi_destination_enum
+    assert "base" in lifi_destination_enum
+    assert "solana" in lifi_destination_enum
 
     balance = await adapter.invoke("get_wallet_balance", {})
     assert balance.ok is True
@@ -747,6 +963,33 @@ async def _main() -> None:
     )
     assert mayan_status.ok is True
     assert mayan_status.data["client_status"] == "COMPLETED"
+
+    lifi_chains = await adapter.invoke("get_lifi_supported_chains", {})
+    assert lifi_chains.ok is True
+    assert lifi_chains.data["chain_count"] == 3
+
+    lifi_quote = await adapter.invoke(
+        "get_lifi_quote",
+        {
+            "from_chain": "base",
+            "to_chain": "solana",
+            "from_token": "native",
+            "to_token": "native",
+            "amount_in_raw": "1000000",
+            "to_address": "FakeSolanaAddress111111111111111111111111111",
+            "slippage": 0.01,
+            "deny_bridges": ["mayan"],
+        },
+    )
+    assert lifi_quote.ok is True
+    assert lifi_quote.data["tool"] == "relay"
+
+    lifi_status = await adapter.invoke(
+        "get_lifi_transfer_status",
+        {"tx_hash": "0xsourcehash", "from_chain": "base", "to_chain": "solana"},
+    )
+    assert lifi_status.ok is True
+    assert lifi_status.data["status"] == "DONE"
 
     swap_quote = await adapter.invoke(
         "get_evm_swap_quote",
@@ -847,6 +1090,136 @@ async def _main() -> None:
     assert (
         cross_chain_preview.data["confirmation_summary"]["minimum_output_amount_raw"] == "985122"
     )
+
+    lifi_cross_chain_preview = await adapter.invoke(
+        "swap_evm_lifi_cross_chain_tokens",
+        {
+            "token_in": "0x2222222222222222222222222222222222222222",
+            "destination_chain": "solana",
+            "output_token": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "destination_address": "ENsytooJVSZyNHbxvueUeX8Am8gcNqPivVVE8USCBiy5",
+            "amount_in_raw": "1000000",
+            "slippage": 0.01,
+            "deny_bridges": ["mayan"],
+            "mode": "preview",
+            "purpose": "test evm lifi cross-chain swap",
+        },
+    )
+    assert lifi_cross_chain_preview.ok is True
+    assert lifi_cross_chain_preview.data["asset_type"] == "evm-lifi-cross-chain-swap"
+    assert lifi_cross_chain_preview.data["swap_provider"] == "lifi"
+    assert lifi_cross_chain_preview.data["tool"] == "across"
+    assert lifi_cross_chain_preview.data["minimum_output_amount_raw"] == "996000"
+
+    lifi_evm_to_evm_preview = await adapter.invoke(
+        "swap_evm_lifi_cross_chain_tokens",
+        {
+            "token_in": "0x0000000000000000000000000000000000000000",
+            "destination_chain": "base",
+            "output_token": "0x0000000000000000000000000000000000000000",
+            "destination_address": "0x3333333333333333333333333333333333333333",
+            "amount_in_raw": "1000000000000000",
+            "slippage": 0.01,
+            "deny_bridges": ["mayan"],
+            "mode": "preview",
+            "purpose": "test evm lifi evm-to-evm cross-chain swap",
+        },
+    )
+    assert lifi_evm_to_evm_preview.ok is True
+    assert lifi_evm_to_evm_preview.data["destination_chain"] == "base"
+    assert lifi_evm_to_evm_preview.data["destination_chain_id"] == "8453"
+
+    lifi_native_alias_preview = await adapter.invoke(
+        "swap_evm_lifi_cross_chain_tokens",
+        {
+            "token_in": "eth",
+            "destination_chain": "base",
+            "output_token": "native",
+            "destination_address": "0x3333333333333333333333333333333333333333",
+            "amount_in_raw": "1000000000000000",
+            "slippage": 0.01,
+            "deny_bridges": ["mayan"],
+            "mode": "preview",
+            "purpose": "test evm lifi native alias approval binding",
+        },
+    )
+    assert lifi_native_alias_preview.ok is True
+    assert (
+        lifi_native_alias_preview.data["confirmation_summary"]["token_in"]
+        == "0x0000000000000000000000000000000000000000"
+    )
+    assert (
+        lifi_native_alias_preview.data["confirmation_summary"]["output_token"]
+        == "0x0000000000000000000000000000000000000000"
+    )
+    lifi_native_alias_approval = issue_approval_token(
+        tool_name="swap_evm_lifi_cross_chain_tokens",
+        network="ethereum",
+        summary=lifi_native_alias_preview.data["confirmation_summary"],
+        mainnet_confirmed=True,
+        issued_by="test",
+    )
+    lifi_native_alias_execute = await adapter.invoke(
+        "swap_evm_lifi_cross_chain_tokens",
+        {
+            "token_in": "eth",
+            "destination_chain": "8453",
+            "output_token": "native",
+            "destination_address": "0x3333333333333333333333333333333333333333",
+            "amount_in_raw": "1000000000000000",
+            "slippage": 0.01,
+            "deny_bridges": ["mayan"],
+            "mode": "execute",
+            "purpose": "test evm lifi native alias approval binding",
+            "approval_token": lifi_native_alias_approval,
+        },
+    )
+    assert lifi_native_alias_execute.ok is True
+    assert lifi_native_alias_execute.data["hash"].startswith("0x")
+
+    lifi_cross_chain_prepare = await adapter.invoke(
+        "swap_evm_lifi_cross_chain_tokens",
+        {
+            "token_in": "0x2222222222222222222222222222222222222222",
+            "destination_chain": "solana",
+            "output_token": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "destination_address": "ENsytooJVSZyNHbxvueUeX8Am8gcNqPivVVE8USCBiy5",
+            "amount_in_raw": "1000000",
+            "slippage": 0.01,
+            "deny_bridges": ["mayan"],
+            "mode": "prepare",
+            "purpose": "test evm lifi cross-chain swap",
+            "user_intent": True,
+        },
+    )
+    assert lifi_cross_chain_prepare.ok is True
+    assert lifi_cross_chain_prepare.data["execution_plan_only"] is True
+
+    lifi_cross_chain_approval = issue_approval_token(
+        tool_name="swap_evm_lifi_cross_chain_tokens",
+        network="ethereum",
+        summary=lifi_cross_chain_preview.data["confirmation_summary"],
+        mainnet_confirmed=True,
+        issued_by="test",
+    )
+    lifi_cross_chain_execute = await adapter.invoke(
+        "swap_evm_lifi_cross_chain_tokens",
+        {
+            "token_in": "0x2222222222222222222222222222222222222222",
+            "destination_chain": "solana",
+            "output_token": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "destination_address": "ENsytooJVSZyNHbxvueUeX8Am8gcNqPivVVE8USCBiy5",
+            "amount_in_raw": "1000000",
+            "slippage": 0.01,
+            "deny_bridges": ["mayan"],
+            "mode": "execute",
+            "purpose": "test evm lifi cross-chain swap",
+            "approval_token": lifi_cross_chain_approval,
+        },
+    )
+    assert lifi_cross_chain_execute.ok is True
+    assert lifi_cross_chain_execute.data["hash"].startswith("0x")
+    assert lifi_cross_chain_execute.data["minimum_output_amount_raw"] == "996000"
 
     preview = await adapter.invoke(
         "transfer_evm_native",

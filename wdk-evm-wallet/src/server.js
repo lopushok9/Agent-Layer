@@ -430,6 +430,18 @@ async function handleRequest(request, response) {
       return sendJson(response, 200, { ok: true, data });
     }
 
+    if (method === "POST" && url.pathname === "/v1/evm/lifi/quote") {
+      const body = await withResolvedNetwork(await withResolvedSeedOrAddress(await readJsonBody(request)));
+      const data = await service.quoteLifiSwap(body);
+      return sendJson(response, 200, { ok: true, data });
+    }
+
+    if (method === "POST" && url.pathname === "/v1/evm/lifi/send") {
+      const body = await withResolvedNetwork(await withResolvedSeed(await readJsonBody(request)));
+      const data = await service.sendLifiSwap(body);
+      return sendJson(response, 200, { ok: true, data });
+    }
+
     if (method === "POST" && url.pathname === "/v1/evm/transfer/quote") {
       const body = await withResolvedNetwork(await withResolvedSeed(await readJsonBody(request)));
       const data = await service.quoteNativeTransfer(body);

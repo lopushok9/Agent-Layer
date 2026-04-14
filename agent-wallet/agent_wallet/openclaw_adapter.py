@@ -33,6 +33,21 @@ TEMPORARILY_DISABLED_TOOLS = {
     "get_jupiter_portfolio",
     "get_jupiter_staked_jup",
 }
+EVM_NATIVE_TOKEN_ADDRESS = "0x0000000000000000000000000000000000000000"
+SOLANA_NATIVE_TOKEN_ADDRESS = "11111111111111111111111111111111"
+LIFI_CHAIN_ALIASES = {
+    "eth": "1",
+    "ethereum": "1",
+    "mainnet": "1",
+    "eth-mainnet": "1",
+    "1": "1",
+    "base": "8453",
+    "base-mainnet": "8453",
+    "8453": "8453",
+    "sol": "1151111081099710",
+    "solana": "1151111081099710",
+    "1151111081099710": "1151111081099710",
+}
 
 
 class OpenClawWalletAdapter:
@@ -87,6 +102,47 @@ class OpenClawWalletAdapter:
         if isinstance(value, int) and value >= 0:
             return value
         raise WalletBackendError("slippage_bps must be a non-negative integer or 'auto'.")
+
+    def _normalize_lifi_slippage(self, value: Any) -> float | int | None:
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise WalletBackendError("slippage must be a number when provided.")
+        if value < 0 or value > 1:
+            raise WalletBackendError("slippage must be between 0 and 1, for example 0.01 for 1%.")
+        return value
+
+    def _normalize_optional_string_list(self, value: Any, *, field_name: str) -> list[str] | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            items = [item.strip() for item in value.split(",") if item.strip()]
+            return items or None
+        if not isinstance(value, list):
+            raise WalletBackendError(f"{field_name} must be an array of strings when provided.")
+        items: list[str] = []
+        for item in value:
+            if not isinstance(item, str) or not item.strip():
+                raise WalletBackendError(f"{field_name} must contain only non-empty strings.")
+            items.append(item.strip())
+        return items
+
+    def _canonicalize_lifi_chain_identifier(self, value: Any) -> str:
+        text = str(value or "").strip().lower()
+        return LIFI_CHAIN_ALIASES.get(text, text)
+
+    def _canonicalize_lifi_token_identifier(self, value: Any, *, chain_id: str) -> str:
+        text = str(value or "").strip()
+        alias = text.lower()
+        if chain_id in {"1", "8453"}:
+            if alias in {"native", "eth", "ethereum"}:
+                return EVM_NATIVE_TOKEN_ADDRESS
+            if alias.startswith("0x") and len(alias) == 42:
+                return alias
+            return text
+        if chain_id == "1151111081099710" and alias in {"native", "sol", "solana"}:
+            return SOLANA_NATIVE_TOKEN_ADDRESS
+        return text
 
     def _require_prepare_intent(self, user_intent: Any) -> None:
         if user_intent is not True:
@@ -195,7 +251,7 @@ class OpenClawWalletAdapter:
                 "quote_response": mayan_quote,
             }
 
-        if asset_type == "evm-cross-chain-swap":
+        if asset_type in {"evm-cross-chain-swap", "evm-lifi-cross-chain-swap"}:
             return {
                 "operation": action_label,
                 "network": str(payload.get("network") or getattr(self.backend, "network", "unknown")),
@@ -211,9 +267,11 @@ class OpenClawWalletAdapter:
                 "estimated_output_amount_raw": payload.get("estimated_output_amount_raw"),
                 "minimum_output_amount_raw": payload.get("minimum_output_amount_raw"),
                 "slippage_bps": payload.get("slippage_bps"),
+                "slippage": payload.get("slippage"),
                 "gas_drop": payload.get("gas_drop"),
                 "quote_type": payload.get("quote_type"),
                 "quote_id": payload.get("quote_id"),
+                "tool": payload.get("tool"),
                 "estimated_fee_wei": payload.get("estimated_fee_wei"),
                 "estimated_swap_fee_wei": payload.get("estimated_swap_fee_wei"),
                 "estimated_approval_fee_wei": payload.get("estimated_approval_fee_wei"),
@@ -677,6 +735,70 @@ class OpenClawWalletAdapter:
                     risk_level="low",
                 ),
                 AgentToolSpec(
+                    name="get_lifi_supported_chains",
+                    description="List the LI.FI chains currently allowed for OpenClaw cross-chain routing.",
+                    input_schema={
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": False,
+                    },
+                    read_only=True,
+                    risk_level="low",
+                ),
+                AgentToolSpec(
+                    name="get_lifi_quote",
+                    description="Get a read-only LI.FI cross-chain quote for Ethereum/Base/Solana routes. Execution is not enabled by this tool.",
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "from_chain": {"type": "string", "description": "Source chain: ethereum, base, solana, or the LI.FI chain id."},
+                            "to_chain": {"type": "string", "description": "Destination chain: ethereum, base, solana, or the LI.FI chain id."},
+                            "from_token": {"type": "string", "description": "Source token address. Use native/eth/sol for native tokens."},
+                            "to_token": {"type": "string", "description": "Destination token address. Use native/eth/sol for native tokens."},
+                            "amount_in_raw": {
+                                "type": "string",
+                                "description": "Input amount in token base units as a base-10 integer string.",
+                            },
+                            "from_address": {
+                                "type": "string",
+                                "description": "Optional source wallet address. Defaults to the active wallet when the source chain matches it.",
+                            },
+                            "to_address": {
+                                "type": "string",
+                                "description": "Optional destination wallet address. Defaults to the active wallet when the destination chain matches it.",
+                            },
+                            "slippage": {
+                                "type": "number",
+                                "description": "Optional decimal fraction, for example 0.01 for 1%.",
+                            },
+                            "allow_bridges": {"type": "array", "items": {"type": "string"}},
+                            "deny_bridges": {"type": "array", "items": {"type": "string"}},
+                            "prefer_bridges": {"type": "array", "items": {"type": "string"}},
+                        },
+                        "required": ["from_chain", "to_chain", "from_token", "to_token", "amount_in_raw"],
+                        "additionalProperties": False,
+                    },
+                    read_only=True,
+                    risk_level="low",
+                ),
+                AgentToolSpec(
+                    name="get_lifi_transfer_status",
+                    description="Get LI.FI cross-chain transfer status using a source/destination transaction hash or LI.FI step id.",
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "tx_hash": {"type": "string"},
+                            "bridge": {"type": "string"},
+                            "from_chain": {"type": "string"},
+                            "to_chain": {"type": "string"},
+                        },
+                        "required": ["tx_hash"],
+                        "additionalProperties": False,
+                    },
+                    read_only=True,
+                    risk_level="low",
+                ),
+                AgentToolSpec(
                     name="get_evm_network",
                     description="Show the effective EVM network context, available networks, and swap-supported networks.",
                     input_schema={
@@ -987,6 +1109,81 @@ class OpenClawWalletAdapter:
                         risk_level="high",
                     ),
                 )
+                tools.insert(
+                    9,
+                    AgentToolSpec(
+                        name="swap_evm_lifi_cross_chain_tokens",
+                        description=(
+                            "Preview, prepare, or execute an EVM-origin cross-chain swap through LI.FI. "
+                            "This currently supports ethereum/base as the source network and ethereum/base/solana as the destination chain. "
+                            "Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation."
+                        ),
+                        input_schema={
+                            "type": "object",
+                            "properties": {
+                                "token_in": {
+                                    "type": "string",
+                                    "description": "Source EVM token contract address, native, eth, or the zero address for native ETH.",
+                                },
+                                "destination_chain": {
+                                    "type": "string",
+                                    "enum": [
+                                        "ethereum",
+                                        "base",
+                                        "solana",
+                                        "1",
+                                        "8453",
+                                        "1151111081099710",
+                                    ],
+                                },
+                                "output_token": {
+                                    "type": "string",
+                                    "description": "Destination token identifier, for example the Solana USDC mint.",
+                                },
+                                "destination_address": {
+                                    "type": "string",
+                                    "description": "Destination wallet address on the target chain.",
+                                },
+                                "amount_in_raw": {
+                                    "type": "string",
+                                    "description": "Input amount in token base units as a base-10 integer string.",
+                                },
+                                "slippage": {
+                                    "type": "number",
+                                    "description": "Optional decimal fraction, for example 0.01 for 1%.",
+                                },
+                                "allow_bridges": {"type": "array", "items": {"type": "string"}},
+                                "deny_bridges": {"type": "array", "items": {"type": "string"}},
+                                "prefer_bridges": {"type": "array", "items": {"type": "string"}},
+                                "mode": {
+                                    "type": "string",
+                                    "enum": ["preview", "prepare", "execute"],
+                                },
+                                "purpose": {"type": "string"},
+                                "user_intent": {"type": "boolean"},
+                                "approval_token": {"type": "string"},
+                                "network": {
+                                    "type": "string",
+                                    "enum": ["ethereum", "base"],
+                                    "description": "Optional EVM network override for this request.",
+                                },
+                            },
+                            "required": [
+                                "token_in",
+                                "destination_chain",
+                                "output_token",
+                                "destination_address",
+                                "amount_in_raw",
+                                "mode",
+                                "purpose",
+                            ],
+                            "additionalProperties": False,
+                        },
+                        read_only=False,
+                        requires_explicit_user_intent=True,
+                        risk_level="high",
+                    ),
+                )
 
             return tools
 
@@ -1252,6 +1449,70 @@ class OpenClawWalletAdapter:
                         "source_tx_hash": {"type": "string"},
                     },
                     "required": ["source_tx_hash"],
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+            AgentToolSpec(
+                name="get_lifi_supported_chains",
+                description="List the LI.FI chains currently allowed for OpenClaw cross-chain routing.",
+                input_schema={
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+            AgentToolSpec(
+                name="get_lifi_quote",
+                description="Get a read-only LI.FI cross-chain quote for Ethereum/Base/Solana routes. Execution is not enabled by this tool.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "from_chain": {"type": "string", "description": "Source chain: ethereum, base, solana, or the LI.FI chain id."},
+                        "to_chain": {"type": "string", "description": "Destination chain: ethereum, base, solana, or the LI.FI chain id."},
+                        "from_token": {"type": "string", "description": "Source token address. Use native/eth/sol for native tokens."},
+                        "to_token": {"type": "string", "description": "Destination token address. Use native/eth/sol for native tokens."},
+                        "amount_in_raw": {
+                            "type": "string",
+                            "description": "Input amount in token base units as a base-10 integer string.",
+                        },
+                        "from_address": {
+                            "type": "string",
+                            "description": "Optional source wallet address. Defaults to the active wallet when the source chain matches it.",
+                        },
+                        "to_address": {
+                            "type": "string",
+                            "description": "Optional destination wallet address. Defaults to the active wallet when the destination chain matches it.",
+                        },
+                        "slippage": {
+                            "type": "number",
+                            "description": "Optional decimal fraction, for example 0.01 for 1%.",
+                        },
+                        "allow_bridges": {"type": "array", "items": {"type": "string"}},
+                        "deny_bridges": {"type": "array", "items": {"type": "string"}},
+                        "prefer_bridges": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": ["from_chain", "to_chain", "from_token", "to_token", "amount_in_raw"],
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+            AgentToolSpec(
+                name="get_lifi_transfer_status",
+                description="Get LI.FI cross-chain transfer status using a source/destination transaction hash or LI.FI step id.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "tx_hash": {"type": "string"},
+                        "bridge": {"type": "string"},
+                        "from_chain": {"type": "string"},
+                        "to_chain": {"type": "string"},
+                    },
+                    "required": ["tx_hash"],
                     "additionalProperties": False,
                 },
                 read_only=True,
@@ -2443,6 +2704,74 @@ class OpenClawWalletAdapter:
                 data = await active_backend.get_mayan_swap_status(source_tx_hash=source_tx_hash.strip())
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
 
+            if tool_name == "get_lifi_supported_chains":
+                data = await active_backend.get_lifi_supported_chains()
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_lifi_quote":
+                from_chain = args.get("from_chain")
+                to_chain = args.get("to_chain")
+                from_token = args.get("from_token")
+                to_token = args.get("to_token")
+                amount_in_raw = args.get("amount_in_raw")
+                from_address = args.get("from_address")
+                to_address = args.get("to_address")
+                slippage = self._normalize_lifi_slippage(args.get("slippage"))
+                allow_bridges = self._normalize_optional_string_list(args.get("allow_bridges"), field_name="allow_bridges")
+                deny_bridges = self._normalize_optional_string_list(args.get("deny_bridges"), field_name="deny_bridges")
+                prefer_bridges = self._normalize_optional_string_list(args.get("prefer_bridges"), field_name="prefer_bridges")
+                if not isinstance(from_chain, str) or not from_chain.strip():
+                    raise WalletBackendError("from_chain is required.")
+                if not isinstance(to_chain, str) or not to_chain.strip():
+                    raise WalletBackendError("to_chain is required.")
+                if not isinstance(from_token, str) or not from_token.strip():
+                    raise WalletBackendError("from_token is required.")
+                if not isinstance(to_token, str) or not to_token.strip():
+                    raise WalletBackendError("to_token is required.")
+                if not isinstance(amount_in_raw, str) or not amount_in_raw.strip().isdigit():
+                    raise WalletBackendError("amount_in_raw must be a positive integer string.")
+                if int(amount_in_raw.strip()) <= 0:
+                    raise WalletBackendError("amount_in_raw must be greater than zero.")
+                if from_address is not None and not isinstance(from_address, str):
+                    raise WalletBackendError("from_address must be a string when provided.")
+                if to_address is not None and not isinstance(to_address, str):
+                    raise WalletBackendError("to_address must be a string when provided.")
+                data = await active_backend.get_lifi_quote(
+                    from_chain=from_chain.strip(),
+                    to_chain=to_chain.strip(),
+                    from_token=from_token.strip(),
+                    to_token=to_token.strip(),
+                    amount_in_raw=amount_in_raw.strip(),
+                    from_address=from_address.strip() if isinstance(from_address, str) and from_address.strip() else None,
+                    to_address=to_address.strip() if isinstance(to_address, str) and to_address.strip() else None,
+                    slippage=slippage,
+                    allow_bridges=allow_bridges,
+                    deny_bridges=deny_bridges,
+                    prefer_bridges=prefer_bridges,
+                )
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_lifi_transfer_status":
+                tx_hash = args.get("tx_hash")
+                bridge = args.get("bridge")
+                from_chain = args.get("from_chain")
+                to_chain = args.get("to_chain")
+                if not isinstance(tx_hash, str) or not tx_hash.strip():
+                    raise WalletBackendError("tx_hash is required.")
+                if bridge is not None and not isinstance(bridge, str):
+                    raise WalletBackendError("bridge must be a string when provided.")
+                if from_chain is not None and not isinstance(from_chain, str):
+                    raise WalletBackendError("from_chain must be a string when provided.")
+                if to_chain is not None and not isinstance(to_chain, str):
+                    raise WalletBackendError("to_chain must be a string when provided.")
+                data = await active_backend.get_lifi_transfer_status(
+                    tx_hash=tx_hash.strip(),
+                    bridge=bridge.strip() if isinstance(bridge, str) and bridge.strip() else None,
+                    from_chain=from_chain.strip() if isinstance(from_chain, str) and from_chain.strip() else None,
+                    to_chain=to_chain.strip() if isinstance(to_chain, str) and to_chain.strip() else None,
+                )
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
             if tool_name == "get_btc_transfer_history":
                 direction = args.get("direction", "all")
                 limit = args.get("limit", 10)
@@ -2767,6 +3096,166 @@ class OpenClawWalletAdapter:
                     data=self._annotate_sensitive_payload(
                         result,
                         action_label="EVM cross-chain swap",
+                        mode="execute",
+                    ),
+                )
+
+            if tool_name == "swap_evm_lifi_cross_chain_tokens":
+                token_in = args.get("token_in")
+                destination_chain = args.get("destination_chain")
+                output_token = args.get("output_token")
+                destination_address = args.get("destination_address")
+                amount_in_raw = args.get("amount_in_raw")
+                slippage = self._normalize_lifi_slippage(args.get("slippage"))
+                allow_bridges = self._normalize_optional_string_list(args.get("allow_bridges"), field_name="allow_bridges")
+                deny_bridges = self._normalize_optional_string_list(args.get("deny_bridges"), field_name="deny_bridges")
+                prefer_bridges = self._normalize_optional_string_list(args.get("prefer_bridges"), field_name="prefer_bridges")
+                mode = args.get("mode")
+                purpose = args.get("purpose")
+                user_intent = args.get("user_intent", False)
+                approval_token = args.get("approval_token")
+
+                if not isinstance(token_in, str) or not token_in.strip():
+                    raise WalletBackendError("token_in is required.")
+                if not isinstance(destination_chain, str) or not destination_chain.strip():
+                    raise WalletBackendError("destination_chain is required.")
+                if not isinstance(output_token, str) or not output_token.strip():
+                    raise WalletBackendError("output_token is required.")
+                if not isinstance(destination_address, str) or not destination_address.strip():
+                    raise WalletBackendError("destination_address is required.")
+                if not isinstance(amount_in_raw, str) or not amount_in_raw.strip().isdigit():
+                    raise WalletBackendError("amount_in_raw must be a positive integer string.")
+                if int(amount_in_raw.strip()) <= 0:
+                    raise WalletBackendError("amount_in_raw must be greater than zero.")
+                if mode not in {"preview", "prepare", "execute"}:
+                    raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
+                if not isinstance(purpose, str) or not purpose.strip():
+                    raise WalletBackendError("purpose is required.")
+
+                preview_kwargs = {
+                    "token_in": token_in.strip(),
+                    "destination_chain": destination_chain.strip(),
+                    "output_token": output_token.strip(),
+                    "destination_address": destination_address.strip(),
+                    "amount_in_raw": amount_in_raw.strip(),
+                    "slippage": slippage,
+                    "allow_bridges": allow_bridges,
+                    "deny_bridges": deny_bridges,
+                    "prefer_bridges": prefer_bridges,
+                }
+
+                if mode == "preview":
+                    preview = await active_backend.preview_evm_lifi_cross_chain_swap(**preview_kwargs)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            preview,
+                            action_label="EVM LI.FI cross-chain swap",
+                            mode="preview",
+                        ),
+                    )
+
+                if mode == "prepare":
+                    self._require_prepare_intent(user_intent)
+                    preview = await active_backend.preview_evm_lifi_cross_chain_swap(**preview_kwargs)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            self._build_prepare_plan(
+                                preview_payload=preview,
+                                action_label="EVM LI.FI cross-chain swap",
+                            ),
+                            action_label="EVM LI.FI cross-chain swap",
+                            mode="prepare",
+                        ),
+                    )
+
+                approval_payload = inspect_approval_token(
+                    approval_token,
+                    tool_name=tool_name,
+                    network=str(getattr(active_backend, "network", "unknown")),
+                    require_mainnet_confirmation=self._is_mainnet_for_backend(active_backend),
+                )
+                approval_summary = approval_payload.get("binding", {}).get("summary")
+                if not isinstance(approval_summary, dict):
+                    raise WalletBackendError(
+                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                    )
+                source_chain_id = self._canonicalize_lifi_chain_identifier(
+                    getattr(active_backend, "network", "unknown")
+                )
+                destination_chain_id = self._canonicalize_lifi_chain_identifier(destination_chain)
+                expected_summary = {
+                    "operation": "EVM LI.FI cross-chain swap",
+                    "network": str(getattr(active_backend, "network", "unknown")),
+                    "source_chain": source_chain_id,
+                    "destination_chain": destination_chain_id,
+                    "token_in": self._canonicalize_lifi_token_identifier(
+                        token_in,
+                        chain_id=source_chain_id,
+                    ),
+                    "output_token": self._canonicalize_lifi_token_identifier(
+                        output_token,
+                        chain_id=destination_chain_id,
+                    ),
+                    "destination_address": destination_address.strip(),
+                    "input_amount_raw": amount_in_raw.strip(),
+                }
+                for key, expected_value in expected_summary.items():
+                    actual_value = approval_summary.get(key)
+                    if key in {"source_chain", "destination_chain"}:
+                        actual_value = self._canonicalize_lifi_chain_identifier(actual_value)
+                    if key == "token_in":
+                        actual_value = self._canonicalize_lifi_token_identifier(
+                            actual_value,
+                            chain_id=source_chain_id,
+                        )
+                    if key == "output_token":
+                        actual_value = self._canonicalize_lifi_token_identifier(
+                            actual_value,
+                            chain_id=destination_chain_id,
+                        )
+                    if actual_value != expected_value:
+                        raise WalletBackendError(
+                            "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                        )
+
+                approval_summary_copy = dict(approval_summary)
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=approval_summary_copy,
+                    action_label="EVM LI.FI cross-chain swap",
+                    backend=active_backend,
+                )
+                result = await active_backend.send_evm_lifi_cross_chain_swap(
+                    token_in=str(approval_summary_copy.get("token_in") or token_in).strip(),
+                    destination_chain=str(
+                        approval_summary_copy.get("destination_chain") or destination_chain
+                    ).strip(),
+                    output_token=str(approval_summary_copy.get("output_token") or output_token).strip(),
+                    destination_address=str(
+                        approval_summary_copy.get("destination_address") or destination_address
+                    ).strip(),
+                    amount_in_raw=str(approval_summary_copy.get("input_amount_raw") or amount_in_raw).strip(),
+                    slippage=approval_summary_copy.get("slippage", slippage),
+                    allow_bridges=allow_bridges,
+                    deny_bridges=deny_bridges,
+                    prefer_bridges=prefer_bridges,
+                    minimum_output_amount_raw=(
+                        str(approval_summary_copy.get("minimum_output_amount_raw")).strip()
+                        if approval_summary_copy.get("minimum_output_amount_raw") is not None
+                        else None
+                    ),
+                )
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=self._annotate_sensitive_payload(
+                        result,
+                        action_label="EVM LI.FI cross-chain swap",
                         mode="execute",
                     ),
                 )

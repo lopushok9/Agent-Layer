@@ -17,8 +17,10 @@ const ERC20_APPROVE_SELECTOR = "0x095ea7b3";
 const USDT_MAINNET_ADDRESS = "0xdac17f958d2ee523a2206206994597c13d831ec7";
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const VELORA_NATIVE_TOKEN_ADDRESS = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+const LIFI_SOLANA_NATIVE_TOKEN_ADDRESS = "11111111111111111111111111111111";
 const MAYAN_FORWARDER_CONTRACT = "0x337685fdab40d39bd02028545a4ffa7d287cc3e2";
 const DEFAULT_SWAP_SLIPPAGE_BPS = 100;
+const DEFAULT_LIFI_SLIPPAGE = 0.005;
 const MAYAN_SUPPORTED_CHAINS = new Set([
   "solana",
   "ethereum",
@@ -38,6 +40,20 @@ const MAYAN_SUPPORTED_CHAINS = new Set([
   "fogo",
   "monad",
 ]);
+const LIFI_CHAIN_IDS_BY_NETWORK = {
+  ethereum: "1",
+  base: "8453",
+};
+const LIFI_CHAIN_ALIASES = {
+  eth: "1",
+  ethereum: "1",
+  mainnet: "1",
+  "eth-mainnet": "1",
+  base: "8453",
+  "base-mainnet": "8453",
+  sol: "1151111081099710",
+  solana: "1151111081099710",
+};
 
 function createTaggedError(message, code, details = {}) {
   const error = new Error(message);
@@ -139,6 +155,14 @@ function assertMayanSupportedNetwork(network) {
   }
 }
 
+function assertLifiSupportedNetwork(network) {
+  if (!Object.hasOwn(LIFI_CHAIN_IDS_BY_NETWORK, network)) {
+    throw new Error(
+      "LI.FI EVM-origin swaps are currently supported only on ethereum and base mainnet."
+    );
+  }
+}
+
 function isVeloraNativeTokenAddress(value) {
   return String(value || "").trim().toLowerCase() === VELORA_NATIVE_TOKEN_ADDRESS;
 }
@@ -148,11 +172,63 @@ function isZeroAddress(value) {
 }
 
 function normalizeEvmTokenAddressAllowingNative(value, fieldName) {
-  const address = assertNonEmptyString(value, fieldName);
+  const raw = assertNonEmptyString(value, fieldName);
+  const alias = raw.toLowerCase();
+  const address = alias === "native" || alias === "eth" ? ZERO_ADDRESS : raw;
   if (isZeroAddress(address)) {
     return ZERO_ADDRESS;
   }
   return normalizeAddress(address, fieldName);
+}
+
+function normalizeLifiOutputTokenAddress(value, destinationChainId, fieldName) {
+  const raw = assertNonEmptyString(value, fieldName);
+  const alias = raw.toLowerCase();
+  if (["1", "8453"].includes(destinationChainId)) {
+    return normalizeEvmTokenAddressAllowingNative(raw, fieldName);
+  }
+  if (destinationChainId === "1151111081099710" && ["native", "sol", "solana"].includes(alias)) {
+    return LIFI_SOLANA_NATIVE_TOKEN_ADDRESS;
+  }
+  return raw;
+}
+
+function normalizeLifiChainId(value, fieldName) {
+  const normalized = assertNonEmptyString(value, fieldName).toLowerCase();
+  const effective = LIFI_CHAIN_ALIASES[normalized] || normalized;
+  if (!["1", "8453", "1151111081099710"].includes(effective)) {
+    throw new Error(`${fieldName} must be one of: ethereum, base, solana, 1, 8453, 1151111081099710.`);
+  }
+  return effective;
+}
+
+function parseLifiSlippage(value, fallback = DEFAULT_LIFI_SLIPPAGE) {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+  if (typeof value === "boolean") {
+    throw new Error("slippage must be a number between 0 and 1.");
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+    throw new Error("slippage must be a number between 0 and 1.");
+  }
+  return parsed;
+}
+
+function normalizeBridgeList(value, fieldName) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+  if (typeof value === "string") {
+    const items = value.split(",").map((item) => item.trim()).filter(Boolean);
+    return items.length > 0 ? items.join(",") : null;
+  }
+  if (Array.isArray(value)) {
+    const items = value.map((item) => assertNonEmptyString(item, fieldName));
+    return items.length > 0 ? items.join(",") : null;
+  }
+  throw new Error(`${fieldName} must be a string or array of strings.`);
 }
 
 function normalizeMayanChain(value, fieldName = "destinationChain") {
@@ -228,12 +304,48 @@ function buildMayanEvmSwapRequest({
   };
 }
 
+function buildLifiEvmSwapRequest({
+  tokenIn,
+  destinationChain,
+  outputToken,
+  destinationAddress,
+  tokenInAmount,
+  slippage,
+  allowBridges,
+  denyBridges,
+  preferBridges,
+}) {
+  const destinationChainId = normalizeLifiChainId(destinationChain, "destinationChain");
+  return {
+    tokenIn: normalizeEvmTokenAddressAllowingNative(tokenIn, "tokenIn"),
+    destinationChainId,
+    outputToken: normalizeLifiOutputTokenAddress(outputToken, destinationChainId, "outputToken"),
+    destinationAddress: assertNonEmptyString(destinationAddress, "destinationAddress"),
+    tokenInAmount: assertPositiveBigIntString(tokenInAmount, "tokenInAmount"),
+    slippage: parseLifiSlippage(slippage),
+    allowBridges: normalizeBridgeList(allowBridges, "allowBridges"),
+    denyBridges: normalizeBridgeList(denyBridges, "denyBridges"),
+    preferBridges: normalizeBridgeList(preferBridges, "preferBridges"),
+  };
+}
+
 function parseOptionalDecimalBigInt(value) {
   const normalized = String(value ?? "").trim();
   if (!/^[0-9]+$/.test(normalized)) {
     return null;
   }
   return BigInt(normalized);
+}
+
+function parseOptionalHexOrDecimalBigInt(value) {
+  const normalized = String(value ?? "").trim();
+  if (!normalized) {
+    return null;
+  }
+  if (/^0x[0-9a-fA-F]+$/.test(normalized) || /^[0-9]+$/.test(normalized)) {
+    return BigInt(normalized);
+  }
+  return null;
 }
 
 function computeMinimumOutputAmount(destAmount, slippageBps) {
@@ -260,6 +372,17 @@ function stripHexPrefix(value) {
 function toRpcHex(value) {
   const numeric = BigInt(value || 0);
   return `0x${numeric.toString(16)}`;
+}
+
+function parseHexOrDecimalBigInt(value, fieldName) {
+  const normalized = String(value ?? "0").trim();
+  if (/^0x[0-9a-fA-F]+$/.test(normalized)) {
+    return BigInt(normalized);
+  }
+  if (/^[0-9]+$/.test(normalized)) {
+    return BigInt(normalized);
+  }
+  throw new Error(`${fieldName} must be a hex or base-10 integer string.`);
 }
 
 function leftPadHex(value, length = 64) {
@@ -803,6 +926,55 @@ export class WdkEvmWalletService {
     );
   }
 
+  async quoteLifiSwap({
+    seedPhrase,
+    address,
+    tokenIn,
+    destinationChain,
+    outputToken,
+    destinationAddress,
+    tokenInAmount,
+    slippage = DEFAULT_LIFI_SLIPPAGE,
+    allowBridges = null,
+    denyBridges = null,
+    preferBridges = null,
+    accountIndex = 0,
+    network,
+  }) {
+    return this.#withReadableAccount(
+      { seedPhrase, address, accountIndex, network },
+      async (account, runtimeConfig) => {
+        assertLifiSupportedNetwork(runtimeConfig.network);
+        const swapRequest = buildLifiEvmSwapRequest({
+          tokenIn,
+          destinationChain,
+          outputToken,
+          destinationAddress,
+          tokenInAmount,
+          slippage,
+          allowBridges,
+          denyBridges,
+          preferBridges,
+        });
+        const sourceAddress = await account.getAddress();
+        const plan = await this.#buildLifiEvmSwapPlan({
+          account,
+          runtimeConfig,
+          address: sourceAddress,
+          swapRequest,
+          tolerateSwapFeeFailure: true,
+        });
+        return this.#formatLifiSwapResponse({
+          runtimeConfig,
+          accountIndex,
+          address: sourceAddress,
+          swapRequest,
+          plan,
+        });
+      }
+    );
+  }
+
   async swap({
     seedPhrase,
     tokenIn,
@@ -1102,6 +1274,147 @@ export class WdkEvmWalletService {
           quote: finalPlan.quote,
           result,
           source: "mayan",
+        };
+      } catch (error) {
+        const cleanup = await this.#restoreAllowanceAfterFailedSwap({
+          account,
+          runtimeConfig,
+          tokenAddress: swapRequest.tokenIn,
+          spender: initialPlan.spender,
+          originalAllowance: initialPlan.currentAllowance,
+          approvalExecution,
+        });
+        this.#throwSwapFailureWithCleanup(error, cleanup);
+      }
+    });
+  }
+
+  async sendLifiSwap({
+    seedPhrase,
+    tokenIn,
+    destinationChain,
+    outputToken,
+    destinationAddress,
+    tokenInAmount,
+    slippage = DEFAULT_LIFI_SLIPPAGE,
+    allowBridges = null,
+    denyBridges = null,
+    preferBridges = null,
+    accountIndex = 0,
+    network,
+    minimumTokenOutAmount = null,
+  }) {
+    return this.#withAccount({ seedPhrase, accountIndex, network }, async (account, runtimeConfig) => {
+      assertLifiSupportedNetwork(runtimeConfig.network);
+      const swapRequest = buildLifiEvmSwapRequest({
+        tokenIn,
+        destinationChain,
+        outputToken,
+        destinationAddress,
+        tokenInAmount,
+        slippage,
+        allowBridges,
+        denyBridges,
+        preferBridges,
+      });
+      const requestedMinimumTokenOutAmount =
+        minimumTokenOutAmount !== null && minimumTokenOutAmount !== undefined
+          ? assertPositiveBigIntString(minimumTokenOutAmount, "minimumTokenOutAmount")
+          : null;
+      const sourceAddress = await account.getAddress();
+      let initialPlan = await this.#buildLifiEvmSwapPlan({
+        account,
+        runtimeConfig,
+        address: sourceAddress,
+        swapRequest,
+      });
+      this.#assertMinimumSwapOutput(
+        requestedMinimumTokenOutAmount,
+        initialPlan.minimumTokenOutAmount,
+        initialPlan.tokenOutAmount
+      );
+
+      const approvalExecution = await this.#executeSwapApprovalsIfNeeded({
+        account,
+        runtimeConfig,
+        swapRequest: {
+          tokenIn: swapRequest.tokenIn,
+        },
+        plan: initialPlan,
+      });
+
+      let finalPlan = initialPlan;
+      try {
+        if (approvalExecution.performed) {
+          finalPlan = await this.#buildLifiEvmSwapPlan({
+            account,
+            runtimeConfig,
+            address: sourceAddress,
+            swapRequest,
+          });
+        }
+        this.#assertMinimumSwapOutput(
+          requestedMinimumTokenOutAmount,
+          finalPlan.minimumTokenOutAmount,
+          finalPlan.tokenOutAmount
+        );
+
+        const allowanceReadUncertain =
+          approvalExecution.performed && finalPlan.allowanceReadError !== null;
+
+        if (finalPlan.approval.required && !allowanceReadUncertain) {
+          throw createTaggedError(
+            "LI.FI cross-chain swap still requires token approval after the approval step completed.",
+            "swap_approval_required",
+            {
+              spender: finalPlan.spender,
+              requiredAllowance: finalPlan.tokenInAmount.toString(),
+              currentAllowance: finalPlan.currentAllowance.toString(),
+            }
+          );
+        }
+
+        const effectiveSimulation = allowanceReadUncertain
+          ? await this.#simulatePreparedTransaction({
+              runtimeConfig,
+              from: sourceAddress,
+              tx: finalPlan.swapTx,
+            })
+          : finalPlan.simulation;
+        this.#assertSimulationSucceeded(effectiveSimulation);
+
+        const { hash } = await account.sendTransaction(finalPlan.swapTx);
+        const totalFee = approvalExecution.totalFee + finalPlan.swapFee;
+        const result = {
+          hash,
+          fee: totalFee.toString(),
+          swapFee: finalPlan.swapFee.toString(),
+          approvalFee: approvalExecution.totalFee.toString(),
+          tokenInAmount: finalPlan.tokenInAmount.toString(),
+          tokenOutAmount: finalPlan.tokenOutAmount.toString(),
+          ...(approvalExecution.approveHash ? { approveHash: approvalExecution.approveHash } : {}),
+          ...(approvalExecution.resetAllowanceHash
+            ? { resetAllowanceHash: approvalExecution.resetAllowanceHash }
+            : {}),
+        };
+        return {
+          ...this.#formatLifiSwapResponse({
+            runtimeConfig,
+            accountIndex,
+            address: sourceAddress,
+            swapRequest,
+            plan: {
+              ...finalPlan,
+              simulation: effectiveSimulation,
+              swapFee: totalFee,
+              totalEstimatedFee: totalFee,
+              approval: {
+                ...finalPlan.approval,
+                estimatedFee: approvalExecution.totalFee,
+              },
+            },
+          }),
+          result,
         };
       } catch (error) {
         const cleanup = await this.#restoreAllowanceAfterFailedSwap({
@@ -1715,6 +2028,260 @@ export class WdkEvmWalletService {
     };
   }
 
+  async #buildLifiEvmSwapPlan({
+    account,
+    runtimeConfig,
+    address,
+    swapRequest,
+    tolerateSwapFeeFailure = false,
+  }) {
+    const quote = await this.#fetchLifiQuote({
+      runtimeConfig,
+      address,
+      swapRequest,
+    });
+    const transactionRequest = quote.transactionRequest || {};
+    const spender = !isZeroAddress(swapRequest.tokenIn)
+      ? normalizeAddress(String(quote.estimate?.approvalAddress || ""), "approvalAddress")
+      : normalizeAddress(String(transactionRequest.to || ""), "transactionRequest.to");
+    const swapTx = {
+      to: normalizeAddress(String(transactionRequest.to || ""), "transactionRequest.to"),
+      data: assertNonEmptyString(String(transactionRequest.data || ""), "transactionRequest.data"),
+      value: parseHexOrDecimalBigInt(transactionRequest.value || "0", "transactionRequest.value"),
+    };
+    const isNativeTokenIn = isZeroAddress(swapRequest.tokenIn);
+    const allowanceState = isNativeTokenIn
+      ? {
+          currentAllowance: swapRequest.tokenInAmount,
+          error: null,
+        }
+      : await this.#getSwapAllowanceState({
+          account,
+          tokenAddress: swapRequest.tokenIn,
+          spender,
+        });
+    const currentAllowance = allowanceState.currentAllowance;
+    const approval = isNativeTokenIn
+      ? {
+          required: false,
+          estimatedFee: 0n,
+          steps: [],
+        }
+      : await this.#buildSwapApprovalPlan({
+          account,
+          runtimeConfig,
+          tokenAddress: swapRequest.tokenIn,
+          spender,
+          requiredAmount: swapRequest.tokenInAmount,
+          currentAllowance,
+        });
+
+    const swapFeeQuote = await this.#quoteSwapTransaction({
+      account,
+      runtimeConfig,
+      from: address,
+      swapTx,
+      fallbackGasLimit: parseOptionalHexOrDecimalBigInt(transactionRequest.gasLimit),
+      tolerateFailure: tolerateSwapFeeFailure || approval.required,
+    });
+    if (swapFeeQuote.fee === null && !tolerateSwapFeeFailure && !approval.required) {
+      throw createTaggedError(
+        "LI.FI swap fee estimate was unavailable.",
+        "network_unavailable",
+        {
+          provider: "lifi",
+          feeEstimateError: swapFeeQuote.error,
+        }
+      );
+    }
+    const simulation = approval.required
+      ? {
+          ok: null,
+          skipped: true,
+          reason: "allowance_required",
+        }
+      : await this.#simulatePreparedTransaction({
+          runtimeConfig,
+          from: address,
+          tx: swapTx,
+        });
+    const tokenOutAmount = BigInt(String(quote.estimate?.toAmount || "0"));
+    const minimumTokenOutAmount = BigInt(String(quote.estimate?.toAmountMin || quote.estimate?.toAmount || "0"));
+    const swapTransaction = {
+      to: swapTx.to,
+      value: swapTx.value.toString(),
+      dataHash: sha256Hex(swapTx.data),
+    };
+    const quoteFingerprint = sha256Hex(
+      JSON.stringify({
+        chainId: runtimeConfig.chainId,
+        network: runtimeConfig.network,
+        from: address.toLowerCase(),
+        sourceChainId: LIFI_CHAIN_IDS_BY_NETWORK[runtimeConfig.network],
+        destinationChainId: swapRequest.destinationChainId,
+        tokenIn: swapRequest.tokenIn.toLowerCase(),
+        outputToken: swapRequest.outputToken,
+        destinationAddress: swapRequest.destinationAddress,
+        tokenInAmount: swapRequest.tokenInAmount.toString(),
+        minimumTokenOutAmount: minimumTokenOutAmount.toString(),
+        tool: quote.tool,
+        swapTxTo: swapTransaction.to.toLowerCase(),
+        swapTxValue: swapTransaction.value,
+      })
+    );
+    return {
+      quote,
+      quoteFingerprint,
+      quoteId: String(quote.id || "").trim() || null,
+      quoteType: String(quote.type || "").trim() || null,
+      tool: String(quote.tool || "").trim() || null,
+      toolDetails: quote.toolDetails || null,
+      slippage: Number(quote.action?.slippage ?? swapRequest.slippage),
+      minimumTokenOutAmount,
+      router: swapTx.to,
+      spender,
+      currentAllowance,
+      allowanceReadError: allowanceState.error,
+      tokenInAmount: swapRequest.tokenInAmount,
+      tokenOutAmount,
+      swapTx,
+      swapFee: swapFeeQuote.fee,
+      swapFeeError: swapFeeQuote.error,
+      totalEstimatedFee: swapFeeQuote.fee !== null ? swapFeeQuote.fee + approval.estimatedFee : null,
+      approval,
+      simulation,
+      swapTransaction,
+      tokenInMetadata: this.#buildLifiTokenMetadata(
+        quote.action?.fromToken,
+        swapRequest.tokenIn,
+        isNativeTokenIn ? "native-asset" : "lifi-source-token"
+      ),
+      outputTokenMetadata: this.#buildLifiTokenMetadata(
+        quote.action?.toToken,
+        swapRequest.outputToken,
+        "lifi-destination-token"
+      ),
+    };
+  }
+
+  async #fetchLifiQuote({ runtimeConfig, address, swapRequest }) {
+    const params = new URLSearchParams({
+      fromChain: LIFI_CHAIN_IDS_BY_NETWORK[runtimeConfig.network],
+      toChain: swapRequest.destinationChainId,
+      fromToken: swapRequest.tokenIn,
+      toToken: swapRequest.outputToken,
+      fromAmount: swapRequest.tokenInAmount.toString(),
+      fromAddress: address,
+      toAddress: swapRequest.destinationAddress,
+      slippage: String(swapRequest.slippage),
+      integrator: this.config.lifiIntegrator || "openclaw",
+    });
+    const denyBridges = swapRequest.denyBridges || this.config.lifiDefaultDenyBridges;
+    if (swapRequest.allowBridges) {
+      params.set("allowBridges", swapRequest.allowBridges);
+    }
+    if (denyBridges) {
+      params.set("denyBridges", denyBridges);
+    }
+    if (swapRequest.preferBridges) {
+      params.set("preferBridges", swapRequest.preferBridges);
+    }
+    const response = await fetch(`${String(this.config.lifiApiBaseUrl).replace(/\/+$/, "")}/quote?${params.toString()}`, {
+      headers: {
+        Accept: "application/json",
+        ...(this.config.lifiApiKey ? { "x-lifi-api-key": this.config.lifiApiKey } : {}),
+      },
+    });
+    let payload;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    if (!response.ok) {
+      const message =
+        payload?.message || payload?.error || payload?.detail || `LI.FI quote failed with HTTP ${response.status}.`;
+      throw createTaggedError(String(message), "network_unavailable", {
+        provider: "lifi",
+        httpStatus: response.status,
+      });
+    }
+    if (!payload || typeof payload !== "object" || !payload.transactionRequest) {
+      throw createTaggedError("LI.FI quote returned no executable transactionRequest.", "network_unavailable", {
+        provider: "lifi",
+      });
+    }
+    return payload;
+  }
+
+  #buildLifiTokenMetadata(token, fallbackAddress, fallbackSource = "lifi-quote") {
+    const raw = token && typeof token === "object" ? token : {};
+    const decimals = Number(raw.decimals);
+    return {
+      address: String(raw.address || fallbackAddress || "").trim(),
+      name: raw.name !== undefined && raw.name !== null ? String(raw.name) : null,
+      symbol: raw.symbol !== undefined && raw.symbol !== null ? String(raw.symbol) : null,
+      decimals: Number.isInteger(decimals) ? decimals : null,
+      verified: Array.isArray(raw.tags) && raw.tags.includes("stablecoin"),
+      source: fallbackSource,
+    };
+  }
+
+  #formatLifiSwapResponse({ runtimeConfig, accountIndex, address, swapRequest, plan }) {
+    return {
+      network: runtimeConfig.network,
+      chainId: runtimeConfig.chainId,
+      accountIndex,
+      address,
+      protocol: "lifi",
+      executionSupported: true,
+      sourceChain: runtimeConfig.network,
+      destinationChainId: swapRequest.destinationChainId,
+      destinationChain: swapRequest.destinationChainId,
+      swapRequest: {
+        tokenIn: swapRequest.tokenIn,
+        outputToken: swapRequest.outputToken,
+        destinationAddress: swapRequest.destinationAddress,
+        tokenInAmount: swapRequest.tokenInAmount.toString(),
+      },
+      tokenInMetadata: plan.tokenInMetadata,
+      outputTokenMetadata: plan.outputTokenMetadata,
+      inputAmountFormatted:
+        plan.tokenInMetadata.decimals !== null
+          ? formatUnits(swapRequest.tokenInAmount, plan.tokenInMetadata.decimals)
+          : null,
+      outputAmountFormatted:
+        plan.outputTokenMetadata.decimals !== null
+          ? formatUnits(plan.tokenOutAmount, plan.outputTokenMetadata.decimals)
+          : null,
+      quoteFingerprint: plan.quoteFingerprint,
+      estimatedFeeWei: plan.totalEstimatedFee !== null ? plan.totalEstimatedFee.toString() : null,
+      estimatedSwapFeeWei: plan.swapFee !== null ? plan.swapFee.toString() : null,
+      estimatedApprovalFeeWei: plan.approval.estimatedFee.toString(),
+      feeEstimateAvailable: plan.swapFee !== null,
+      feeEstimateError: plan.swapFeeError,
+      slippage: plan.slippage,
+      minimumOutputAmountRaw: plan.minimumTokenOutAmount.toString(),
+      allowance: {
+        spender: plan.spender,
+        currentAllowance: plan.currentAllowance.toString(),
+        requiredAllowance: plan.tokenInAmount.toString(),
+        approvalRequired: plan.approval.required,
+        approvalSequence: plan.approval.steps,
+        readError: plan.allowanceReadError,
+      },
+      router: plan.router,
+      simulation: plan.simulation,
+      swapTransaction: plan.swapTransaction,
+      quoteType: plan.quoteType,
+      quoteId: plan.quoteId,
+      tool: plan.tool,
+      toolDetails: plan.toolDetails,
+      quote: plan.quote,
+      source: "lifi",
+    };
+  }
+
   #assertExpectedSwapFingerprint(expectedQuoteFingerprint, actualQuoteFingerprint) {
     if (!expectedQuoteFingerprint) {
       return;
@@ -2128,6 +2695,20 @@ export class WdkEvmWalletService {
       }
       if (!tolerateFailure || !isRecoverableSwapFeeEstimateFailure(error)) {
         throw error;
+      }
+      if (fallbackGasLimit !== null) {
+        try {
+          const routeQuote = await this.#quotePreparedTransactionFromGasLimit({
+            runtimeConfig,
+            gasLimit: fallbackGasLimit,
+          });
+          return {
+            fee: routeQuote.fee,
+            error: null,
+          };
+        } catch {
+          // Fall through to degraded error reporting below.
+        }
       }
       return {
         fee: null,

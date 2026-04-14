@@ -6,7 +6,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from typing import Any
 
 from agent_wallet.providers.evm_portfolio import build_portfolio_snapshot
-from agent_wallet.providers import mayan
+from agent_wallet.providers import lifi, mayan
 from agent_wallet.providers.wdk_evm_local import WdkEvmLocalClient
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendError, WalletCapabilities
 
@@ -24,6 +24,13 @@ def _normalize_evm_network(value: str | None) -> str:
     if network not in {"ethereum", "sepolia", "base", "base-sepolia"}:
         return "ethereum"
     return network
+
+
+def _lifi_chain_id_for_evm_network(network: str) -> str:
+    normalized = _normalize_evm_network(network)
+    if normalized == "base":
+        return "8453"
+    return "1"
 
 
 def _extract_fee_wei(payload: dict[str, Any]) -> str | None:
@@ -84,6 +91,80 @@ def _normalize_swap_simulation(payload: Any) -> dict[str, Any] | None:
         "reason": str(payload.get("reason") or "").strip() or None,
         "message": str(payload.get("message") or "").strip() or None,
         "details": dict(payload.get("details") or {}) if isinstance(payload.get("details"), dict) else None,
+    }
+
+
+def _normalize_lifi_cross_chain_payload(
+    *,
+    chain: str,
+    network: str,
+    wallet_id: str,
+    data: dict[str, Any],
+    token_in: str,
+    destination_chain: str,
+    output_token: str,
+    destination_address: str,
+    amount_in_raw: str,
+    slippage: float | int | None,
+    sign_only: bool,
+) -> dict[str, Any]:
+    quote = dict(data.get("quote") or {})
+    estimate = dict(quote.get("estimate") or {})
+    return {
+        "chain": chain,
+        "network": network,
+        "asset_type": "evm-lifi-cross-chain-swap",
+        "asset": "EVM",
+        "wallet": wallet_id,
+        "from_address": str(data.get("address") or ""),
+        "source_chain": str(data.get("sourceChain") or network),
+        "destination_chain": str(destination_chain or data.get("destinationChain")),
+        "destination_chain_id": str(data.get("destinationChainId") or destination_chain),
+        "token_in": str((data.get("swapRequest") or {}).get("tokenIn") or token_in),
+        "output_token": str((data.get("swapRequest") or {}).get("outputToken") or output_token),
+        "destination_address": str(
+            (data.get("swapRequest") or {}).get("destinationAddress") or destination_address
+        ),
+        "input_amount_raw": str((data.get("swapRequest") or {}).get("tokenInAmount") or amount_in_raw),
+        "input_amount_ui": str(data.get("inputAmountFormatted")) if data.get("inputAmountFormatted") is not None else None,
+        "estimated_output_amount_raw": str(estimate.get("toAmount") or data.get("minimumOutputAmountRaw") or "0"),
+        "estimated_output_amount_ui": (
+            str(data.get("outputAmountFormatted")) if data.get("outputAmountFormatted") is not None else None
+        ),
+        "estimated_fee_wei": str(data.get("estimatedFeeWei")) if data.get("estimatedFeeWei") is not None else None,
+        "estimated_swap_fee_wei": str(data.get("estimatedSwapFeeWei")) if data.get("estimatedSwapFeeWei") is not None else None,
+        "estimated_approval_fee_wei": str(data.get("estimatedApprovalFeeWei") or "0"),
+        "fee_estimate_available": bool(data.get("feeEstimateAvailable", True)),
+        "fee_estimate_error": data.get("feeEstimateError"),
+        "slippage": data.get("slippage") if data.get("slippage") is not None else slippage,
+        "minimum_output_amount_raw": str(data.get("minimumOutputAmountRaw") or estimate.get("toAmountMin") or "0"),
+        "swap_provider": str(data.get("protocol") or "lifi"),
+        "execution_supported": bool(data.get("executionSupported")) and not sign_only,
+        "route_plan": quote,
+        "quote_fingerprint": str(data.get("quoteFingerprint") or "").strip() or None,
+        "router": str(data.get("router") or "").strip() or None,
+        "quote_type": str(data.get("quoteType") or quote.get("type") or "").strip() or None,
+        "quote_id": str(data.get("quoteId") or quote.get("id") or "").strip() or None,
+        "tool": str(data.get("tool") or quote.get("tool") or "").strip() or None,
+        "tool_details": data.get("toolDetails") or quote.get("toolDetails"),
+        "allowance": _normalize_swap_allowance(data.get("allowance")),
+        "simulation": _normalize_swap_simulation(data.get("simulation")),
+        "swap_transaction": {
+            "to": str((data.get("swapTransaction") or {}).get("to") or "").strip() or None,
+            "value": str((data.get("swapTransaction") or {}).get("value") or "0"),
+            "data_hash": str((data.get("swapTransaction") or {}).get("dataHash") or "").strip() or None,
+        },
+        "token_in_metadata": _normalize_token_metadata(
+            data.get("tokenInMetadata"),
+            str((data.get("swapRequest") or {}).get("tokenIn") or token_in),
+        ),
+        "output_token_metadata": _normalize_token_metadata(
+            data.get("outputTokenMetadata"),
+            str((data.get("swapRequest") or {}).get("outputToken") or output_token),
+        ),
+        "quote": quote,
+        "chain_id": int(data.get("chainId") or 0),
+        "source": "wdk-evm-wallet",
     }
 
 
@@ -355,6 +436,122 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "swap": payload,
             "client_status": payload.get("clientStatus") or payload.get("status"),
             "source": "mayan",
+        }
+
+    async def get_lifi_supported_chains(self) -> dict[str, Any]:
+        chains = await lifi.fetch_supported_chains()
+        supported = lifi.format_openclaw_supported_chains(chains)
+        return {
+            "provider": "lifi",
+            "chain": "cross-chain",
+            "network": "mainnet",
+            "supported_by_openclaw": lifi.OPENCLAW_SUPPORTED_CHAINS,
+            "chain_count": len(supported),
+            "chains": supported,
+            "source": "lifi",
+        }
+
+    async def get_lifi_quote(
+        self,
+        *,
+        from_chain: str,
+        to_chain: str,
+        from_token: str,
+        to_token: str,
+        amount_in_raw: str,
+        from_address: str | None = None,
+        to_address: str | None = None,
+        slippage: float | int | None = None,
+        allow_bridges: list[str] | None = None,
+        deny_bridges: list[str] | None = None,
+        prefer_bridges: list[str] | None = None,
+    ) -> dict[str, Any]:
+        from_chain_id = lifi.normalize_chain_id(from_chain, field_name="from_chain")
+        to_chain_id = lifi.normalize_chain_id(to_chain, field_name="to_chain")
+        current_chain_id = _lifi_chain_id_for_evm_network(self.network)
+        resolved_from_address = str(from_address or "").strip()
+        resolved_to_address = str(to_address or "").strip()
+        wallet_address: str | None = None
+        if from_chain_id == current_chain_id and not resolved_from_address:
+            wallet_address = await self.get_address()
+            resolved_from_address = str(wallet_address or "").strip()
+        if to_chain_id == current_chain_id and not resolved_to_address:
+            wallet_address = wallet_address or await self.get_address()
+            resolved_to_address = str(wallet_address or "").strip()
+        if not resolved_from_address:
+            raise WalletBackendError("from_address is required when the LI.FI source chain is not the active EVM network.")
+        if not resolved_to_address:
+            raise WalletBackendError("to_address is required when the LI.FI destination chain is not the active EVM network.")
+
+        payload = await lifi.fetch_quote(
+            from_chain=from_chain_id,
+            to_chain=to_chain_id,
+            from_token=from_token,
+            to_token=to_token,
+            amount_in_raw=amount_in_raw,
+            from_address=resolved_from_address,
+            to_address=resolved_to_address,
+            slippage=slippage,
+            allow_bridges=allow_bridges,
+            deny_bridges=deny_bridges,
+            prefer_bridges=prefer_bridges,
+        )
+        return {
+            "provider": "lifi",
+            "chain": "cross-chain",
+            "network": "mainnet",
+            "active_evm_network": self.network,
+            "from_chain": lifi.chain_name_for_id(from_chain_id),
+            "to_chain": lifi.chain_name_for_id(to_chain_id),
+            "from_chain_id": from_chain_id,
+            "to_chain_id": to_chain_id,
+            "from_token": lifi.normalize_token_address(from_token, chain_id=from_chain_id),
+            "to_token": lifi.normalize_token_address(to_token, chain_id=to_chain_id),
+            "amount_in_raw": amount_in_raw,
+            "from_address": resolved_from_address,
+            "to_address": resolved_to_address,
+            "slippage": slippage,
+            "allow_bridges": allow_bridges,
+            "deny_bridges": deny_bridges,
+            "prefer_bridges": prefer_bridges,
+            "tool": payload.get("tool"),
+            "tool_details": payload.get("toolDetails"),
+            "action": payload.get("action"),
+            "estimate": payload.get("estimate"),
+            "included_steps": payload.get("includedSteps"),
+            "transaction_request": payload.get("transactionRequest"),
+            "quote": payload,
+            "source": "lifi",
+        }
+
+    async def get_lifi_transfer_status(
+        self,
+        *,
+        tx_hash: str,
+        bridge: str | None = None,
+        from_chain: str | None = None,
+        to_chain: str | None = None,
+    ) -> dict[str, Any]:
+        payload = await lifi.fetch_transfer_status(
+            tx_hash=tx_hash,
+            bridge=bridge,
+            from_chain=from_chain,
+            to_chain=to_chain,
+        )
+        return {
+            "provider": "lifi",
+            "chain": "cross-chain",
+            "network": "mainnet",
+            "tx_hash": tx_hash,
+            "bridge": bridge,
+            "from_chain": from_chain,
+            "to_chain": to_chain,
+            "status": payload.get("status"),
+            "substatus": payload.get("substatus"),
+            "sending": payload.get("sending"),
+            "receiving": payload.get("receiving"),
+            "transfer": payload,
+            "source": "lifi",
         }
 
     async def get_evm_token_balance(self, token_address: str) -> dict[str, Any]:
@@ -880,6 +1077,120 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "broadcasted": True,
             "confirmed": False,
             "source": "wdk-evm-wallet",
+        }
+
+    async def preview_evm_lifi_cross_chain_swap(
+        self,
+        *,
+        token_in: str,
+        destination_chain: str,
+        output_token: str,
+        destination_address: str,
+        amount_in_raw: str,
+        slippage: float | int | None = None,
+        allow_bridges: list[str] | None = None,
+        deny_bridges: list[str] | None = None,
+        prefer_bridges: list[str] | None = None,
+    ) -> dict[str, Any]:
+        resolved_address = await self.get_address()
+        data = await self.client.post(
+            "/v1/evm/lifi/quote",
+            {
+                "walletId": self.wallet_id,
+                "address": resolved_address,
+                "accountIndex": self.account_index,
+                "network": self.network,
+                "tokenIn": token_in,
+                "destinationChain": destination_chain,
+                "outputToken": output_token,
+                "destinationAddress": destination_address,
+                "tokenInAmount": amount_in_raw,
+                **({"slippage": slippage} if slippage is not None else {}),
+                **({"allowBridges": allow_bridges} if allow_bridges is not None else {}),
+                **({"denyBridges": deny_bridges} if deny_bridges is not None else {}),
+                **({"preferBridges": prefer_bridges} if prefer_bridges is not None else {}),
+            },
+        )
+        data.setdefault("address", resolved_address)
+        return _normalize_lifi_cross_chain_payload(
+            chain=self.chain,
+            network=self.network,
+            wallet_id=self.wallet_id,
+            data=data,
+            token_in=token_in,
+            destination_chain=destination_chain,
+            output_token=output_token,
+            destination_address=destination_address,
+            amount_in_raw=amount_in_raw,
+            slippage=slippage,
+            sign_only=self.sign_only,
+        )
+
+    async def send_evm_lifi_cross_chain_swap(
+        self,
+        *,
+        token_in: str,
+        destination_chain: str,
+        output_token: str,
+        destination_address: str,
+        amount_in_raw: str,
+        slippage: float | int | None = None,
+        allow_bridges: list[str] | None = None,
+        deny_bridges: list[str] | None = None,
+        prefer_bridges: list[str] | None = None,
+        minimum_output_amount_raw: str | None = None,
+    ) -> dict[str, Any]:
+        if self.sign_only:
+            raise WalletBackendError("wdk_evm_local is configured as sign_only.")
+        data = await self.client.post(
+            "/v1/evm/lifi/send",
+            {
+                "walletId": self.wallet_id,
+                "accountIndex": self.account_index,
+                "network": self.network,
+                "tokenIn": token_in,
+                "destinationChain": destination_chain,
+                "outputToken": output_token,
+                "destinationAddress": destination_address,
+                "tokenInAmount": amount_in_raw,
+                **({"slippage": slippage} if slippage is not None else {}),
+                **({"allowBridges": allow_bridges} if allow_bridges is not None else {}),
+                **({"denyBridges": deny_bridges} if deny_bridges is not None else {}),
+                **({"preferBridges": prefer_bridges} if prefer_bridges is not None else {}),
+                **(
+                    {"minimumTokenOutAmount": minimum_output_amount_raw}
+                    if isinstance(minimum_output_amount_raw, str) and minimum_output_amount_raw.strip()
+                    else {}
+                ),
+            },
+        )
+        result = dict(data.get("result") or {})
+        data.setdefault("address", await self.get_address())
+        shaped = _normalize_lifi_cross_chain_payload(
+            chain=self.chain,
+            network=self.network,
+            wallet_id=self.wallet_id,
+            data=data,
+            token_in=token_in,
+            destination_chain=destination_chain,
+            output_token=output_token,
+            destination_address=destination_address,
+            amount_in_raw=amount_in_raw,
+            slippage=slippage,
+            sign_only=self.sign_only,
+        )
+        return {
+            **shaped,
+            "output_amount_raw": str(result.get("tokenOutAmount") or shaped.get("estimated_output_amount_raw") or "0"),
+            "estimated_fee_wei": str(data.get("estimatedFeeWei") or result.get("fee") or shaped.get("estimated_fee_wei") or "0"),
+            "estimated_swap_fee_wei": str(data.get("estimatedSwapFeeWei") or result.get("swapFee") or shaped.get("estimated_swap_fee_wei") or "0"),
+            "estimated_approval_fee_wei": str(data.get("estimatedApprovalFeeWei") or result.get("approvalFee") or shaped.get("estimated_approval_fee_wei") or "0"),
+            "hash": result.get("hash"),
+            "approve_hash": result.get("approveHash"),
+            "reset_allowance_hash": result.get("resetAllowanceHash"),
+            "result": result,
+            "broadcasted": True,
+            "confirmed": False,
         }
 
     async def preview_evm_native_transfer(

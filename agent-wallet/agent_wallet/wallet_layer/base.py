@@ -148,6 +148,37 @@ class AgentWalletBackend(ABC):
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support EVM-origin cross-chain swaps.")
 
+    async def preview_evm_lifi_cross_chain_swap(
+        self,
+        *,
+        token_in: str,
+        destination_chain: str,
+        output_token: str,
+        destination_address: str,
+        amount_in_raw: str,
+        slippage: float | int | None = None,
+        allow_bridges: list[str] | None = None,
+        deny_bridges: list[str] | None = None,
+        prefer_bridges: list[str] | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM LI.FI cross-chain swap previews.")
+
+    async def send_evm_lifi_cross_chain_swap(
+        self,
+        *,
+        token_in: str,
+        destination_chain: str,
+        output_token: str,
+        destination_address: str,
+        amount_in_raw: str,
+        slippage: float | int | None = None,
+        allow_bridges: list[str] | None = None,
+        deny_bridges: list[str] | None = None,
+        prefer_bridges: list[str] | None = None,
+        minimum_output_amount_raw: str | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM LI.FI cross-chain swaps.")
+
     async def preview_evm_native_transfer(
         self,
         *,
@@ -233,6 +264,36 @@ class AgentWalletBackend(ABC):
 
     async def get_mayan_swap_status(self, *, source_tx_hash: str) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Mayan swap status lookup.")
+
+    async def get_lifi_supported_chains(self) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support LI.FI chain lookup.")
+
+    async def get_lifi_quote(
+        self,
+        *,
+        from_chain: str,
+        to_chain: str,
+        from_token: str,
+        to_token: str,
+        amount_in_raw: str,
+        from_address: str | None = None,
+        to_address: str | None = None,
+        slippage: float | int | None = None,
+        allow_bridges: list[str] | None = None,
+        deny_bridges: list[str] | None = None,
+        prefer_bridges: list[str] | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support LI.FI quotes.")
+
+    async def get_lifi_transfer_status(
+        self,
+        *,
+        tx_hash: str,
+        bridge: str | None = None,
+        from_chain: str | None = None,
+        to_chain: str | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support LI.FI transfer status lookup.")
 
     async def preview_solana_cross_chain_swap(
         self,

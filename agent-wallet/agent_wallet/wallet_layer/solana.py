@@ -10,7 +10,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from agent_wallet.models import AgentWalletCapabilities, SolanaWalletState
-from agent_wallet.providers import bags, jupiter, kamino, mayan, mayan_bridge, solana_rpc
+from agent_wallet.providers import bags, jupiter, kamino, lifi, mayan, mayan_bridge, solana_rpc
 from agent_wallet.solana_stake import (
     STAKE_STATE_V2_SIZE,
     deactivate_stake as build_deactivate_stake_instruction,
@@ -429,6 +429,120 @@ class SolanaWalletBackend(AgentWalletBackend):
             "swap": payload,
             "client_status": payload.get("clientStatus") or payload.get("status"),
             "source": "mayan",
+        }
+
+    async def get_lifi_supported_chains(self) -> dict[str, Any]:
+        chains = await lifi.fetch_supported_chains()
+        supported = lifi.format_openclaw_supported_chains(chains)
+        return {
+            "provider": "lifi",
+            "chain": "cross-chain",
+            "network": "mainnet",
+            "supported_by_openclaw": lifi.OPENCLAW_SUPPORTED_CHAINS,
+            "chain_count": len(supported),
+            "chains": supported,
+            "source": "lifi",
+        }
+
+    async def get_lifi_quote(
+        self,
+        *,
+        from_chain: str,
+        to_chain: str,
+        from_token: str,
+        to_token: str,
+        amount_in_raw: str,
+        from_address: str | None = None,
+        to_address: str | None = None,
+        slippage: float | int | None = None,
+        allow_bridges: list[str] | None = None,
+        deny_bridges: list[str] | None = None,
+        prefer_bridges: list[str] | None = None,
+    ) -> dict[str, Any]:
+        from_chain_id = lifi.normalize_chain_id(from_chain, field_name="from_chain")
+        to_chain_id = lifi.normalize_chain_id(to_chain, field_name="to_chain")
+        resolved_from_address = str(from_address or "").strip()
+        resolved_to_address = str(to_address or "").strip()
+        wallet_address: str | None = None
+        if from_chain_id == "1151111081099710" and not resolved_from_address:
+            wallet_address = await self.get_address()
+            resolved_from_address = str(wallet_address or "").strip()
+        if to_chain_id == "1151111081099710" and not resolved_to_address:
+            wallet_address = wallet_address or await self.get_address()
+            resolved_to_address = str(wallet_address or "").strip()
+        if not resolved_from_address:
+            raise WalletBackendError("from_address is required when the LI.FI source chain is not Solana.")
+        if not resolved_to_address:
+            raise WalletBackendError("to_address is required when the LI.FI destination chain is not Solana.")
+
+        payload = await lifi.fetch_quote(
+            from_chain=from_chain_id,
+            to_chain=to_chain_id,
+            from_token=from_token,
+            to_token=to_token,
+            amount_in_raw=amount_in_raw,
+            from_address=resolved_from_address,
+            to_address=resolved_to_address,
+            slippage=slippage,
+            allow_bridges=allow_bridges,
+            deny_bridges=deny_bridges,
+            prefer_bridges=prefer_bridges,
+        )
+        return {
+            "provider": "lifi",
+            "chain": "cross-chain",
+            "network": "mainnet",
+            "from_chain": lifi.chain_name_for_id(from_chain_id),
+            "to_chain": lifi.chain_name_for_id(to_chain_id),
+            "from_chain_id": from_chain_id,
+            "to_chain_id": to_chain_id,
+            "from_token": lifi.normalize_token_address(from_token, chain_id=from_chain_id),
+            "to_token": lifi.normalize_token_address(to_token, chain_id=to_chain_id),
+            "amount_in_raw": amount_in_raw,
+            "from_address": resolved_from_address,
+            "to_address": resolved_to_address,
+            "slippage": slippage,
+            "allow_bridges": allow_bridges,
+            "deny_bridges": deny_bridges,
+            "prefer_bridges": prefer_bridges,
+            "tool": payload.get("tool"),
+            "tool_details": payload.get("toolDetails"),
+            "action": payload.get("action"),
+            "estimate": payload.get("estimate"),
+            "included_steps": payload.get("includedSteps"),
+            "transaction_request": payload.get("transactionRequest"),
+            "quote": payload,
+            "source": "lifi",
+        }
+
+    async def get_lifi_transfer_status(
+        self,
+        *,
+        tx_hash: str,
+        bridge: str | None = None,
+        from_chain: str | None = None,
+        to_chain: str | None = None,
+    ) -> dict[str, Any]:
+        payload = await lifi.fetch_transfer_status(
+            tx_hash=tx_hash,
+            bridge=bridge,
+            from_chain=from_chain,
+            to_chain=to_chain,
+        )
+        return {
+            "provider": "lifi",
+            "chain": "cross-chain",
+            "network": "mainnet",
+            "tx_hash": tx_hash,
+            "bridge": bridge,
+            "from_chain": from_chain,
+            "to_chain": to_chain,
+            "status": payload.get("status"),
+            "substatus": payload.get("substatus"),
+            "sending": payload.get("sending"),
+            "receiving": payload.get("receiving"),
+            "transfer": payload,
+            "source": "lifi",
         }
 
     def _build_mayan_fee_summary(

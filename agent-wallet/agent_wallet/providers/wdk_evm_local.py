@@ -15,6 +15,7 @@ from agent_wallet.wallet_layer.base import WalletBackendError
 LOCAL_WDK_EVM_HOSTS = {"127.0.0.1", "localhost", "::1"}
 LONG_RUNNING_SEND_PATHS = {
     "/v1/evm/swap/send",
+    "/v1/evm/lifi/send",
     "/v1/evm/transfer/send",
     "/v1/evm/token-transfer/send",
 }

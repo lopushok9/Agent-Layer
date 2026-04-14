@@ -174,6 +174,77 @@ class FakeBackend(AgentWalletBackend):
             "source": "mayan",
         }
 
+    async def get_lifi_supported_chains(self) -> dict:
+        return {
+            "provider": "lifi",
+            "chain": "cross-chain",
+            "network": "mainnet",
+            "chain_count": 3,
+            "chains": [
+                {"chain_id": "1", "name": "Ethereum"},
+                {"chain_id": "8453", "name": "Base"},
+                {"chain_id": "1151111081099710", "name": "Solana"},
+            ],
+            "source": "lifi",
+        }
+
+    async def get_lifi_quote(
+        self,
+        *,
+        from_chain: str,
+        to_chain: str,
+        from_token: str,
+        to_token: str,
+        amount_in_raw: str,
+        from_address: str | None = None,
+        to_address: str | None = None,
+        slippage: float | int | None = None,
+        allow_bridges: list[str] | None = None,
+        deny_bridges: list[str] | None = None,
+        prefer_bridges: list[str] | None = None,
+    ) -> dict:
+        return {
+            "provider": "lifi",
+            "chain": "cross-chain",
+            "network": "mainnet",
+            "from_chain": from_chain,
+            "to_chain": to_chain,
+            "from_token": from_token,
+            "to_token": to_token,
+            "amount_in_raw": amount_in_raw,
+            "from_address": from_address or "FakeSolanaAddress111111111111111111111111111",
+            "to_address": to_address,
+            "slippage": slippage,
+            "allow_bridges": allow_bridges,
+            "deny_bridges": deny_bridges,
+            "prefer_bridges": prefer_bridges,
+            "tool": "relay",
+            "estimate": {"toAmount": "995000", "toAmountMin": "985000"},
+            "transaction_request": {"to": "0xrouter", "data": "0x"},
+            "quote": {"tool": "relay"},
+            "source": "lifi",
+        }
+
+    async def get_lifi_transfer_status(
+        self,
+        *,
+        tx_hash: str,
+        bridge: str | None = None,
+        from_chain: str | None = None,
+        to_chain: str | None = None,
+    ) -> dict:
+        return {
+            "provider": "lifi",
+            "chain": "cross-chain",
+            "network": "mainnet",
+            "tx_hash": tx_hash,
+            "bridge": bridge,
+            "from_chain": from_chain,
+            "to_chain": to_chain,
+            "status": "DONE",
+            "source": "lifi",
+        }
+
     async def preview_solana_cross_chain_swap(
         self,
         *,
@@ -1604,14 +1675,17 @@ async def main() -> None:
     tool_names = {tool.name for tool in adapter.list_tools()}
     bundle_tool_names = {tool["name"] for tool in bundle["tools"]}
 
-    assert len(tool_names) == 38
+    assert len(tool_names) == 41
     assert bundle["manifest"]["id"] == "agent-wallet"
-    assert len(bundle_tool_names) == 38
+    assert len(bundle_tool_names) == 41
     assert "Wallet Operator" in bundle["instructions"]
     assert "get_mayan_supported_chains" in tool_names
     assert "get_mayan_tokens" in tool_names
     assert "get_mayan_quote" in tool_names
     assert "get_mayan_swap_status" in tool_names
+    assert "get_lifi_supported_chains" in tool_names
+    assert "get_lifi_quote" in tool_names
+    assert "get_lifi_transfer_status" in tool_names
     assert "swap_solana_cross_chain_tokens" in tool_names
     assert "get_jupiter_portfolio" not in tool_names
     assert "get_jupiter_earn_tokens" in tool_names
@@ -1678,6 +1752,30 @@ async def main() -> None:
         {"source_tx_hash": "0xsourcehash"},
     )
     assert mayan_status.ok and mayan_status.data["client_status"] == "COMPLETED"
+
+    lifi_chains = await adapter.invoke("get_lifi_supported_chains")
+    assert lifi_chains.ok and lifi_chains.data["chain_count"] == 3
+
+    lifi_quote = await adapter.invoke(
+        "get_lifi_quote",
+        {
+            "from_chain": "solana",
+            "to_chain": "base",
+            "from_token": "native",
+            "to_token": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+            "amount_in_raw": "1000000",
+            "to_address": "0xDF7eD8B45ae91a0881c83A876747AF1FfB48C36E",
+            "slippage": 0.01,
+            "deny_bridges": ["mayan"],
+        },
+    )
+    assert lifi_quote.ok and lifi_quote.data["tool"] == "relay"
+
+    lifi_status = await adapter.invoke(
+        "get_lifi_transfer_status",
+        {"tx_hash": "0xsourcehash", "from_chain": "base", "to_chain": "solana"},
+    )
+    assert lifi_status.ok and lifi_status.data["status"] == "DONE"
 
     bags_positions = await mainnet_adapter.invoke("get_bags_claimable_positions")
     assert bags_positions.ok and bags_positions.data["position_count"] == 1
