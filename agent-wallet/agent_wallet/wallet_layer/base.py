@@ -314,6 +314,37 @@ class AgentWalletBackend(ABC):
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Solana-origin Mayan swaps.")
 
+    async def preview_solana_lifi_cross_chain_swap(
+        self,
+        *,
+        input_token: str,
+        destination_chain: str,
+        output_token: str,
+        destination_address: str,
+        amount_in_raw: str,
+        slippage: float | int | None = None,
+        allow_bridges: list[str] | None = None,
+        deny_bridges: list[str] | None = None,
+        prefer_bridges: list[str] | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Solana-origin LI.FI swap previews.")
+
+    async def execute_solana_lifi_cross_chain_swap(
+        self,
+        *,
+        input_token: str,
+        destination_chain: str,
+        output_token: str,
+        destination_address: str,
+        amount_in_raw: str,
+        slippage: float | int | None = None,
+        allow_bridges: list[str] | None = None,
+        deny_bridges: list[str] | None = None,
+        prefer_bridges: list[str] | None = None,
+        minimum_output_amount_raw: str | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Solana-origin LI.FI swaps.")
+
     async def get_token_prices(self, mints: list[str]) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support token price lookup.")
 

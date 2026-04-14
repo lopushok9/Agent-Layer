@@ -386,6 +386,35 @@ async def send_transaction(
     return {"signature": data.get("result"), "source": "solana-rpc"}
 
 
+async def simulate_transaction(
+    transaction_base64: str,
+    rpc_url: str | list[str],
+    *,
+    commitment: str = "confirmed",
+    sig_verify: bool = True,
+    replace_recent_blockhash: bool = False,
+) -> dict[str, Any]:
+    """Simulate a signed transaction encoded as base64."""
+    config: dict[str, Any] = {
+        "encoding": "base64",
+        "commitment": commitment,
+        "sigVerify": sig_verify,
+        "replaceRecentBlockhash": replace_recent_blockhash,
+    }
+    if replace_recent_blockhash:
+        config["sigVerify"] = False
+    data = await rpc_call(
+        "simulateTransaction",
+        [transaction_base64, config],
+        rpc_url=rpc_url,
+    )
+    return {
+        "result": data.get("result"),
+        "value": (data.get("result") or {}).get("value"),
+        "source": "solana-rpc",
+    }
+
+
 async def request_airdrop(
     address: str,
     lamports: int,

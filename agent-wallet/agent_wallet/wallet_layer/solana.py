@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import hashlib
 import json
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -542,6 +543,404 @@ class SolanaWalletBackend(AgentWalletBackend):
             "sending": payload.get("sending"),
             "receiving": payload.get("receiving"),
             "transfer": payload,
+            "source": "lifi",
+        }
+
+    def _build_lifi_fee_summary(self, *, quote: dict[str, Any]) -> dict[str, Any]:
+        estimate = quote.get("estimate") if isinstance(quote.get("estimate"), dict) else {}
+        fee_costs = [item for item in estimate.get("feeCosts") or [] if isinstance(item, dict)]
+        gas_costs = [item for item in estimate.get("gasCosts") or [] if isinstance(item, dict)]
+        return {
+            "swap_provider": "lifi",
+            "tool": quote.get("tool"),
+            "tool_details": quote.get("toolDetails"),
+            "fee_costs": fee_costs,
+            "gas_costs": gas_costs,
+            "execution_duration_seconds": estimate.get("executionDuration"),
+            "from_amount_usd": estimate.get("fromAmountUSD"),
+            "to_amount_usd": estimate.get("toAmountUSD"),
+            "quoted_output_includes_route_fees": True,
+        }
+
+    def _lifi_token_metadata(self, token: Any, fallback_address: str) -> dict[str, Any]:
+        raw = token if isinstance(token, dict) else {}
+        decimals = _coerce_int(raw.get("decimals"))
+        return {
+            "address": str(raw.get("address") or fallback_address or "").strip(),
+            "chain_id": raw.get("chainId"),
+            "symbol": raw.get("symbol"),
+            "name": raw.get("name"),
+            "decimals": decimals,
+            "coin_key": raw.get("coinKey"),
+            "price_usd": raw.get("priceUSD"),
+            "tags": raw.get("tags") if isinstance(raw.get("tags"), list) else [],
+            "source": "lifi",
+        }
+
+    def _format_lifi_amount(self, amount: Any, decimals: int | None) -> float | None:
+        parsed = _coerce_positive_int_from_any(amount)
+        if parsed is None or decimals is None or decimals < 0:
+            return None
+        return parsed / (10**decimals)
+
+    def _normalize_solana_lifi_preview_payload(
+        self,
+        *,
+        quote: dict[str, Any],
+        owner: str,
+        destination_chain_id: str,
+        destination_chain: str,
+        input_token: str,
+        output_token: str,
+        destination_address: str,
+        amount_in_raw: str,
+        slippage: float | int | None,
+        allow_bridges: list[str] | None,
+        deny_bridges: list[str] | None,
+        prefer_bridges: list[str] | None,
+    ) -> dict[str, Any]:
+        action = quote.get("action") if isinstance(quote.get("action"), dict) else {}
+        estimate = quote.get("estimate") if isinstance(quote.get("estimate"), dict) else {}
+        transaction_request = quote.get("transactionRequest")
+        transaction_data = (
+            str(transaction_request.get("data") or "").strip()
+            if isinstance(transaction_request, dict)
+            else ""
+        )
+        normalized_input_token = lifi.normalize_token_address(input_token, chain_id="1151111081099710")
+        normalized_output_token = lifi.normalize_token_address(output_token, chain_id=destination_chain_id)
+        input_metadata = self._lifi_token_metadata(action.get("fromToken"), normalized_input_token)
+        output_metadata = self._lifi_token_metadata(action.get("toToken"), normalized_output_token)
+        input_decimals = input_metadata.get("decimals")
+        output_decimals = output_metadata.get("decimals")
+        estimated_output_amount_raw = str(estimate.get("toAmount") or "0")
+        minimum_output_amount_raw = str(estimate.get("toAmountMin") or estimate.get("toAmount") or "0")
+        quote_id = str(quote.get("id") or "").strip() or None
+        transaction_id = str(quote.get("transactionId") or "").strip() or None
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "mode": "preview",
+            "asset_type": "solana-lifi-cross-chain-swap",
+            "owner": owner,
+            "source_chain": "solana",
+            "source_chain_id": "1151111081099710",
+            "destination_chain": destination_chain,
+            "destination_chain_id": destination_chain_id,
+            "input_token": normalized_input_token,
+            "input_mint": normalized_input_token,
+            "output_token": normalized_output_token,
+            "destination_address": destination_address,
+            "input_amount_raw": amount_in_raw,
+            "input_amount_ui": self._format_lifi_amount(amount_in_raw, input_decimals),
+            "input_decimals": input_decimals,
+            "input_symbol": input_metadata.get("symbol"),
+            "estimated_output_amount_raw": estimated_output_amount_raw,
+            "estimated_output_amount_ui": self._format_lifi_amount(
+                estimated_output_amount_raw,
+                output_decimals,
+            ),
+            "minimum_output_amount_raw": minimum_output_amount_raw,
+            "minimum_output_amount_ui": self._format_lifi_amount(
+                minimum_output_amount_raw,
+                output_decimals,
+            ),
+            "output_decimals": output_decimals,
+            "output_symbol": output_metadata.get("symbol"),
+            "slippage": slippage,
+            "allow_bridges": allow_bridges,
+            "deny_bridges": deny_bridges,
+            "prefer_bridges": prefer_bridges,
+            "quote_type": quote.get("type"),
+            "quote_id": quote_id,
+            "transaction_id": transaction_id,
+            "tool": quote.get("tool"),
+            "tool_details": quote.get("toolDetails"),
+            "fee_summary": self._build_lifi_fee_summary(quote=quote),
+            "route_plan": quote.get("includedSteps") or [],
+            "transaction_data_hash": (
+                hashlib.sha256(transaction_data.encode("utf-8")).hexdigest()
+                if transaction_data
+                else None
+            ),
+            "input_token_metadata": input_metadata,
+            "output_token_metadata": output_metadata,
+            "swap_provider": "lifi",
+            "can_send": self.get_capabilities().can_send_transaction,
+            "sign_only": self.sign_only,
+            "source": "lifi",
+        }
+
+    async def preview_solana_lifi_cross_chain_swap(
+        self,
+        *,
+        input_token: str,
+        destination_chain: str,
+        output_token: str,
+        destination_address: str,
+        amount_in_raw: str,
+        slippage: float | int | None = None,
+        allow_bridges: list[str] | None = None,
+        deny_bridges: list[str] | None = None,
+        prefer_bridges: list[str] | None = None,
+    ) -> dict[str, Any]:
+        if self.network != "mainnet":
+            raise WalletBackendError("LI.FI Solana-origin cross-chain swaps are only enabled for Solana mainnet.")
+        amount_in_raw = _require_positive_integer_string(amount_in_raw, field_name="amount_in_raw")
+        destination_chain_id = lifi.normalize_chain_id(destination_chain, field_name="destination_chain")
+        if destination_chain_id == "1151111081099710":
+            raise WalletBackendError("Use swap_solana_tokens for Solana-only swaps.")
+        destination_chain_name = lifi.chain_name_for_id(destination_chain_id)
+        owner = await self.get_address()
+        if not owner:
+            raise WalletBackendError(
+                "No Solana wallet address configured. Set SOLANA_AGENT_PUBLIC_KEY or a signer."
+            )
+        if not isinstance(destination_address, str) or not destination_address.strip():
+            raise WalletBackendError("destination_address is required.")
+
+        quote = await lifi.fetch_quote(
+            from_chain="solana",
+            to_chain=destination_chain_id,
+            from_token=input_token,
+            to_token=output_token,
+            amount_in_raw=amount_in_raw,
+            from_address=owner,
+            to_address=destination_address.strip(),
+            slippage=slippage,
+            allow_bridges=allow_bridges,
+            deny_bridges=deny_bridges,
+            prefer_bridges=prefer_bridges,
+        )
+        return self._normalize_solana_lifi_preview_payload(
+            quote=quote,
+            owner=owner,
+            destination_chain_id=destination_chain_id,
+            destination_chain=destination_chain_name,
+            input_token=input_token,
+            output_token=output_token,
+            destination_address=destination_address.strip(),
+            amount_in_raw=amount_in_raw,
+            slippage=slippage,
+            allow_bridges=allow_bridges,
+            deny_bridges=deny_bridges,
+            prefer_bridges=prefer_bridges,
+        )
+
+    def _lifi_transaction_data_from_quote(self, quote: dict[str, Any]) -> str:
+        transaction_request = quote.get("transactionRequest")
+        if not isinstance(transaction_request, dict):
+            raise WalletBackendError("LI.FI quote returned no Solana transactionRequest.")
+        transaction_data = str(transaction_request.get("data") or "").strip()
+        if not transaction_data:
+            raise WalletBackendError("LI.FI quote returned no Solana transactionRequest.data.")
+        return transaction_data
+
+    async def _verify_solana_lifi_transaction(
+        self,
+        message: Any,
+        *,
+        wallet_address: str,
+        input_token: str,
+    ) -> dict[str, Any]:
+        keys = [str(value) for value in getattr(message, "account_keys", []) or []]
+        if not keys:
+            raise WalletBackendError("LI.FI transaction does not include account keys.")
+        header = getattr(message, "header", None)
+        required_signature_count = int(getattr(header, "num_required_signatures", 0) or 0)
+        if required_signature_count <= 0 or required_signature_count > len(keys):
+            raise WalletBackendError("LI.FI transaction signer metadata is inconsistent.")
+        required_signer_keys = keys[:required_signature_count]
+        if wallet_address not in required_signer_keys:
+            raise WalletBackendError(
+                "LI.FI transaction does not require the connected wallet as an authorized signer."
+            )
+        if required_signature_count > 2:
+            raise WalletBackendError(
+                "LI.FI transaction requires unexpected additional signers and was rejected."
+            )
+        loaded_addresses = await self._resolve_versioned_message_lookup_addresses(message)
+        all_keys = keys + loaded_addresses
+        program_ids: list[str] = []
+        for instruction in list(getattr(message, "instructions", []) or []):
+            index = int(getattr(instruction, "program_id_index", -1))
+            if index < 0 or index >= len(all_keys):
+                raise WalletBackendError("LI.FI transaction contains an invalid program id index.")
+            program_ids.append(all_keys[index])
+        return {
+            "wallet_address": wallet_address,
+            "fee_payer": keys[0],
+            "required_signer_keys": required_signer_keys,
+            "required_signature_count": required_signature_count,
+            "wallet_signer_index": required_signer_keys.index(wallet_address),
+            "sponsored_fee_payer": keys[0] != wallet_address,
+            "program_ids": program_ids,
+            "non_core_program_ids": [
+                pid
+                for pid in program_ids
+                if pid
+                not in {
+                    "11111111111111111111111111111111",
+                    "ComputeBudget111111111111111111111111111111",
+                    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+                    "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+                    "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+                    "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
+                    "AddressLookupTab1e1111111111111111111111111",
+                }
+            ],
+            "account_key_count": len(all_keys),
+            "instruction_count": len(list(getattr(message, "instructions", []) or [])),
+            "input_token": input_token,
+            "verified": True,
+        }
+
+    async def execute_solana_lifi_cross_chain_swap(
+        self,
+        *,
+        input_token: str,
+        destination_chain: str,
+        output_token: str,
+        destination_address: str,
+        amount_in_raw: str,
+        slippage: float | int | None = None,
+        allow_bridges: list[str] | None = None,
+        deny_bridges: list[str] | None = None,
+        prefer_bridges: list[str] | None = None,
+        minimum_output_amount_raw: str | None = None,
+    ) -> dict[str, Any]:
+        if not self.signer:
+            raise WalletBackendError("Solana signer is not configured.")
+        if self.sign_only:
+            raise WalletBackendError(
+                "This wallet backend is in sign-only mode. Disable sign_only to broadcast transactions."
+            )
+        amount_in_raw = _require_positive_integer_string(amount_in_raw, field_name="amount_in_raw")
+        if not isinstance(destination_address, str) or not destination_address.strip():
+            raise WalletBackendError("destination_address is required.")
+        destination_address = destination_address.strip()
+        preview = await self.preview_solana_lifi_cross_chain_swap(
+            input_token=input_token,
+            destination_chain=destination_chain,
+            output_token=output_token,
+            destination_address=destination_address,
+            amount_in_raw=amount_in_raw,
+            slippage=slippage,
+            allow_bridges=allow_bridges,
+            deny_bridges=deny_bridges,
+            prefer_bridges=prefer_bridges,
+        )
+        if minimum_output_amount_raw is not None:
+            minimum_output_amount_raw = _require_positive_integer_string(
+                minimum_output_amount_raw,
+                field_name="minimum_output_amount_raw",
+            )
+            quoted_minimum = _coerce_positive_int_from_any(preview.get("minimum_output_amount_raw")) or 0
+            if quoted_minimum < int(minimum_output_amount_raw):
+                raise WalletBackendError(
+                    "LI.FI quote changed below the approved minimum output. Generate a new preview and approval.",
+                    code="swap_quote_changed",
+                    details={
+                        "approved_minimum_output_amount_raw": minimum_output_amount_raw,
+                        "quoted_minimum_output_amount_raw": str(quoted_minimum),
+                    },
+                )
+
+        quote = await lifi.fetch_quote(
+            from_chain="solana",
+            to_chain=str(preview["destination_chain_id"]),
+            from_token=input_token,
+            to_token=output_token,
+            amount_in_raw=amount_in_raw,
+            from_address=str(preview["owner"]),
+            to_address=destination_address,
+            slippage=slippage,
+            allow_bridges=allow_bridges,
+            deny_bridges=deny_bridges,
+            prefer_bridges=prefer_bridges,
+        )
+        final_preview = self._normalize_solana_lifi_preview_payload(
+            quote=quote,
+            owner=str(preview["owner"]),
+            destination_chain_id=str(preview["destination_chain_id"]),
+            destination_chain=str(preview["destination_chain"]),
+            input_token=input_token,
+            output_token=output_token,
+            destination_address=destination_address,
+            amount_in_raw=amount_in_raw,
+            slippage=slippage,
+            allow_bridges=allow_bridges,
+            deny_bridges=deny_bridges,
+            prefer_bridges=prefer_bridges,
+        )
+        if minimum_output_amount_raw is not None:
+            quoted_minimum = _coerce_positive_int_from_any(final_preview.get("minimum_output_amount_raw")) or 0
+            if quoted_minimum < int(minimum_output_amount_raw):
+                raise WalletBackendError(
+                    "LI.FI quote changed below the approved minimum output. Generate a new preview and approval.",
+                    code="swap_quote_changed",
+                    details={
+                        "approved_minimum_output_amount_raw": minimum_output_amount_raw,
+                        "quoted_minimum_output_amount_raw": str(quoted_minimum),
+                    },
+                )
+        transaction_data = self._lifi_transaction_data_from_quote(quote)
+        try:
+            from solders.transaction import VersionedTransaction
+        except ImportError as exc:
+            raise WalletBackendError(
+                "solana and solders packages are required for LI.FI transaction signing."
+            ) from exc
+        try:
+            unsigned_transaction = VersionedTransaction.from_bytes(base64.b64decode(transaction_data))
+        except Exception as exc:
+            raise WalletBackendError("LI.FI Solana transaction could not be decoded.") from exc
+        verification = await self._verify_solana_lifi_transaction(
+            unsigned_transaction.message,
+            wallet_address=str(final_preview["owner"]),
+            input_token=str(final_preview["input_token"]),
+        )
+        signed_transaction_base64 = await self._sign_versioned_provider_transaction(
+            transaction_base64=transaction_data,
+            wallet_signer_index=int(verification.get("wallet_signer_index") or 0),
+        )
+        simulation = await solana_rpc.simulate_transaction(
+            transaction_base64=signed_transaction_base64,
+            rpc_url=self.rpc_urls,
+            commitment=self.commitment,
+        )
+        simulation_value = simulation.get("value") if isinstance(simulation.get("value"), dict) else {}
+        if isinstance(simulation_value, dict) and simulation_value.get("err") is not None:
+            raise WalletBackendError(
+                "LI.FI Solana transaction simulation failed.",
+                code="transaction_simulation_failed",
+                details={"simulation": simulation_value},
+            )
+        submitted = await solana_rpc.send_transaction(
+            transaction_base64=signed_transaction_base64,
+            rpc_url=self.rpc_urls,
+        )
+        signature = str(submitted.get("signature") or "").strip()
+        status = None
+        if signature:
+            status = await solana_rpc.wait_for_confirmation(
+                signature=signature,
+                rpc_url=self.rpc_urls,
+            )
+        return {
+            **final_preview,
+            "mode": "execute",
+            "signature": signature or None,
+            "source_tx_hash": signature or None,
+            "broadcasted": bool(signature),
+            "confirmed": status is not None,
+            "confirmation_status": status.get("confirmationStatus") if status else None,
+            "slot": status.get("slot") if status else None,
+            "simulation": simulation_value,
+            "verification": verification,
+            "execute_response": submitted,
+            "quote_id": quote.get("id") or preview.get("quote_id"),
+            "transaction_id": quote.get("transactionId") or preview.get("transaction_id"),
             "source": "lifi",
         }
 

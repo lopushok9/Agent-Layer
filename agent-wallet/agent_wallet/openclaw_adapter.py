@@ -251,6 +251,32 @@ class OpenClawWalletAdapter:
                 "quote_response": mayan_quote,
             }
 
+        if asset_type == "solana-lifi-cross-chain-swap":
+            return {
+                "operation": action_label,
+                "network": str(payload.get("network") or getattr(self.backend, "network", "unknown")),
+                "swap_provider": payload.get("swap_provider"),
+                "source_chain": payload.get("source_chain"),
+                "source_chain_id": payload.get("source_chain_id"),
+                "destination_chain": payload.get("destination_chain"),
+                "destination_chain_id": payload.get("destination_chain_id"),
+                "owner": payload.get("owner"),
+                "input_token": payload.get("input_token"),
+                "input_mint": payload.get("input_mint"),
+                "output_token": payload.get("output_token"),
+                "destination_address": payload.get("destination_address"),
+                "input_amount_raw": payload.get("input_amount_raw"),
+                "input_amount_ui": payload.get("input_amount_ui"),
+                "estimated_output_amount_raw": payload.get("estimated_output_amount_raw"),
+                "minimum_output_amount_raw": payload.get("minimum_output_amount_raw"),
+                "slippage": payload.get("slippage"),
+                "quote_type": payload.get("quote_type"),
+                "quote_id": payload.get("quote_id"),
+                "transaction_id": payload.get("transaction_id"),
+                "tool": payload.get("tool"),
+                "transaction_data_hash": payload.get("transaction_data_hash"),
+            }
+
         if asset_type in {"evm-cross-chain-swap", "evm-lifi-cross-chain-swap"}:
             return {
                 "operation": action_label,
@@ -2123,6 +2149,69 @@ class OpenClawWalletAdapter:
                             "output_token",
                             "destination_address",
                             "amount",
+                            "mode",
+                            "purpose",
+                        ],
+                        "additionalProperties": False,
+                    },
+                    read_only=False,
+                    requires_explicit_user_intent=True,
+                    risk_level="high",
+                )
+            )
+
+            tools.append(
+                AgentToolSpec(
+                    name="swap_solana_lifi_cross_chain_tokens",
+                    description=(
+                        "Preview, prepare, or execute a Solana-origin cross-chain swap through LI.FI. "
+                        "This currently supports Solana as the source chain and ethereum/base as the destination chain. "
+                        "Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation."
+                    ),
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "input_token": {
+                                "type": "string",
+                                "description": "Source Solana token mint, native, sol, or 11111111111111111111111111111111 for native SOL.",
+                            },
+                            "destination_chain": {
+                                "type": "string",
+                                "enum": ["ethereum", "base", "1", "8453"],
+                            },
+                            "output_token": {
+                                "type": "string",
+                                "description": "Destination EVM token contract address, native, eth, or the zero address for native ETH.",
+                            },
+                            "destination_address": {
+                                "type": "string",
+                                "description": "Destination EVM wallet address on the target chain.",
+                            },
+                            "amount_in_raw": {
+                                "type": "string",
+                                "description": "Input amount in token base units as a base-10 integer string.",
+                            },
+                            "slippage": {
+                                "type": "number",
+                                "description": "Optional decimal fraction, for example 0.01 for 1%.",
+                            },
+                            "allow_bridges": {"type": "array", "items": {"type": "string"}},
+                            "deny_bridges": {"type": "array", "items": {"type": "string"}},
+                            "prefer_bridges": {"type": "array", "items": {"type": "string"}},
+                            "mode": {
+                                "type": "string",
+                                "enum": ["preview", "prepare", "execute"],
+                            },
+                            "purpose": {"type": "string"},
+                            "user_intent": {"type": "boolean"},
+                            "approval_token": {"type": "string"},
+                        },
+                        "required": [
+                            "input_token",
+                            "destination_chain",
+                            "output_token",
+                            "destination_address",
+                            "amount_in_raw",
                             "mode",
                             "purpose",
                         ],
@@ -4267,6 +4356,164 @@ class OpenClawWalletAdapter:
                     data=self._annotate_sensitive_payload(
                         result,
                         action_label="Cross-chain swap",
+                        mode="execute",
+                    ),
+                )
+
+            if tool_name == "swap_solana_lifi_cross_chain_tokens":
+                input_token = args.get("input_token")
+                destination_chain = args.get("destination_chain")
+                output_token = args.get("output_token")
+                destination_address = args.get("destination_address")
+                amount_in_raw = args.get("amount_in_raw")
+                slippage = self._normalize_lifi_slippage(args.get("slippage"))
+                allow_bridges = self._normalize_optional_string_list(args.get("allow_bridges"), field_name="allow_bridges")
+                deny_bridges = self._normalize_optional_string_list(args.get("deny_bridges"), field_name="deny_bridges")
+                prefer_bridges = self._normalize_optional_string_list(args.get("prefer_bridges"), field_name="prefer_bridges")
+                mode = args.get("mode")
+                purpose = args.get("purpose")
+                user_intent = args.get("user_intent", False)
+                approval_token = args.get("approval_token")
+
+                if not isinstance(input_token, str) or not input_token.strip():
+                    raise WalletBackendError("input_token is required.")
+                if not isinstance(destination_chain, str) or not destination_chain.strip():
+                    raise WalletBackendError("destination_chain is required.")
+                if not isinstance(output_token, str) or not output_token.strip():
+                    raise WalletBackendError("output_token is required.")
+                if not isinstance(destination_address, str) or not destination_address.strip():
+                    raise WalletBackendError("destination_address is required.")
+                if not isinstance(amount_in_raw, str) or not amount_in_raw.strip().isdigit():
+                    raise WalletBackendError("amount_in_raw must be a positive integer string.")
+                if int(amount_in_raw.strip()) <= 0:
+                    raise WalletBackendError("amount_in_raw must be greater than zero.")
+                if mode not in {"preview", "prepare", "execute"}:
+                    raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
+                if not isinstance(purpose, str) or not purpose.strip():
+                    raise WalletBackendError("purpose is required.")
+
+                preview_kwargs = {
+                    "input_token": input_token.strip(),
+                    "destination_chain": destination_chain.strip(),
+                    "output_token": output_token.strip(),
+                    "destination_address": destination_address.strip(),
+                    "amount_in_raw": amount_in_raw.strip(),
+                    "slippage": slippage,
+                    "allow_bridges": allow_bridges,
+                    "deny_bridges": deny_bridges,
+                    "prefer_bridges": prefer_bridges,
+                }
+
+                if mode == "preview":
+                    preview = await self.backend.preview_solana_lifi_cross_chain_swap(**preview_kwargs)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            preview,
+                            action_label="Solana LI.FI cross-chain swap",
+                            mode="preview",
+                        ),
+                    )
+
+                if mode == "prepare":
+                    self._require_prepare_intent(user_intent)
+                    preview = await self.backend.preview_solana_lifi_cross_chain_swap(**preview_kwargs)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            self._build_prepare_plan(
+                                preview_payload=preview,
+                                action_label="Solana LI.FI cross-chain swap",
+                            ),
+                            action_label="Solana LI.FI cross-chain swap",
+                            mode="prepare",
+                        ),
+                    )
+
+                approval_payload = inspect_approval_token(
+                    approval_token,
+                    tool_name=tool_name,
+                    network=str(getattr(self.backend, "network", "unknown")),
+                    require_mainnet_confirmation=self._is_mainnet(),
+                )
+                approval_summary = approval_payload.get("binding", {}).get("summary")
+                if not isinstance(approval_summary, dict):
+                    raise WalletBackendError(
+                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                    )
+                destination_chain_id = self._canonicalize_lifi_chain_identifier(destination_chain)
+                expected_summary = {
+                    "operation": "Solana LI.FI cross-chain swap",
+                    "network": str(getattr(self.backend, "network", "unknown")),
+                    "source_chain": "solana",
+                    "destination_chain": destination_chain_id,
+                    "input_token": self._canonicalize_lifi_token_identifier(
+                        input_token,
+                        chain_id="1151111081099710",
+                    ),
+                    "output_token": self._canonicalize_lifi_token_identifier(
+                        output_token,
+                        chain_id=destination_chain_id,
+                    ),
+                    "destination_address": destination_address.strip(),
+                    "input_amount_raw": amount_in_raw.strip(),
+                }
+                for key, expected_value in expected_summary.items():
+                    actual_value = approval_summary.get(key)
+                    if key == "destination_chain":
+                        actual_value = self._canonicalize_lifi_chain_identifier(actual_value)
+                    if key == "input_token":
+                        actual_value = self._canonicalize_lifi_token_identifier(
+                            actual_value,
+                            chain_id="1151111081099710",
+                        )
+                    if key == "output_token":
+                        actual_value = self._canonicalize_lifi_token_identifier(
+                            actual_value,
+                            chain_id=destination_chain_id,
+                        )
+                    if actual_value != expected_value:
+                        raise WalletBackendError(
+                            "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                        )
+
+                approval_summary_copy = dict(approval_summary)
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=approval_summary_copy,
+                    action_label="Solana LI.FI cross-chain swap",
+                )
+                result = await self.backend.execute_solana_lifi_cross_chain_swap(
+                    input_token=str(approval_summary_copy.get("input_token") or input_token).strip(),
+                    destination_chain=str(
+                        approval_summary_copy.get("destination_chain_id")
+                        or approval_summary_copy.get("destination_chain")
+                        or destination_chain
+                    ).strip(),
+                    output_token=str(approval_summary_copy.get("output_token") or output_token).strip(),
+                    destination_address=str(
+                        approval_summary_copy.get("destination_address") or destination_address
+                    ).strip(),
+                    amount_in_raw=str(approval_summary_copy.get("input_amount_raw") or amount_in_raw).strip(),
+                    slippage=approval_summary_copy.get("slippage", slippage),
+                    allow_bridges=allow_bridges,
+                    deny_bridges=deny_bridges,
+                    prefer_bridges=prefer_bridges,
+                    minimum_output_amount_raw=(
+                        str(approval_summary_copy.get("minimum_output_amount_raw")).strip()
+                        if approval_summary_copy.get("minimum_output_amount_raw") is not None
+                        else None
+                    ),
+                )
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=self._annotate_sensitive_payload(
+                        result,
+                        action_label="Solana LI.FI cross-chain swap",
                         mode="execute",
                     ),
                 )

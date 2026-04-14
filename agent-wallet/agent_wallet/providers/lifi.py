@@ -36,6 +36,15 @@ OPENCLAW_SUPPORTED_CHAINS = [
     {"chain": "base", "chain_id": "8453", "key": "bas", "name": "Base", "coin": "ETH"},
     {"chain": "solana", "chain_id": "1151111081099710", "key": "sol", "name": "Solana", "coin": "SOL"},
 ]
+_KNOWN_EVM_TOKEN_ADDRESSES = {
+    "1": {
+        "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+        "0xdac17f958d2ee523a2206206994597c13d831ec7": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    },
+    "8453": {
+        "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    },
+}
 
 
 def normalize_chain_id(value: str, *, field_name: str) -> str:
@@ -59,6 +68,8 @@ def normalize_token_address(token: str, *, chain_id: str) -> str:
         return SOLANA_NATIVE_TOKEN
     if chain_id in {"1", "8453"} and alias in {"native", "eth", "ethereum"}:
         return EVM_NATIVE_TOKEN
+    if chain_id in _KNOWN_EVM_TOKEN_ADDRESSES:
+        return _KNOWN_EVM_TOKEN_ADDRESSES[chain_id].get(alias, text)
     return text
 
 

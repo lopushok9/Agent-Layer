@@ -312,6 +312,113 @@ class FakeBackend(AgentWalletBackend):
             "source": "mayan",
         }
 
+    async def preview_solana_lifi_cross_chain_swap(
+        self,
+        *,
+        input_token: str,
+        destination_chain: str,
+        output_token: str,
+        destination_address: str,
+        amount_in_raw: str,
+        slippage: float | int | None = None,
+        allow_bridges: list[str] | None = None,
+        deny_bridges: list[str] | None = None,
+        prefer_bridges: list[str] | None = None,
+    ) -> dict:
+        destination_chain_ids = {"ethereum": "1", "1": "1", "base": "8453", "8453": "8453"}
+        destination_chain_id = destination_chain_ids.get(destination_chain, destination_chain)
+        normalized_input_token = (
+            "11111111111111111111111111111111"
+            if input_token.lower() in {"native", "sol", "solana"}
+            else input_token
+        )
+        normalized_output_token = (
+            "0x0000000000000000000000000000000000000000"
+            if output_token.lower() in {"native", "eth", "ethereum"}
+            else output_token
+        )
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "preview",
+            "asset_type": "solana-lifi-cross-chain-swap",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "source_chain": "solana",
+            "source_chain_id": "1151111081099710",
+            "destination_chain": "base" if destination_chain_id == "8453" else "ethereum",
+            "destination_chain_id": destination_chain_id,
+            "input_token": normalized_input_token,
+            "input_mint": normalized_input_token,
+            "output_token": normalized_output_token,
+            "destination_address": destination_address,
+            "input_amount_raw": amount_in_raw,
+            "input_amount_ui": 1,
+            "estimated_output_amount_raw": "994898",
+            "estimated_output_amount_ui": 0.994898,
+            "minimum_output_amount_raw": "984949",
+            "minimum_output_amount_ui": 0.984949,
+            "slippage": slippage,
+            "allow_bridges": allow_bridges,
+            "deny_bridges": deny_bridges,
+            "prefer_bridges": prefer_bridges,
+            "quote_type": "lifi",
+            "quote_id": "lifi-sol-quote-1",
+            "transaction_id": "0xlifitx",
+            "tool": "near",
+            "transaction_data_hash": "lifi-solana-data-hash-1",
+            "fee_summary": {
+                "swap_provider": "lifi",
+                "tool": "near",
+                "quoted_output_includes_route_fees": True,
+            },
+            "swap_provider": "lifi",
+            "can_send": True,
+            "sign_only": False,
+            "source": "lifi",
+        }
+
+    async def execute_solana_lifi_cross_chain_swap(
+        self,
+        *,
+        input_token: str,
+        destination_chain: str,
+        output_token: str,
+        destination_address: str,
+        amount_in_raw: str,
+        slippage: float | int | None = None,
+        allow_bridges: list[str] | None = None,
+        deny_bridges: list[str] | None = None,
+        prefer_bridges: list[str] | None = None,
+        minimum_output_amount_raw: str | None = None,
+    ) -> dict:
+        if minimum_output_amount_raw and minimum_output_amount_raw != "984949":
+            raise AssertionError("minimum_output_amount_raw should be bound from preview")
+        preview = await self.preview_solana_lifi_cross_chain_swap(
+            input_token=input_token,
+            destination_chain=destination_chain,
+            output_token=output_token,
+            destination_address=destination_address,
+            amount_in_raw=amount_in_raw,
+            slippage=slippage,
+            allow_bridges=allow_bridges,
+            deny_bridges=deny_bridges,
+            prefer_bridges=prefer_bridges,
+        )
+        return {
+            **preview,
+            "mode": "execute",
+            "signature": "LifiSolSig111111111111111111111111111111111111",
+            "source_tx_hash": "LifiSolSig111111111111111111111111111111111111",
+            "broadcasted": True,
+            "confirmed": True,
+            "confirmation_status": "confirmed",
+            "slot": 12345,
+            "simulation": {"err": None},
+            "verification": {"verified": True},
+            "execute_response": {"signature": "LifiSolSig111111111111111111111111111111111111"},
+            "source": "lifi",
+        }
+
     async def get_bags_claimable_positions(self, wallet: str | None = None) -> dict:
         owner = wallet or "Fake11111111111111111111111111111111111111111"
         return {
@@ -1675,9 +1782,9 @@ async def main() -> None:
     tool_names = {tool.name for tool in adapter.list_tools()}
     bundle_tool_names = {tool["name"] for tool in bundle["tools"]}
 
-    assert len(tool_names) == 41
+    assert len(tool_names) == 42
     assert bundle["manifest"]["id"] == "agent-wallet"
-    assert len(bundle_tool_names) == 41
+    assert len(bundle_tool_names) == 42
     assert "Wallet Operator" in bundle["instructions"]
     assert "get_mayan_supported_chains" in tool_names
     assert "get_mayan_tokens" in tool_names
@@ -1687,6 +1794,7 @@ async def main() -> None:
     assert "get_lifi_quote" in tool_names
     assert "get_lifi_transfer_status" in tool_names
     assert "swap_solana_cross_chain_tokens" in tool_names
+    assert "swap_solana_lifi_cross_chain_tokens" in tool_names
     assert "get_jupiter_portfolio" not in tool_names
     assert "get_jupiter_earn_tokens" in tool_names
     assert "jupiter_earn_deposit" in tool_names
@@ -2157,6 +2265,70 @@ async def main() -> None:
     )
     assert cross_chain_execute.ok and cross_chain_execute.data["confirmed"] is True
     assert cross_chain_execute.data["swap_provider"] == "mayan"
+
+    lifi_cross_chain_preview = await mainnet_adapter.invoke(
+        "swap_solana_lifi_cross_chain_tokens",
+        {
+            "input_token": "sol",
+            "destination_chain": "base",
+            "output_token": "native",
+            "destination_address": "0x1111111111111111111111111111111111111111",
+            "amount_in_raw": "1000000",
+            "slippage": 0.01,
+            "deny_bridges": ["mayan"],
+            "mode": "preview",
+            "purpose": "test LI.FI Solana cross-chain preview",
+        },
+    )
+    assert lifi_cross_chain_preview.ok
+    assert lifi_cross_chain_preview.data["asset_type"] == "solana-lifi-cross-chain-swap"
+    assert lifi_cross_chain_preview.data["confirmation_summary"]["input_token"] == (
+        "11111111111111111111111111111111"
+    )
+    assert lifi_cross_chain_preview.data["confirmation_summary"]["output_token"] == (
+        "0x0000000000000000000000000000000000000000"
+    )
+
+    lifi_cross_chain_prepare = await mainnet_adapter.invoke(
+        "swap_solana_lifi_cross_chain_tokens",
+        {
+            "input_token": "sol",
+            "destination_chain": "base",
+            "output_token": "native",
+            "destination_address": "0x1111111111111111111111111111111111111111",
+            "amount_in_raw": "1000000",
+            "slippage": 0.01,
+            "deny_bridges": ["mayan"],
+            "mode": "prepare",
+            "purpose": "test LI.FI Solana cross-chain prepare",
+            "user_intent": True,
+        },
+    )
+    assert lifi_cross_chain_prepare.ok and lifi_cross_chain_prepare.data["execution_plan_only"] is True
+    assert lifi_cross_chain_prepare.data["signed"] is False
+
+    lifi_cross_chain_execute = await mainnet_adapter.invoke(
+        "swap_solana_lifi_cross_chain_tokens",
+        {
+            "input_token": "sol",
+            "destination_chain": "8453",
+            "output_token": "native",
+            "destination_address": "0x1111111111111111111111111111111111111111",
+            "amount_in_raw": "1000000",
+            "slippage": 0.01,
+            "deny_bridges": ["mayan"],
+            "mode": "execute",
+            "purpose": "test LI.FI Solana cross-chain execute",
+            "approval_token": _issue_execute_approval(
+                tool_name="swap_solana_lifi_cross_chain_tokens",
+                preview=lifi_cross_chain_preview.data,
+                network="mainnet",
+                mainnet_confirmed=True,
+            ),
+        },
+    )
+    assert lifi_cross_chain_execute.ok and lifi_cross_chain_execute.data["confirmed"] is True
+    assert lifi_cross_chain_execute.data["swap_provider"] == "lifi"
 
     bags_claim_preview = await mainnet_adapter.invoke(
         "claim_bags_fees",
