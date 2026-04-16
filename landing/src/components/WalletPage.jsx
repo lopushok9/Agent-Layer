@@ -50,6 +50,7 @@ export const WalletPage = ({ onInstallClick }) => {
           <a href="#mcp" className="wp-nav-item">MCP</a>
           <a href="#use-cases" className="wp-nav-item">Use Cases</a>
           <a href="#how-to-use" className="wp-nav-item">How to use</a>
+          <a href="#for-investors" className="wp-nav-item">For Investors</a>
           <a href="#about-agent-layer" className="wp-nav-item">About</a>
         </nav>
 

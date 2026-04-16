@@ -20,6 +20,7 @@ export const Interface = ({ onInstallClick }) => {
                     <a href="#mcp" className="nav-item">MCP</a>
                     <a href="#use-cases" className="nav-item">Use Cases</a>
                     <a href="#how-to-use" className="nav-item">How to use</a>
+                    <a href="#for-investors" className="nav-item">For Investors</a>
                     <a href="#about-agent-layer" className="nav-item">About</a>
                 </nav>
 
@@ -65,6 +66,7 @@ export const Interface = ({ onInstallClick }) => {
                         <a href="#mcp" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>MCP</a>
                         <a href="#use-cases" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>Use Cases</a>
                         <a href="#how-to-use" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>How to use</a>
+                        <a href="#for-investors" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>For Investors</a>
                         <a href="#about-agent-layer" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>About</a>
                     </nav>
                 </div>

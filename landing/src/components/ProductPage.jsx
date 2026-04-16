@@ -50,6 +50,7 @@ export const ProductPage = ({ onInstallClick }) => {
           <a href="#mcp" className="pp-nav-item pp-nav-active">MCP</a>
           <a href="#use-cases" className="pp-nav-item">Use Cases</a>
           <a href="#how-to-use" className="pp-nav-item">How to use</a>
+          <a href="#for-investors" className="pp-nav-item">For Investors</a>
           <a href="#about-agent-layer" className="pp-nav-item">About</a>
         </nav>
 

@@ -19,6 +19,7 @@ export const HowToUsePage = ({ onInstallClick }) => {
           <a href="#mcp" className="htu-nav-item">MCP</a>
           <a href="#use-cases" className="htu-nav-item">Use Cases</a>
           <a href="#how-to-use" className="htu-nav-item htu-nav-active">How to use</a>
+          <a href="#for-investors" className="htu-nav-item">For Investors</a>
           <a href="#about-agent-layer" className="htu-nav-item">About</a>
         </nav>
 

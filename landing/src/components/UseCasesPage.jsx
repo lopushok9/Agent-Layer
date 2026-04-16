@@ -52,6 +52,7 @@ export const UseCasesPage = ({ onInstallClick }) => {
           <a href="#mcp" className="uc-nav-item">MCP</a>
           <a href="#use-cases" className="uc-nav-item uc-nav-active">Use Cases</a>
           <a href="#how-to-use" className="uc-nav-item">How to use</a>
+          <a href="#for-investors" className="uc-nav-item">For Investors</a>
           <a href="#about-agent-layer" className="uc-nav-item">About</a>
         </nav>
 

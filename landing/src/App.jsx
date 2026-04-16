@@ -7,6 +7,7 @@ import { WalletPage } from './components/WalletPage'
 import { UseCasesPage } from './components/UseCasesPage'
 import { HowToUsePage } from './components/HowToUsePage'
 import { AboutAgentLayerPage } from './components/AboutAgentLayerPage'
+import { ForInvestorsPage } from './components/ForInvestorsPage'
 import { TermsPage } from './components/TermsPage'
 import './index.css'
 
@@ -18,6 +19,7 @@ function App() {
     if (hash === '#product') return 'product'
     if (hash === '#use-cases') return 'use-cases'
     if (hash === '#how-to-use') return 'how-to-use'
+    if (hash === '#for-investors') return 'for-investors'
     if (hash === '#about-agent-layer') return 'about-agent-layer'
     if (hash === '#terms') return 'terms'
     return 'home'
@@ -39,6 +41,7 @@ function App() {
       {page === 'product' && <ProductPage onInstallClick={() => setInstallModalOpen(true)} />}
       {page === 'use-cases' && <UseCasesPage onInstallClick={() => setInstallModalOpen(true)} />}
       {page === 'how-to-use' && <HowToUsePage onInstallClick={() => setInstallModalOpen(true)} />}
+      {page === 'for-investors' && <ForInvestorsPage onInstallClick={() => setInstallModalOpen(true)} />}
       {page === 'about-agent-layer' && <AboutAgentLayerPage onInstallClick={() => setInstallModalOpen(true)} />}
       {page === 'terms' && <TermsPage onInstallClick={() => setInstallModalOpen(true)} />}
       {page === 'home' && <Interface onInstallClick={() => setInstallModalOpen(true)} />}

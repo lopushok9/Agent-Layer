@@ -35,6 +35,7 @@ export const AboutAgentLayerPage = ({ onInstallClick }) => {
           <a href="#mcp" className="ab-nav-item">MCP</a>
           <a href="#use-cases" className="ab-nav-item">Use Cases</a>
           <a href="#how-to-use" className="ab-nav-item">How to use</a>
+          <a href="#for-investors" className="ab-nav-item">For Investors</a>
           <a href="#about-agent-layer" className="ab-nav-item ab-nav-active">About</a>
         </nav>
 
