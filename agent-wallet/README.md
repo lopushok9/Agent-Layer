@@ -42,10 +42,6 @@ Current safe tools:
 - `get_evm_transaction_receipt`
 - `get_evm_swap_quote`
 - `swap_evm_tokens`
-- `get_mayan_supported_chains`
-- `get_mayan_tokens`
-- `get_mayan_quote`
-- `get_mayan_swap_status`
 - `get_lifi_supported_chains`
 - `get_lifi_quote`
 - `get_lifi_transfer_status`
@@ -62,7 +58,6 @@ Current safe tools:
 - `stake_sol_native`
 - `transfer_spl_token`
 - `swap_solana_tokens`
-- `swap_solana_cross_chain_tokens`
 - `get_jupiter_earn_tokens`
 - `get_jupiter_earn_positions`
 - `get_jupiter_earn_earnings`
@@ -89,13 +84,6 @@ Temporarily disabled but kept in the codebase for later re-enable:
 
 The signing tool still requires explicit `user_confirmed=true`.
 Transfer, native staking, and swap tools support `preview`, `prepare`, and `execute` modes. The safe operational path is still preview-first. `prepare` now returns an execution plan only and never exposes signed transaction bytes to the agent. `execute` works only when the backend has a signer and `sign_only=false`.
-
-For Solana-origin Mayan cross-chain execution, install the local bridge once:
-
-```bash
-cd agent-wallet/mayan-bridge
-npm install
-```
 
 Policy defaults:
 

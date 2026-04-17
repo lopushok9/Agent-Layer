@@ -6,6 +6,9 @@
 - Clarified in `README.md` that individuals can audit, fork, run, and modify
   the code for themselves, and that company use follows the PolyForm small
   business limits.
+- Removed direct Mayan swap routing from `agent-wallet`, `.openclaw`, and
+  `wdk-evm-wallet`; cross-chain swaps now stay on LI.FI/Jupiter-backed paths
+  with Mayan denied as a LI.FI bridge.
 
 ## v0.1.0-beta.2 - 2026-03-31
 

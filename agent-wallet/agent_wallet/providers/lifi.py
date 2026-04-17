@@ -10,6 +10,7 @@ from agent_wallet.http_client import get_client
 
 EVM_NATIVE_TOKEN = "0x0000000000000000000000000000000000000000"
 SOLANA_NATIVE_TOKEN = "11111111111111111111111111111111"
+ALWAYS_DENIED_BRIDGES = ("mayan",)
 
 _CHAIN_ALIASES = {
     "1": "1",
@@ -150,6 +151,19 @@ def _csv(value: str | list[str] | tuple[str, ...] | None) -> str | None:
     return str(value).strip() or None
 
 
+def _merge_bridge_csv(*values: str | list[str] | tuple[str, ...] | None) -> str | None:
+    items: list[str] = []
+    for value in values:
+        text = _csv(value)
+        if not text:
+            continue
+        for item in text.split(","):
+            bridge = item.strip()
+            if bridge and bridge.lower() not in {existing.lower() for existing in items}:
+                items.append(bridge)
+    return ",".join(items) if items else None
+
+
 def _clean_params(params: dict[str, Any]) -> dict[str, Any]:
     cleaned: dict[str, Any] = {}
     for key, value in params.items():
@@ -195,6 +209,11 @@ async def fetch_quote(
     from_chain_id = normalize_chain_id(from_chain, field_name="from_chain")
     to_chain_id = normalize_chain_id(to_chain, field_name="to_chain")
     default_deny_bridges = settings.lifi_default_deny_bridges.strip()
+    effective_deny_bridges = _merge_bridge_csv(
+        default_deny_bridges,
+        deny_bridges,
+        ALWAYS_DENIED_BRIDGES,
+    )
     params = _clean_params(
         {
             "fromChain": from_chain_id,
@@ -207,7 +226,7 @@ async def fetch_quote(
             "slippage": slippage,
             "integrator": (integrator or settings.lifi_integrator).strip(),
             "allowBridges": _csv(allow_bridges),
-            "denyBridges": _csv(deny_bridges) if deny_bridges is not None else _csv(default_deny_bridges),
+            "denyBridges": effective_deny_bridges,
             "preferBridges": _csv(prefer_bridges),
         }
     )

@@ -77,103 +77,6 @@ class FakeBackend(AgentWalletBackend):
             "source": "jupiter",
         }
 
-    async def get_mayan_supported_chains(self) -> dict:
-        return {
-            "provider": "mayan",
-            "chain": "cross-chain",
-            "network": "mainnet",
-            "chain_count": 2,
-            "chains": [
-                {"name": "solana", "display_name": "Solana", "mode": "SOLANA"},
-                {"name": "base", "display_name": "Base", "mode": "EVM"},
-            ],
-            "source": "mayan",
-        }
-
-    async def get_mayan_tokens(
-        self,
-        *,
-        chain: str,
-        query: str | None = None,
-        limit: int = 20,
-    ) -> dict:
-        return {
-            "provider": "mayan",
-            "chain": chain,
-            "query": query,
-            "count": min(limit, 1),
-            "total_matches": 1,
-            "tokens": [
-                {
-                    "symbol": "USDC",
-                    "name": "USD Coin",
-                    "contract": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-                    "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-                    "decimals": 6,
-                    "verified": True,
-                }
-            ],
-            "source": "mayan",
-        }
-
-    async def get_mayan_quote(
-        self,
-        *,
-        from_chain: str,
-        to_chain: str,
-        from_token: str,
-        to_token: str,
-        amount_in_raw: str,
-        slippage_bps: int | str = "auto",
-        gas_drop: int | float | None = None,
-        destination_address: str | None = None,
-    ) -> dict:
-        return {
-            "provider": "mayan",
-            "chain": "cross-chain",
-            "network": "mainnet",
-            "from_chain": from_chain,
-            "to_chain": to_chain,
-            "from_token": from_token,
-            "to_token": to_token,
-            "amount_in_raw": amount_in_raw,
-            "slippage_bps": slippage_bps,
-            "gas_drop": gas_drop,
-            "destination_address": destination_address,
-            "quote_count": 1,
-            "best_quote": {
-                "type": "FAST_MCTP",
-                "expectedAmountOutBaseUnits": "995530",
-                "minAmountOutBaseUnits": "995122",
-                "etaSeconds": 35,
-            },
-            "quotes": [
-                {
-                    "type": "FAST_MCTP",
-                    "expectedAmountOutBaseUnits": "995530",
-                    "minAmountOutBaseUnits": "995122",
-                    "etaSeconds": 35,
-                }
-            ],
-            "minimum_sdk_version": [7, 0, 0],
-            "source": "mayan",
-        }
-
-    async def get_mayan_swap_status(self, *, source_tx_hash: str) -> dict:
-        return {
-            "provider": "mayan",
-            "chain": "cross-chain",
-            "network": "mainnet",
-            "source_tx_hash": source_tx_hash,
-            "client_status": "COMPLETED",
-            "swap": {
-                "sourceTxHash": source_tx_hash,
-                "status": "COMPLETED",
-                "fulfillTxHash": "0xfulfilled",
-            },
-            "source": "mayan",
-        }
-
     async def get_lifi_supported_chains(self) -> dict:
         return {
             "provider": "lifi",
@@ -243,73 +146,6 @@ class FakeBackend(AgentWalletBackend):
             "to_chain": to_chain,
             "status": "DONE",
             "source": "lifi",
-        }
-
-    async def preview_solana_cross_chain_swap(
-        self,
-        *,
-        input_mint: str,
-        destination_chain: str,
-        output_token: str,
-        destination_address: str,
-        amount_ui: float,
-        slippage_bps: int | str = "auto",
-        gas_drop: int | float | None = None,
-    ) -> dict:
-        return {
-            "chain": "solana",
-            "network": "mainnet",
-            "mode": "preview",
-            "asset_type": "cross-chain-swap",
-            "owner": "Fake11111111111111111111111111111111111111111",
-            "source_chain": "solana",
-            "destination_chain": destination_chain,
-            "input_mint": input_mint,
-            "output_token": output_token,
-            "destination_address": destination_address,
-            "input_amount_ui": amount_ui,
-            "input_amount_raw": "1000000",
-            "estimated_output_amount_raw": "995530",
-            "minimum_output_amount_raw": "995122",
-            "slippage_bps": slippage_bps,
-            "quote_type": "FAST_MCTP",
-            "quote_id": "quote-123",
-            "quote_response": {
-                "type": "FAST_MCTP",
-                "quoteId": "quote-123",
-                "expectedAmountOutBaseUnits": "995530",
-                "minAmountOutBaseUnits": "995122",
-            },
-            "swap_provider": "mayan",
-            "source": "mayan",
-        }
-
-    async def execute_solana_cross_chain_swap_from_preview(self, preview: dict[str, object]) -> dict:
-        return {
-            "chain": "solana",
-            "network": "mainnet",
-            "mode": "execute",
-            "asset_type": "cross-chain-swap",
-            "owner": preview.get("owner"),
-            "source_chain": preview.get("source_chain"),
-            "destination_chain": preview.get("destination_chain"),
-            "input_mint": preview.get("input_mint"),
-            "output_token": preview.get("output_token"),
-            "destination_address": preview.get("destination_address"),
-            "input_amount_ui": preview.get("input_amount_ui"),
-            "input_amount_raw": preview.get("input_amount_raw"),
-            "estimated_output_amount_raw": preview.get("estimated_output_amount_raw"),
-            "minimum_output_amount_raw": preview.get("minimum_output_amount_raw"),
-            "slippage_bps": preview.get("slippage_bps"),
-            "quote_type": preview.get("quote_type"),
-            "quote_id": preview.get("quote_id"),
-            "signature": "MayanSig111111111111111111111111111111111111111",
-            "source_tx_hash": "MayanSig111111111111111111111111111111111111111",
-            "broadcasted": True,
-            "confirmed": True,
-            "swap_provider": "mayan",
-            "execute_response": {"signature": "MayanSig111111111111111111111111111111111111111"},
-            "source": "mayan",
         }
 
     async def preview_solana_lifi_cross_chain_swap(
@@ -1782,18 +1618,13 @@ async def main() -> None:
     tool_names = {tool.name for tool in adapter.list_tools()}
     bundle_tool_names = {tool["name"] for tool in bundle["tools"]}
 
-    assert len(tool_names) == 42
+    assert len(tool_names) == 37
     assert bundle["manifest"]["id"] == "agent-wallet"
-    assert len(bundle_tool_names) == 42
+    assert len(bundle_tool_names) == 37
     assert "Wallet Operator" in bundle["instructions"]
-    assert "get_mayan_supported_chains" in tool_names
-    assert "get_mayan_tokens" in tool_names
-    assert "get_mayan_quote" in tool_names
-    assert "get_mayan_swap_status" in tool_names
     assert "get_lifi_supported_chains" in tool_names
     assert "get_lifi_quote" in tool_names
     assert "get_lifi_transfer_status" in tool_names
-    assert "swap_solana_cross_chain_tokens" in tool_names
     assert "swap_solana_lifi_cross_chain_tokens" in tool_names
     assert "get_jupiter_portfolio" not in tool_names
     assert "get_jupiter_earn_tokens" in tool_names
@@ -1833,34 +1664,6 @@ async def main() -> None:
     )
     assert prices.ok and prices.data["count"] == 1
 
-    mayan_chains = await adapter.invoke("get_mayan_supported_chains")
-    assert mayan_chains.ok and mayan_chains.data["chain_count"] == 2
-
-    mayan_tokens = await adapter.invoke(
-        "get_mayan_tokens",
-        {"chain": "solana", "query": "usdc", "limit": 5},
-    )
-    assert mayan_tokens.ok and mayan_tokens.data["tokens"][0]["symbol"] == "USDC"
-
-    mayan_quote = await adapter.invoke(
-        "get_mayan_quote",
-        {
-            "from_chain": "solana",
-            "to_chain": "base",
-            "from_token": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-            "to_token": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
-            "amount_in_raw": "1000000",
-            "slippage_bps": "auto",
-        },
-    )
-    assert mayan_quote.ok and mayan_quote.data["best_quote"]["type"] == "FAST_MCTP"
-
-    mayan_status = await adapter.invoke(
-        "get_mayan_swap_status",
-        {"source_tx_hash": "0xsourcehash"},
-    )
-    assert mayan_status.ok and mayan_status.data["client_status"] == "COMPLETED"
-
     lifi_chains = await adapter.invoke("get_lifi_supported_chains")
     assert lifi_chains.ok and lifi_chains.data["chain_count"] == 3
 
@@ -1874,7 +1677,6 @@ async def main() -> None:
             "amount_in_raw": "1000000",
             "to_address": "0xDF7eD8B45ae91a0881c83A876747AF1FfB48C36E",
             "slippage": 0.01,
-            "deny_bridges": ["mayan"],
         },
     )
     assert lifi_quote.ok and lifi_quote.data["tool"] == "relay"
@@ -2214,58 +2016,6 @@ async def main() -> None:
     )
     assert executed_swap.ok and executed_swap.data["confirmed"] is True
 
-    cross_chain_preview = await mainnet_adapter.invoke(
-        "swap_solana_cross_chain_tokens",
-        {
-            "input_mint": "So11111111111111111111111111111111111111112",
-            "destination_chain": "base",
-            "output_token": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
-            "destination_address": "0x1111111111111111111111111111111111111111",
-            "amount": 0.1,
-            "mode": "preview",
-            "purpose": "test Mayan cross-chain preview",
-        },
-    )
-    assert cross_chain_preview.ok and cross_chain_preview.data["asset_type"] == "cross-chain-swap"
-    assert cross_chain_preview.data["swap_provider"] == "mayan"
-
-    cross_chain_prepare = await mainnet_adapter.invoke(
-        "swap_solana_cross_chain_tokens",
-        {
-            "input_mint": "So11111111111111111111111111111111111111112",
-            "destination_chain": "base",
-            "output_token": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
-            "destination_address": "0x1111111111111111111111111111111111111111",
-            "amount": 0.1,
-            "mode": "prepare",
-            "purpose": "test Mayan cross-chain prepare",
-            "user_intent": True,
-        },
-    )
-    assert cross_chain_prepare.ok and cross_chain_prepare.data["execution_plan_only"] is True
-    assert cross_chain_prepare.data["signed"] is False
-
-    cross_chain_execute = await mainnet_adapter.invoke(
-        "swap_solana_cross_chain_tokens",
-        {
-            "input_mint": "So11111111111111111111111111111111111111112",
-            "destination_chain": "base",
-            "output_token": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
-            "destination_address": "0x1111111111111111111111111111111111111111",
-            "amount": 0.1,
-            "mode": "execute",
-            "purpose": "test Mayan cross-chain execute",
-            "approval_token": _issue_execute_approval(
-                tool_name="swap_solana_cross_chain_tokens",
-                preview=cross_chain_preview.data,
-                network="mainnet",
-                mainnet_confirmed=True,
-            ),
-        },
-    )
-    assert cross_chain_execute.ok and cross_chain_execute.data["confirmed"] is True
-    assert cross_chain_execute.data["swap_provider"] == "mayan"
-
     lifi_cross_chain_preview = await mainnet_adapter.invoke(
         "swap_solana_lifi_cross_chain_tokens",
         {
@@ -2275,7 +2025,6 @@ async def main() -> None:
             "destination_address": "0x1111111111111111111111111111111111111111",
             "amount_in_raw": "1000000",
             "slippage": 0.01,
-            "deny_bridges": ["mayan"],
             "mode": "preview",
             "purpose": "test LI.FI Solana cross-chain preview",
         },
@@ -2298,7 +2047,6 @@ async def main() -> None:
             "destination_address": "0x1111111111111111111111111111111111111111",
             "amount_in_raw": "1000000",
             "slippage": 0.01,
-            "deny_bridges": ["mayan"],
             "mode": "prepare",
             "purpose": "test LI.FI Solana cross-chain prepare",
             "user_intent": True,
@@ -2316,7 +2064,6 @@ async def main() -> None:
             "destination_address": "0x1111111111111111111111111111111111111111",
             "amount_in_raw": "1000000",
             "slippage": 0.01,
-            "deny_bridges": ["mayan"],
             "mode": "execute",
             "purpose": "test LI.FI Solana cross-chain execute",
             "approval_token": _issue_execute_approval(

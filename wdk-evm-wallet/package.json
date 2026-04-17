@@ -12,7 +12,6 @@
     "test:swap-runtime": "node --test --test-concurrency=1 tests/smoke_swap_runtime.mjs"
   },
   "dependencies": {
-    "@mayanfinance/swap-sdk": "13.3.0",
     "@tetherto/wdk": "^1.0.0-beta.6",
     "@tetherto/wdk-protocol-swap-velora-evm": "^1.0.0-beta.4",
     "@tetherto/wdk-wallet-evm": "^1.0.0-beta.4",

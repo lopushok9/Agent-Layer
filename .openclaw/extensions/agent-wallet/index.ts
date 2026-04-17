@@ -174,61 +174,6 @@ const solanaToolDefinitions = [
     },
   },
   {
-    name: "get_mayan_supported_chains",
-    description: "List the chains currently supported by Mayan cross-chain swaps.",
-    parameters: { type: "object", properties: {}, additionalProperties: false },
-  },
-  {
-    name: "get_mayan_tokens",
-    description: "List or search Mayan-supported tokens for a specific chain.",
-    parameters: {
-      type: "object",
-      properties: {
-        chain: {
-          type: "string",
-          enum: ["solana", "ethereum", "base", "arbitrum", "optimism", "polygon", "avalanche", "bsc", "unichain", "linea", "monad"],
-        },
-        query: { type: "string" },
-        limit: { type: "integer" },
-      },
-      required: ["chain"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "get_mayan_quote",
-    description: "Get a read-only Mayan cross-chain quote between supported Solana and EVM tokens.",
-    parameters: {
-      type: "object",
-      properties: {
-        from_chain: { type: "string" },
-        to_chain: { type: "string" },
-        from_token: { type: "string" },
-        to_token: { type: "string" },
-        amount_in_raw: { type: "string" },
-        slippage_bps: {
-          oneOf: [{ type: "integer" }, { type: "string", enum: ["auto"] }],
-        },
-        gas_drop: { type: "number" },
-        destination_address: { type: "string" },
-      },
-      required: ["from_chain", "to_chain", "from_token", "to_token", "amount_in_raw"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "get_mayan_swap_status",
-    description: "Get the Mayan status for a cross-chain swap using the source transaction hash.",
-    parameters: {
-      type: "object",
-      properties: {
-        source_tx_hash: { type: "string" },
-      },
-      required: ["source_tx_hash"],
-      additionalProperties: false,
-    },
-  },
-  {
     name: "get_lifi_supported_chains",
     description: "List the LI.FI chains currently allowed for OpenClaw cross-chain routing.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
@@ -504,39 +449,6 @@ const solanaToolDefinitions = [
         approval_token: { type: "string" },
       },
       required: ["input_mint", "output_mint", "amount", "mode", "purpose"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "swap_solana_cross_chain_tokens",
-    description: "Preview, prepare, or execute a Solana-origin cross-chain swap via Mayan. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
-    optional: true,
-    parameters: {
-      type: "object",
-      properties: {
-        input_mint: { type: "string" },
-        destination_chain: { type: "string", enum: ["ethereum", "base"] },
-        output_token: { type: "string" },
-        destination_address: { type: "string" },
-        amount: { type: "number" },
-        slippage_bps: {
-          oneOf: [{ type: "integer" }, { type: "string", enum: ["auto"] }],
-        },
-        gas_drop: { type: "number" },
-        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
-        purpose: { type: "string" },
-        user_intent: { type: "boolean" },
-        approval_token: { type: "string" },
-      },
-      required: [
-        "input_mint",
-        "destination_chain",
-        "output_token",
-        "destination_address",
-        "amount",
-        "mode",
-        "purpose",
-      ],
       additionalProperties: false,
     },
   },
@@ -885,61 +797,6 @@ const evmToolDefinitions = [
     },
   },
   {
-    name: "get_mayan_supported_chains",
-    description: "List the chains currently supported by Mayan cross-chain swaps.",
-    parameters: { type: "object", properties: {}, additionalProperties: false },
-  },
-  {
-    name: "get_mayan_tokens",
-    description: "List or search Mayan-supported tokens for a specific chain.",
-    parameters: {
-      type: "object",
-      properties: {
-        chain: {
-          type: "string",
-          enum: ["solana", "ethereum", "base", "arbitrum", "optimism", "polygon", "avalanche", "bsc", "unichain", "linea", "monad"],
-        },
-        query: { type: "string" },
-        limit: { type: "integer" },
-      },
-      required: ["chain"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "get_mayan_quote",
-    description: "Get a read-only Mayan cross-chain quote between supported Solana and EVM tokens.",
-    parameters: {
-      type: "object",
-      properties: {
-        from_chain: { type: "string" },
-        to_chain: { type: "string" },
-        from_token: { type: "string" },
-        to_token: { type: "string" },
-        amount_in_raw: { type: "string" },
-        slippage_bps: {
-          oneOf: [{ type: "integer" }, { type: "string", enum: ["auto"] }],
-        },
-        gas_drop: { type: "number" },
-        destination_address: { type: "string" },
-      },
-      required: ["from_chain", "to_chain", "from_token", "to_token", "amount_in_raw"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "get_mayan_swap_status",
-    description: "Get the Mayan status for a cross-chain swap using the source transaction hash.",
-    parameters: {
-      type: "object",
-      properties: {
-        source_tx_hash: { type: "string" },
-      },
-      required: ["source_tx_hash"],
-      additionalProperties: false,
-    },
-  },
-  {
     name: "get_lifi_supported_chains",
     description: "List the LI.FI chains currently allowed for OpenClaw cross-chain routing.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
@@ -1081,40 +938,6 @@ const evmToolDefinitions = [
     },
   },
   {
-    name: "swap_evm_cross_chain_tokens",
-    description: "Preview, prepare, or execute an EVM-origin cross-chain swap through Mayan. This currently supports ethereum/base as the source network and Solana as the destination chain. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
-    optional: true,
-    parameters: {
-      type: "object",
-      properties: {
-        token_in: { type: "string" },
-        destination_chain: { type: "string", enum: ["solana"] },
-        output_token: { type: "string" },
-        destination_address: { type: "string" },
-        amount_in_raw: { type: "string" },
-        slippage_bps: {
-          oneOf: [{ type: "integer" }, { type: "string", enum: ["auto"] }],
-        },
-        gas_drop: { type: "number" },
-        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
-        purpose: { type: "string" },
-        user_intent: { type: "boolean" },
-        approval_token: { type: "string" },
-        network: { type: "string", enum: ["ethereum", "base"] },
-      },
-      required: [
-        "token_in",
-        "destination_chain",
-        "output_token",
-        "destination_address",
-        "amount_in_raw",
-        "mode",
-        "purpose",
-      ],
-      additionalProperties: false,
-    },
-  },
-  {
     name: "swap_evm_lifi_cross_chain_tokens",
     description: "Preview, prepare, or execute an EVM-origin cross-chain swap through LI.FI. This currently supports ethereum/base as the source network and ethereum/base/solana as the destination chain. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
     optional: true,
@@ -1198,8 +1021,7 @@ export default function registerAgentWalletPlugin(api) {
     : evmToolDefinitions.filter(
         (definition) =>
           definition.name !== "get_evm_swap_quote" &&
-          definition.name !== "swap_evm_tokens" &&
-          definition.name !== "swap_evm_cross_chain_tokens"
+          definition.name !== "swap_evm_tokens"
       );
   const toolDefinitions =
     backend === "wdk_btc_local" || backend === "wdk-btc-local" || backend === "btc_local"

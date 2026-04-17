@@ -1,9 +1,0 @@
-{
-  "name": "agent-wallet-mayan-bridge",
-  "private": true,
-  "type": "module",
-  "dependencies": {
-    "@mayanfinance/swap-sdk": "13.3.0",
-    "@solana/web3.js": "^1.98.4"
-  }
-}
