@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from _secret_test_utils import install_test_sealed_secrets  # noqa: E402
 from agent_wallet.approval import issue_approval_token  # noqa: E402
 from agent_wallet.openclaw_adapter import OpenClawWalletAdapter  # noqa: E402
+from agent_wallet.providers import lifi  # noqa: E402
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendError, WalletCapabilities  # noqa: E402
 
 
@@ -448,10 +449,22 @@ class FakeEvmBackend(AgentWalletBackend):
         }
         destination_chain_id = destination_chain_ids.get(destination_chain, destination_chain)
         zero_address = "0x0000000000000000000000000000000000000000"
-        normalized_token_in = zero_address if token_in.lower() in {"native", "eth"} else token_in
+        token_in_lower = token_in.lower()
+        output_token_lower = output_token.lower()
+        normalized_token_in = (
+            zero_address
+            if token_in_lower in {"native", "eth"}
+            else token_in_lower
+            if token_in_lower.startswith("0x") and len(token_in_lower) == 42
+            else token_in
+        )
         normalized_output_token = (
             zero_address
-            if destination_chain_id in {"1", "8453"} and output_token.lower() in {"native", "eth"}
+            if destination_chain_id in {"1", "8453"} and output_token_lower in {"native", "eth"}
+            else output_token_lower
+            if destination_chain_id in {"1", "8453"}
+            and output_token_lower.startswith("0x")
+            and len(output_token_lower) == 42
             else output_token
         )
         return {
@@ -678,6 +691,10 @@ async def _main() -> None:
     assert "ethereum" in lifi_destination_enum
     assert "base" in lifi_destination_enum
     assert "solana" in lifi_destination_enum
+    assert (
+        lifi.normalize_token_address("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", chain_id="8453")
+        == "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
+    )
 
     balance = await adapter.invoke("get_wallet_balance", {})
     assert balance.ok is True
@@ -800,7 +817,7 @@ async def _main() -> None:
         {
             "token_in": "0x0000000000000000000000000000000000000000",
             "destination_chain": "base",
-            "output_token": "0x0000000000000000000000000000000000000000",
+            "output_token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
             "destination_address": "0x3333333333333333333333333333333333333333",
             "amount_in_raw": "1000000000000000",
             "slippage": 0.01,
@@ -811,6 +828,10 @@ async def _main() -> None:
     assert lifi_evm_to_evm_preview.ok is True
     assert lifi_evm_to_evm_preview.data["destination_chain"] == "base"
     assert lifi_evm_to_evm_preview.data["destination_chain_id"] == "8453"
+    assert (
+        lifi_evm_to_evm_preview.data["confirmation_summary"]["output_token"]
+        == "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
+    )
 
     lifi_native_alias_preview = await adapter.invoke(
         "swap_evm_lifi_cross_chain_tokens",

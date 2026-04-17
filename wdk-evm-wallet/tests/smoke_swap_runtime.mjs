@@ -12,6 +12,9 @@ const VALID_MNEMONIC =
 const DEFAULT_TOKEN_IN = "0x2222222222222222222222222222222222222222";
 const DEFAULT_TOKEN_OUT = "0x3333333333333333333333333333333333333333";
 const DEFAULT_TOKEN_OUT_MIXED_CASE = "0xA0b86991c6218b36c1d19d4a2e9eb0ce3606eb48";
+const DEFAULT_TOKEN_OUT_MIXED_CASE_LOWER = DEFAULT_TOKEN_OUT_MIXED_CASE.toLowerCase();
+const BASE_USDC_CHECKSUMMED = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+const BASE_USDC_LOWER = BASE_USDC_CHECKSUMMED.toLowerCase();
 const DEFAULT_ROUTER = "0x4444444444444444444444444444444444444444";
 const DEFAULT_SPENDER = "0x5555555555555555555555555555555555555555";
 const DEFAULT_ADDRESS = "0x1111111111111111111111111111111111111111";
@@ -44,6 +47,7 @@ function createRuntimeHarness(options = {}) {
     directBalanceReadCalls: 0,
     tokenTransferQuoteCalls: 0,
     tokenTransferSendCalls: 0,
+    lifiQuoteUrls: [],
   };
   const config = {
     network: options.network ?? "ethereum",
@@ -77,6 +81,7 @@ function createRuntimeHarness(options = {}) {
     receiptReturnsNull: Boolean(options.receiptReturnsNull),
     swapTxValue: String(options.swapTxValue ?? "0"),
     failOnMixedCaseDestToken: Boolean(options.failOnMixedCaseDestToken),
+    failOnMixedCaseLifiToken: Boolean(options.failOnMixedCaseLifiToken),
     tokenBalance: BigInt(options.tokenBalance ?? 5529342504n),
     failTokenBalanceRead: Boolean(options.failTokenBalanceRead),
     emptyBalanceResponse: Boolean(options.emptyBalanceResponse),
@@ -239,7 +244,64 @@ function createRuntimeHarness(options = {}) {
     };
   };
 
-  globalThis.fetch = async (_url, init) => {
+  globalThis.fetch = async (_url, init = {}) => {
+    const requestUrl = String(_url || "");
+    if (requestUrl.includes("/quote?")) {
+      state.lifiQuoteUrls.push(requestUrl);
+      const quoteUrl = new URL(requestUrl);
+      const fromToken = quoteUrl.searchParams.get("fromToken") || "";
+      const toToken = quoteUrl.searchParams.get("toToken") || "";
+      if (
+        config.failOnMixedCaseLifiToken &&
+        [fromToken, toToken].some((token) => /^0x[a-fA-F0-9]{40}$/.test(token) && /[A-F]/.test(token.slice(2)))
+      ) {
+        return {
+          ok: false,
+          status: 400,
+          json: async () => ({
+            message: 'Validation failed: "fromToken/toToken" does not match any of the allowed types',
+          }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: "lifi-quote-1",
+          type: "lifi",
+          tool: "across",
+          action: {
+            fromToken: {
+              address: fromToken,
+              name: "USD Coin",
+              symbol: "USDC",
+              decimals: config.tokenDecimals,
+              tags: ["stablecoin"],
+            },
+            toToken: {
+              address: toToken,
+              name: "USD Coin",
+              symbol: "USDC",
+              decimals: config.tokenDecimals,
+              tags: ["stablecoin"],
+            },
+            slippage: Number(quoteUrl.searchParams.get("slippage") || "0.005"),
+          },
+          estimate: {
+            fromAmount: quoteUrl.searchParams.get("fromAmount") || config.amountIn,
+            toAmount: config.baseDestAmount,
+            toAmountMin: config.baseDestAmount,
+            approvalAddress: config.spender,
+          },
+          transactionRequest: {
+            to: config.router,
+            data: "0xdeadbeef",
+            value: "0x0",
+            gasLimit: "0x5208",
+          },
+        }),
+      };
+    }
     const body = JSON.parse(String(init.body || "{}"));
     const method = body.method;
     const ok = (result) => ({
@@ -336,6 +398,9 @@ function createRuntimeHarness(options = {}) {
   const service = new WdkEvmWalletService({
     network: config.network,
     transferMaxFeeWei: null,
+    lifiApiBaseUrl: "https://li.quest/v1",
+    lifiIntegrator: "openclaw-test",
+    lifiDefaultDenyBridges: "mayan",
     networkProfiles: {
       [config.network]: {
         chainId: config.chainId,
@@ -623,6 +688,35 @@ test("quoteSwap lowercases token addresses before calling Velora", async () => {
       });
       assert.equal(quote.tokenOutMetadata.address, DEFAULT_TOKEN_OUT_MIXED_CASE);
       assert.equal(quote.allowance.approvalRequired, true);
+    }
+  );
+});
+
+test("quoteLifiSwap lowercases EVM token addresses before calling LI.FI", async () => {
+  await withHarness(
+    {
+      tokenIn: DEFAULT_TOKEN_OUT_MIXED_CASE,
+      failOnMixedCaseLifiToken: true,
+    },
+    async ({ service, state, config }) => {
+      const quote = await service.quoteLifiSwap({
+        seedPhrase: VALID_MNEMONIC,
+        tokenIn: config.tokenIn,
+        destinationChain: "base",
+        outputToken: BASE_USDC_CHECKSUMMED,
+        destinationAddress: DEFAULT_ADDRESS,
+        tokenInAmount: config.amountIn,
+        network: config.network,
+      });
+
+      assert.equal(state.lifiQuoteUrls.length, 1);
+      const url = new URL(state.lifiQuoteUrls[0]);
+      assert.equal(url.searchParams.get("fromToken"), DEFAULT_TOKEN_OUT_MIXED_CASE_LOWER);
+      assert.equal(url.searchParams.get("toToken"), BASE_USDC_LOWER);
+      assert.equal(quote.swapRequest.tokenIn, DEFAULT_TOKEN_OUT_MIXED_CASE_LOWER);
+      assert.equal(quote.swapRequest.outputToken, BASE_USDC_LOWER);
+      assert.equal(quote.tokenInMetadata.address, DEFAULT_TOKEN_OUT_MIXED_CASE_LOWER);
+      assert.equal(quote.outputTokenMetadata.address, BASE_USDC_LOWER);
     }
   );
 });

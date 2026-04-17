@@ -146,7 +146,7 @@ function normalizeEvmTokenAddressAllowingNative(value, fieldName) {
   if (isZeroAddress(address)) {
     return ZERO_ADDRESS;
   }
-  return normalizeAddress(address, fieldName);
+  return normalizeAddress(address, fieldName).toLowerCase();
 }
 
 function normalizeLifiOutputTokenAddress(value, destinationChainId, fieldName) {

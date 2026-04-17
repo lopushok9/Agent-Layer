@@ -70,7 +70,11 @@ def normalize_token_address(token: str, *, chain_id: str) -> str:
     if chain_id in {"1", "8453"} and alias in {"native", "eth", "ethereum"}:
         return EVM_NATIVE_TOKEN
     if chain_id in _KNOWN_EVM_TOKEN_ADDRESSES:
-        return _KNOWN_EVM_TOKEN_ADDRESSES[chain_id].get(alias, text)
+        known = _KNOWN_EVM_TOKEN_ADDRESSES[chain_id].get(alias)
+        if known:
+            return known.lower()
+    if chain_id in {"1", "8453"} and alias.startswith("0x") and len(alias) == 42:
+        return alias
     return text
 
 
