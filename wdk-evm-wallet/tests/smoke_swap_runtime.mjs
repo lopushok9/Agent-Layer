@@ -604,7 +604,7 @@ test("swap succeeds without approval when allowance is already sufficient", asyn
   });
 });
 
-test("quoteSwap degrades gracefully when swap gas estimate is unavailable before approval", async () => {
+test("quoteSwap falls back to route gasCost when swap gas estimate is unavailable before approval", async () => {
   await withHarness(
     {
       failSwapFeeQuote: true,
@@ -618,10 +618,10 @@ test("quoteSwap degrades gracefully when swap gas estimate is unavailable before
         network: config.network,
       });
       assert.equal(quote.allowance.approvalRequired, true);
-      assert.equal(quote.estimatedSwapFeeWei, null);
-      assert.equal(quote.estimatedFeeWei, null);
-      assert.equal(quote.feeEstimateAvailable, false);
-      assert.match(String(quote.feeEstimateError?.message || ""), /preview gas unavailable/);
+      assert.equal(quote.estimatedSwapFeeWei, "1990000");
+      assert.equal(quote.estimatedFeeWei, "1990002");
+      assert.equal(quote.feeEstimateAvailable, true);
+      assert.equal(quote.feeEstimateError, null);
       assert.equal(state.sendCalls.length, 0);
     }
   );
@@ -775,7 +775,7 @@ test("quoteSwap skips allowance and approval for native token input", async () =
   );
 });
 
-test("quoteSwap degrades gracefully for native token input when fee estimate is unavailable", async () => {
+test("quoteSwap falls back to route gasCost for native token input when fee estimate is unavailable", async () => {
   await withHarness(
     {
       tokenIn: NATIVE_ETH,
@@ -795,10 +795,10 @@ test("quoteSwap degrades gracefully for native token input when fee estimate is 
       });
       assert.equal(state.allowanceReadCalls, 0);
       assert.equal(quote.allowance.approvalRequired, false);
-      assert.equal(quote.estimatedSwapFeeWei, null);
-      assert.equal(quote.estimatedFeeWei, null);
-      assert.equal(quote.feeEstimateAvailable, false);
-      assert.match(String(quote.feeEstimateError?.message || ""), /preview gas unavailable/);
+      assert.equal(quote.estimatedSwapFeeWei, "1990000");
+      assert.equal(quote.estimatedFeeWei, "1990000");
+      assert.equal(quote.feeEstimateAvailable, true);
+      assert.equal(quote.feeEstimateError, null);
     }
   );
 });
