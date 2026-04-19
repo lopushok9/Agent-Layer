@@ -1,0 +1,1 @@
+{"nodes": [{"id": "wallet_layer_base_abstraction", "label": "Wallet Backend Base", "file_type": "code", "source_file": "agent-wallet/agent_wallet/wallet_layer/base.py", "source_location": null, "source_url": null, "captured_at": null, "author": null, "contributor": null}], "edges": [], "hyperedges": []}

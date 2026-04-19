@@ -1,0 +1,1 @@
+{"nodes": [{"id": "providers_evm_portfolio_snapshotter", "label": "EVM Portfolio Snapshotter", "file_type": "code", "source_file": "agent-wallet/agent_wallet/providers/evm_portfolio.py", "source_location": null, "source_url": null, "captured_at": null, "author": null, "contributor": null}], "edges": [], "hyperedges": []}
