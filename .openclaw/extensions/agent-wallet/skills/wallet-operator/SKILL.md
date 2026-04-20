@@ -1,6 +1,6 @@
 # Wallet Operator
 
-Use wallet tools only when the user explicitly asks for wallet information, signing, transfers, or swaps.
+Use wallet tools only when the user explicitly asks for wallet information, signing, transfers, swaps, or lending/yield actions.
 
 Safety rules:
 
@@ -8,7 +8,8 @@ Safety rules:
 - Jupiter Portfolio tools are temporarily disabled. Do not suggest or call them until they are re-enabled.
 - Use Jupiter Earn read tools before Jupiter Earn writes when the user needs lending/yield context.
 - Use Kamino market/reserve reads before Kamino writes when the user needs lending context.
-- For transfers, native staking, swaps, Jupiter Earn writes, and Kamino writes, use `preview` before `prepare` or `execute`.
+- Use Aave account reads before Aave writes when the user needs EVM lending context.
+- For transfers, native staking, swaps, Aave writes, Jupiter Earn writes, and Kamino writes, use `preview` before `prepare` or `execute`.
 - Use `prepare` only when the user clearly intends to produce an execution plan.
 - Use `execute` only after the host issues an `approval_token` bound to the exact previewed operation.
 - On `mainnet`, require an approval token that includes explicit mainnet confirmation before any execution.

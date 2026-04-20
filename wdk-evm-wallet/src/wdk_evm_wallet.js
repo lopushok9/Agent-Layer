@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 
 import WDK from "@tetherto/wdk";
+import AaveProtocolEvm from "@tetherto/wdk-protocol-lending-aave-evm";
 import VeloraProtocolEvm from "@tetherto/wdk-protocol-swap-velora-evm";
 import WalletManagerEvm, { WalletAccountReadOnlyEvm } from "@tetherto/wdk-wallet-evm";
 
@@ -131,6 +132,20 @@ function assertLifiSupportedNetwork(network) {
   }
 }
 
+function assertAaveSupportedNetwork(network) {
+  if (!["ethereum", "base"].includes(network)) {
+    throw new Error("Aave V3 is currently supported only on ethereum and base mainnet.");
+  }
+}
+
+function normalizeAaveOperation(value) {
+  const operation = assertNonEmptyString(value, "operation").toLowerCase();
+  if (!["supply", "withdraw", "borrow", "repay"].includes(operation)) {
+    throw new Error("operation must be one of: supply, withdraw, borrow, repay.");
+  }
+  return operation;
+}
+
 function isVeloraNativeTokenAddress(value) {
   return String(value || "").trim().toLowerCase() === VELORA_NATIVE_TOKEN_ADDRESS;
 }
@@ -248,6 +263,24 @@ function buildLifiEvmSwapRequest({
     allowBridges: normalizeBridgeList(allowBridges, "allowBridges"),
     denyBridges: normalizeBridgeList(denyBridges, "denyBridges"),
     preferBridges: normalizeBridgeList(preferBridges, "preferBridges"),
+  };
+}
+
+function buildAaveOperationRequest({ operation, token, tokenAddress, amount, onBehalfOf, to }) {
+  if (onBehalfOf !== undefined && onBehalfOf !== null && String(onBehalfOf).trim()) {
+    throw new Error("Aave delegated onBehalfOf operations are not exposed by this local wallet runtime.");
+  }
+  if (to !== undefined && to !== null && String(to).trim()) {
+    throw new Error("Aave third-party withdraw destinations are not exposed by this local wallet runtime.");
+  }
+  const preferredToken = tokenAddress ?? token;
+  if (tokenAddress && token && String(tokenAddress).toLowerCase() !== String(token).toLowerCase()) {
+    throw new Error("tokenAddress and token must refer to the same address.");
+  }
+  return {
+    operation: normalizeAaveOperation(operation),
+    token: normalizeAddress(preferredToken, "tokenAddress"),
+    amount: assertPositiveBigIntString(amount, "amount"),
   };
 }
 
@@ -686,6 +719,203 @@ export class WdkEvmWalletService {
       found: receipt !== null,
       source: "rpc",
     };
+  }
+
+  async getAaveAccountData({ seedPhrase, address, accountIndex = 0, network }) {
+    return this.#withReadableAccount(
+      { seedPhrase, address, accountIndex, network },
+      async (account, runtimeConfig) => {
+        assertAaveSupportedNetwork(runtimeConfig.network);
+        const accountAddress = await account.getAddress();
+        const protocol = new AaveProtocolEvm(account);
+        try {
+          const accountData = await protocol.getAccountData(accountAddress);
+          return {
+            network: runtimeConfig.network,
+            chainId: runtimeConfig.chainId,
+            accountIndex,
+            address: accountAddress,
+            protocol: "aave-v3",
+            accountData: this.#formatAaveAccountData(accountData),
+            source: "wdk-protocol-lending-aave-evm",
+          };
+        } finally {
+          await maybeDispose(protocol);
+        }
+      }
+    );
+  }
+
+  async quoteAaveOperation({
+    seedPhrase,
+    address,
+    operation,
+    token,
+    tokenAddress,
+    amount,
+    accountIndex = 0,
+    network,
+  }) {
+    return this.#withReadableAccount(
+      { seedPhrase, address, accountIndex, network },
+      async (account, runtimeConfig) => {
+        assertAaveSupportedNetwork(runtimeConfig.network);
+        const request = buildAaveOperationRequest({
+          operation,
+          token,
+          tokenAddress,
+          amount,
+        });
+        const accountAddress = await account.getAddress();
+        const plan = await this.#buildAaveOperationPlan({
+          account,
+          runtimeConfig,
+          address: accountAddress,
+          request,
+          tolerateOperationFeeFailure: true,
+        });
+        return this.#formatAaveOperationResponse({
+          runtimeConfig,
+          accountIndex,
+          address: accountAddress,
+          request,
+          plan,
+        });
+      }
+    );
+  }
+
+  async sendAaveOperation({
+    seedPhrase,
+    operation,
+    token,
+    tokenAddress,
+    amount,
+    accountIndex = 0,
+    network,
+    expectedQuoteFingerprint = null,
+  }) {
+    return this.#withAccount({ seedPhrase, accountIndex, network }, async (account, runtimeConfig) => {
+      assertAaveSupportedNetwork(runtimeConfig.network);
+      const request = buildAaveOperationRequest({
+        operation,
+        token,
+        tokenAddress,
+        amount,
+      });
+      const normalizedExpectedQuoteFingerprint =
+        typeof expectedQuoteFingerprint === "string" && expectedQuoteFingerprint.trim()
+          ? expectedQuoteFingerprint.trim()
+          : null;
+      const address = await account.getAddress();
+      let initialPlan = await this.#buildAaveOperationPlan({
+        account,
+        runtimeConfig,
+        address,
+        request,
+        tolerateOperationFeeFailure: true,
+      });
+      this.#assertExpectedAaveFingerprint(
+        normalizedExpectedQuoteFingerprint,
+        initialPlan.quoteFingerprint
+      );
+
+      const approvalExecution = await this.#executeAaveApprovalsIfNeeded({
+        account,
+        runtimeConfig,
+        request,
+        plan: initialPlan,
+      });
+
+      let finalPlan = initialPlan;
+      try {
+        if (approvalExecution.performed) {
+          finalPlan = await this.#buildAaveOperationPlan({
+            account,
+            runtimeConfig,
+            address,
+            request,
+          });
+          this.#assertExpectedAaveFingerprint(
+            normalizedExpectedQuoteFingerprint,
+            finalPlan.quoteFingerprint
+          );
+        }
+
+        if (finalPlan.approval.required) {
+          throw createTaggedError(
+            "Aave operation still requires token approval after the approval step completed.",
+            "aave_approval_required",
+            {
+              spender: finalPlan.spender,
+              requiredAllowance: finalPlan.amount.toString(),
+              currentAllowance: finalPlan.currentAllowance.toString(),
+            }
+          );
+        }
+
+        if (finalPlan.operationFee === null) {
+          throw createTaggedError(
+            "Aave operation fee estimate was unavailable. Generate a new quote before sending.",
+            "aave_fee_unavailable",
+            {
+              operation: request.operation,
+              feeEstimateError: finalPlan.operationFeeError,
+            }
+          );
+        }
+
+        const protocol = new AaveProtocolEvm(account);
+        let result;
+        try {
+          result = await protocol[request.operation]({
+            token: request.token,
+            amount: request.amount,
+          });
+        } finally {
+          await maybeDispose(protocol);
+        }
+        const resultFee = BigInt(result?.fee || 0);
+        const totalFee = approvalExecution.totalFee + resultFee;
+        return {
+          ...this.#formatAaveOperationResponse({
+            runtimeConfig,
+            accountIndex,
+            address,
+            request,
+            plan: {
+              ...finalPlan,
+              operationFee: resultFee,
+              totalEstimatedFee: totalFee,
+              approval: {
+                ...finalPlan.approval,
+                estimatedFee: approvalExecution.totalFee,
+              },
+            },
+          }),
+          result: {
+            ...result,
+            fee: resultFee.toString(),
+            totalFee: totalFee.toString(),
+            approvalFee: approvalExecution.totalFee.toString(),
+            ...(approvalExecution.approveHash ? { approveHash: approvalExecution.approveHash } : {}),
+            ...(approvalExecution.resetAllowanceHash
+              ? { resetAllowanceHash: approvalExecution.resetAllowanceHash }
+              : {}),
+          },
+        };
+      } catch (error) {
+        const cleanup = await this.#restoreAllowanceAfterFailedAaveOperation({
+          account,
+          runtimeConfig,
+          tokenAddress: request.token,
+          spender: initialPlan.spender,
+          originalAllowance: initialPlan.currentAllowance,
+          approvalExecution,
+        });
+        this.#throwAaveFailureWithCleanup(error, cleanup);
+      }
+    });
   }
 
   async quoteSwap({
@@ -1797,6 +2027,342 @@ export class WdkEvmWalletService {
     }
   }
 
+  #formatAaveAccountData(accountData) {
+    return {
+      totalCollateralBase: BigInt(accountData.totalCollateralBase || 0).toString(),
+      totalDebtBase: BigInt(accountData.totalDebtBase || 0).toString(),
+      availableBorrowsBase: BigInt(accountData.availableBorrowsBase || 0).toString(),
+      currentLiquidationThreshold: BigInt(accountData.currentLiquidationThreshold || 0).toString(),
+      ltv: BigInt(accountData.ltv || 0).toString(),
+      healthFactor: BigInt(accountData.healthFactor || 0).toString(),
+    };
+  }
+
+  async #buildAaveOperationPlan({
+    account,
+    runtimeConfig,
+    address,
+    request,
+    tolerateOperationFeeFailure = false,
+  }) {
+    const protocol = new AaveProtocolEvm(account);
+    try {
+      const poolContract = await protocol._getPoolContract();
+      const spender = normalizeAddress(String(poolContract.target || ""), "aavePool");
+      const needsAllowance = ["supply", "repay"].includes(request.operation);
+      const allowanceState = needsAllowance
+        ? await this.#getSwapAllowanceState({
+            account,
+            tokenAddress: request.token,
+            spender,
+          })
+        : {
+            currentAllowance: request.amount,
+            error: null,
+          };
+      const currentAllowance = allowanceState.currentAllowance;
+      const approval = needsAllowance
+        ? await this.#buildAaveApprovalPlan({
+            account,
+            runtimeConfig,
+            tokenAddress: request.token,
+            spender,
+            requiredAmount: request.amount,
+            currentAllowance,
+          })
+        : {
+            required: false,
+            estimatedFee: 0n,
+            steps: [],
+          };
+      const operationFeeQuote = await this.#quoteAaveProtocolOperation({
+        protocol,
+        request,
+        skipWhenApprovalRequired: approval.required,
+        tolerateFailure: tolerateOperationFeeFailure || approval.required,
+      });
+      const tokenMetadata = await this.#getBestEffortTokenMetadata(runtimeConfig, request.token);
+      const quoteFingerprint = sha256Hex(
+        JSON.stringify({
+          chainId: runtimeConfig.chainId,
+          network: runtimeConfig.network,
+          from: address.toLowerCase(),
+          protocol: "aave-v3",
+          operation: request.operation,
+          pool: spender.toLowerCase(),
+          token: request.token.toLowerCase(),
+          amount: request.amount.toString(),
+        })
+      );
+      return {
+        quoteFingerprint,
+        spender,
+        currentAllowance,
+        allowanceReadError: allowanceState.error,
+        amount: request.amount,
+        operationFee: operationFeeQuote.fee,
+        operationFeeError: operationFeeQuote.error,
+        totalEstimatedFee:
+          operationFeeQuote.fee !== null ? operationFeeQuote.fee + approval.estimatedFee : null,
+        approval,
+        tokenMetadata,
+      };
+    } finally {
+      await maybeDispose(protocol);
+    }
+  }
+
+  async #quoteAaveProtocolOperation({
+    protocol,
+    request,
+    skipWhenApprovalRequired,
+    tolerateFailure,
+  }) {
+    if (skipWhenApprovalRequired) {
+      return {
+        fee: null,
+        error: {
+          code: "allowance_required",
+          message: "Operation fee estimate is unavailable until the Aave pool allowance is approved.",
+        },
+      };
+    }
+    const quoteMethod = {
+      supply: "quoteSupply",
+      withdraw: "quoteWithdraw",
+      borrow: "quoteBorrow",
+      repay: "quoteRepay",
+    }[request.operation];
+    try {
+      const quote = await protocol[quoteMethod]({
+        token: request.token,
+        amount: request.amount,
+      });
+      const fee = BigInt(quote?.fee || 0);
+      return {
+        fee,
+        error: null,
+      };
+    } catch (error) {
+      if (!tolerateFailure) {
+        throw error;
+      }
+      return {
+        fee: null,
+        error: {
+          code: normalizeErrorCodeValue(error) || null,
+          message: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+  }
+
+  async #buildAaveApprovalPlan({
+    account,
+    runtimeConfig,
+    tokenAddress,
+    spender,
+    requiredAmount,
+    currentAllowance,
+  }) {
+    const steps = [];
+    if (currentAllowance < requiredAmount) {
+      if (
+        runtimeConfig.chainId === 1 &&
+        tokenAddress.toLowerCase() === USDT_MAINNET_ADDRESS &&
+        currentAllowance > 0n
+      ) {
+        steps.push({ type: "reset_allowance", amount: "0" });
+      }
+      steps.push({ type: "approve", amount: requiredAmount.toString() });
+    }
+    let estimatedFee = 0n;
+    for (const step of steps) {
+      const quote = await account.quoteSendTransaction(
+        buildErc20ApproveTransaction(tokenAddress, spender, step.amount)
+      );
+      const fee = BigInt(quote.fee);
+      this.#assertMaxFee(runtimeConfig, fee, `aave ${step.type}`);
+      step.estimatedFeeWei = fee.toString();
+      estimatedFee += fee;
+    }
+    return {
+      required: steps.length > 0,
+      estimatedFee,
+      steps,
+    };
+  }
+
+  #formatAaveOperationResponse({ runtimeConfig, accountIndex, address, request, plan }) {
+    return {
+      network: runtimeConfig.network,
+      chainId: runtimeConfig.chainId,
+      accountIndex,
+      address,
+      protocol: "aave-v3",
+      operation: request.operation,
+      operationRequest: {
+        token: request.token,
+        amount: request.amount.toString(),
+      },
+      tokenMetadata: plan.tokenMetadata,
+      amountFormatted:
+        plan.tokenMetadata && Number.isInteger(plan.tokenMetadata.decimals)
+          ? formatUnits(request.amount, plan.tokenMetadata.decimals)
+          : null,
+      quoteFingerprint: plan.quoteFingerprint,
+      estimatedFeeWei: plan.totalEstimatedFee !== null ? plan.totalEstimatedFee.toString() : null,
+      estimatedOperationFeeWei: plan.operationFee !== null ? plan.operationFee.toString() : null,
+      estimatedApprovalFeeWei: plan.approval.estimatedFee.toString(),
+      feeEstimateAvailable: plan.operationFee !== null,
+      feeEstimateError: plan.operationFeeError,
+      allowance: {
+        spender: plan.spender,
+        currentAllowance: plan.currentAllowance.toString(),
+        requiredAllowance: plan.amount.toString(),
+        approvalRequired: plan.approval.required,
+        approvalSequence: plan.approval.steps,
+        readError: plan.allowanceReadError,
+      },
+      source: "wdk-protocol-lending-aave-evm",
+    };
+  }
+
+  #assertExpectedAaveFingerprint(expectedQuoteFingerprint, actualQuoteFingerprint) {
+    if (!expectedQuoteFingerprint) {
+      return;
+    }
+    if (expectedQuoteFingerprint !== actualQuoteFingerprint) {
+      throw createTaggedError(
+        "Aave quote changed since preview. Generate a new preview and approval before execute.",
+        "aave_quote_changed",
+        {
+          expectedQuoteFingerprint,
+          actualQuoteFingerprint,
+        }
+      );
+    }
+  }
+
+  async #executeAaveApprovalsIfNeeded({ account, runtimeConfig, request, plan }) {
+    if (!plan.approval.required) {
+      return {
+        performed: false,
+        totalFee: 0n,
+        approveHash: null,
+        resetAllowanceHash: null,
+      };
+    }
+    let totalFee = 0n;
+    let approveHash = null;
+    let resetAllowanceHash = null;
+    for (const step of plan.approval.steps) {
+      const result = await account.approve({
+        token: request.token,
+        spender: plan.spender,
+        amount: step.amount,
+      });
+      totalFee += BigInt(result.fee || 0);
+      if (step.type === "reset_allowance") {
+        resetAllowanceHash = result.hash;
+      } else if (step.type === "approve") {
+        approveHash = result.hash;
+      }
+      await this.#waitForTransactionReceipt(runtimeConfig, result.hash);
+    }
+    return {
+      performed: true,
+      totalFee,
+      approveHash,
+      resetAllowanceHash,
+    };
+  }
+
+  async #restoreAllowanceAfterFailedAaveOperation({
+    account,
+    runtimeConfig,
+    tokenAddress,
+    spender,
+    originalAllowance,
+    approvalExecution,
+  }) {
+    if (!approvalExecution?.performed) {
+      return {
+        attempted: false,
+        restored: false,
+        originalAllowance: BigInt(originalAllowance || 0n).toString(),
+      };
+    }
+    const cleanup = {
+      attempted: true,
+      restored: false,
+      originalAllowance: BigInt(originalAllowance || 0n).toString(),
+      restoreHashes: [],
+      restoreSteps: [],
+      error: null,
+    };
+    try {
+      const restorePlan = await this.#buildAllowanceRestorePlan({
+        account,
+        runtimeConfig,
+        tokenAddress,
+        spender,
+        targetAllowance: BigInt(originalAllowance || 0n),
+      });
+      cleanup.restoreSteps = restorePlan.steps.map((step) => ({ ...step }));
+      if (!restorePlan.required) {
+        cleanup.restored = true;
+        return cleanup;
+      }
+      for (const step of restorePlan.steps) {
+        const result = await account.approve({
+          token: tokenAddress,
+          spender,
+          amount: step.amount,
+        });
+        cleanup.restoreHashes.push({
+          type: step.type,
+          hash: result.hash,
+          fee: BigInt(result.fee || 0).toString(),
+        });
+        await this.#waitForTransactionReceipt(runtimeConfig, result.hash);
+      }
+      const finalAllowance = await account.getAllowance(tokenAddress, spender);
+      cleanup.finalAllowance = finalAllowance.toString();
+      cleanup.restored = finalAllowance === BigInt(originalAllowance || 0n);
+      return cleanup;
+    } catch (cleanupError) {
+      cleanup.error = {
+        message: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+        code:
+          cleanupError && typeof cleanupError === "object"
+            ? String(cleanupError.errorCode || cleanupError.code || "").trim() || null
+            : null,
+      };
+      return cleanup;
+    }
+  }
+
+  #throwAaveFailureWithCleanup(error, cleanup) {
+    if (cleanup?.attempted && cleanup.restored !== true) {
+      throw createTaggedError(
+        "Aave operation failed after approval and automatic allowance restore did not complete.",
+        "aave_cleanup_failed",
+        {
+          originalError:
+            error instanceof Error
+              ? {
+                  message: error.message,
+                  code: String(error.errorCode || error.code || "").trim() || null,
+                }
+              : { message: String(error), code: null },
+          cleanup,
+        }
+      );
+    }
+    throw error;
+  }
+
   async #getSwapAllowanceState({ account, tokenAddress, spender }) {
     try {
       return {
@@ -1998,6 +2564,7 @@ export class WdkEvmWalletService {
     tokenAddress,
     spender,
     targetAllowance,
+    operationLabel = "swap",
   }) {
     const currentAllowance = await account.getAllowance(tokenAddress, spender);
     const desiredAllowance = BigInt(targetAllowance);
@@ -2032,7 +2599,7 @@ export class WdkEvmWalletService {
         buildErc20ApproveTransaction(tokenAddress, spender, step.amount)
       );
       const fee = BigInt(quote.fee);
-      this.#assertMaxFee(runtimeConfig, fee, `swap ${step.type}`);
+      this.#assertMaxFee(runtimeConfig, fee, `${operationLabel} ${step.type}`);
       step.estimatedFeeWei = fee.toString();
       estimatedFee += fee;
     }
@@ -2275,6 +2842,7 @@ export class WdkEvmWalletService {
         tokenAddress,
         spender,
         targetAllowance: BigInt(originalAllowance || 0n),
+        operationLabel: "aave",
       });
       cleanup.restoreSteps = restorePlan.steps.map((step) => ({ ...step }));
       if (!restorePlan.required) {

@@ -101,6 +101,28 @@ class AgentWalletBackend(ABC):
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support EVM swap quote lookup.")
 
+    async def get_evm_aave_account(self) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM Aave account lookup.")
+
+    async def preview_evm_aave_operation(
+        self,
+        *,
+        operation: str,
+        token_address: str,
+        amount_raw: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM Aave previews.")
+
+    async def send_evm_aave_operation(
+        self,
+        *,
+        operation: str,
+        token_address: str,
+        amount_raw: str,
+        expected_quote_fingerprint: str | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM Aave operations.")
+
     async def preview_evm_swap(
         self,
         *,

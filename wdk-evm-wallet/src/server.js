@@ -34,6 +34,10 @@ function normalizeErrorCode(errorCode, pathname, message) {
     code === "swap_approval_failed" ||
     code === "swap_approval_timeout" ||
     code === "swap_cleanup_failed" ||
+    code === "aave_quote_changed" ||
+    code === "aave_approval_required" ||
+    code === "aave_fee_unavailable" ||
+    code === "aave_cleanup_failed" ||
     code === "token_transfer_failed" ||
     code === "fee_limit_exceeded" ||
     code === "token_read_failed"
@@ -112,12 +116,18 @@ function errorStatusCode(errorCode, fallback = 400) {
   if (errorCode === "swap_quote_changed") {
     return 409;
   }
+  if (errorCode === "aave_quote_changed") {
+    return 409;
+  }
   if (
     errorCode === "swap_simulation_failed" ||
     errorCode === "swap_approval_required" ||
     errorCode === "swap_approval_failed" ||
     errorCode === "swap_approval_timeout" ||
     errorCode === "swap_cleanup_failed" ||
+    errorCode === "aave_approval_required" ||
+    errorCode === "aave_fee_unavailable" ||
+    errorCode === "aave_cleanup_failed" ||
     errorCode === "token_transfer_failed" ||
     errorCode === "fee_limit_exceeded"
   ) {
@@ -403,6 +413,30 @@ async function handleRequest(request, response) {
     if (method === "POST" && url.pathname === "/v1/evm/transaction/receipt/get") {
       const body = await withResolvedNetwork(await readJsonBody(request));
       const data = await service.getTransactionReceipt(body);
+      return sendJson(response, 200, { ok: true, data });
+    }
+
+    if (method === "POST" && url.pathname === "/v1/evm/aave/account/get") {
+      const body = await withResolvedNetwork(await withResolvedSeedOrAddress(await readJsonBody(request)));
+      const data = await service.getAaveAccountData(body);
+      return sendJson(response, 200, { ok: true, data });
+    }
+
+    const aaveOperationMatch = url.pathname.match(
+      /^\/v1\/evm\/aave\/(supply|withdraw|borrow|repay)\/(quote|send)$/
+    );
+    if (method === "POST" && aaveOperationMatch) {
+      const operation = aaveOperationMatch[1];
+      const action = aaveOperationMatch[2];
+      const rawBody = await readJsonBody(request);
+      const body =
+        action === "quote"
+          ? await withResolvedNetwork(await withResolvedSeedOrAddress(rawBody))
+          : await withResolvedNetwork(await withResolvedSeed(rawBody));
+      const data =
+        action === "quote"
+          ? await service.quoteAaveOperation({ ...body, operation })
+          : await service.sendAaveOperation({ ...body, operation });
       return sendJson(response, 200, { ok: true, data });
     }
 

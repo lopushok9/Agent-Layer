@@ -8,7 +8,7 @@ It is designed so the OpenClaw agent sees a small operational wallet surface ins
 In practice this means the agent works through explicit tools for:
 
 - BTC balance, fee-rate, max-spendable, history, and transfer flows through the local `wdk-btc-wallet` backend
-- EVM native balance, ERC-20 balance/metadata, fee-rate, receipt, Velora swap quote/execute, and transfer flows through the local `wdk-evm-wallet` backend
+- EVM native balance, ERC-20 balance/metadata, fee-rate, receipt, Velora swap quote/execute, Aave V3 account/position flows, and transfer flows through the local `wdk-evm-wallet` backend
 - wallet address, balances, and portfolio reads
 - native SOL and SPL token transfers
 - Jupiter swap and price lookup
@@ -66,8 +66,8 @@ Important:
 - The local BTC service is protected with a bearer token loaded from `~/.openclaw/wdk-btc-wallet/local-auth-token`, not from plugin config JSON.
 - When the BTC service URL is local, that bootstrap script can also auto-start `wdk-btc-wallet` before patching OpenClaw config.
 - The EVM flow also only supports local service URLs (`127.0.0.1` / `localhost` / `::1`) and uses a bearer token loaded from `~/.openclaw/wdk-evm-wallet/local-auth-token`.
-- The initial EVM tool surface is intentionally narrow: Velora swap quote/execute on supported mainnet networks, native transfers, ERC-20 transfers, fee quotes, and receipt lookup only. No arbitrary calldata, standalone approvals, or generic contract execution are exposed to the agent.
-- Velora swap support is currently limited to `ethereum` and `base`. Test carefully because the upstream WDK swap package is still beta.
+- The EVM tool surface is intentionally narrow: Velora swap quote/execute, Aave V3 account/position flows, native transfers, ERC-20 transfers, fee quotes, and receipt lookup only. No arbitrary calldata, standalone approvals, or generic contract execution are exposed to the agent.
+- Velora swap and Aave V3 support are currently limited to `ethereum` and `base`. Test carefully because the upstream WDK protocol packages are still beta.
 - EVM read and write tools now accept an optional per-call `network` override for `ethereum` or `base`, so the agent no longer needs host config edits just to switch between the two mainnet EVM paths.
 - `get_wallet_balance` for EVM now returns an enriched portfolio-style payload: native balance, discovered ERC-20 balances, and USD values when token discovery and pricing are available.
 - If the user needs to recover the mnemonic later, host-side reveal stays outside the agent tool surface via `agent-wallet/scripts/manage_openclaw_btc_wallet.py reveal-seed`.
@@ -83,7 +83,7 @@ The intended user-facing flow inside OpenClaw is:
 1. Read first:
    use wallet address, balance, portfolio, validator list, or stake account inspection tools.
 2. Preview next:
-   transfers, swaps, staking, stake deactivation, and stake withdrawals should start in `preview`.
+   transfers, swaps, Aave position changes, staking, stake deactivation, and stake withdrawals should start in `preview`.
 3. Prepare only with intent:
    `prepare` is for explicit execution planning intent and returns no signed transaction bytes.
 4. Execute only with approval:

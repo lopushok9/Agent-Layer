@@ -210,6 +210,92 @@ class FakeEvmBackend(AgentWalletBackend):
             "source": "fake",
         }
 
+    async def get_evm_aave_account(self) -> dict:
+        return {
+            "chain": "evm",
+            "network": self.network,
+            "address": await self.get_address(),
+            "protocol": "aave-v3",
+            "account_data": {
+                "totalCollateralBase": "100000000",
+                "totalDebtBase": "0",
+                "availableBorrowsBase": "80000000",
+                "currentLiquidationThreshold": "8000",
+                "ltv": "7500",
+                "healthFactor": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+            },
+            "source": "fake",
+        }
+
+    async def preview_evm_aave_operation(
+        self,
+        *,
+        operation: str,
+        token_address: str,
+        amount_raw: str,
+    ) -> dict:
+        return {
+            "chain": "evm",
+            "network": self.network,
+            "asset_type": "evm-aave-v3",
+            "asset": "ERC20",
+            "wallet": "evm-wallet-123",
+            "from_address": await self.get_address(),
+            "protocol": "aave-v3",
+            "operation": operation,
+            "token_address": token_address,
+            "amount_raw": amount_raw,
+            "amount_ui": "1",
+            "estimated_fee_wei": "81000000000000",
+            "estimated_operation_fee_wei": "53000000000000",
+            "estimated_approval_fee_wei": "28000000000000" if operation in {"supply", "repay"} else "0",
+            "fee_estimate_available": True,
+            "quote_fingerprint": "aave-v3-fingerprint-1",
+            "allowance": {
+                "spender": "0x3333333333333333333333333333333333333333",
+                "current_allowance_raw": "0",
+                "required_allowance_raw": amount_raw,
+                "approval_required": operation in {"supply", "repay"},
+                "approval_sequence": (
+                    [{"type": "approve", "amount": amount_raw, "estimatedFeeWei": "28000000000000"}]
+                    if operation in {"supply", "repay"}
+                    else []
+                ),
+            },
+            "token_metadata": {
+                "address": token_address,
+                "name": "USD Coin",
+                "symbol": "USDC",
+                "decimals": 6,
+                "verified": False,
+                "source": "fake",
+            },
+            "source": "fake",
+        }
+
+    async def send_evm_aave_operation(
+        self,
+        *,
+        operation: str,
+        token_address: str,
+        amount_raw: str,
+        expected_quote_fingerprint: str | None = None,
+    ) -> dict:
+        if expected_quote_fingerprint and expected_quote_fingerprint != "aave-v3-fingerprint-1":
+            raise WalletBackendError("aave quote changed", code="aave_quote_changed")
+        preview = await self.preview_evm_aave_operation(
+            operation=operation,
+            token_address=token_address,
+            amount_raw=amount_raw,
+        )
+        return {
+            **preview,
+            "hash": "0x" + "a" * 64,
+            "approve_hash": "0x" + "b" * 64 if operation in {"supply", "repay"} else None,
+            "broadcasted": True,
+            "confirmed": False,
+        }
+
     async def get_evm_swap_quote(
         self,
         *,
@@ -680,6 +766,8 @@ async def _main() -> None:
     assert "swap_evm_lifi_cross_chain_tokens" in tool_names
     assert "get_evm_network" in tool_names
     assert "get_evm_token_metadata" in tool_names
+    assert "get_evm_aave_account" in tool_names
+    assert "manage_evm_aave_position" in tool_names
     assert "get_evm_swap_quote" in tool_names
     assert "swap_evm_tokens" in tool_names
     assert "transfer_evm_native" in tool_names
@@ -772,6 +860,65 @@ async def _main() -> None:
     assert swap_quote.data["allowance"]["approval_required"] is True
     assert swap_quote.data["token_in_metadata"]["symbol"] == "USDC"
     assert swap_quote.data["token_out_metadata"]["symbol"] == "USDT"
+
+    aave_account = await adapter.invoke("get_evm_aave_account", {"network": "base"})
+    assert aave_account.ok is True
+    assert aave_account.data["network"] == "base"
+    assert aave_account.data["protocol"] == "aave-v3"
+    assert aave_account.data["account_data"]["availableBorrowsBase"] == "80000000"
+
+    aave_preview = await adapter.invoke(
+        "manage_evm_aave_position",
+        {
+            "operation": "supply",
+            "token_address": "0x2222222222222222222222222222222222222222",
+            "amount_raw": "1000000",
+            "mode": "preview",
+            "purpose": "test aave supply",
+        },
+    )
+    assert aave_preview.ok is True
+    assert aave_preview.data["asset_type"] == "evm-aave-v3"
+    assert aave_preview.data["confirmation_summary"]["aave_operation"] == "supply"
+    assert aave_preview.data["confirmation_summary"]["quote_fingerprint"] == "aave-v3-fingerprint-1"
+    assert aave_preview.data["allowance"]["approval_required"] is True
+
+    aave_prepare = await adapter.invoke(
+        "manage_evm_aave_position",
+        {
+            "operation": "borrow",
+            "token_address": "0x2222222222222222222222222222222222222222",
+            "amount_raw": "1000000",
+            "mode": "prepare",
+            "purpose": "test aave borrow",
+            "user_intent": True,
+        },
+    )
+    assert aave_prepare.ok is True
+    assert aave_prepare.data["execution_plan_only"] is True
+    assert aave_prepare.data["allowance"]["approval_required"] is False
+
+    aave_approval = issue_approval_token(
+        tool_name="manage_evm_aave_position",
+        network="ethereum",
+        summary=aave_preview.data["confirmation_summary"],
+        mainnet_confirmed=True,
+        issued_by="test",
+    )
+    aave_executed = await adapter.invoke(
+        "manage_evm_aave_position",
+        {
+            "operation": "supply",
+            "token_address": "0x2222222222222222222222222222222222222222",
+            "amount_raw": "1000000",
+            "mode": "execute",
+            "purpose": "test aave supply",
+            "approval_token": aave_approval,
+        },
+    )
+    assert aave_executed.ok is True
+    assert aave_executed.data["hash"].startswith("0x")
+    assert aave_executed.data["approve_hash"].startswith("0x")
 
     swap_preview = await adapter.invoke(
         "swap_evm_tokens",

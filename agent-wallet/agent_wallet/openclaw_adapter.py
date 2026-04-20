@@ -317,6 +317,24 @@ class OpenClawWalletAdapter:
                 "evm_swap_fingerprint": evm_swap_fingerprint,
             }
 
+        if asset_type == "evm-aave-v3":
+            return {
+                "operation": action_label,
+                "network": str(payload.get("network") or getattr(self.backend, "network", "unknown")),
+                "wallet": payload.get("wallet"),
+                "from_address": payload.get("from_address"),
+                "protocol": payload.get("protocol"),
+                "aave_operation": payload.get("operation"),
+                "token_address": payload.get("token_address"),
+                "amount_raw": payload.get("amount_raw"),
+                "amount_ui": payload.get("amount_ui"),
+                "estimated_fee_wei": payload.get("estimated_fee_wei"),
+                "estimated_operation_fee_wei": payload.get("estimated_operation_fee_wei"),
+                "estimated_approval_fee_wei": payload.get("estimated_approval_fee_wei"),
+                "quote_fingerprint": payload.get("quote_fingerprint"),
+                "allowance": payload.get("allowance"),
+            }
+
         if asset_type == "bags-token-launch":
             launch_binding = {
                 "token_name": payload.get("token_name"),
@@ -862,6 +880,71 @@ class OpenClawWalletAdapter:
                 tools.insert(
                     6,
                     AgentToolSpec(
+                        name="get_evm_aave_account",
+                        description="Get read-only Aave V3 account data for the configured EVM wallet on supported mainnet networks.",
+                        input_schema={
+                            "type": "object",
+                            "properties": {
+                                "network": {
+                                    "type": "string",
+                                    "enum": ["ethereum", "base"],
+                                    "description": "Optional EVM network override for this request.",
+                                },
+                            },
+                            "additionalProperties": False,
+                        },
+                        read_only=True,
+                        risk_level="low",
+                    ),
+                )
+                tools.insert(
+                    7,
+                    AgentToolSpec(
+                        name="manage_evm_aave_position",
+                        description=(
+                            "Preview, prepare, or execute a narrow Aave V3 lending operation on supported EVM mainnet networks. "
+                            "Supported operations are supply, withdraw, borrow, and repay. Prepare returns an execution plan only, "
+                            "and execute requires a host-issued approval token bound to the previewed operation."
+                        ),
+                        input_schema={
+                            "type": "object",
+                            "properties": {
+                                "operation": {
+                                    "type": "string",
+                                    "enum": ["supply", "withdraw", "borrow", "repay"],
+                                },
+                                "token_address": {
+                                    "type": "string",
+                                    "description": "Underlying ERC-20 reserve token address.",
+                                },
+                                "amount_raw": {
+                                    "type": "string",
+                                    "description": "Amount in token base units as a base-10 integer string.",
+                                },
+                                "mode": {
+                                    "type": "string",
+                                    "enum": ["preview", "prepare", "execute"],
+                                },
+                                "purpose": {"type": "string"},
+                                "user_intent": {"type": "boolean"},
+                                "approval_token": {"type": "string"},
+                                "network": {
+                                    "type": "string",
+                                    "enum": ["ethereum", "base"],
+                                    "description": "Optional EVM network override for this request.",
+                                },
+                            },
+                            "required": ["operation", "token_address", "amount_raw", "mode", "purpose"],
+                            "additionalProperties": False,
+                        },
+                        read_only=False,
+                        requires_explicit_user_intent=True,
+                        risk_level="high",
+                    ),
+                )
+                tools.insert(
+                    8,
+                    AgentToolSpec(
                         name="get_evm_swap_quote",
                         description=(
                             "Get a read-only Velora quote for an ERC-20 to ERC-20 swap on supported EVM mainnet networks. "
@@ -896,7 +979,7 @@ class OpenClawWalletAdapter:
                     ),
                 )
                 tools.insert(
-                    7,
+                    9,
                     AgentToolSpec(
                         name="swap_evm_tokens",
                         description=(
@@ -934,7 +1017,7 @@ class OpenClawWalletAdapter:
                     ),
                 )
                 tools.insert(
-                    8,
+                    10,
                     AgentToolSpec(
                         name="swap_evm_lifi_cross_chain_tokens",
                         description=(
@@ -2502,6 +2585,116 @@ class OpenClawWalletAdapter:
                     raise WalletBackendError("tx_hash is required.")
                 data = await active_backend.get_evm_transaction_receipt(tx_hash.strip())
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_evm_aave_account":
+                data = await active_backend.get_evm_aave_account()
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "manage_evm_aave_position":
+                operation = args.get("operation")
+                token_address = args.get("token_address")
+                amount_raw = args.get("amount_raw")
+                mode = args.get("mode")
+                purpose = args.get("purpose")
+                user_intent = args.get("user_intent", False)
+                approval_token = args.get("approval_token")
+
+                if operation not in {"supply", "withdraw", "borrow", "repay"}:
+                    raise WalletBackendError("operation must be one of: supply, withdraw, borrow, repay.")
+                if not isinstance(token_address, str) or not token_address.strip():
+                    raise WalletBackendError("token_address is required.")
+                if not isinstance(amount_raw, str) or not amount_raw.strip().isdigit():
+                    raise WalletBackendError("amount_raw must be a positive integer string.")
+                if int(amount_raw.strip()) <= 0:
+                    raise WalletBackendError("amount_raw must be greater than zero.")
+                if mode not in {"preview", "prepare", "execute"}:
+                    raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
+                if not isinstance(purpose, str) or not purpose.strip():
+                    raise WalletBackendError("purpose is required.")
+
+                preview_kwargs = {
+                    "operation": str(operation),
+                    "token_address": token_address.strip(),
+                    "amount_raw": amount_raw.strip(),
+                }
+
+                if mode == "preview":
+                    preview = await active_backend.preview_evm_aave_operation(**preview_kwargs)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            preview,
+                            action_label="EVM Aave V3 operation",
+                            mode="preview",
+                        ),
+                    )
+
+                if mode == "prepare":
+                    self._require_prepare_intent(user_intent)
+                    preview = await active_backend.preview_evm_aave_operation(**preview_kwargs)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            self._build_prepare_plan(
+                                preview_payload=preview,
+                                action_label="EVM Aave V3 operation",
+                            ),
+                            action_label="EVM Aave V3 operation",
+                            mode="prepare",
+                        ),
+                    )
+
+                approval_payload = inspect_approval_token(
+                    approval_token,
+                    tool_name=tool_name,
+                    network=str(getattr(active_backend, "network", "unknown")),
+                    require_mainnet_confirmation=self._is_mainnet_for_backend(active_backend),
+                )
+                approval_summary = approval_payload.get("binding", {}).get("summary")
+                if not isinstance(approval_summary, dict):
+                    raise WalletBackendError(
+                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                    )
+                expected_summary = {
+                    "operation": "EVM Aave V3 operation",
+                    "network": str(getattr(active_backend, "network", "unknown")),
+                    "aave_operation": str(operation),
+                    "token_address": token_address.strip(),
+                    "amount_raw": amount_raw.strip(),
+                }
+                for key, expected_value in expected_summary.items():
+                    if approval_summary.get(key) != expected_value:
+                        raise WalletBackendError(
+                            "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                        )
+
+                approval_summary_copy = dict(approval_summary)
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=approval_summary_copy,
+                    action_label="EVM Aave V3 operation",
+                    backend=active_backend,
+                )
+                result = await active_backend.send_evm_aave_operation(
+                    **preview_kwargs,
+                    expected_quote_fingerprint=(
+                        str(approval_summary_copy.get("quote_fingerprint")).strip()
+                        if approval_summary_copy.get("quote_fingerprint") is not None
+                        else None
+                    ),
+                )
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=self._annotate_sensitive_payload(
+                        result,
+                        action_label="EVM Aave V3 operation",
+                        mode="execute",
+                    ),
+                )
 
             if tool_name == "get_evm_swap_quote":
                 token_in = args.get("token_in")

@@ -42,6 +42,8 @@ Current safe tools:
 - `get_evm_transaction_receipt`
 - `get_evm_swap_quote`
 - `swap_evm_tokens`
+- `get_evm_aave_account`
+- `manage_evm_aave_position`
 - `get_lifi_supported_chains`
 - `get_lifi_quote`
 - `get_lifi_transfer_status`
@@ -83,7 +85,7 @@ Temporarily disabled but kept in the codebase for later re-enable:
 - `get_jupiter_staked_jup`
 
 The signing tool still requires explicit `user_confirmed=true`.
-Transfer, native staking, and swap tools support `preview`, `prepare`, and `execute` modes. The safe operational path is still preview-first. `prepare` now returns an execution plan only and never exposes signed transaction bytes to the agent. `execute` works only when the backend has a signer and `sign_only=false`.
+Transfer, native staking, swap, and Aave position-management tools support `preview`, `prepare`, and `execute` modes. The safe operational path is still preview-first. `prepare` now returns an execution plan only and never exposes signed transaction bytes to the agent. `execute` works only when the backend has a signer and `sign_only=false`.
 
 Policy defaults:
 

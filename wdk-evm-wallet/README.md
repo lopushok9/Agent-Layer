@@ -20,6 +20,8 @@ Current scope:
 - fetch fee-rate suggestions
 - fetch read-only Velora swap quotes for supported mainnet ERC-20 pairs
 - execute Velora ERC-20 swaps on supported mainnet networks through the local wallet account
+- fetch Aave V3 account data on supported mainnet networks
+- quote and send narrow Aave V3 `supply`, `withdraw`, `borrow`, and `repay` operations
 - quote and send native transfers
 - quote and send ERC-20 transfers
 - fetch transaction receipts
@@ -33,6 +35,8 @@ The implementation follows the official WDK documentation:
 - EVM wallet API reference: https://docs.wdk.tether.io/sdk/wallet-modules/wallet-evm/api-reference
 - Velora swap overview: https://docs.wdk.tether.io/sdk/swap-modules/swap-velora-evm
 - Velora swap API reference: https://docs.wdk.tether.io/sdk/swap-modules/swap-velora-evm/api-reference
+- Aave lending overview: https://docs.wdk.tether.io/sdk/lending-modules/lending-aave-evm
+- Aave lending API reference: https://docs.wdk.tether.io/sdk/lending-modules/lending-aave-evm/api-reference
 
 ## Why Separate
 
@@ -48,7 +52,8 @@ This service intentionally supports a narrow surface:
 - normal EVM account model only
 - no ERC-4337 in this runtime
 - no arbitrary calldata on `sendTransaction`
-- no token approvals
+- no generic token approval endpoint
+- protocol-scoped approvals only where required by an explicit supported module
 - no generic contract execution endpoints
 - no seed phrase exposure in the agent-facing path
 
@@ -81,6 +86,15 @@ The active network is persistent and can be switched without changing code.
 - `POST /v1/evm/token-metadata/get`
 - `POST /v1/evm/fee-rates/get`
 - `POST /v1/evm/transaction/receipt/get`
+- `POST /v1/evm/aave/account/get`
+- `POST /v1/evm/aave/supply/quote`
+- `POST /v1/evm/aave/supply/send`
+- `POST /v1/evm/aave/withdraw/quote`
+- `POST /v1/evm/aave/withdraw/send`
+- `POST /v1/evm/aave/borrow/quote`
+- `POST /v1/evm/aave/borrow/send`
+- `POST /v1/evm/aave/repay/quote`
+- `POST /v1/evm/aave/repay/send`
 - `POST /v1/evm/swap/quote`
 - `POST /v1/evm/swap/send`
 - `POST /v1/evm/transfer/quote`
@@ -160,3 +174,6 @@ Local security note:
 - seed reveal is password-gated and separate from normal agent operations
 - Velora swap support is currently limited to `ethereum` and `base` ERC-20 pairs
 - the underlying WDK Velora package is still beta; test swap execution carefully before relying on it
+- Aave V3 support is currently limited to `ethereum` and `base`
+- Aave `supply` and `repay` may perform pool-scoped ERC-20 approvals; if a send fails after approval, the service attempts to restore the original allowance
+- Aave delegated `onBehalfOf` operations and third-party withdraw destinations are intentionally not exposed in this runtime

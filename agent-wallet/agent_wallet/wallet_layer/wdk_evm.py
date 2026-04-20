@@ -94,6 +94,63 @@ def _normalize_swap_simulation(payload: Any) -> dict[str, Any] | None:
     }
 
 
+def _normalize_aave_operation(value: str) -> str:
+    operation = str(value or "").strip().lower()
+    if operation not in {"supply", "withdraw", "borrow", "repay"}:
+        raise WalletBackendError("Aave operation must be one of: supply, withdraw, borrow, repay.")
+    return operation
+
+
+def _normalize_aave_payload(
+    *,
+    chain: str,
+    network: str,
+    wallet_id: str,
+    address: str,
+    operation: str,
+    token_address: str,
+    amount_raw: str,
+    data: dict[str, Any],
+    sign_only: bool,
+) -> dict[str, Any]:
+    result = dict(data.get("result") or {})
+    request = dict(data.get("operationRequest") or {})
+    token = str(request.get("token") or token_address)
+    amount = str(request.get("amount") or amount_raw)
+    return {
+        "chain": chain,
+        "network": network,
+        "asset_type": "evm-aave-v3",
+        "asset": "ERC20",
+        "wallet": wallet_id,
+        "from_address": str(data.get("address") or address),
+        "protocol": str(data.get("protocol") or "aave-v3"),
+        "operation": str(data.get("operation") or operation),
+        "token_address": token,
+        "amount_raw": amount,
+        "amount_ui": str(data.get("amountFormatted")) if data.get("amountFormatted") is not None else None,
+        "estimated_fee_wei": str(data.get("estimatedFeeWei")) if data.get("estimatedFeeWei") is not None else None,
+        "estimated_operation_fee_wei": (
+            str(data.get("estimatedOperationFeeWei"))
+            if data.get("estimatedOperationFeeWei") is not None
+            else None
+        ),
+        "estimated_approval_fee_wei": str(data.get("estimatedApprovalFeeWei") or "0"),
+        "fee_estimate_available": bool(data.get("feeEstimateAvailable", True)),
+        "fee_estimate_error": data.get("feeEstimateError"),
+        "execution_supported": not sign_only,
+        "quote_fingerprint": str(data.get("quoteFingerprint") or "").strip() or None,
+        "allowance": _normalize_swap_allowance(data.get("allowance")),
+        "token_metadata": _normalize_token_metadata(data.get("tokenMetadata"), token),
+        "hash": result.get("hash"),
+        "approve_hash": result.get("approveHash"),
+        "reset_allowance_hash": result.get("resetAllowanceHash"),
+        "result": result,
+        "chain_id": int(data.get("chainId") or 0),
+        "source": "wdk-evm-wallet",
+    }
+
+
 def _normalize_lifi_cross_chain_payload(
     *,
     chain: str,
@@ -515,6 +572,101 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "found": bool(data.get("found")),
             "receipt": data.get("receipt"),
             "source": "wdk-evm-wallet",
+        }
+
+    async def get_evm_aave_account(self) -> dict[str, Any]:
+        resolved_address = await self.get_address()
+        data = await self.client.post(
+            "/v1/evm/aave/account/get",
+            {
+                "walletId": self.wallet_id,
+                "address": resolved_address,
+                "accountIndex": self.account_index,
+                "network": self.network,
+            },
+        )
+        return {
+            "chain": self.chain,
+            "network": self.network,
+            "address": str(data.get("address") or resolved_address or ""),
+            "protocol": str(data.get("protocol") or "aave-v3"),
+            "account_data": dict(data.get("accountData") or {}),
+            "chain_id": int(data.get("chainId") or 0),
+            "source": "wdk-evm-wallet",
+        }
+
+    async def preview_evm_aave_operation(
+        self,
+        *,
+        operation: str,
+        token_address: str,
+        amount_raw: str,
+    ) -> dict[str, Any]:
+        normalized_operation = _normalize_aave_operation(operation)
+        resolved_address = await self.get_address()
+        data = await self.client.post(
+            f"/v1/evm/aave/{normalized_operation}/quote",
+            {
+                "walletId": self.wallet_id,
+                "address": resolved_address,
+                "accountIndex": self.account_index,
+                "network": self.network,
+                "tokenAddress": token_address,
+                "amount": amount_raw,
+            },
+        )
+        return _normalize_aave_payload(
+            chain=self.chain,
+            network=self.network,
+            wallet_id=self.wallet_id,
+            address=resolved_address,
+            operation=normalized_operation,
+            token_address=token_address,
+            amount_raw=amount_raw,
+            data=data,
+            sign_only=self.sign_only,
+        )
+
+    async def send_evm_aave_operation(
+        self,
+        *,
+        operation: str,
+        token_address: str,
+        amount_raw: str,
+        expected_quote_fingerprint: str | None = None,
+    ) -> dict[str, Any]:
+        if self.sign_only:
+            raise WalletBackendError("wdk_evm_local is configured as sign_only.")
+        normalized_operation = _normalize_aave_operation(operation)
+        data = await self.client.post(
+            f"/v1/evm/aave/{normalized_operation}/send",
+            {
+                "walletId": self.wallet_id,
+                "accountIndex": self.account_index,
+                "network": self.network,
+                "tokenAddress": token_address,
+                "amount": amount_raw,
+                **(
+                    {"expectedQuoteFingerprint": expected_quote_fingerprint}
+                    if isinstance(expected_quote_fingerprint, str) and expected_quote_fingerprint.strip()
+                    else {}
+                ),
+            },
+        )
+        return {
+            **_normalize_aave_payload(
+                chain=self.chain,
+                network=self.network,
+                wallet_id=self.wallet_id,
+                address=await self.get_address(),
+                operation=normalized_operation,
+                token_address=token_address,
+                amount_raw=amount_raw,
+                data=data,
+                sign_only=self.sign_only,
+            ),
+            "broadcasted": True,
+            "confirmed": False,
         }
 
     async def get_evm_swap_quote(

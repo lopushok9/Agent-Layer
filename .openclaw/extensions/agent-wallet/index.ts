@@ -903,6 +903,37 @@ const evmToolDefinitions = [
     },
   },
   {
+    name: "get_evm_aave_account",
+    description: "Get read-only Aave V3 account data for the configured EVM wallet on supported mainnet networks.",
+    parameters: {
+      type: "object",
+      properties: {
+        network: { type: "string", enum: ["ethereum", "base"] },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "manage_evm_aave_position",
+    description: "Preview, prepare, or execute a narrow Aave V3 lending operation on supported EVM mainnet networks. Supported operations are supply, withdraw, borrow, and repay. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    optional: true,
+    parameters: {
+      type: "object",
+      properties: {
+        operation: { type: "string", enum: ["supply", "withdraw", "borrow", "repay"] },
+        token_address: { type: "string" },
+        amount_raw: { type: "string" },
+        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
+        purpose: { type: "string" },
+        user_intent: { type: "boolean" },
+        approval_token: { type: "string" },
+        network: { type: "string", enum: ["ethereum", "base"] },
+      },
+      required: ["operation", "token_address", "amount_raw", "mode", "purpose"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_evm_swap_quote",
     description: "Get a read-only Velora quote for an ERC-20 to ERC-20 swap on supported EVM mainnet networks. This does not approve or execute a swap.",
     parameters: {
@@ -1020,6 +1051,8 @@ export default function registerAgentWalletPlugin(api) {
     ? evmToolDefinitions
     : evmToolDefinitions.filter(
         (definition) =>
+          definition.name !== "get_evm_aave_account" &&
+          definition.name !== "manage_evm_aave_position" &&
           definition.name !== "get_evm_swap_quote" &&
           definition.name !== "swap_evm_tokens"
       );
