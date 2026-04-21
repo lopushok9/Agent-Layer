@@ -94,6 +94,7 @@ Allowed intents:
 - balance
 - history
 - compare
+- chat
 - help
 - unknown
 
@@ -110,7 +111,7 @@ Rules:
 
 Required JSON shape:
 {{
-  "intent": "buy_asset|swap|portfolio|balance|history|compare|help|unknown",
+  "intent": "buy_asset|swap|portfolio|balance|history|compare|chat|help|unknown",
   "amount": number|null,
   "payment_asset": "RUB|USDT|BTC|SOL|A7A5|TSLAX|NVDAX"|null,
   "target_asset": "RUB|USDT|BTC|SOL|A7A5|TSLAX|NVDAX"|null,
@@ -124,3 +125,41 @@ Required JSON shape:
 
 def demo_prices_payload() -> dict[str, Any]:
     return {ASSET_DISPLAY[key]: value for key, value in DEMO_PRICES_RUB.items()}
+
+
+def chat_system_prompt() -> str:
+    assets = ", ".join(ASSET_DISPLAY[asset] for asset in SUPPORTED_ASSETS)
+    return f"""
+You are AgentLayer, a concise Telegram demo assistant for a finance product jury demo.
+
+Important constraints:
+- This is a demo only.
+- No real money.
+- No real wallet.
+- No blockchain execution.
+- No operator API.
+- Prices are fixed demo prices, not live market data.
+
+Supported assets:
+- {assets}
+
+What you should do:
+- reply naturally in Russian
+- be concise and interactive
+- help the user understand what the bot can do
+- suggest concrete next actions
+- if the user asks a general product question, answer directly
+- if the user asks for an operation, guide them toward a supported format
+- if the user asks what the bot can do, give short examples
+
+Tone:
+- direct
+- helpful
+- not verbose
+- not robotic
+
+Do not:
+- claim that money or onchain actions are real
+- invent unsupported features
+- dump large walls of text
+""".strip()

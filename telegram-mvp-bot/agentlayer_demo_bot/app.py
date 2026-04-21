@@ -13,6 +13,7 @@ from .logic import (
     balance_text,
     build_preview,
     compare_text,
+    format_amount,
     history_text,
     payload_to_transaction,
     portfolio_text,
@@ -83,6 +84,50 @@ def build_help_text() -> str:
         "/portfolio\n"
         "/history\n"
         "/reset"
+    )
+
+
+def build_chat_context(runtime: BotRuntime, user_id: int) -> str:
+    balances = runtime.storage.get_balances(user_id)
+    portfolio_hint = (
+        f"Current demo balances: RUB={format_amount(float(balances.get('RUB', 0.0)), 'RUB')}, "
+        f"USDT={format_amount(float(balances.get('USDT', 0.0)), 'USDT')}, "
+        f"BTC={format_amount(float(balances.get('BTC', 0.0)), 'BTC')}, "
+        f"SOL={format_amount(float(balances.get('SOL', 0.0)), 'SOL')}, "
+        f"TSLAx={format_amount(float(balances.get('TSLAX', 0.0)), 'TSLAX')}, "
+        f"NVDAx={format_amount(float(balances.get('NVDAX', 0.0)), 'NVDAX')}."
+    )
+    return (
+        "This bot supports natural conversation and demo finance actions. "
+        "Supported commands: /balance, /portfolio, /history, /reset. "
+        "Supported actions: swap and buy_asset. "
+        + portfolio_hint
+    )
+
+
+async def build_conversational_reply(runtime: BotRuntime, user_id: int, message_text: str) -> str:
+    try:
+        reply = await runtime.openrouter.chat_reply(
+            message_text,
+            context_note=build_chat_context(runtime, user_id),
+        )
+        if reply:
+            return reply
+    except Exception as exc:  # pragma: no cover - network fallback path
+        LOGGER.warning("OpenRouter chat failed, using local fallback: %s", exc)
+
+    lowered = message_text.lower()
+    if "привет" in lowered or "здрав" in lowered:
+        return "Привет. Я demo-бот AgentLayer: могу показать портфель, подготовить демо-обмен или демо-покупку актива."
+    if "что ты умеешь" in lowered or "что умеешь" in lowered:
+        return (
+            "Я умею показывать демо-баланс и портфель, делать preview обмена и покупки актива, "
+            "а потом применять виртуальную операцию по подтверждению. Попробуй: "
+            "`Обмени 10000 RUB на USDT` или `Купи TSLAx на 50000 RUB`."
+        )
+    return (
+        "Могу поговорить о demo-сценарии и подготовить виртуальную финансовую операцию. "
+        "Попробуй спросить про портфель или напиши: `Купи BTC на 25000 RUB`."
     )
 
 
@@ -194,8 +239,15 @@ def configure_router(runtime: BotRuntime) -> Router:
         if clarification and clarification.action_type == "clarification":
             runtime.storage.clear_pending_actions(user_id, clarification.id)
 
-        if intent.intent in {"help", "unknown"}:
-            await message.answer(build_help_text())
+        if intent.intent == "help":
+            if intent.assistant_summary:
+                await message.answer(f"{intent.assistant_summary}\n\n{build_help_text()}")
+            else:
+                await message.answer(build_help_text())
+            return
+        if intent.intent in {"chat", "unknown"}:
+            reply = await build_conversational_reply(runtime, user_id, message.text)
+            await message.answer(reply)
             return
         if intent.intent == "balance":
             await message.answer(balance_text(runtime.storage.get_balances(user_id)))
@@ -237,7 +289,8 @@ def configure_router(runtime: BotRuntime) -> Router:
             return
 
         if intent.intent not in {"swap", "buy_asset"}:
-            await message.answer(build_help_text())
+            reply = await build_conversational_reply(runtime, user_id, message.text)
+            await message.answer(reply)
             return
 
         try:

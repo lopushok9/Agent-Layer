@@ -74,6 +74,8 @@ def fallback_parse_intent(message_text: str) -> ParsedIntent | None:
         return ParsedIntent(intent="balance", assistant_summary="Понял запрос как просмотр баланса.")
     if "истор" in lowered:
         return ParsedIntent(intent="history", assistant_summary="Понял запрос как просмотр истории.")
+    if "привет" in lowered or "здрав" in lowered or "что ты умеешь" in lowered or "что умеешь" in lowered:
+        return ParsedIntent(intent="chat", assistant_summary="Понял запрос как обычный разговор с demo-ботом.")
     if "помощ" in lowered or lowered == "help":
         return ParsedIntent(intent="help", assistant_summary="Понял запрос как справку.")
 

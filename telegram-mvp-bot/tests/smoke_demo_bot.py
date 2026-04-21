@@ -37,6 +37,11 @@ class DemoBotSmokeTest(unittest.TestCase):
         self.assertGreater(preview.to_amount, 2.0)
         self.assertAlmostEqual(preview.balances_after["RUB"], 450000.0)
 
+    def test_fallback_greeting_parse(self) -> None:
+        parsed = fallback_parse_intent("Привет, что ты умеешь?")
+        self.assertIsNotNone(parsed)
+        self.assertIn(parsed.intent, {"help", "portfolio", "balance", "history", "compare", "buy_asset", "swap", "unknown", "chat"})
+
     def test_storage_bootstrap(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             storage = Storage(f"{tmpdir}/demo.sqlite3")

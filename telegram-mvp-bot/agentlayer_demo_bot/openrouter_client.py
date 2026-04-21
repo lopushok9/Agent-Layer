@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import httpx
 
-from .constants import model_system_prompt
+from .constants import chat_system_prompt, model_system_prompt
 from .models import ParsedIntent
 from .parsing import extract_json_payload, intent_from_payload
 
@@ -46,3 +46,36 @@ class OpenRouterClient:
         )
         parsed = extract_json_payload(content_text)
         return intent_from_payload(parsed)
+
+    async def chat_reply(self, user_message: str, context_note: str | None = None) -> str:
+        content = user_message
+        if context_note:
+            content = f"{context_note}\n\nUser message:\n{user_message}"
+
+        payload = {
+            "model": self._model,
+            "messages": [
+                {"role": "system", "content": chat_system_prompt()},
+                {"role": "user", "content": content},
+            ],
+            "temperature": 0.4,
+        }
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{self._base_url}/chat/completions",
+                headers=headers,
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        content_text = (
+            data.get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "")
+        )
+        return str(content_text).strip()
