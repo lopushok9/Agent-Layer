@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 
+import { Contract } from "ethers";
 import WDK from "@tetherto/wdk";
 import { IUiPoolDataProvider_ABI } from "@bgd-labs/aave-address-book/abis";
 import AaveProtocolEvm from "@tetherto/wdk-protocol-lending-aave-evm";
