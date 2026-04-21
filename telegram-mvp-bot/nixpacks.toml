@@ -1,5 +1,0 @@
-[phases.setup]
-nixPkgs = ["python311", "gcc"]
-
-[start]
-cmd = "python -m agentlayer_demo_bot"

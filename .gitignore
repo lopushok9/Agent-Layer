@@ -39,3 +39,5 @@ agent-a2a-gateway/.env.*
 
 about_AL.md
 ~$*.docx
+bot_mvp.md
+telegram-mvp-bot/
