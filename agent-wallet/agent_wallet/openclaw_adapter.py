@@ -900,6 +900,46 @@ class OpenClawWalletAdapter:
                 tools.insert(
                     7,
                     AgentToolSpec(
+                        name="get_evm_aave_reserves",
+                        description="Get the read-only Aave V3 reserve catalog for the configured EVM network, including reserve flags, pricing, and liquidity metadata.",
+                        input_schema={
+                            "type": "object",
+                            "properties": {
+                                "network": {
+                                    "type": "string",
+                                    "enum": ["ethereum", "base"],
+                                    "description": "Optional EVM network override for this request.",
+                                },
+                            },
+                            "additionalProperties": False,
+                        },
+                        read_only=True,
+                        risk_level="low",
+                    ),
+                )
+                tools.insert(
+                    8,
+                    AgentToolSpec(
+                        name="get_evm_aave_positions",
+                        description="Get read-only Aave V3 per-reserve positions for the configured EVM wallet, including supplied and borrowed balances on supported mainnet networks.",
+                        input_schema={
+                            "type": "object",
+                            "properties": {
+                                "network": {
+                                    "type": "string",
+                                    "enum": ["ethereum", "base"],
+                                    "description": "Optional EVM network override for this request.",
+                                },
+                            },
+                            "additionalProperties": False,
+                        },
+                        read_only=True,
+                        risk_level="low",
+                    ),
+                )
+                tools.insert(
+                    9,
+                    AgentToolSpec(
                         name="manage_evm_aave_position",
                         description=(
                             "Preview, prepare, or execute a narrow Aave V3 lending operation on supported EVM mainnet networks. "
@@ -2588,6 +2628,14 @@ class OpenClawWalletAdapter:
 
             if tool_name == "get_evm_aave_account":
                 data = await active_backend.get_evm_aave_account()
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_evm_aave_reserves":
+                data = await active_backend.get_evm_aave_reserves()
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_evm_aave_positions":
+                data = await active_backend.get_evm_aave_positions()
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
 
             if tool_name == "manage_evm_aave_position":

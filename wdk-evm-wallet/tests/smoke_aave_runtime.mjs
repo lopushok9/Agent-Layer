@@ -11,6 +11,12 @@ const VALID_MNEMONIC =
 const DEFAULT_ADDRESS = "0x1111111111111111111111111111111111111111";
 const DEFAULT_TOKEN = "0x2222222222222222222222222222222222222222";
 const AAVE_POOL = "0x3333333333333333333333333333333333333333";
+const AAVE_UI_POOL_DATA_PROVIDER = "0x4444444444444444444444444444444444444444";
+const AAVE_POOL_ADDRESSES_PROVIDER = "0x5555555555555555555555555555555555555555";
+const AAVE_PRICE_ORACLE = "0x6666666666666666666666666666666666666666";
+const DEFAULT_A_TOKEN = "0x7777777777777777777777777777777777777777";
+const DEFAULT_VARIABLE_DEBT_TOKEN = "0x8888888888888888888888888888888888888888";
+const DEFAULT_STRATEGY = "0x9999999999999999999999999999999999999999";
 const APPROVE_SELECTOR = "0x095ea7b3";
 
 function createHarness(options = {}) {
@@ -44,6 +50,8 @@ function createHarness(options = {}) {
     getAccount: WalletManagerEvm.prototype.getAccount,
     disposeWallet: WalletManagerEvm.prototype.dispose,
     getPoolContract: AaveProtocolEvm.prototype._getPoolContract,
+    getAddressMap: AaveProtocolEvm.prototype._getAddressMap,
+    getUiPoolDataProviderContract: AaveProtocolEvm.prototype._getUiPoolDataProviderContract,
     quoteSupply: AaveProtocolEvm.prototype.quoteSupply,
     quoteWithdraw: AaveProtocolEvm.prototype.quoteWithdraw,
     quoteBorrow: AaveProtocolEvm.prototype.quoteBorrow,
@@ -88,6 +96,89 @@ function createHarness(options = {}) {
 
   AaveProtocolEvm.prototype._getPoolContract = async function getPoolContract() {
     return { target: AAVE_POOL };
+  };
+  AaveProtocolEvm.prototype._getAddressMap = async function getAddressMap() {
+    return {
+      pool: AAVE_POOL,
+      uiPoolDataProvider: AAVE_UI_POOL_DATA_PROVIDER,
+      poolAddressesProvider: AAVE_POOL_ADDRESSES_PROVIDER,
+      priceOracle: AAVE_PRICE_ORACLE,
+    };
+  };
+  AaveProtocolEvm.prototype._getUiPoolDataProviderContract = async function getUiPoolDataProviderContract() {
+    return {
+      async getReservesData() {
+        return [
+          [
+            {
+              underlyingAsset: DEFAULT_TOKEN,
+              name: "USD Coin",
+              symbol: "USDC",
+              decimals: 6,
+              baseLTVasCollateral: 7500n,
+              reserveLiquidationThreshold: 8000n,
+              reserveLiquidationBonus: 10500n,
+              reserveFactor: 1000n,
+              usageAsCollateralEnabled: true,
+              borrowingEnabled: true,
+              isActive: true,
+              isFrozen: false,
+              liquidityIndex: 10n ** 27n,
+              variableBorrowIndex: 10n ** 27n,
+              liquidityRate: 5n * 10n ** 25n,
+              variableBorrowRate: 7n * 10n ** 25n,
+              lastUpdateTimestamp: 1700000000n,
+              aTokenAddress: DEFAULT_A_TOKEN,
+              variableDebtTokenAddress: DEFAULT_VARIABLE_DEBT_TOKEN,
+              interestRateStrategyAddress: DEFAULT_STRATEGY,
+              availableLiquidity: 5_000_000n,
+              totalScaledVariableDebt: 2_000_000n,
+              priceInMarketReferenceCurrency: 100_000_000n,
+              priceOracle: AAVE_PRICE_ORACLE,
+              variableRateSlope1: 0n,
+              variableRateSlope2: 0n,
+              baseVariableBorrowRate: 0n,
+              optimalUsageRatio: 0n,
+              isPaused: false,
+              isSiloedBorrowing: false,
+              accruedToTreasury: 0n,
+              unbacked: 0n,
+              isolationModeTotalDebt: 0n,
+              flashLoanEnabled: true,
+              debtCeiling: 0n,
+              debtCeilingDecimals: 2n,
+              borrowCap: 0n,
+              supplyCap: 0n,
+              borrowableInIsolation: true,
+              virtualAccActive: false,
+              virtualUnderlyingBalance: 0n,
+            },
+          ],
+          {
+            marketReferenceCurrencyUnit: 100_000_000n,
+            marketReferenceCurrencyPriceInUsd: 100_000_000n,
+            networkBaseTokenPriceInUsd: 3_500_000_000_00n,
+            networkBaseTokenPriceDecimals: 8,
+          },
+        ];
+      },
+      async getUserReservesData() {
+        return [
+          [
+            {
+              underlyingAsset: DEFAULT_TOKEN,
+              scaledATokenBalance: 1_000_000n,
+              usageAsCollateralEnabledOnUser: true,
+              stableBorrowRate: 0n,
+              scaledVariableDebt: 250_000n,
+              principalStableDebt: 0n,
+              stableBorrowLastUpdateTimestamp: 0n,
+            },
+          ],
+          0,
+        ];
+      },
+    };
   };
   for (const name of ["quoteSupply", "quoteWithdraw", "quoteBorrow", "quoteRepay"]) {
     AaveProtocolEvm.prototype[name] = async function quoteOperation(options) {
@@ -138,6 +229,8 @@ function createHarness(options = {}) {
       WalletManagerEvm.prototype.getAccount = originals.getAccount;
       WalletManagerEvm.prototype.dispose = originals.disposeWallet;
       AaveProtocolEvm.prototype._getPoolContract = originals.getPoolContract;
+      AaveProtocolEvm.prototype._getAddressMap = originals.getAddressMap;
+      AaveProtocolEvm.prototype._getUiPoolDataProviderContract = originals.getUiPoolDataProviderContract;
       AaveProtocolEvm.prototype.quoteSupply = originals.quoteSupply;
       AaveProtocolEvm.prototype.quoteWithdraw = originals.quoteWithdraw;
       AaveProtocolEvm.prototype.quoteBorrow = originals.quoteBorrow;
@@ -196,6 +289,37 @@ test("Aave supply quote reports pool approval requirement", async () => {
     assert.equal(result.estimatedApprovalFeeWei, "3");
     assert.equal(result.estimatedOperationFeeWei, null);
     assert.deepEqual(state.quoteCalls, ["approve"]);
+  });
+});
+
+test("Aave reserves catalog is exposed with formatted reserve metadata", async () => {
+  await withHarness({}, async ({ service }) => {
+    const result = await service.getAaveReserves({
+      seedPhrase: VALID_MNEMONIC,
+      network: "ethereum",
+    });
+    assert.equal(result.protocol, "aave-v3");
+    assert.equal(result.reserveCount, 1);
+    assert.equal(result.pool, AAVE_POOL);
+    assert.equal(result.reserves[0].symbol, "USDC");
+    assert.equal(result.reserves[0].priceInUsdFormatted, "1");
+    assert.equal(result.reserves[0].liquidityAprPercent, "5");
+  });
+});
+
+test("Aave user positions are exposed with merged reserve context", async () => {
+  await withHarness({}, async ({ service }) => {
+    const result = await service.getAavePositions({
+      seedPhrase: VALID_MNEMONIC,
+      network: "ethereum",
+    });
+    assert.equal(result.protocol, "aave-v3");
+    assert.equal(result.positionCount, 1);
+    assert.equal(result.positions[0].symbol, "USDC");
+    assert.equal(result.positions[0].suppliedBalanceRaw, "1000000");
+    assert.equal(result.positions[0].variableDebtRaw, "250000");
+    assert.equal(result.positions[0].collateralEnabled, true);
+    assert.equal(result.positions[0].reserve.priceInUsdFormatted, "1");
   });
 });
 

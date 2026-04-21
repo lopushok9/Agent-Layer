@@ -43,6 +43,8 @@ Current safe tools:
 - `get_evm_swap_quote`
 - `swap_evm_tokens`
 - `get_evm_aave_account`
+- `get_evm_aave_reserves`
+- `get_evm_aave_positions`
 - `manage_evm_aave_position`
 - `get_lifi_supported_chains`
 - `get_lifi_quote`

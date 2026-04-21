@@ -227,6 +227,111 @@ class FakeEvmBackend(AgentWalletBackend):
             "source": "fake",
         }
 
+    async def get_evm_aave_reserves(self) -> dict:
+        return {
+            "chain": "evm",
+            "network": self.network,
+            "protocol": "aave-v3",
+            "chain_id": 1 if self.network == "ethereum" else 8453,
+            "pool": "0x3333333333333333333333333333333333333333",
+            "pool_addresses_provider": "0x4444444444444444444444444444444444444444",
+            "ui_pool_data_provider": "0x5555555555555555555555555555555555555555",
+            "price_oracle": "0x6666666666666666666666666666666666666666",
+            "base_currency_info": {
+                "marketReferenceCurrencyUnit": "100000000",
+                "marketReferenceCurrencyPriceInUsd": "100000000",
+                "marketReferenceCurrencyPriceInUsdFormatted": "1.00000000",
+                "networkBaseTokenPriceInUsd": "350000000000",
+                "networkBaseTokenPriceInUsdFormatted": "3500.00000000",
+                "networkBaseTokenPriceDecimals": 8,
+                "usdDecimals": 8,
+            },
+            "reserve_count": 1,
+            "reserves": [
+                {
+                    "underlyingAsset": "0x2222222222222222222222222222222222222222",
+                    "name": "USD Coin",
+                    "symbol": "USDC",
+                    "decimals": 6,
+                    "baseLtvAsCollateral": "7500",
+                    "baseLtvAsCollateralPercent": "75.00",
+                    "reserveLiquidationThreshold": "8000",
+                    "reserveLiquidationThresholdPercent": "80.00",
+                    "usageAsCollateralEnabled": True,
+                    "borrowingEnabled": True,
+                    "isActive": True,
+                    "isFrozen": False,
+                    "isPaused": False,
+                    "flashLoanEnabled": True,
+                    "aTokenAddress": "0x7777777777777777777777777777777777777777",
+                    "variableDebtTokenAddress": "0x8888888888888888888888888888888888888888",
+                    "availableLiquidityRaw": "5000000",
+                    "availableLiquidityFormatted": "5.000000",
+                    "priceInUsdRaw": "100000000",
+                    "priceInUsdFormatted": "1.00000000",
+                    "liquidityAprPercent": "5.00",
+                    "variableBorrowAprPercent": "7.00",
+                }
+            ],
+            "source": "fake",
+        }
+
+    async def get_evm_aave_positions(self) -> dict:
+        return {
+            "chain": "evm",
+            "network": self.network,
+            "address": await self.get_address(),
+            "protocol": "aave-v3",
+            "chain_id": 1 if self.network == "ethereum" else 8453,
+            "emode_category_id": "0",
+            "account_data": {
+                "totalCollateralBase": "100000000",
+                "totalDebtBase": "25000000",
+                "availableBorrowsBase": "55000000",
+                "currentLiquidationThreshold": "8000",
+                "ltv": "7500",
+                "healthFactor": "2000000000000000000",
+            },
+            "base_currency_info": {
+                "marketReferenceCurrencyUnit": "100000000",
+                "marketReferenceCurrencyPriceInUsd": "100000000",
+                "marketReferenceCurrencyPriceInUsdFormatted": "1.00000000",
+                "networkBaseTokenPriceInUsd": "350000000000",
+                "networkBaseTokenPriceInUsdFormatted": "3500.00000000",
+                "networkBaseTokenPriceDecimals": 8,
+                "usdDecimals": 8,
+            },
+            "position_count": 1,
+            "positions": [
+                {
+                    "underlyingAsset": "0x2222222222222222222222222222222222222222",
+                    "name": "USD Coin",
+                    "symbol": "USDC",
+                    "decimals": 6,
+                    "collateralEnabled": True,
+                    "suppliedBalanceRaw": "1000000",
+                    "suppliedBalanceFormatted": "1.000000",
+                    "suppliedValueUsdRaw": "100000000",
+                    "suppliedValueUsdFormatted": "1.00000000",
+                    "variableDebtRaw": "250000",
+                    "variableDebtFormatted": "0.250000",
+                    "variableDebtValueUsdRaw": "25000000",
+                    "variableDebtValueUsdFormatted": "0.25000000",
+                    "reserve": {
+                        "priceInUsdRaw": "100000000",
+                        "priceInUsdFormatted": "1.00000000",
+                        "usageAsCollateralEnabled": True,
+                        "borrowingEnabled": True,
+                        "isActive": True,
+                        "isFrozen": False,
+                        "isPaused": False,
+                        "flashLoanEnabled": True,
+                    },
+                }
+            ],
+            "source": "fake",
+        }
+
     async def preview_evm_aave_operation(
         self,
         *,
@@ -767,6 +872,8 @@ async def _main() -> None:
     assert "get_evm_network" in tool_names
     assert "get_evm_token_metadata" in tool_names
     assert "get_evm_aave_account" in tool_names
+    assert "get_evm_aave_reserves" in tool_names
+    assert "get_evm_aave_positions" in tool_names
     assert "manage_evm_aave_position" in tool_names
     assert "get_evm_swap_quote" in tool_names
     assert "swap_evm_tokens" in tool_names
@@ -866,6 +973,18 @@ async def _main() -> None:
     assert aave_account.data["network"] == "base"
     assert aave_account.data["protocol"] == "aave-v3"
     assert aave_account.data["account_data"]["availableBorrowsBase"] == "80000000"
+
+    aave_reserves = await adapter.invoke("get_evm_aave_reserves", {"network": "base"})
+    assert aave_reserves.ok is True
+    assert aave_reserves.data["network"] == "base"
+    assert aave_reserves.data["reserve_count"] == 1
+    assert aave_reserves.data["reserves"][0]["symbol"] == "USDC"
+
+    aave_positions = await adapter.invoke("get_evm_aave_positions", {"network": "base"})
+    assert aave_positions.ok is True
+    assert aave_positions.data["network"] == "base"
+    assert aave_positions.data["position_count"] == 1
+    assert aave_positions.data["positions"][0]["suppliedBalanceRaw"] == "1000000"
 
     aave_preview = await adapter.invoke(
         "manage_evm_aave_position",

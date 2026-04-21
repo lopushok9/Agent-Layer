@@ -422,6 +422,18 @@ async function handleRequest(request, response) {
       return sendJson(response, 200, { ok: true, data });
     }
 
+    if (method === "POST" && url.pathname === "/v1/evm/aave/reserves/get") {
+      const body = await withResolvedNetwork(await withResolvedSeedOrAddress(await readJsonBody(request)));
+      const data = await service.getAaveReserves(body);
+      return sendJson(response, 200, { ok: true, data });
+    }
+
+    if (method === "POST" && url.pathname === "/v1/evm/aave/positions/get") {
+      const body = await withResolvedNetwork(await withResolvedSeedOrAddress(await readJsonBody(request)));
+      const data = await service.getAavePositions(body);
+      return sendJson(response, 200, { ok: true, data });
+    }
+
     const aaveOperationMatch = url.pathname.match(
       /^\/v1\/evm\/aave\/(supply|withdraw|borrow|repay)\/(quote|send)$/
     );

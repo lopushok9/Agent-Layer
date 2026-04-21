@@ -914,6 +914,28 @@ const evmToolDefinitions = [
     },
   },
   {
+    name: "get_evm_aave_reserves",
+    description: "Get the read-only Aave V3 reserve catalog for the configured EVM network, including reserve flags, pricing, and liquidity metadata.",
+    parameters: {
+      type: "object",
+      properties: {
+        network: { type: "string", enum: ["ethereum", "base"] },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_evm_aave_positions",
+    description: "Get read-only Aave V3 per-reserve positions for the configured EVM wallet, including supplied and borrowed balances on supported mainnet networks.",
+    parameters: {
+      type: "object",
+      properties: {
+        network: { type: "string", enum: ["ethereum", "base"] },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: "manage_evm_aave_position",
     description: "Preview, prepare, or execute a narrow Aave V3 lending operation on supported EVM mainnet networks. Supported operations are supply, withdraw, borrow, and repay. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
     optional: true,
@@ -1052,6 +1074,8 @@ export default function registerAgentWalletPlugin(api) {
     : evmToolDefinitions.filter(
         (definition) =>
           definition.name !== "get_evm_aave_account" &&
+          definition.name !== "get_evm_aave_reserves" &&
+          definition.name !== "get_evm_aave_positions" &&
           definition.name !== "manage_evm_aave_position" &&
           definition.name !== "get_evm_swap_quote" &&
           definition.name !== "swap_evm_tokens"

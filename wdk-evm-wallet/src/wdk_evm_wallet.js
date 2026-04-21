@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 
 import WDK from "@tetherto/wdk";
+import { IUiPoolDataProvider_ABI } from "@bgd-labs/aave-address-book/abis";
 import AaveProtocolEvm from "@tetherto/wdk-protocol-lending-aave-evm";
 import VeloraProtocolEvm from "@tetherto/wdk-protocol-swap-velora-evm";
 import WalletManagerEvm, { WalletAccountReadOnlyEvm } from "@tetherto/wdk-wallet-evm";
@@ -17,6 +18,7 @@ const LIFI_SOLANA_NATIVE_TOKEN_ADDRESS = "11111111111111111111111111111111";
 const DEFAULT_SWAP_SLIPPAGE_BPS = 100;
 const DEFAULT_LIFI_SLIPPAGE = 0.005;
 const ALWAYS_DENIED_LIFI_BRIDGES = ["mayan"];
+const AAVE_RAY = 10n ** 27n;
 const LIFI_CHAIN_IDS_BY_NETWORK = {
   ethereum: "1",
   base: "8453",
@@ -410,6 +412,41 @@ function formatUnits(value, decimals = 18) {
   return `${sign}${whole.toString()}.${fractionText}`;
 }
 
+function rayMul(value, rayValue) {
+  return (BigInt(value || 0) * BigInt(rayValue || 0)) / AAVE_RAY;
+}
+
+function formatBasisPoints(value) {
+  return formatUnits(BigInt(value || 0), 2);
+}
+
+function formatRayAprPercent(value) {
+  return formatUnits(BigInt(value || 0), 25);
+}
+
+function computeAaveUsdPriceRaw(priceInMarketReferenceCurrency, baseCurrencyInfo) {
+  const marketReferenceCurrencyUnit = BigInt(baseCurrencyInfo?.marketReferenceCurrencyUnit || 0);
+  const marketReferenceCurrencyPriceInUsd = BigInt(baseCurrencyInfo?.marketReferenceCurrencyPriceInUsd || 0);
+  if (marketReferenceCurrencyUnit <= 0n || marketReferenceCurrencyPriceInUsd <= 0n) {
+    return null;
+  }
+  return (
+    (BigInt(priceInMarketReferenceCurrency || 0) * marketReferenceCurrencyPriceInUsd) /
+    marketReferenceCurrencyUnit
+  );
+}
+
+function computeAaveUsdValueRaw(amountRaw, decimals, priceUsdRaw) {
+  if (priceUsdRaw === null || priceUsdRaw === undefined) {
+    return null;
+  }
+  const scale = 10n ** BigInt(Number.isInteger(decimals) ? decimals : 18);
+  if (scale <= 0n) {
+    return null;
+  }
+  return (BigInt(amountRaw || 0) * BigInt(priceUsdRaw)) / scale;
+}
+
 async function rpcRequest(providerUrl, method, params = []) {
   let response;
   try {
@@ -737,6 +774,163 @@ export class WdkEvmWalletService {
             address: accountAddress,
             protocol: "aave-v3",
             accountData: this.#formatAaveAccountData(accountData),
+            source: "wdk-protocol-lending-aave-evm",
+          };
+        } finally {
+          await maybeDispose(protocol);
+        }
+      }
+    );
+  }
+
+  async getAaveReserves({ seedPhrase, address, accountIndex = 0, network }) {
+    return this.#withReadableAccount(
+      { seedPhrase, address, accountIndex, network },
+      async (account, runtimeConfig) => {
+        assertAaveSupportedNetwork(runtimeConfig.network);
+        const protocol = new AaveProtocolEvm(account);
+        try {
+          const catalog = await this.#readAaveReserveCatalog(protocol);
+          return {
+            network: runtimeConfig.network,
+            chainId: runtimeConfig.chainId,
+            accountIndex,
+            protocol: "aave-v3",
+            pool: catalog.addresses.pool,
+            poolAddressesProvider: catalog.addresses.poolAddressesProvider,
+            uiPoolDataProvider: catalog.addresses.uiPoolDataProvider,
+            priceOracle: catalog.addresses.priceOracle,
+            baseCurrencyInfo: catalog.baseCurrencyInfo,
+            reserveCount: catalog.reserves.length,
+            reserves: catalog.reserves,
+            source: "wdk-protocol-lending-aave-evm",
+          };
+        } finally {
+          await maybeDispose(protocol);
+        }
+      }
+    );
+  }
+
+  async getAavePositions({ seedPhrase, address, accountIndex = 0, network }) {
+    return this.#withReadableAccount(
+      { seedPhrase, address, accountIndex, network },
+      async (account, runtimeConfig) => {
+        assertAaveSupportedNetwork(runtimeConfig.network);
+        const accountAddress = await account.getAddress();
+        const protocol = new AaveProtocolEvm(account);
+        try {
+          const catalog = await this.#readAaveReserveCatalog(protocol);
+          const [userReservesRaw, eModeCategoryIdRaw] = await this.#getAaveUserReservesData(
+            protocol,
+            accountAddress
+          );
+          const accountData = await protocol.getAccountData(accountAddress);
+          const reserveByUnderlying = new Map(
+            catalog.reserves.map((reserve) => [reserve.underlyingAsset.toLowerCase(), reserve])
+          );
+          const positions = [];
+          for (const userReserve of Array.isArray(userReservesRaw) ? userReservesRaw : []) {
+            const underlyingAsset = normalizeAddress(
+              String(userReserve?.underlyingAsset || ""),
+              "underlyingAsset"
+            ).toLowerCase();
+            const reserve = reserveByUnderlying.get(underlyingAsset);
+            if (!reserve) {
+              continue;
+            }
+            const scaledATokenBalance = BigInt(userReserve?.scaledATokenBalance || 0);
+            const scaledVariableDebt = BigInt(userReserve?.scaledVariableDebt || 0);
+            const principalStableDebt = BigInt(userReserve?.principalStableDebt || 0);
+            const suppliedBalance = rayMul(scaledATokenBalance, reserve.liquidityIndexRaw);
+            const variableDebt = rayMul(scaledVariableDebt, reserve.variableBorrowIndexRaw);
+            if (
+              suppliedBalance <= 0n &&
+              variableDebt <= 0n &&
+              principalStableDebt <= 0n &&
+              !Boolean(userReserve?.usageAsCollateralEnabledOnUser)
+            ) {
+              continue;
+            }
+            const suppliedValueUsdRaw = computeAaveUsdValueRaw(
+              suppliedBalance,
+              reserve.decimals,
+              reserve.priceInUsdRaw
+            );
+            const variableDebtValueUsdRaw = computeAaveUsdValueRaw(
+              variableDebt,
+              reserve.decimals,
+              reserve.priceInUsdRaw
+            );
+            const principalStableDebtValueUsdRaw = computeAaveUsdValueRaw(
+              principalStableDebt,
+              reserve.decimals,
+              reserve.priceInUsdRaw
+            );
+            positions.push({
+              underlyingAsset: reserve.underlyingAsset,
+              name: reserve.name,
+              symbol: reserve.symbol,
+              decimals: reserve.decimals,
+              aTokenAddress: reserve.aTokenAddress,
+              variableDebtTokenAddress: reserve.variableDebtTokenAddress,
+              collateralEnabled: Boolean(userReserve?.usageAsCollateralEnabledOnUser),
+              suppliedBalanceRaw: suppliedBalance.toString(),
+              suppliedBalanceFormatted: formatUnits(suppliedBalance, reserve.decimals),
+              suppliedValueUsdRaw: suppliedValueUsdRaw !== null ? suppliedValueUsdRaw.toString() : null,
+              suppliedValueUsdFormatted:
+                suppliedValueUsdRaw !== null
+                  ? formatUnits(suppliedValueUsdRaw, catalog.baseCurrencyInfo.usdDecimals)
+                  : null,
+              scaledATokenBalanceRaw: scaledATokenBalance.toString(),
+              variableDebtRaw: variableDebt.toString(),
+              variableDebtFormatted: formatUnits(variableDebt, reserve.decimals),
+              variableDebtValueUsdRaw:
+                variableDebtValueUsdRaw !== null ? variableDebtValueUsdRaw.toString() : null,
+              variableDebtValueUsdFormatted:
+                variableDebtValueUsdRaw !== null
+                  ? formatUnits(variableDebtValueUsdRaw, catalog.baseCurrencyInfo.usdDecimals)
+                  : null,
+              scaledVariableDebtRaw: scaledVariableDebt.toString(),
+              principalStableDebtRaw: principalStableDebt.toString(),
+              principalStableDebtFormatted: formatUnits(principalStableDebt, reserve.decimals),
+              principalStableDebtValueUsdRaw:
+                principalStableDebtValueUsdRaw !== null
+                  ? principalStableDebtValueUsdRaw.toString()
+                  : null,
+              principalStableDebtValueUsdFormatted:
+                principalStableDebtValueUsdRaw !== null
+                  ? formatUnits(principalStableDebtValueUsdRaw, catalog.baseCurrencyInfo.usdDecimals)
+                  : null,
+              stableBorrowRateRaw: BigInt(userReserve?.stableBorrowRate || 0).toString(),
+              stableBorrowAprPercent: formatRayAprPercent(BigInt(userReserve?.stableBorrowRate || 0)),
+              stableBorrowLastUpdateTimestamp: BigInt(
+                userReserve?.stableBorrowLastUpdateTimestamp || 0
+              ).toString(),
+              reserve: {
+                priceInUsdRaw: reserve.priceInUsdRaw !== null ? reserve.priceInUsdRaw.toString() : null,
+                priceInUsdFormatted: reserve.priceInUsdFormatted,
+                priceInMarketReferenceCurrency: reserve.priceInMarketReferenceCurrency,
+                usageAsCollateralEnabled: reserve.usageAsCollateralEnabled,
+                borrowingEnabled: reserve.borrowingEnabled,
+                isActive: reserve.isActive,
+                isFrozen: reserve.isFrozen,
+                isPaused: reserve.isPaused,
+                flashLoanEnabled: reserve.flashLoanEnabled,
+              },
+            });
+          }
+          return {
+            network: runtimeConfig.network,
+            chainId: runtimeConfig.chainId,
+            accountIndex,
+            address: accountAddress,
+            protocol: "aave-v3",
+            eModeCategoryId: BigInt(eModeCategoryIdRaw || 0).toString(),
+            accountData: this.#formatAaveAccountData(accountData),
+            baseCurrencyInfo: catalog.baseCurrencyInfo,
+            positionCount: positions.length,
+            positions,
             source: "wdk-protocol-lending-aave-evm",
           };
         } finally {
@@ -2035,6 +2229,131 @@ export class WdkEvmWalletService {
       currentLiquidationThreshold: BigInt(accountData.currentLiquidationThreshold || 0).toString(),
       ltv: BigInt(accountData.ltv || 0).toString(),
       healthFactor: BigInt(accountData.healthFactor || 0).toString(),
+    };
+  }
+
+  async #readAaveReserveCatalog(protocol) {
+    const addressMap = await protocol._getAddressMap();
+    const uiPoolDataProviderContract = await protocol._getUiPoolDataProviderContract();
+    const [reservesRaw, baseCurrencyInfoRaw] = await uiPoolDataProviderContract.getReservesData(
+      addressMap.poolAddressesProvider
+    );
+    const baseCurrencyInfo = this.#formatAaveBaseCurrencyInfo(baseCurrencyInfoRaw);
+    const reserves = (Array.isArray(reservesRaw) ? reservesRaw : []).map((reserve) =>
+      this.#formatAaveReserveEntry(reserve, baseCurrencyInfo)
+    );
+    return {
+      addresses: {
+        pool: addressMap.pool,
+        poolAddressesProvider: addressMap.poolAddressesProvider,
+        uiPoolDataProvider: addressMap.uiPoolDataProvider,
+        priceOracle: addressMap.priceOracle,
+      },
+      baseCurrencyInfo,
+      reserves,
+    };
+  }
+
+  async #getAaveUserReservesData(protocol, address) {
+    const addressMap = await protocol._getAddressMap();
+    const existingContract = await protocol._getUiPoolDataProviderContract();
+    const uiPoolDataProviderContract =
+      existingContract && typeof existingContract.getUserReservesData === "function"
+        ? existingContract
+        : new Contract(addressMap.uiPoolDataProvider, IUiPoolDataProvider_ABI, protocol._provider);
+    return uiPoolDataProviderContract.getUserReservesData(addressMap.poolAddressesProvider, address);
+  }
+
+  #formatAaveBaseCurrencyInfo(baseCurrencyInfo) {
+    const usdDecimals = Number(baseCurrencyInfo?.networkBaseTokenPriceDecimals || 8);
+    const marketReferenceCurrencyPriceInUsd = BigInt(
+      baseCurrencyInfo?.marketReferenceCurrencyPriceInUsd || 0
+    );
+    const networkBaseTokenPriceInUsd = BigInt(baseCurrencyInfo?.networkBaseTokenPriceInUsd || 0);
+    return {
+      marketReferenceCurrencyUnit: BigInt(baseCurrencyInfo?.marketReferenceCurrencyUnit || 0).toString(),
+      marketReferenceCurrencyPriceInUsd: marketReferenceCurrencyPriceInUsd.toString(),
+      marketReferenceCurrencyPriceInUsdFormatted:
+        marketReferenceCurrencyPriceInUsd > 0n ? formatUnits(marketReferenceCurrencyPriceInUsd, usdDecimals) : null,
+      networkBaseTokenPriceInUsd: networkBaseTokenPriceInUsd.toString(),
+      networkBaseTokenPriceInUsdFormatted:
+        networkBaseTokenPriceInUsd > 0n ? formatUnits(networkBaseTokenPriceInUsd, usdDecimals) : null,
+      networkBaseTokenPriceDecimals: usdDecimals,
+      usdDecimals,
+    };
+  }
+
+  #formatAaveReserveEntry(reserve, baseCurrencyInfo) {
+    const decimals = Number(reserve?.decimals || 18);
+    const liquidityIndexRaw = BigInt(reserve?.liquidityIndex || 0);
+    const variableBorrowIndexRaw = BigInt(reserve?.variableBorrowIndex || 0);
+    const totalScaledVariableDebtRaw = BigInt(reserve?.totalScaledVariableDebt || 0);
+    const totalVariableDebtRaw = rayMul(totalScaledVariableDebtRaw, variableBorrowIndexRaw);
+    const priceInUsdRaw = computeAaveUsdPriceRaw(
+      BigInt(reserve?.priceInMarketReferenceCurrency || 0),
+      baseCurrencyInfo
+    );
+    return {
+      underlyingAsset: normalizeAddress(String(reserve?.underlyingAsset || ""), "underlyingAsset").toLowerCase(),
+      name: String(reserve?.name || "").trim() || null,
+      symbol: String(reserve?.symbol || "").trim() || null,
+      decimals,
+      baseLtvAsCollateral: BigInt(reserve?.baseLTVasCollateral || 0).toString(),
+      baseLtvAsCollateralPercent: formatBasisPoints(BigInt(reserve?.baseLTVasCollateral || 0)),
+      reserveLiquidationThreshold: BigInt(reserve?.reserveLiquidationThreshold || 0).toString(),
+      reserveLiquidationThresholdPercent: formatBasisPoints(
+        BigInt(reserve?.reserveLiquidationThreshold || 0)
+      ),
+      reserveLiquidationBonus: BigInt(reserve?.reserveLiquidationBonus || 0).toString(),
+      reserveFactor: BigInt(reserve?.reserveFactor || 0).toString(),
+      reserveFactorPercent: formatBasisPoints(BigInt(reserve?.reserveFactor || 0)),
+      usageAsCollateralEnabled: Boolean(reserve?.usageAsCollateralEnabled),
+      borrowingEnabled: Boolean(reserve?.borrowingEnabled),
+      isActive: Boolean(reserve?.isActive),
+      isFrozen: Boolean(reserve?.isFrozen),
+      isPaused: Boolean(reserve?.isPaused),
+      isSiloedBorrowing: Boolean(reserve?.isSiloedBorrowing),
+      flashLoanEnabled: Boolean(reserve?.flashLoanEnabled),
+      borrowableInIsolation: Boolean(reserve?.borrowableInIsolation),
+      virtualAccActive: Boolean(reserve?.virtualAccActive),
+      aTokenAddress: normalizeAddress(String(reserve?.aTokenAddress || ""), "aTokenAddress").toLowerCase(),
+      variableDebtTokenAddress: normalizeAddress(
+        String(reserve?.variableDebtTokenAddress || ""),
+        "variableDebtTokenAddress"
+      ).toLowerCase(),
+      interestRateStrategyAddress: normalizeAddress(
+        String(reserve?.interestRateStrategyAddress || ""),
+        "interestRateStrategyAddress"
+      ).toLowerCase(),
+      availableLiquidityRaw: BigInt(reserve?.availableLiquidity || 0).toString(),
+      availableLiquidityFormatted: formatUnits(BigInt(reserve?.availableLiquidity || 0), decimals),
+      totalScaledVariableDebtRaw: totalScaledVariableDebtRaw.toString(),
+      totalVariableDebtRaw: totalVariableDebtRaw.toString(),
+      totalVariableDebtFormatted: formatUnits(totalVariableDebtRaw, decimals),
+      liquidityIndexRaw: liquidityIndexRaw.toString(),
+      variableBorrowIndexRaw: variableBorrowIndexRaw.toString(),
+      liquidityRateRaw: BigInt(reserve?.liquidityRate || 0).toString(),
+      liquidityAprPercent: formatRayAprPercent(BigInt(reserve?.liquidityRate || 0)),
+      variableBorrowRateRaw: BigInt(reserve?.variableBorrowRate || 0).toString(),
+      variableBorrowAprPercent: formatRayAprPercent(BigInt(reserve?.variableBorrowRate || 0)),
+      lastUpdateTimestamp: BigInt(reserve?.lastUpdateTimestamp || 0).toString(),
+      priceInMarketReferenceCurrency: BigInt(reserve?.priceInMarketReferenceCurrency || 0).toString(),
+      priceInUsdRaw: priceInUsdRaw !== null ? priceInUsdRaw.toString() : null,
+      priceInUsdFormatted:
+        priceInUsdRaw !== null ? formatUnits(priceInUsdRaw, baseCurrencyInfo.usdDecimals) : null,
+      priceOracle: normalizeAddress(String(reserve?.priceOracle || ""), "priceOracle").toLowerCase(),
+      variableRateSlope1Raw: BigInt(reserve?.variableRateSlope1 || 0).toString(),
+      variableRateSlope2Raw: BigInt(reserve?.variableRateSlope2 || 0).toString(),
+      baseVariableBorrowRateRaw: BigInt(reserve?.baseVariableBorrowRate || 0).toString(),
+      optimalUsageRatioRaw: BigInt(reserve?.optimalUsageRatio || 0).toString(),
+      accruedToTreasuryRaw: BigInt(reserve?.accruedToTreasury || 0).toString(),
+      unbackedRaw: BigInt(reserve?.unbacked || 0).toString(),
+      isolationModeTotalDebtRaw: BigInt(reserve?.isolationModeTotalDebt || 0).toString(),
+      debtCeilingRaw: BigInt(reserve?.debtCeiling || 0).toString(),
+      debtCeilingDecimals: Number(reserve?.debtCeilingDecimals || 0),
+      borrowCapRaw: BigInt(reserve?.borrowCap || 0).toString(),
+      supplyCapRaw: BigInt(reserve?.supplyCap || 0).toString(),
+      virtualUnderlyingBalanceRaw: BigInt(reserve?.virtualUnderlyingBalance || 0).toString(),
     };
   }
 

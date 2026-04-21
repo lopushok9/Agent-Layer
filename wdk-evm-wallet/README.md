@@ -21,6 +21,8 @@ Current scope:
 - fetch read-only Velora swap quotes for supported mainnet ERC-20 pairs
 - execute Velora ERC-20 swaps on supported mainnet networks through the local wallet account
 - fetch Aave V3 account data on supported mainnet networks
+- fetch Aave V3 reserve catalog on supported mainnet networks
+- fetch Aave V3 per-reserve user positions on supported mainnet networks
 - quote and send narrow Aave V3 `supply`, `withdraw`, `borrow`, and `repay` operations
 - quote and send native transfers
 - quote and send ERC-20 transfers
@@ -87,6 +89,8 @@ The active network is persistent and can be switched without changing code.
 - `POST /v1/evm/fee-rates/get`
 - `POST /v1/evm/transaction/receipt/get`
 - `POST /v1/evm/aave/account/get`
+- `POST /v1/evm/aave/reserves/get`
+- `POST /v1/evm/aave/positions/get`
 - `POST /v1/evm/aave/supply/quote`
 - `POST /v1/evm/aave/supply/send`
 - `POST /v1/evm/aave/withdraw/quote`

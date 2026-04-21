@@ -104,6 +104,12 @@ class AgentWalletBackend(ABC):
     async def get_evm_aave_account(self) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support EVM Aave account lookup.")
 
+    async def get_evm_aave_reserves(self) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM Aave reserve lookup.")
+
+    async def get_evm_aave_positions(self) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM Aave positions lookup.")
+
     async def preview_evm_aave_operation(
         self,
         *,

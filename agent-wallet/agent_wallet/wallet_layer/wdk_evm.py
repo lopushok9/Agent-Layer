@@ -595,6 +595,55 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "source": "wdk-evm-wallet",
         }
 
+    async def get_evm_aave_reserves(self) -> dict[str, Any]:
+        data = await self.client.post(
+            "/v1/evm/aave/reserves/get",
+            {
+                "walletId": self.wallet_id,
+                "accountIndex": self.account_index,
+                "network": self.network,
+            },
+        )
+        return {
+            "chain": self.chain,
+            "network": self.network,
+            "protocol": str(data.get("protocol") or "aave-v3"),
+            "chain_id": int(data.get("chainId") or 0),
+            "pool": str(data.get("pool") or "").strip() or None,
+            "pool_addresses_provider": str(data.get("poolAddressesProvider") or "").strip() or None,
+            "ui_pool_data_provider": str(data.get("uiPoolDataProvider") or "").strip() or None,
+            "price_oracle": str(data.get("priceOracle") or "").strip() or None,
+            "base_currency_info": dict(data.get("baseCurrencyInfo") or {}),
+            "reserve_count": int(data.get("reserveCount") or 0),
+            "reserves": list(data.get("reserves") or []),
+            "source": "wdk-evm-wallet",
+        }
+
+    async def get_evm_aave_positions(self) -> dict[str, Any]:
+        resolved_address = await self.get_address()
+        data = await self.client.post(
+            "/v1/evm/aave/positions/get",
+            {
+                "walletId": self.wallet_id,
+                "address": resolved_address,
+                "accountIndex": self.account_index,
+                "network": self.network,
+            },
+        )
+        return {
+            "chain": self.chain,
+            "network": self.network,
+            "address": str(data.get("address") or resolved_address or ""),
+            "protocol": str(data.get("protocol") or "aave-v3"),
+            "chain_id": int(data.get("chainId") or 0),
+            "emode_category_id": str(data.get("eModeCategoryId") or "0"),
+            "account_data": dict(data.get("accountData") or {}),
+            "base_currency_info": dict(data.get("baseCurrencyInfo") or {}),
+            "position_count": int(data.get("positionCount") or 0),
+            "positions": list(data.get("positions") or []),
+            "source": "wdk-evm-wallet",
+        }
+
     async def preview_evm_aave_operation(
         self,
         *,
