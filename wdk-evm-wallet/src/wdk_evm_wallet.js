@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 
 import { Contract } from "ethers";
 import WDK from "@tetherto/wdk";
-import { IUiPoolDataProvider_ABI } from "@bgd-labs/aave-address-book/abis";
+import { AaveV3Base, AaveV3Ethereum } from "@bgd-labs/aave-address-book";
 import AaveProtocolEvm from "@tetherto/wdk-protocol-lending-aave-evm";
 import VeloraProtocolEvm from "@tetherto/wdk-protocol-swap-velora-evm";
 import WalletManagerEvm, { WalletAccountReadOnlyEvm } from "@tetherto/wdk-wallet-evm";
@@ -20,6 +20,13 @@ const DEFAULT_SWAP_SLIPPAGE_BPS = 100;
 const DEFAULT_LIFI_SLIPPAGE = 0.005;
 const ALWAYS_DENIED_LIFI_BRIDGES = ["mayan"];
 const AAVE_RAY = 10n ** 27n;
+const AAVE_PROTOCOL_DATA_PROVIDER_BY_NETWORK = {
+  ethereum: AaveV3Ethereum.AAVE_PROTOCOL_DATA_PROVIDER,
+  base: AaveV3Base.AAVE_PROTOCOL_DATA_PROVIDER,
+};
+const AAVE_PROTOCOL_DATA_PROVIDER_ABI = [
+  "function getUserReserveData(address asset, address user) view returns (uint256 currentATokenBalance, uint256 currentStableDebt, uint256 currentVariableDebt, uint256 principalStableDebt, uint256 scaledVariableDebt, uint256 stableBorrowRate, uint256 liquidityRate, uint40 stableRateLastUpdated, bool usageAsCollateralEnabled)",
+];
 const LIFI_CHAIN_IDS_BY_NETWORK = {
   ethereum: "1",
   base: "8453",
@@ -822,34 +829,43 @@ export class WdkEvmWalletService {
         const protocol = new AaveProtocolEvm(account);
         try {
           const catalog = await this.#readAaveReserveCatalog(protocol);
-          const [userReservesRaw, eModeCategoryIdRaw] = await this.#getAaveUserReservesData(
-            protocol,
-            accountAddress
+          const poolContract = await protocol._getPoolContract();
+          const eModeCategoryIdRaw =
+            poolContract && typeof poolContract.getUserEMode === "function"
+              ? await poolContract.getUserEMode(accountAddress)
+              : 0n;
+          const protocolDataProviderContract = this.#getAaveProtocolDataProviderContract(
+            runtimeConfig.network,
+            protocol
           );
           const accountData = await protocol.getAccountData(accountAddress);
-          const reserveByUnderlying = new Map(
-            catalog.reserves.map((reserve) => [reserve.underlyingAsset.toLowerCase(), reserve])
+          const userReserveEntries = await Promise.all(
+            catalog.reserves.map(async (reserve) => ({
+              reserve,
+              userReserve: await protocolDataProviderContract.getUserReserveData(
+                reserve.underlyingAsset,
+                accountAddress
+              ),
+            }))
           );
           const positions = [];
-          for (const userReserve of Array.isArray(userReservesRaw) ? userReservesRaw : []) {
-            const underlyingAsset = normalizeAddress(
-              String(userReserve?.underlyingAsset || ""),
-              "underlyingAsset"
-            ).toLowerCase();
-            const reserve = reserveByUnderlying.get(underlyingAsset);
-            if (!reserve) {
-              continue;
-            }
-            const scaledATokenBalance = BigInt(userReserve?.scaledATokenBalance || 0);
-            const scaledVariableDebt = BigInt(userReserve?.scaledVariableDebt || 0);
+          for (const { reserve, userReserve } of userReserveEntries) {
+            const liquidityIndexRaw = BigInt(reserve?.liquidityIndexRaw || 0);
+            const suppliedBalance = BigInt(userReserve?.currentATokenBalance || 0);
+            const currentStableDebt = BigInt(userReserve?.currentStableDebt || 0);
+            const variableDebt = BigInt(userReserve?.currentVariableDebt || 0);
             const principalStableDebt = BigInt(userReserve?.principalStableDebt || 0);
-            const suppliedBalance = rayMul(scaledATokenBalance, reserve.liquidityIndexRaw);
-            const variableDebt = rayMul(scaledVariableDebt, reserve.variableBorrowIndexRaw);
+            const scaledVariableDebt = BigInt(userReserve?.scaledVariableDebt || 0);
+            const scaledATokenBalance =
+              liquidityIndexRaw > 0n
+                ? (suppliedBalance * AAVE_RAY) / liquidityIndexRaw
+                : 0n;
             if (
               suppliedBalance <= 0n &&
               variableDebt <= 0n &&
+              currentStableDebt <= 0n &&
               principalStableDebt <= 0n &&
-              !Boolean(userReserve?.usageAsCollateralEnabledOnUser)
+              !Boolean(userReserve?.usageAsCollateralEnabled)
             ) {
               continue;
             }
@@ -860,6 +876,11 @@ export class WdkEvmWalletService {
             );
             const variableDebtValueUsdRaw = computeAaveUsdValueRaw(
               variableDebt,
+              reserve.decimals,
+              reserve.priceInUsdRaw
+            );
+            const currentStableDebtValueUsdRaw = computeAaveUsdValueRaw(
+              currentStableDebt,
               reserve.decimals,
               reserve.priceInUsdRaw
             );
@@ -875,7 +896,7 @@ export class WdkEvmWalletService {
               decimals: reserve.decimals,
               aTokenAddress: reserve.aTokenAddress,
               variableDebtTokenAddress: reserve.variableDebtTokenAddress,
-              collateralEnabled: Boolean(userReserve?.usageAsCollateralEnabledOnUser),
+              collateralEnabled: Boolean(userReserve?.usageAsCollateralEnabled),
               suppliedBalanceRaw: suppliedBalance.toString(),
               suppliedBalanceFormatted: formatUnits(suppliedBalance, reserve.decimals),
               suppliedValueUsdRaw: suppliedValueUsdRaw !== null ? suppliedValueUsdRaw.toString() : null,
@@ -893,6 +914,14 @@ export class WdkEvmWalletService {
                   ? formatUnits(variableDebtValueUsdRaw, catalog.baseCurrencyInfo.usdDecimals)
                   : null,
               scaledVariableDebtRaw: scaledVariableDebt.toString(),
+              currentStableDebtRaw: currentStableDebt.toString(),
+              currentStableDebtFormatted: formatUnits(currentStableDebt, reserve.decimals),
+              currentStableDebtValueUsdRaw:
+                currentStableDebtValueUsdRaw !== null ? currentStableDebtValueUsdRaw.toString() : null,
+              currentStableDebtValueUsdFormatted:
+                currentStableDebtValueUsdRaw !== null
+                  ? formatUnits(currentStableDebtValueUsdRaw, catalog.baseCurrencyInfo.usdDecimals)
+                  : null,
               principalStableDebtRaw: principalStableDebt.toString(),
               principalStableDebtFormatted: formatUnits(principalStableDebt, reserve.decimals),
               principalStableDebtValueUsdRaw:
@@ -906,7 +935,7 @@ export class WdkEvmWalletService {
               stableBorrowRateRaw: BigInt(userReserve?.stableBorrowRate || 0).toString(),
               stableBorrowAprPercent: formatRayAprPercent(BigInt(userReserve?.stableBorrowRate || 0)),
               stableBorrowLastUpdateTimestamp: BigInt(
-                userReserve?.stableBorrowLastUpdateTimestamp || 0
+                userReserve?.stableRateLastUpdated || 0
               ).toString(),
               reserve: {
                 priceInUsdRaw: reserve.priceInUsdRaw !== null ? reserve.priceInUsdRaw.toString() : null,
@@ -2255,14 +2284,12 @@ export class WdkEvmWalletService {
     };
   }
 
-  async #getAaveUserReservesData(protocol, address) {
-    const addressMap = await protocol._getAddressMap();
-    const existingContract = await protocol._getUiPoolDataProviderContract();
-    const uiPoolDataProviderContract =
-      existingContract && typeof existingContract.getUserReservesData === "function"
-        ? existingContract
-        : new Contract(addressMap.uiPoolDataProvider, IUiPoolDataProvider_ABI, protocol._provider);
-    return uiPoolDataProviderContract.getUserReservesData(addressMap.poolAddressesProvider, address);
+  #getAaveProtocolDataProviderContract(network, protocol) {
+    const contractAddress = AAVE_PROTOCOL_DATA_PROVIDER_BY_NETWORK[network];
+    if (!contractAddress) {
+      throw new Error(`Aave protocol data provider is not configured for network '${network}'.`);
+    }
+    return new Contract(contractAddress, AAVE_PROTOCOL_DATA_PROVIDER_ABI, protocol._provider);
   }
 
   #formatAaveBaseCurrencyInfo(baseCurrencyInfo) {

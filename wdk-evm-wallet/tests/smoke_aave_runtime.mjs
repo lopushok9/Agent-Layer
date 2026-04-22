@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { AbiCoder, id } from "ethers";
 import AaveProtocolEvm from "@tetherto/wdk-protocol-lending-aave-evm";
 import WalletManagerEvm from "@tetherto/wdk-wallet-evm";
 
@@ -17,7 +18,9 @@ const AAVE_PRICE_ORACLE = "0x6666666666666666666666666666666666666666";
 const DEFAULT_A_TOKEN = "0x7777777777777777777777777777777777777777";
 const DEFAULT_VARIABLE_DEBT_TOKEN = "0x8888888888888888888888888888888888888888";
 const DEFAULT_STRATEGY = "0x9999999999999999999999999999999999999999";
+const AAVE_PROTOCOL_DATA_PROVIDER = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const APPROVE_SELECTOR = "0x095ea7b3";
+const GET_USER_RESERVE_DATA_SELECTOR = id("getUserReserveData(address,address)").slice(0, 10);
 
 function createHarness(options = {}) {
   const state = {
@@ -45,6 +48,31 @@ function createHarness(options = {}) {
     approvalFee: BigInt(options.approvalFee ?? 3n),
     failOperation: Boolean(options.failOperation),
   };
+  const fakeProvider = {
+    async request({ method, params }) {
+      if (method === "eth_chainId") {
+        return config.network === "base" ? "0x2105" : "0x1";
+      }
+      if (method === "net_version") {
+        return config.network === "base" ? "8453" : "1";
+      }
+      if (method === "eth_blockNumber") {
+        return "0x1";
+      }
+      if (method === "eth_call") {
+        const data = String(params?.[0]?.data || "");
+        if (data.startsWith(GET_USER_RESERVE_DATA_SELECTOR)) {
+          const coder = AbiCoder.defaultAbiCoder();
+          return coder.encode(
+            ["uint256", "uint256", "uint256", "uint256", "uint256", "uint256", "uint256", "uint40", "bool"],
+            [1_000_000n, 0n, 250_000n, 0n, 250_000n, 0n, 5n * 10n ** 25n, 0n, true]
+          );
+        }
+        return "0x";
+      }
+      throw new Error(`Unsupported provider method: ${method}`);
+    },
+  };
 
   const originals = {
     getAccount: WalletManagerEvm.prototype.getAccount,
@@ -65,7 +93,7 @@ function createHarness(options = {}) {
   };
 
   const fakeAccount = {
-    _config: { provider: config.networkProfiles.ethereum.providerUrl },
+    _config: { provider: fakeProvider },
     async getAddress() {
       return DEFAULT_ADDRESS;
     },
@@ -95,7 +123,12 @@ function createHarness(options = {}) {
   WalletManagerEvm.prototype.dispose = function dispose() {};
 
   AaveProtocolEvm.prototype._getPoolContract = async function getPoolContract() {
-    return { target: AAVE_POOL };
+    return {
+      target: AAVE_POOL,
+      async getUserEMode() {
+        return 0n;
+      },
+    };
   };
   AaveProtocolEvm.prototype._getAddressMap = async function getAddressMap() {
     return {
@@ -103,6 +136,7 @@ function createHarness(options = {}) {
       uiPoolDataProvider: AAVE_UI_POOL_DATA_PROVIDER,
       poolAddressesProvider: AAVE_POOL_ADDRESSES_PROVIDER,
       priceOracle: AAVE_PRICE_ORACLE,
+      aaveProtocolDataProvider: AAVE_PROTOCOL_DATA_PROVIDER,
     };
   };
   AaveProtocolEvm.prototype._getUiPoolDataProviderContract = async function getUiPoolDataProviderContract() {
@@ -209,16 +243,18 @@ function createHarness(options = {}) {
     };
   };
 
-  globalThis.fetch = async () => ({
-    ok: true,
-    async json() {
-      return {
-        jsonrpc: "2.0",
-        id: 1,
-        result: "0x",
-      };
-    },
-  });
+  globalThis.fetch = async () => {
+    return {
+      ok: true,
+      async json() {
+        return {
+          jsonrpc: "2.0",
+          id: 1,
+          result: "0x",
+        };
+      },
+    };
+  };
 
   const service = new WdkEvmWalletService(config);
   return {
