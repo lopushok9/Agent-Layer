@@ -70,6 +70,8 @@ That installer sets up the OpenClaw wallet plugin runtime in one pass:
 
 It does not yet create or unlock BTC/EVM wallets or auto-start local wallet services.
 
+There is also a GitHub bootstrap wrapper in [`install-from-github.sh`](/Users/yuriytsygankov/Documents/openclaw_skill/install-from-github.sh). Once this repo is published from its canonical GitHub location, that wrapper is the piece intended for `curl | bash`, and it is now designed to resolve a release bundle asset instead of downloading a raw repo snapshot.
+
 Then provide local runtime secrets:
 
 ```bash

@@ -122,6 +122,16 @@ By default it will:
 - run `install_openclaw_local_config.py` automatically when the required secret env vars are already present
 - otherwise return a JSON summary with `pending_env` and the exact next configure command
 
+For a future `curl | bash` entrypoint, the repo now also includes a remote bootstrap wrapper at [`install-from-github.sh`](/Users/yuriytsygankov/Documents/openclaw_skill/install-from-github.sh). That script resolves the newest matching release bundle asset from GitHub Release metadata, downloads it, and then delegates to `setup.sh`.
+
+For release assets, use the bundle builder:
+
+```bash
+python3 agent-wallet/scripts/build_release_bundle.py
+```
+
+That produces a release tarball with a broad runtime/backend slice of the repo while excluding the marketing site, docs site, local notes, and generated/dev artifacts.
+
 The boundary stays the same: the operator must still provide the root secrets. The installer may be executed by an agent, but `AGENT_WALLET_BOOT_KEY`, `AGENT_WALLET_MASTER_KEY`, and `AGENT_WALLET_APPROVAL_SECRET` should be created or chosen by the user and then supplied to the runtime environment.
 
 For a no-network or pre-existing Python setup, add:
