@@ -51,6 +51,14 @@ Recommended config:
 }
 ```
 
+Recommended local installer entrypoint:
+
+```bash
+sh ./setup.sh
+```
+
+That installs the Python backend, Node dependencies for the local BTC/EVM runtimes, and patches the OpenClaw plugin config. Wallet creation, unlock, and local service start stay as separate host-side steps.
+
 For self-hosted installs, prefer `SOLANA_RPC_URL` / `SOLANA_RPC_URLS` in local env and treat the plugin `rpcUrl` / `rpcUrls` fields as fallback only. If the local runtime exposes `ALCHEMY_API_KEY` or `HELIUS_API_KEY`, the wallet can derive the Solana RPC URL automatically for `mainnet` or `devnet`. Local env always takes precedence over `openclaw.json`.
 
 Provide only `AGENT_WALLET_BOOT_KEY` to the runtime. Provision `master_key`, `approval_secret`, and any signer `private_key` into `sealed_keys.json`, not `openclaw.json`.

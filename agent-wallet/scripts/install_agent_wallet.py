@@ -8,14 +8,9 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import venv
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from agent_wallet.file_ops import atomic_write_text, chmod_if_exists
-from agent_wallet.sealed_keys import resolve_sealed_keys_path, unseal_keys
-
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
@@ -27,6 +22,14 @@ def _package_root() -> Path:
 
 def _extension_path() -> Path:
     return _repo_root() / ".openclaw" / "extensions" / "agent-wallet"
+
+
+def _default_wdk_btc_root() -> Path:
+    return _repo_root() / "wdk-btc-wallet"
+
+
+def _default_wdk_evm_root() -> Path:
+    return _repo_root() / "wdk-evm-wallet"
 
 
 def _default_env_path() -> Path:
@@ -49,12 +52,54 @@ def _default_user_id() -> str:
     return f"{os.getenv('USER', 'openclaw-user')}-local"
 
 
+def _default_npm_bin() -> str:
+    return shutil.which("npm") or "npm"
+
+
+def _resolve_openclaw_home() -> Path:
+    return Path(os.path.expanduser(os.getenv("OPENCLAW_HOME", "~/.openclaw")))
+
+
+def _resolve_sealed_keys_path() -> Path:
+    return _resolve_openclaw_home() / "sealed_keys.json"
+
+
+def _atomic_write_text(path: Path, content: str, *, mode: int = 0o600) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_path = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temp_path, mode)
+        os.replace(temp_path, path)
+    except Exception:
+        try:
+            os.unlink(temp_path)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def _chmod_if_exists(path: Path, mode: int = 0o600) -> None:
+    try:
+        path.chmod(mode)
+    except FileNotFoundError:
+        return
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config-path", default=str(_default_config_path()))
     parser.add_argument("--env-path", default=str(_default_env_path()))
     parser.add_argument("--env-example-path", default=str(_default_env_example_path()))
     parser.add_argument("--venv-path", default=str(_default_venv_path()))
+    parser.add_argument("--package-root", default=str(_package_root()))
+    parser.add_argument("--extension-path", default=str(_extension_path()))
+    parser.add_argument("--wdk-btc-root", default=str(_default_wdk_btc_root()))
+    parser.add_argument("--wdk-evm-root", default=str(_default_wdk_evm_root()))
+    parser.add_argument("--npm-bin", default=_default_npm_bin())
     parser.add_argument("--plugin-id", default="agent-wallet")
     parser.add_argument("--user-id", default=_default_user_id())
     parser.add_argument("--backend", default="solana_local")
@@ -63,6 +108,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rpc-urls", default="")
     parser.add_argument("--sign-only", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--skip-python-setup", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--skip-node-setup", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--dry-run", action=argparse.BooleanOptionalAction, default=False)
     return parser
 
@@ -72,7 +118,7 @@ def _ensure_env_file(env_path: Path, env_example_path: Path) -> bool:
         return False
     env_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(env_example_path, env_path)
-    chmod_if_exists(env_path, 0o600)
+    _chmod_if_exists(env_path, 0o600)
     return True
 
 
@@ -80,7 +126,7 @@ def _ensure_openclaw_config(config_path: Path) -> bool:
     if config_path.exists():
         return False
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(
+    _atomic_write_text(
         config_path,
         json.dumps({"plugins": {"entries": {}}, "tools": {"alsoAllow": []}}, indent=2) + "\n",
         mode=0o600,
@@ -108,31 +154,33 @@ def _ensure_python_runtime(venv_path: Path, package_root: Path) -> tuple[Path, b
     return python_bin, created
 
 
+def _ensure_node_runtime(npm_bin: str, project_root: Path) -> dict[str, object]:
+    package_json = project_root / "package.json"
+    if not package_json.exists():
+        raise SystemExit(f"Missing package.json for Node runtime at '{project_root}'.")
+    package_lock = project_root / "package-lock.json"
+    command = [npm_bin, "ci"] if package_lock.exists() else [npm_bin, "install"]
+    subprocess.run(command, cwd=project_root, check=True)
+    return {
+        "project_root": str(project_root),
+        "package_json": str(package_json),
+        "package_lock": str(package_lock) if package_lock.exists() else None,
+        "command": command,
+    }
+
+
 def _pending_env_names() -> list[str]:
     pending: list[str] = []
     boot_key = os.getenv("AGENT_WALLET_BOOT_KEY", "").strip()
-    sealed_path = resolve_sealed_keys_path()
+    sealed_path = _resolve_sealed_keys_path()
     if not boot_key:
         pending.append("AGENT_WALLET_BOOT_KEY")
         if not sealed_path.exists():
             pending.extend(["AGENT_WALLET_MASTER_KEY", "AGENT_WALLET_APPROVAL_SECRET"])
-
-    if "AGENT_WALLET_BOOT_KEY" not in pending:
-        secrets: dict[str, str] = {}
-        if sealed_path.exists():
-            try:
-                secrets = unseal_keys(boot_key)
-            except Exception:
-                secrets = {}
-        master_key = str(secrets.get("master_key") or "").strip() or os.getenv(
-            "AGENT_WALLET_MASTER_KEY", ""
-        ).strip()
-        approval_secret = str(secrets.get("approval_secret") or "").strip() or os.getenv(
-            "AGENT_WALLET_APPROVAL_SECRET", ""
-        ).strip()
-        if not master_key:
+    elif not sealed_path.exists():
+        if not os.getenv("AGENT_WALLET_MASTER_KEY", "").strip():
             pending.append("AGENT_WALLET_MASTER_KEY")
-        if not approval_secret:
+        if not os.getenv("AGENT_WALLET_APPROVAL_SECRET", "").strip():
             pending.append("AGENT_WALLET_APPROVAL_SECRET")
     return pending
 
@@ -161,13 +209,18 @@ def _build_next_steps(
     if args.rpc_urls.strip():
         command.extend(["--rpc-urls", args.rpc_urls.strip()])
     command.append("--sign-only" if args.sign_only else "--no-sign-only")
+    command.extend(["--extension-path", str(Path(args.extension_path).expanduser())])
+    command.extend(["--package-root", str(Path(args.package_root).expanduser())])
+    command.extend(["--python-bin", str(python_bin)])
     return command
 
 
 def main() -> None:
     args = build_parser().parse_args()
-    package_root = _package_root()
-    extension_path = _extension_path()
+    package_root = Path(args.package_root).expanduser().resolve()
+    extension_path = Path(args.extension_path).expanduser().resolve()
+    wdk_btc_root = Path(args.wdk_btc_root).expanduser().resolve()
+    wdk_evm_root = Path(args.wdk_evm_root).expanduser().resolve()
     config_path = Path(args.config_path).expanduser()
     env_path = Path(args.env_path).expanduser()
     env_example_path = Path(args.env_example_path).expanduser()
@@ -184,6 +237,29 @@ def main() -> None:
             python_bin, venv_created = _ensure_python_runtime(venv_path, package_root)
         else:
             python_bin = _venv_python(venv_path)
+
+    node_runtime = {
+        "skipped": bool(args.skip_node_setup),
+        "npm_bin": args.npm_bin,
+        "projects": [],
+    }
+    if not args.skip_node_setup:
+        if args.dry_run:
+            node_runtime["projects"] = [
+                {
+                    "project_root": str(wdk_btc_root),
+                    "command": [args.npm_bin, "ci" if (wdk_btc_root / "package-lock.json").exists() else "install"],
+                },
+                {
+                    "project_root": str(wdk_evm_root),
+                    "command": [args.npm_bin, "ci" if (wdk_evm_root / "package-lock.json").exists() else "install"],
+                },
+            ]
+        else:
+            node_runtime["projects"] = [
+                _ensure_node_runtime(args.npm_bin, wdk_btc_root),
+                _ensure_node_runtime(args.npm_bin, wdk_evm_root),
+            ]
 
     pending_env = _pending_env_names() if args.backend.strip().lower() not in {"", "none"} else []
     configured = False
@@ -208,8 +284,11 @@ def main() -> None:
                 "config_created": config_created,
                 "package_root": str(package_root),
                 "extension_path": str(extension_path),
+                "wdk_btc_root": str(wdk_btc_root),
+                "wdk_evm_root": str(wdk_evm_root),
                 "python_bin": str(python_bin),
                 "venv_created": venv_created,
+                "node_runtime": node_runtime,
                 "configured": configured,
                 "pending_env": pending_env,
                 "next_configure_command": _build_next_steps(python_bin, install_config_script, args),

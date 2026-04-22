@@ -35,6 +35,7 @@ def main() -> None:
             "--env-path",
             str(env_path),
             "--skip-python-setup",
+            "--skip-node-setup",
         ],
         capture_output=True,
         text=True,
@@ -47,6 +48,7 @@ def main() -> None:
     assert payload["config_created"] is True
     assert payload["configured"] is True
     assert payload["pending_env"] == []
+    assert payload["node_runtime"]["skipped"] is True
     assert Path(payload["env_path"]).exists()
     assert Path(payload["config_path"]).exists()
 
@@ -64,6 +66,7 @@ def main() -> None:
             "--env-path",
             str(temp_root / "second.env"),
             "--skip-python-setup",
+            "--skip-node-setup",
             "--dry-run",
         ],
         capture_output=True,
@@ -86,6 +89,7 @@ def main() -> None:
             "--env-path",
             str(fresh_root / ".env"),
             "--skip-python-setup",
+            "--skip-node-setup",
             "--dry-run",
         ],
         capture_output=True,

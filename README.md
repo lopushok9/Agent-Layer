@@ -58,9 +58,17 @@ sh agent-wallet/scripts/reveal_btc_seed.sh
 Install the wallet backend:
 
 ```bash
-cd agent-wallet
-python3 scripts/install_agent_wallet.py
+sh ./setup.sh
 ```
+
+That installer sets up the OpenClaw wallet plugin runtime in one pass:
+
+- creates the Python environment for [`agent-wallet`](/Users/yuriytsygankov/Documents/openclaw_skill/agent-wallet)
+- installs Python dependencies
+- installs Node dependencies for [`wdk-btc-wallet`](/Users/yuriytsygankov/Documents/openclaw_skill/wdk-btc-wallet) and [`wdk-evm-wallet`](/Users/yuriytsygankov/Documents/openclaw_skill/wdk-evm-wallet)
+- patches local `~/.openclaw/openclaw.json`
+
+It does not yet create or unlock BTC/EVM wallets or auto-start local wallet services.
 
 Then provide local runtime secrets:
 
