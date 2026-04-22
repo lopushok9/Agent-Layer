@@ -10,6 +10,8 @@ ARCHITECTURE_NOTES.md
 # Dependencies
 node_modules/
 **/node_modules/
+dist/
+**/dist/
 
 # Python cache
 __pycache__/
