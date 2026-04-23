@@ -187,7 +187,49 @@ function createHarness(options = {}) {
     return fakeAccount;
   };
   WalletManagerEvm.prototype.dispose = function dispose() {};
-  globalThis.fetch = async function fetch(_url, options = {}) {
+  globalThis.fetch = async function fetch(url, options = {}) {
+    const normalizedUrl = String(url || "");
+    if (normalizedUrl === "https://eth-api.lido.fi/v1/protocol/steth/apr/last") {
+      return new Response(
+        JSON.stringify({
+          data: {
+            timeUnix: 1776687767,
+            apr: 2.829,
+          },
+          meta: {
+            symbol: "stETH",
+            address: STETH,
+            chainId: 1,
+          },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      );
+    }
+    if (normalizedUrl === "https://eth-api.lido.fi/v1/protocol/steth/apr/sma") {
+      return new Response(
+        JSON.stringify({
+          data: {
+            aprs: [
+              { timeUnix: 1776687767, apr: 2.829 },
+              { timeUnix: 1776860531, apr: 2.586 },
+            ],
+            smaApr: 2.54475,
+          },
+          meta: {
+            symbol: "stETH",
+            address: STETH,
+            chainId: 1,
+          },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      );
+    }
     const payload = JSON.parse(String(options.body || "{}"));
     const result = await fakeProvider.request({
       method: payload.method,
@@ -243,6 +285,8 @@ test("lido overview exposes contracts and sample rates", async () => {
     assert.equal(result.contracts.wstETH.toLowerCase(), WSTETH);
     assert.equal(result.sampleRates.wstEthPerStEthRaw, "950000000000000000");
     assert.equal(result.sampleRates.stEthPerWstEthRaw, "1100000000000000000");
+    assert.equal(result.stakingApr.lastApr, 2.829);
+    assert.equal(result.stakingApr.smaApr, 2.54475);
   } finally {
     harness.restore();
   }

@@ -185,8 +185,9 @@ Important EVM notes:
 
 - only localhost service URLs are supported for the OpenClaw EVM flow
 - the local EVM service uses a bearer token at `~/.openclaw/wdk-evm-wallet/local-auth-token`
-- the agent-facing EVM surface is intentionally narrow: balances, fee rates, receipts, transfers, Velora swaps, and Aave V3 account/reserve/position flows
+- the agent-facing EVM surface is intentionally narrow: balances, fee rates, receipts, transfers, Velora swaps, Aave V3 account/reserve/position flows, and Lido staking/withdrawal flows
 - Velora swap and Aave V3 support are currently limited to `ethereum` and `base`
+- Lido support is currently limited to `ethereum` and exposes read-only staking APR data from Lido's public API in the overview response
 
 ## Solana notes
 

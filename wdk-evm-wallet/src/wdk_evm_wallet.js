@@ -556,6 +556,41 @@ function withLidoMetadataDefaults(metadata, defaults) {
   };
 }
 
+async function fetchJson(url, { headers = {} } = {}) {
+  let response;
+  try {
+    response = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        ...headers,
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw createTaggedError(`HTTP network unavailable: ${message}`, "network_unavailable", {
+      url,
+    });
+  }
+  let payload;
+  try {
+    payload = await response.json();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw createTaggedError(`HTTP returned invalid JSON: ${message}`, "network_unavailable", {
+      url,
+      httpStatus: response.status,
+    });
+  }
+  if (!response.ok) {
+    throw createTaggedError(`HTTP request failed with status ${response.status}.`, "network_unavailable", {
+      url,
+      httpStatus: response.status,
+      payload,
+    });
+  }
+  return payload;
+}
+
 async function rpcRequest(providerUrl, method, params = []) {
   let response;
   try {
@@ -1263,10 +1298,11 @@ export class WdkEvmWalletService {
       async (account, runtimeConfig) => {
         assertLidoSupportedNetwork(runtimeConfig.network);
         const contracts = this.#getLidoContracts(runtimeConfig.network);
-        const [stEthMetadata, wstEthMetadata, rates] = await Promise.all([
+        const [stEthMetadata, wstEthMetadata, rates, stakingAprResult] = await Promise.all([
           this.#getLidoTokenMetadata(runtimeConfig, contracts.steth),
           this.#getLidoTokenMetadata(runtimeConfig, contracts.wsteth),
           this.#readLidoSampleRates(runtimeConfig),
+          this.#readLidoStakingApr(runtimeConfig),
         ]);
         return {
           network: runtimeConfig.network,
@@ -1289,6 +1325,8 @@ export class WdkEvmWalletService {
           stEthMetadata,
           wstEthMetadata,
           sampleRates: rates,
+          stakingApr: stakingAprResult.data,
+          stakingAprError: stakingAprResult.error,
           withdrawalLimits: {
             minStEthAmountRaw: LIDO_MIN_STETH_WITHDRAWAL_AMOUNT.toString(),
             minStEthAmountFormatted: formatUnits(LIDO_MIN_STETH_WITHDRAWAL_AMOUNT, LIDO_STETH_DECIMALS),
@@ -3324,6 +3362,93 @@ export class WdkEvmWalletService {
       wstEthPerStEthFormatted: formatUnits(wstEthPerStEthRaw, 18),
       stEthPerWstEthRaw: stEthPerWstEthRaw.toString(),
       stEthPerWstEthFormatted: formatUnits(stEthPerWstEthRaw, 18),
+    };
+  }
+
+  async #readLidoStakingApr(runtimeConfig) {
+    if (runtimeConfig.network !== "ethereum") {
+      return {
+        data: null,
+        error: null,
+      };
+    }
+    const baseUrl = String(this.config.lidoApiBaseUrl || "https://eth-api.lido.fi/v1").replace(
+      /\/+$/,
+      ""
+    );
+    if (!baseUrl) {
+      return {
+        data: null,
+        error: {
+          code: "lido_apr_unavailable",
+          message: "Lido APR API base URL is not configured.",
+        },
+      };
+    }
+    try {
+      const [lastPayload, smaPayload] = await Promise.all([
+        fetchJson(`${baseUrl}/protocol/steth/apr/last`),
+        fetchJson(`${baseUrl}/protocol/steth/apr/sma`),
+      ]);
+      return {
+        data: this.#normalizeLidoStakingApr({
+          lastPayload,
+          smaPayload,
+        }),
+        error: null,
+      };
+    } catch (error) {
+      return {
+        data: null,
+        error: {
+          code:
+            error && typeof error === "object"
+              ? String(error.errorCode || error.code || "").trim() || "lido_apr_unavailable"
+              : "lido_apr_unavailable",
+          message: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+  }
+
+  #normalizeLidoStakingApr({ lastPayload, smaPayload }) {
+    const lastData =
+      lastPayload && typeof lastPayload === "object" && lastPayload.data && typeof lastPayload.data === "object"
+        ? lastPayload.data
+        : {};
+    const smaData =
+      smaPayload && typeof smaPayload === "object" && smaPayload.data && typeof smaPayload.data === "object"
+        ? smaPayload.data
+        : {};
+    const meta =
+      lastPayload && typeof lastPayload === "object" && lastPayload.meta && typeof lastPayload.meta === "object"
+        ? lastPayload.meta
+        : smaPayload && typeof smaPayload === "object" && smaPayload.meta && typeof smaPayload.meta === "object"
+          ? smaPayload.meta
+          : {};
+    const aprSeries = Array.isArray(smaData.aprs)
+      ? smaData.aprs
+          .map((entry) => ({
+            timeUnix: Number(entry?.timeUnix),
+            apr: Number(entry?.apr),
+          }))
+          .filter((entry) => Number.isFinite(entry.timeUnix) && Number.isFinite(entry.apr))
+      : [];
+    const lastApr = Number(lastData.apr);
+    const lastTimeUnix = Number(lastData.timeUnix);
+    const smaApr = Number(smaData.smaApr);
+    const chainId = Number(meta.chainId);
+    return {
+      source: "lido-public-api",
+      symbol: typeof meta.symbol === "string" && meta.symbol.trim() ? meta.symbol.trim() : "stETH",
+      address:
+        typeof meta.address === "string" && meta.address.trim() ? meta.address.trim().toLowerCase() : null,
+      chainId: Number.isFinite(chainId) ? chainId : 1,
+      lastApr: Number.isFinite(lastApr) ? lastApr : null,
+      lastAprTimeUnix: Number.isFinite(lastTimeUnix) ? lastTimeUnix : null,
+      smaApr: Number.isFinite(smaApr) ? smaApr : null,
+      smaWindowDays: 7,
+      aprSeries,
     };
   }
 

@@ -812,6 +812,12 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "steth_metadata": dict(data.get("stEthMetadata") or {}),
             "wsteth_metadata": dict(data.get("wstEthMetadata") or {}),
             "sample_rates": dict(data.get("sampleRates") or {}),
+            "staking_apr": dict(data.get("stakingApr") or {}) if isinstance(data.get("stakingApr"), dict) else None,
+            "staking_apr_error": (
+                dict(data.get("stakingAprError") or {})
+                if isinstance(data.get("stakingAprError"), dict)
+                else None
+            ),
             "source": "wdk-evm-wallet",
         }
 

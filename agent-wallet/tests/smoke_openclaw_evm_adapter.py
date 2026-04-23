@@ -443,6 +443,21 @@ class FakeEvmBackend(AgentWalletBackend):
                 "stEthPerWstEthRaw": "1050000000000000000",
                 "stEthPerWstEthFormatted": "1.05",
             },
+            "staking_apr": {
+                "source": "lido-public-api",
+                "symbol": "stETH",
+                "address": "0xae7ab96520de3a18e5e111b5eaab095312d7fe84",
+                "chainId": 1,
+                "lastApr": 2.829,
+                "lastAprTimeUnix": 1776687767,
+                "smaApr": 2.54475,
+                "smaWindowDays": 7,
+                "aprSeries": [
+                    {"timeUnix": 1776687767, "apr": 2.829},
+                    {"timeUnix": 1776860531, "apr": 2.586},
+                ],
+            },
+            "staking_apr_error": None,
             "source": "fake",
         }
 
@@ -1391,6 +1406,8 @@ async def _main() -> None:
     assert lido_overview.ok is True
     assert lido_overview.data["protocol"] == "lido"
     assert lido_overview.data["preferred_position_token"] == "wstETH"
+    assert lido_overview.data["staking_apr"]["lastApr"] == 2.829
+    assert lido_overview.data["staking_apr"]["smaApr"] == 2.54475
 
     lido_positions = await adapter.invoke("get_evm_lido_positions", {"network": "ethereum"})
     assert lido_positions.ok is True
