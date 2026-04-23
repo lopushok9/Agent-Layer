@@ -997,6 +997,40 @@ const evmToolDefinitions = [
     },
   },
   {
+    name: "get_evm_lido_withdrawal_requests",
+    description: "Get read-only Lido withdrawal queue requests for the configured EVM wallet, including finalized and claimable request statuses.",
+    parameters: {
+      type: "object",
+      properties: {
+        network: { type: "string", enum: ["ethereum"] },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "manage_evm_lido_withdrawal",
+    description: "Preview, prepare, or execute a narrow Lido withdrawal queue operation on Ethereum mainnet. Supported operations are request_withdrawal_steth, request_withdrawal_wsteth, and claim_withdrawal. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    optional: true,
+    parameters: {
+      type: "object",
+      properties: {
+        operation: {
+          type: "string",
+          enum: ["request_withdrawal_steth", "request_withdrawal_wsteth", "claim_withdrawal"],
+        },
+        amount_raw: { type: "string" },
+        request_id: { type: "string" },
+        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
+        purpose: { type: "string" },
+        user_intent: { type: "boolean" },
+        approval_token: { type: "string" },
+        network: { type: "string", enum: ["ethereum"] },
+      },
+      required: ["operation", "mode", "purpose"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_evm_swap_quote",
     description: "Get a read-only Velora quote for an ERC-20 to ERC-20 swap on supported EVM mainnet networks. This does not approve or execute a swap.",
     parameters: {
@@ -1121,6 +1155,8 @@ export default function registerAgentWalletPlugin(api) {
           definition.name !== "get_evm_lido_overview" &&
           definition.name !== "get_evm_lido_positions" &&
           definition.name !== "manage_evm_lido_position" &&
+          definition.name !== "get_evm_lido_withdrawal_requests" &&
+          definition.name !== "manage_evm_lido_withdrawal" &&
           definition.name !== "get_evm_swap_quote" &&
           definition.name !== "swap_evm_tokens"
       );

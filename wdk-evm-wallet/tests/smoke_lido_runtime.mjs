@@ -12,6 +12,7 @@ const DEFAULT_ADDRESS = "0x1111111111111111111111111111111111111111";
 const STETH = "0xae7ab96520de3a18e5e111b5eaab095312d7fe84";
 const WSTETH = "0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0";
 const REFERRAL_STAKER = "0xa88f0329c2c4ce51ba3fc619bbf44efe7120dd0d";
+const WITHDRAWAL_QUEUE = "0x889edc2edab5f40e902b864ad4d7ade8e412f9b1";
 
 const WSTETH_INTERFACE = new Interface([
   "function getWstETHByStETH(uint256 _stETHAmount) view returns (uint256)",
@@ -22,12 +23,20 @@ const WSTETH_INTERFACE = new Interface([
 const STAKER_INTERFACE = new Interface([
   "function stakeETH(address _referral) payable returns (uint256)",
 ]);
+const WITHDRAWAL_QUEUE_INTERFACE = new Interface([
+  "function requestWithdrawals(uint256[] _amounts, address _owner) returns (uint256[] requestIds)",
+  "function requestWithdrawalsWstETH(uint256[] _amounts, address _owner) returns (uint256[] requestIds)",
+  "function getWithdrawalRequests(address _owner) view returns (uint256[] requestIds)",
+  "function getWithdrawalStatus(uint256[] _requestIds) view returns ((uint256 amountOfStETH,uint256 amountOfShares,address owner,uint256 timestamp,bool isFinalized,bool isClaimed)[] statuses)",
+  "function claimWithdrawal(uint256 _requestId)",
+]);
 
 function createHarness(options = {}) {
   const state = {
     allowance: BigInt(options.initialAllowance ?? 0n),
     approveCalls: [],
     sendCalls: [],
+    withdrawalRequestIds: [101n, 102n],
   };
   const config = {
     network: "ethereum",
@@ -72,6 +81,49 @@ function createHarness(options = {}) {
         }
         if (to === REFERRAL_STAKER && data.startsWith(STAKER_INTERFACE.getFunction("stakeETH").selector)) {
           return STAKER_INTERFACE.encodeFunctionResult("stakeETH", [950000000000000000n]);
+        }
+        if (to === WITHDRAWAL_QUEUE) {
+          if (data.startsWith(WITHDRAWAL_QUEUE_INTERFACE.getFunction("getWithdrawalRequests").selector)) {
+            return WITHDRAWAL_QUEUE_INTERFACE.encodeFunctionResult("getWithdrawalRequests", [
+              state.withdrawalRequestIds,
+            ]);
+          }
+          if (data.startsWith(WITHDRAWAL_QUEUE_INTERFACE.getFunction("getWithdrawalStatus").selector)) {
+            const decoded = WITHDRAWAL_QUEUE_INTERFACE.decodeFunctionData("getWithdrawalStatus", data);
+            const requestIds = Array.from(decoded[0] || []).map((value) => BigInt(value));
+            return WITHDRAWAL_QUEUE_INTERFACE.encodeFunctionResult("getWithdrawalStatus", [
+              requestIds.map((requestId) =>
+                requestId === 102n
+                  ? {
+                      amountOfStETH: 2000000000000000000n,
+                      amountOfShares: 2000000000000000000n,
+                      owner: DEFAULT_ADDRESS,
+                      timestamp: 1710000100n,
+                      isFinalized: true,
+                      isClaimed: false,
+                    }
+                  : {
+                      amountOfStETH: 1000000000000000000n,
+                      amountOfShares: 1000000000000000000n,
+                      owner: DEFAULT_ADDRESS,
+                      timestamp: 1710000000n,
+                      isFinalized: false,
+                      isClaimed: false,
+                    }
+              ),
+            ]);
+          }
+          if (
+            data.startsWith(WITHDRAWAL_QUEUE_INTERFACE.getFunction("requestWithdrawals").selector) ||
+            data.startsWith(WITHDRAWAL_QUEUE_INTERFACE.getFunction("requestWithdrawalsWstETH").selector)
+          ) {
+            return WITHDRAWAL_QUEUE_INTERFACE.encodeFunctionResult(
+              data.startsWith(WITHDRAWAL_QUEUE_INTERFACE.getFunction("requestWithdrawals").selector)
+                ? "requestWithdrawals"
+                : "requestWithdrawalsWstETH",
+              [[103n]]
+            );
+          }
         }
         return "0x";
       }
@@ -283,6 +335,86 @@ test("lido stake preview and send use payable referral staker transaction", asyn
     assert.equal(harness.state.sendCalls.length, 1);
     assert.equal(harness.state.sendCalls[0].to, REFERRAL_STAKER);
     assert.equal(harness.state.sendCalls[0].value, "1000000000000000000");
+  } finally {
+    harness.restore();
+  }
+});
+
+test("lido withdrawal requests expose queue status", async () => {
+  const harness = createHarness();
+  try {
+    const result = await harness.service.getLidoWithdrawalRequests({
+      seedPhrase: VALID_MNEMONIC,
+      accountIndex: 0,
+      network: "ethereum",
+    });
+    assert.equal(result.requestCount, 2);
+    assert.equal(result.claimableCount, 1);
+    assert.equal(result.requests[0].requestId, "101");
+    assert.equal(result.requests[1].claimable, true);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("lido withdrawal request preview requires approval and send performs it", async () => {
+  const harness = createHarness({ initialAllowance: 0n });
+  try {
+    const preview = await harness.service.quoteLidoWithdrawalOperation({
+      seedPhrase: VALID_MNEMONIC,
+      accountIndex: 0,
+      network: "ethereum",
+      operation: "request_withdrawal_steth",
+      amount: "1000000000000000000",
+    });
+    assert.equal(preview.operation, "request_withdrawal_steth");
+    assert.equal(preview.allowance.approvalRequired, true);
+    assert.equal(preview.queuedStEthAmountRaw, "1000000000000000000");
+
+    const result = await harness.service.sendLidoWithdrawalOperation({
+      seedPhrase: VALID_MNEMONIC,
+      accountIndex: 0,
+      network: "ethereum",
+      operation: "request_withdrawal_steth",
+      amount: "1000000000000000000",
+      expectedQuoteFingerprint: preview.quoteFingerprint,
+    });
+    assert.equal(harness.state.approveCalls.length, 1);
+    assert.equal(harness.state.sendCalls.length, 1);
+    assert.equal(harness.state.sendCalls[0].to, WITHDRAWAL_QUEUE);
+    assert.equal(result.result.approveHash.startsWith("0x"), true);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("lido claim preview and send use withdrawal queue transaction without approval", async () => {
+  const harness = createHarness();
+  try {
+    const preview = await harness.service.quoteLidoWithdrawalOperation({
+      seedPhrase: VALID_MNEMONIC,
+      accountIndex: 0,
+      network: "ethereum",
+      operation: "claim_withdrawal",
+      requestId: "102",
+    });
+    assert.equal(preview.operation, "claim_withdrawal");
+    assert.equal(preview.allowance.approvalRequired, false);
+    assert.equal(preview.withdrawalRequest.requestId, "102");
+    assert.equal(preview.withdrawalRequest.claimable, true);
+
+    const result = await harness.service.sendLidoWithdrawalOperation({
+      seedPhrase: VALID_MNEMONIC,
+      accountIndex: 0,
+      network: "ethereum",
+      operation: "claim_withdrawal",
+      requestId: "102",
+      expectedQuoteFingerprint: preview.quoteFingerprint,
+    });
+    assert.equal(harness.state.approveCalls.length, 0);
+    assert.equal(harness.state.sendCalls.length, 1);
+    assert.equal(harness.state.sendCalls[0].to, WITHDRAWAL_QUEUE);
+    assert.equal(result.result.approveHash, undefined);
   } finally {
     harness.restore();
   }

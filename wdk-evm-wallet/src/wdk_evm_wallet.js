@@ -21,6 +21,8 @@ const DEFAULT_LIFI_SLIPPAGE = 0.005;
 const ALWAYS_DENIED_LIFI_BRIDGES = ["mayan"];
 const AAVE_RAY = 10n ** 27n;
 const LIDO_STETH_DECIMALS = 18;
+const LIDO_MIN_STETH_WITHDRAWAL_AMOUNT = 100n;
+const LIDO_MAX_STETH_WITHDRAWAL_AMOUNT = 1000n * 10n ** 18n;
 const LIDO_CONTRACTS_BY_NETWORK = {
   ethereum: {
     steth: {
@@ -55,8 +57,16 @@ const LIDO_WSTETH_ABI = [
 const LIDO_REFERRAL_STAKER_ABI = [
   "function stakeETH(address _referral) payable returns (uint256)",
 ];
+const LIDO_WITHDRAWAL_QUEUE_ABI = [
+  "function requestWithdrawals(uint256[] _amounts, address _owner) returns (uint256[] requestIds)",
+  "function requestWithdrawalsWstETH(uint256[] _amounts, address _owner) returns (uint256[] requestIds)",
+  "function getWithdrawalRequests(address _owner) view returns (uint256[] requestIds)",
+  "function getWithdrawalStatus(uint256[] _requestIds) view returns ((uint256 amountOfStETH,uint256 amountOfShares,address owner,uint256 timestamp,bool isFinalized,bool isClaimed)[] statuses)",
+  "function claimWithdrawal(uint256 _requestId)",
+];
 const LIDO_WSTETH_INTERFACE = new Interface(LIDO_WSTETH_ABI);
 const LIDO_REFERRAL_STAKER_INTERFACE = new Interface(LIDO_REFERRAL_STAKER_ABI);
+const LIDO_WITHDRAWAL_QUEUE_INTERFACE = new Interface(LIDO_WITHDRAWAL_QUEUE_ABI);
 const LIFI_CHAIN_IDS_BY_NETWORK = {
   ethereum: "1",
   base: "8453",
@@ -196,6 +206,16 @@ function normalizeLidoOperation(value) {
   const operation = assertNonEmptyString(value, "operation").toLowerCase();
   if (!["stake_eth_for_wsteth", "wrap_steth", "unwrap_wsteth"].includes(operation)) {
     throw new Error("operation must be one of: stake_eth_for_wsteth, wrap_steth, unwrap_wsteth.");
+  }
+  return operation;
+}
+
+function normalizeLidoWithdrawalOperation(value) {
+  const operation = assertNonEmptyString(value, "operation").toLowerCase();
+  if (!["request_withdrawal_steth", "request_withdrawal_wsteth", "claim_withdrawal"].includes(operation)) {
+    throw new Error(
+      "operation must be one of: request_withdrawal_steth, request_withdrawal_wsteth, claim_withdrawal."
+    );
   }
   return operation;
 }
@@ -341,6 +361,24 @@ function buildAaveOperationRequest({ operation, token, tokenAddress, amount, onB
 function buildLidoOperationRequest({ operation, amount }) {
   return {
     operation: normalizeLidoOperation(operation),
+    amount: assertPositiveBigIntString(amount, "amount"),
+  };
+}
+
+function buildLidoWithdrawalRequest({ operation, amount, requestId }) {
+  const normalizedOperation = normalizeLidoWithdrawalOperation(operation);
+  if (normalizedOperation === "claim_withdrawal") {
+    const normalizedRequestId = String(requestId ?? "").trim();
+    if (!/^[0-9]+$/.test(normalizedRequestId) || BigInt(normalizedRequestId) <= 0n) {
+      throw new Error("requestId must be a positive base-10 integer string.");
+    }
+    return {
+      operation: normalizedOperation,
+      requestId: BigInt(normalizedRequestId),
+    };
+  }
+  return {
+    operation: normalizedOperation,
     amount: assertPositiveBigIntString(amount, "amount"),
   };
 }
@@ -579,6 +617,16 @@ async function ethCall(providerUrl, to, data) {
 
 async function ethCallTransaction(providerUrl, tx) {
   return rpcRequest(providerUrl, "eth_call", [tx, "latest"]);
+}
+
+async function callContract(providerUrl, to, contractInterface, functionName, args = [], txOverrides = {}) {
+  const data = contractInterface.encodeFunctionData(functionName, args);
+  const raw = await ethCallTransaction(providerUrl, {
+    to,
+    data,
+    ...txOverrides,
+  });
+  return contractInterface.decodeFunctionResult(functionName, raw);
 }
 
 function buildErc20ApproveTransaction(tokenAddress, spender, amount) {
@@ -1241,6 +1289,12 @@ export class WdkEvmWalletService {
           stEthMetadata,
           wstEthMetadata,
           sampleRates: rates,
+          withdrawalLimits: {
+            minStEthAmountRaw: LIDO_MIN_STETH_WITHDRAWAL_AMOUNT.toString(),
+            minStEthAmountFormatted: formatUnits(LIDO_MIN_STETH_WITHDRAWAL_AMOUNT, LIDO_STETH_DECIMALS),
+            maxStEthAmountRaw: LIDO_MAX_STETH_WITHDRAWAL_AMOUNT.toString(),
+            maxStEthAmountFormatted: formatUnits(LIDO_MAX_STETH_WITHDRAWAL_AMOUNT, LIDO_STETH_DECIMALS),
+          },
           source: "lido-contracts",
         };
       }
@@ -1320,6 +1374,41 @@ export class WdkEvmWalletService {
           stEthEquivalentTotalFormatted: formatUnits(stEthEquivalentTotal, stEthMetadata.decimals),
           positionCount: positions.length,
           positions,
+          source: "lido-contracts",
+        };
+      }
+    );
+  }
+
+  async getLidoWithdrawalRequests({ seedPhrase, address, accountIndex = 0, network }) {
+    return this.#withReadableAccount(
+      { seedPhrase, address, accountIndex, network },
+      async (account, runtimeConfig) => {
+        assertLidoSupportedNetwork(runtimeConfig.network);
+        const accountAddress = await account.getAddress();
+        const contracts = this.#getLidoContracts(runtimeConfig.network);
+        const [stEthMetadata, wstEthMetadata, requestIds] = await Promise.all([
+          this.#getLidoTokenMetadata(runtimeConfig, contracts.steth),
+          this.#getLidoTokenMetadata(runtimeConfig, contracts.wsteth),
+          this.#getLidoWithdrawalRequestIds(runtimeConfig, accountAddress),
+        ]);
+        const statuses = requestIds.length
+          ? await this.#getLidoWithdrawalStatuses(runtimeConfig, requestIds)
+          : [];
+        const requests = statuses.map((status) =>
+          this.#formatLidoWithdrawalStatus(status, stEthMetadata, wstEthMetadata)
+        );
+        const claimableCount = requests.filter((request) => request.claimable).length;
+        return {
+          network: runtimeConfig.network,
+          chainId: runtimeConfig.chainId,
+          accountIndex,
+          address: accountAddress,
+          protocol: "lido",
+          withdrawalQueue: contracts.withdrawalQueue,
+          requestCount: requests.length,
+          claimableCount,
+          requests,
           source: "lido-contracts",
         };
       }
@@ -1471,6 +1560,157 @@ export class WdkEvmWalletService {
           approvalExecution,
         });
         this.#throwLidoFailureWithCleanup(error, cleanup);
+      }
+    });
+  }
+
+  async quoteLidoWithdrawalOperation({
+    seedPhrase,
+    address,
+    operation,
+    amount,
+    requestId,
+    accountIndex = 0,
+    network,
+  }) {
+    return this.#withReadableAccount(
+      { seedPhrase, address, accountIndex, network },
+      async (account, runtimeConfig) => {
+        assertLidoSupportedNetwork(runtimeConfig.network);
+        const request = buildLidoWithdrawalRequest({ operation, amount, requestId });
+        const accountAddress = await account.getAddress();
+        const plan = await this.#buildLidoWithdrawalPlan({
+          account,
+          runtimeConfig,
+          address: accountAddress,
+          request,
+          tolerateOperationFeeFailure: true,
+        });
+        return this.#formatLidoWithdrawalResponse({
+          runtimeConfig,
+          accountIndex,
+          address: accountAddress,
+          request,
+          plan,
+        });
+      }
+    );
+  }
+
+  async sendLidoWithdrawalOperation({
+    seedPhrase,
+    operation,
+    amount,
+    requestId,
+    accountIndex = 0,
+    network,
+    expectedQuoteFingerprint = null,
+  }) {
+    return this.#withAccount({ seedPhrase, accountIndex, network }, async (account, runtimeConfig) => {
+      assertLidoSupportedNetwork(runtimeConfig.network);
+      const request = buildLidoWithdrawalRequest({ operation, amount, requestId });
+      const normalizedExpectedQuoteFingerprint =
+        typeof expectedQuoteFingerprint === "string" && expectedQuoteFingerprint.trim()
+          ? expectedQuoteFingerprint.trim()
+          : null;
+      const address = await account.getAddress();
+      let initialPlan = await this.#buildLidoWithdrawalPlan({
+        account,
+        runtimeConfig,
+        address,
+        request,
+        tolerateOperationFeeFailure: true,
+      });
+      this.#assertExpectedLidoWithdrawalFingerprint(
+        normalizedExpectedQuoteFingerprint,
+        initialPlan.quoteFingerprint
+      );
+
+      const approvalExecution = await this.#executeLidoWithdrawalApprovalsIfNeeded({
+        account,
+        runtimeConfig,
+        request,
+        plan: initialPlan,
+      });
+
+      let finalPlan = initialPlan;
+      try {
+        if (approvalExecution.performed) {
+          finalPlan = await this.#buildLidoWithdrawalPlan({
+            account,
+            runtimeConfig,
+            address,
+            request,
+          });
+          this.#assertExpectedLidoWithdrawalFingerprint(
+            normalizedExpectedQuoteFingerprint,
+            finalPlan.quoteFingerprint
+          );
+        }
+
+        if (finalPlan.approval.required) {
+          throw createTaggedError(
+            "Lido withdrawal still requires token approval after the approval step completed.",
+            "lido_withdrawal_approval_required",
+            {
+              spender: finalPlan.spender,
+              requiredAllowance: finalPlan.requiredAllowance.toString(),
+              currentAllowance: finalPlan.currentAllowance.toString(),
+            }
+          );
+        }
+
+        if (finalPlan.operationFee === null) {
+          throw createTaggedError(
+            "Lido withdrawal fee estimate was unavailable. Generate a new quote before sending.",
+            "lido_withdrawal_fee_unavailable",
+            {
+              operation: request.operation,
+              feeEstimateError: finalPlan.operationFeeError,
+            }
+          );
+        }
+
+        const result = await account.sendTransaction(finalPlan.operationTx);
+        const resultFee = BigInt(result?.fee || finalPlan.operationFee || 0);
+        const totalFee = approvalExecution.totalFee + resultFee;
+        return {
+          ...this.#formatLidoWithdrawalResponse({
+            runtimeConfig,
+            accountIndex,
+            address,
+            request,
+            plan: {
+              ...finalPlan,
+              operationFee: resultFee,
+              totalEstimatedFee: totalFee,
+              approval: {
+                ...finalPlan.approval,
+                estimatedFee: approvalExecution.totalFee,
+              },
+            },
+          }),
+          result: {
+            ...result,
+            fee: resultFee.toString(),
+            totalFee: totalFee.toString(),
+            approvalFee: approvalExecution.totalFee.toString(),
+            ...(approvalExecution.approveHash ? { approveHash: approvalExecution.approveHash } : {}),
+            ...(approvalExecution.resetAllowanceHash
+              ? { resetAllowanceHash: approvalExecution.resetAllowanceHash }
+              : {}),
+          },
+        };
+      } catch (error) {
+        const cleanup = await this.#restoreAllowanceAfterFailedLidoWithdrawal({
+          account,
+          runtimeConfig,
+          tokenAddress: finalPlan.inputTokenAddress,
+          spender: initialPlan.spender,
+          originalAllowance: initialPlan.currentAllowance,
+          approvalExecution,
+        });
+        this.#throwLidoWithdrawalFailureWithCleanup(error, cleanup);
       }
     });
   }
@@ -3087,6 +3327,69 @@ export class WdkEvmWalletService {
     };
   }
 
+  async #getLidoWithdrawalRequestIds(runtimeConfig, ownerAddress) {
+    const contracts = this.#getLidoContracts(runtimeConfig.network);
+    const [requestIdsRaw] = await callContract(
+      runtimeConfig.providerUrl,
+      contracts.withdrawalQueue,
+      LIDO_WITHDRAWAL_QUEUE_INTERFACE,
+      "getWithdrawalRequests",
+      [normalizeAddress(ownerAddress, "ownerAddress")]
+    );
+    return Array.isArray(requestIdsRaw) ? requestIdsRaw.map((value) => BigInt(value)) : [];
+  }
+
+  async #getLidoWithdrawalStatuses(runtimeConfig, requestIds) {
+    if (!Array.isArray(requestIds) || requestIds.length === 0) {
+      return [];
+    }
+    const contracts = this.#getLidoContracts(runtimeConfig.network);
+    const normalizedIds = requestIds.map((value) => BigInt(value));
+    const [statusesRaw] = await callContract(
+      runtimeConfig.providerUrl,
+      contracts.withdrawalQueue,
+      LIDO_WITHDRAWAL_QUEUE_INTERFACE,
+      "getWithdrawalStatus",
+      [normalizedIds]
+    );
+    const entries = Array.isArray(statusesRaw) ? statusesRaw : [];
+    return entries.map((entry, index) => ({
+      owner:
+        /^0x[a-fA-F0-9]{40}$/.test(String(entry.owner ?? entry[2] ?? ZERO_ADDRESS).trim())
+          ? String(entry.owner ?? entry[2] ?? ZERO_ADDRESS).trim().toLowerCase()
+          : ZERO_ADDRESS,
+      requestId: normalizedIds[index],
+      amountOfStETH: BigInt(entry.amountOfStETH ?? entry[0] ?? 0),
+      amountOfShares: BigInt(entry.amountOfShares ?? entry[1] ?? 0),
+      timestamp: BigInt(entry.timestamp ?? entry[3] ?? 0),
+      isFinalized: Boolean(entry.isFinalized ?? entry[4]),
+      isClaimed: Boolean(entry.isClaimed ?? entry[5]),
+    }));
+  }
+
+  #formatLidoWithdrawalStatus(status, stEthMetadata, wstEthMetadata) {
+    const claimable = Boolean(status.isFinalized) && !Boolean(status.isClaimed);
+    const amountOfWstEthRaw =
+      status.amountOfShares > 0n && status.amountOfStETH > 0n
+        ? status.amountOfShares
+        : null;
+    return {
+      requestId: status.requestId.toString(),
+      owner: status.owner,
+      timestamp: status.timestamp.toString(),
+      amountOfStETHRaw: status.amountOfStETH.toString(),
+      amountOfStETHFormatted: formatUnits(status.amountOfStETH, stEthMetadata.decimals),
+      amountOfSharesRaw: status.amountOfShares.toString(),
+      amountOfSharesFormatted: formatUnits(status.amountOfShares, LIDO_STETH_DECIMALS),
+      amountOfWstETHRaw: amountOfWstEthRaw !== null ? amountOfWstEthRaw.toString() : null,
+      amountOfWstETHFormatted:
+        amountOfWstEthRaw !== null ? formatUnits(amountOfWstEthRaw, wstEthMetadata.decimals) : null,
+      isFinalized: Boolean(status.isFinalized),
+      isClaimed: Boolean(status.isClaimed),
+      claimable,
+    };
+  }
+
   async #quoteLidoOutputRaw({ runtimeConfig, operation, amount, fromAddress = ZERO_ADDRESS }) {
     const contracts = this.#getLidoContracts(runtimeConfig.network);
     const normalizedOperation = normalizeLidoOperation(operation);
@@ -3263,6 +3566,459 @@ export class WdkEvmWalletService {
       simulation,
       operationTransaction,
     };
+  }
+
+  async #buildLidoWithdrawalPlan({
+    account,
+    runtimeConfig,
+    address,
+    request,
+    tolerateOperationFeeFailure = false,
+  }) {
+    const contracts = this.#getLidoContracts(runtimeConfig.network);
+    const [stEthMetadata, wstEthMetadata] = await Promise.all([
+      this.#getLidoTokenMetadata(runtimeConfig, contracts.steth),
+      this.#getLidoTokenMetadata(runtimeConfig, contracts.wsteth),
+    ]);
+
+    if (request.operation === "claim_withdrawal") {
+      const status = await this.#getSingleLidoWithdrawalStatus(runtimeConfig, request.requestId);
+      if (status.owner.toLowerCase() !== address.toLowerCase()) {
+        throw createTaggedError(
+          "Withdrawal request does not belong to the active wallet.",
+          "lido_withdrawal_owner_mismatch",
+          {
+            requestId: request.requestId.toString(),
+            owner: status.owner,
+            activeAddress: address,
+          }
+        );
+      }
+      if (status.isClaimed) {
+        throw createTaggedError(
+          "Withdrawal request has already been claimed.",
+          "lido_withdrawal_already_claimed",
+          {
+            requestId: request.requestId.toString(),
+          }
+        );
+      }
+      if (!status.isFinalized) {
+        throw createTaggedError(
+          "Withdrawal request is not finalized yet and cannot be claimed.",
+          "lido_withdrawal_not_finalized",
+          {
+            requestId: request.requestId.toString(),
+          }
+        );
+      }
+      const operationTx = {
+        to: contracts.withdrawalQueue,
+        value: 0n,
+        data: LIDO_WITHDRAWAL_QUEUE_INTERFACE.encodeFunctionData("claimWithdrawal", [
+          request.requestId,
+        ]),
+      };
+      const operationFeeQuote = await this.#quoteSwapTransaction({
+        account,
+        runtimeConfig,
+        from: address,
+        swapTx: operationTx,
+        tolerateFailure: tolerateOperationFeeFailure,
+        operationLabel: "lido claim_withdrawal",
+      });
+      const simulation = await this.#simulatePreparedTransaction({
+        runtimeConfig,
+        from: address,
+        tx: operationTx,
+        operationLabel: "Lido withdrawal claim",
+      });
+      const operationTransaction = {
+        to: operationTx.to,
+        value: "0",
+        dataHash: sha256Hex(String(operationTx.data || "")),
+      };
+      const quoteFingerprint = sha256Hex(
+        JSON.stringify({
+          chainId: runtimeConfig.chainId,
+          network: runtimeConfig.network,
+          from: address.toLowerCase(),
+          protocol: "lido",
+          operation: request.operation,
+          requestId: request.requestId.toString(),
+          withdrawalQueue: contracts.withdrawalQueue.toLowerCase(),
+        })
+      );
+      return {
+        quoteFingerprint,
+        contracts,
+        spender: null,
+        inputTokenAddress: ZERO_ADDRESS,
+        currentAllowance: 0n,
+        requiredAllowance: 0n,
+        allowanceReadError: null,
+        operationFee: operationFeeQuote.fee,
+        operationFeeError: operationFeeQuote.error,
+        totalEstimatedFee: operationFeeQuote.fee,
+        approval: { required: false, estimatedFee: 0n, steps: [] },
+        inputMetadata: null,
+        queueAssetMetadata: stEthMetadata,
+        withdrawalRequest: this.#formatLidoWithdrawalStatus(status, stEthMetadata, wstEthMetadata),
+        simulation,
+        operationTx,
+        operationTransaction,
+      };
+    }
+
+    const inputTokenAddress =
+      request.operation === "request_withdrawal_steth" ? contracts.steth.address : contracts.wsteth.address;
+    const inputMetadata =
+      request.operation === "request_withdrawal_steth" ? stEthMetadata : wstEthMetadata;
+    const spender = contracts.withdrawalQueue;
+    const queuedStEthAmount =
+      request.operation === "request_withdrawal_steth"
+        ? request.amount
+        : await this.#quoteLidoOutputRaw({
+            runtimeConfig,
+            operation: "unwrap_wsteth",
+            amount: request.amount,
+            fromAddress: address,
+          });
+    this.#assertLidoWithdrawalAmountWithinLimits(queuedStEthAmount);
+    const balance = await this.#readTokenBalanceWithFallback({
+      account,
+      runtimeConfig,
+      tokenAddress: inputTokenAddress,
+      ownerAddress: address,
+    });
+    if (balance < request.amount) {
+      throw createTaggedError(
+        "Insufficient token balance for Lido withdrawal request.",
+        "insufficient_funds",
+        {
+          network: runtimeConfig.network,
+          tokenAddress: inputTokenAddress,
+          ownerAddress: address,
+          currentBalance: balance.toString(),
+          requiredAmount: request.amount.toString(),
+          protocol: "lido",
+        }
+      );
+    }
+    const allowanceState = await this.#getSwapAllowanceState({
+      account,
+      tokenAddress: inputTokenAddress,
+      spender,
+    });
+    const approval = await this.#buildLidoApprovalPlan({
+      account,
+      runtimeConfig,
+      tokenAddress: inputTokenAddress,
+      spender,
+      requiredAmount: request.amount,
+      currentAllowance: allowanceState.currentAllowance,
+    });
+    const operationTx = {
+      to: contracts.withdrawalQueue,
+      value: 0n,
+      data:
+        request.operation === "request_withdrawal_steth"
+          ? LIDO_WITHDRAWAL_QUEUE_INTERFACE.encodeFunctionData("requestWithdrawals", [
+              [request.amount],
+              address,
+            ])
+          : LIDO_WITHDRAWAL_QUEUE_INTERFACE.encodeFunctionData("requestWithdrawalsWstETH", [
+              [request.amount],
+              address,
+            ]),
+    };
+    const operationFeeQuote = await this.#quoteSwapTransaction({
+      account,
+      runtimeConfig,
+      from: address,
+      swapTx: operationTx,
+      tolerateFailure: tolerateOperationFeeFailure || approval.required,
+      operationLabel: `lido ${request.operation}`,
+    });
+    const simulation = approval.required
+      ? {
+          ok: null,
+          skipped: true,
+          reason: "allowance_required",
+        }
+      : await this.#simulatePreparedTransaction({
+          runtimeConfig,
+          from: address,
+          tx: operationTx,
+          operationLabel: "Lido withdrawal request",
+        });
+    const operationTransaction = {
+      to: operationTx.to,
+      value: "0",
+      dataHash: sha256Hex(String(operationTx.data || "")),
+    };
+    const quoteFingerprint = sha256Hex(
+      JSON.stringify({
+        chainId: runtimeConfig.chainId,
+        network: runtimeConfig.network,
+        from: address.toLowerCase(),
+        protocol: "lido",
+        operation: request.operation,
+        inputToken: inputTokenAddress.toLowerCase(),
+        inputAmount: request.amount.toString(),
+        queuedStEthAmount: queuedStEthAmount.toString(),
+        withdrawalQueue: contracts.withdrawalQueue.toLowerCase(),
+      })
+    );
+    return {
+      quoteFingerprint,
+      contracts,
+      spender,
+      inputTokenAddress,
+      currentAllowance: allowanceState.currentAllowance,
+      requiredAllowance: request.amount,
+      allowanceReadError: allowanceState.error,
+      operationFee: operationFeeQuote.fee,
+      operationFeeError: operationFeeQuote.error,
+      totalEstimatedFee:
+        operationFeeQuote.fee !== null ? operationFeeQuote.fee + approval.estimatedFee : null,
+      approval,
+      inputMetadata,
+      queueAssetMetadata: stEthMetadata,
+      queuedStEthAmount,
+      simulation,
+      operationTx,
+      operationTransaction,
+    };
+  }
+
+  #assertLidoWithdrawalAmountWithinLimits(amountOfStETH) {
+    const normalizedAmount = BigInt(amountOfStETH || 0);
+    if (normalizedAmount < LIDO_MIN_STETH_WITHDRAWAL_AMOUNT) {
+      throw createTaggedError(
+        "Lido withdrawal amount is below the minimum queue size.",
+        "lido_withdrawal_amount_too_small",
+        {
+          minStEthAmountRaw: LIDO_MIN_STETH_WITHDRAWAL_AMOUNT.toString(),
+          providedStEthAmountRaw: normalizedAmount.toString(),
+        }
+      );
+    }
+    if (normalizedAmount > LIDO_MAX_STETH_WITHDRAWAL_AMOUNT) {
+      throw createTaggedError(
+        "Lido withdrawal amount exceeds the maximum queue size.",
+        "lido_withdrawal_amount_too_large",
+        {
+          maxStEthAmountRaw: LIDO_MAX_STETH_WITHDRAWAL_AMOUNT.toString(),
+          providedStEthAmountRaw: normalizedAmount.toString(),
+        }
+      );
+    }
+  }
+
+  async #getSingleLidoWithdrawalStatus(runtimeConfig, requestId) {
+    const statuses = await this.#getLidoWithdrawalStatuses(runtimeConfig, [requestId]);
+    if (!statuses.length || statuses[0].owner === ZERO_ADDRESS) {
+      throw createTaggedError(
+        "Lido withdrawal request was not found.",
+        "lido_withdrawal_not_found",
+        {
+          requestId: BigInt(requestId).toString(),
+        }
+      );
+    }
+    return statuses[0];
+  }
+
+  #formatLidoWithdrawalResponse({ runtimeConfig, accountIndex, address, request, plan }) {
+    return {
+      network: runtimeConfig.network,
+      chainId: runtimeConfig.chainId,
+      accountIndex,
+      address,
+      protocol: "lido",
+      operation: request.operation,
+      withdrawalQueue: plan.contracts.withdrawalQueue,
+      operationRequest:
+        request.operation === "claim_withdrawal"
+          ? {
+              requestId: request.requestId.toString(),
+            }
+          : {
+              amount: request.amount.toString(),
+            },
+      inputAsset: plan.inputMetadata,
+      queueAsset: plan.queueAssetMetadata,
+      amountFormatted:
+        request.operation !== "claim_withdrawal" &&
+        plan.inputMetadata &&
+        Number.isInteger(plan.inputMetadata.decimals)
+          ? formatUnits(request.amount, plan.inputMetadata.decimals)
+          : null,
+      queuedStEthAmountRaw:
+        plan.queuedStEthAmount !== undefined && plan.queuedStEthAmount !== null
+          ? plan.queuedStEthAmount.toString()
+          : null,
+      queuedStEthAmountFormatted:
+        plan.queuedStEthAmount !== undefined && plan.queuedStEthAmount !== null
+          ? formatUnits(plan.queuedStEthAmount, LIDO_STETH_DECIMALS)
+          : null,
+      requestId: request.requestId ? request.requestId.toString() : null,
+      withdrawalRequest: plan.withdrawalRequest || null,
+      quoteFingerprint: plan.quoteFingerprint,
+      estimatedFeeWei: plan.totalEstimatedFee !== null ? plan.totalEstimatedFee.toString() : null,
+      estimatedOperationFeeWei: plan.operationFee !== null ? plan.operationFee.toString() : null,
+      estimatedApprovalFeeWei: plan.approval.estimatedFee.toString(),
+      feeEstimateAvailable: plan.operationFee !== null,
+      feeEstimateError: plan.operationFeeError,
+      allowance: {
+        spender: plan.spender,
+        currentAllowance: plan.currentAllowance.toString(),
+        requiredAllowance: plan.requiredAllowance.toString(),
+        approvalRequired: plan.approval.required,
+        approvalSequence: plan.approval.steps,
+        readError: plan.allowanceReadError,
+      },
+      simulation: plan.simulation,
+      operationTransaction: plan.operationTransaction,
+      source: "lido-contracts",
+    };
+  }
+
+  #assertExpectedLidoWithdrawalFingerprint(expectedQuoteFingerprint, actualQuoteFingerprint) {
+    if (!expectedQuoteFingerprint) {
+      return;
+    }
+    if (expectedQuoteFingerprint !== actualQuoteFingerprint) {
+      throw createTaggedError(
+        "Lido withdrawal quote changed since preview. Generate a new preview and approval before execute.",
+        "lido_withdrawal_quote_changed",
+        {
+          expectedQuoteFingerprint,
+          actualQuoteFingerprint,
+        }
+      );
+    }
+  }
+
+  async #executeLidoWithdrawalApprovalsIfNeeded({ account, runtimeConfig, plan }) {
+    if (!plan.approval.required || !plan.spender || isZeroAddress(plan.inputTokenAddress)) {
+      return {
+        performed: false,
+        totalFee: 0n,
+        approveHash: null,
+        resetAllowanceHash: null,
+      };
+    }
+    let totalFee = 0n;
+    let approveHash = null;
+    let resetAllowanceHash = null;
+    for (const step of plan.approval.steps) {
+      const result = await account.approve({
+        token: plan.inputTokenAddress,
+        spender: plan.spender,
+        amount: step.amount,
+      });
+      totalFee += BigInt(result.fee || 0);
+      if (step.type === "reset_allowance") {
+        resetAllowanceHash = result.hash;
+      } else if (step.type === "approve") {
+        approveHash = result.hash;
+      }
+      await this.#waitForTransactionReceipt(runtimeConfig, result.hash);
+    }
+    return {
+      performed: true,
+      totalFee,
+      approveHash,
+      resetAllowanceHash,
+    };
+  }
+
+  async #restoreAllowanceAfterFailedLidoWithdrawal({
+    account,
+    runtimeConfig,
+    tokenAddress,
+    spender,
+    originalAllowance,
+    approvalExecution,
+  }) {
+    if (!approvalExecution?.performed || !tokenAddress || isZeroAddress(tokenAddress) || !spender) {
+      return {
+        attempted: false,
+        restored: false,
+        originalAllowance: BigInt(originalAllowance || 0n).toString(),
+      };
+    }
+    const cleanup = {
+      attempted: true,
+      restored: false,
+      originalAllowance: BigInt(originalAllowance || 0n).toString(),
+      restoreHashes: [],
+      restoreSteps: [],
+      error: null,
+    };
+    try {
+      const restorePlan = await this.#buildAllowanceRestorePlan({
+        account,
+        runtimeConfig,
+        tokenAddress,
+        spender,
+        targetAllowance: BigInt(originalAllowance || 0n),
+        operationLabel: "lido withdrawal",
+      });
+      cleanup.restoreSteps = restorePlan.steps.map((step) => ({ ...step }));
+      if (!restorePlan.required) {
+        cleanup.restored = true;
+        return cleanup;
+      }
+      for (const step of restorePlan.steps) {
+        const result = await account.approve({
+          token: tokenAddress,
+          spender,
+          amount: step.amount,
+        });
+        cleanup.restoreHashes.push({
+          type: step.type,
+          hash: result.hash,
+          fee: BigInt(result.fee || 0).toString(),
+        });
+        await this.#waitForTransactionReceipt(runtimeConfig, result.hash);
+      }
+      const finalAllowance = await account.getAllowance(tokenAddress, spender);
+      cleanup.finalAllowance = finalAllowance.toString();
+      cleanup.restored = finalAllowance === BigInt(originalAllowance || 0n);
+      return cleanup;
+    } catch (cleanupError) {
+      cleanup.error = {
+        message: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+        code:
+          cleanupError && typeof cleanupError === "object"
+            ? String(cleanupError.errorCode || cleanupError.code || "").trim() || null
+            : null,
+      };
+      return cleanup;
+    }
+  }
+
+  #throwLidoWithdrawalFailureWithCleanup(error, cleanup) {
+    if (cleanup?.attempted && cleanup.restored !== true) {
+      throw createTaggedError(
+        "Lido withdrawal failed after approval and automatic allowance restore did not complete.",
+        "lido_withdrawal_cleanup_failed",
+        {
+          originalError:
+            error instanceof Error
+              ? {
+                  message: error.message,
+                  code: String(error.errorCode || error.code || "").trim() || null,
+                }
+              : { message: String(error), code: null },
+          cleanup,
+        }
+      );
+    }
+    throw error;
   }
 
   #buildLidoOperationTransaction(runtimeConfig, request) {

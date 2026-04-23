@@ -589,6 +589,161 @@ class FakeEvmBackend(AgentWalletBackend):
             "confirmed": False,
         }
 
+    async def get_evm_lido_withdrawal_requests(self) -> dict:
+        return {
+            "chain": "evm",
+            "network": self.network,
+            "address": await self.get_address(),
+            "protocol": "lido",
+            "chain_id": 1,
+            "withdrawal_queue": "0x889edC2eDab5f40e902b864aD4d7AdE8E412F9B1",
+            "request_count": 2,
+            "claimable_count": 1,
+            "requests": [
+                {
+                    "requestId": "101",
+                    "owner": await self.get_address(),
+                    "timestamp": "1710000000",
+                    "amountOfStETHRaw": "1000000000000000000",
+                    "amountOfStETHFormatted": "1",
+                    "amountOfSharesRaw": "1000000000000000000",
+                    "amountOfSharesFormatted": "1",
+                    "amountOfWstETHRaw": "1000000000000000000",
+                    "amountOfWstETHFormatted": "1",
+                    "isFinalized": False,
+                    "isClaimed": False,
+                    "claimable": False,
+                },
+                {
+                    "requestId": "102",
+                    "owner": await self.get_address(),
+                    "timestamp": "1710000100",
+                    "amountOfStETHRaw": "2000000000000000000",
+                    "amountOfStETHFormatted": "2",
+                    "amountOfSharesRaw": "2000000000000000000",
+                    "amountOfSharesFormatted": "2",
+                    "amountOfWstETHRaw": "2000000000000000000",
+                    "amountOfWstETHFormatted": "2",
+                    "isFinalized": True,
+                    "isClaimed": False,
+                    "claimable": True,
+                },
+            ],
+            "source": "fake",
+        }
+
+    async def preview_evm_lido_withdrawal(
+        self,
+        *,
+        operation: str,
+        amount_raw: str | None = None,
+        request_id: str | None = None,
+    ) -> dict:
+        requires_approval = operation in {"request_withdrawal_steth", "request_withdrawal_wsteth"}
+        return {
+            "chain": "evm",
+            "network": self.network,
+            "asset_type": "evm-lido-withdrawal-queue",
+            "asset": "ETH",
+            "wallet": "evm-wallet-123",
+            "from_address": await self.get_address(),
+            "protocol": "lido",
+            "operation": operation,
+            "amount_raw": amount_raw,
+            "amount_ui": "1" if amount_raw is not None else None,
+            "request_id": request_id,
+            "queued_steth_amount_raw": "1000000000000000000" if amount_raw is not None else None,
+            "queued_steth_amount_ui": "1" if amount_raw is not None else None,
+            "estimated_fee_wei": "68000000000000",
+            "estimated_operation_fee_wei": "40000000000000",
+            "estimated_approval_fee_wei": "28000000000000" if requires_approval else "0",
+            "fee_estimate_available": True,
+            "quote_fingerprint": "lido-withdrawal-fingerprint-1",
+            "allowance": {
+                "spender": "0x889edC2eDab5f40e902b864aD4d7AdE8E412F9B1" if requires_approval else None,
+                "current_allowance_raw": "0" if requires_approval else "0",
+                "required_allowance_raw": amount_raw or "0",
+                "approval_required": requires_approval,
+                "approval_sequence": (
+                    [{"type": "approve", "amount": amount_raw, "estimatedFeeWei": "28000000000000"}]
+                    if requires_approval and amount_raw is not None
+                    else []
+                ),
+            },
+            "input_asset": {
+                "address": "0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84"
+                if operation == "request_withdrawal_steth"
+                else "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0",
+                "name": "Liquid staked Ether 2.0"
+                if operation == "request_withdrawal_steth"
+                else "Wrapped liquid staked Ether 2.0",
+                "symbol": "stETH" if operation == "request_withdrawal_steth" else "wstETH",
+                "decimals": 18,
+                "verified": True,
+                "source": "fake",
+            }
+            if operation != "claim_withdrawal"
+            else None,
+            "queue_asset": {
+                "address": "0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84",
+                "name": "Liquid staked Ether 2.0",
+                "symbol": "stETH",
+                "decimals": 18,
+                "verified": True,
+                "source": "fake",
+            },
+            "withdrawal_queue": "0x889edC2eDab5f40e902b864aD4d7AdE8E412F9B1",
+            "withdrawal_request": (
+                {
+                    "requestId": request_id,
+                    "owner": await self.get_address(),
+                    "timestamp": "1710000100",
+                    "amountOfStETHRaw": "2000000000000000000",
+                    "amountOfStETHFormatted": "2",
+                    "amountOfSharesRaw": "2000000000000000000",
+                    "amountOfSharesFormatted": "2",
+                    "amountOfWstETHRaw": "2000000000000000000",
+                    "amountOfWstETHFormatted": "2",
+                    "isFinalized": True,
+                    "isClaimed": False,
+                    "claimable": True,
+                }
+                if operation == "claim_withdrawal"
+                else {}
+            ),
+            "simulation": {"ok": True, "skipped": False, "reason": None, "message": None, "details": None},
+            "source": "fake",
+        }
+
+    async def send_evm_lido_withdrawal(
+        self,
+        *,
+        operation: str,
+        amount_raw: str | None = None,
+        request_id: str | None = None,
+        expected_quote_fingerprint: str | None = None,
+    ) -> dict:
+        if expected_quote_fingerprint and expected_quote_fingerprint != "lido-withdrawal-fingerprint-1":
+            raise WalletBackendError(
+                "lido withdrawal quote changed", code="lido_withdrawal_quote_changed"
+            )
+        preview = await self.preview_evm_lido_withdrawal(
+            operation=operation,
+            amount_raw=amount_raw,
+            request_id=request_id,
+        )
+        return {
+            **preview,
+            "hash": "0x" + "e" * 64,
+            "approve_hash": (
+                "0x" + "f" * 64
+                if operation in {"request_withdrawal_steth", "request_withdrawal_wsteth"}
+                else None
+            ),
+            "broadcasted": True,
+            "confirmed": False,
+        }
+
     async def get_evm_swap_quote(
         self,
         *,
@@ -1066,6 +1221,8 @@ async def _main() -> None:
     assert "get_evm_lido_overview" in tool_names
     assert "get_evm_lido_positions" in tool_names
     assert "manage_evm_lido_position" in tool_names
+    assert "get_evm_lido_withdrawal_requests" in tool_names
+    assert "manage_evm_lido_withdrawal" in tool_names
     assert "get_evm_swap_quote" in tool_names
     assert "swap_evm_tokens" in tool_names
     assert "transfer_evm_native" in tool_names
@@ -1292,6 +1449,105 @@ async def _main() -> None:
     assert lido_executed.ok is True
     assert lido_executed.data["hash"].startswith("0x")
     assert lido_executed.data["approve_hash"].startswith("0x")
+
+    lido_withdrawals = await adapter.invoke("get_evm_lido_withdrawal_requests", {"network": "ethereum"})
+    assert lido_withdrawals.ok is True
+    assert lido_withdrawals.data["request_count"] == 2
+    assert lido_withdrawals.data["claimable_count"] == 1
+
+    lido_withdrawal_preview = await adapter.invoke(
+        "manage_evm_lido_withdrawal",
+        {
+            "operation": "request_withdrawal_steth",
+            "amount_raw": "1000000000000000000",
+            "mode": "preview",
+            "purpose": "test lido withdraw request",
+            "network": "ethereum",
+        },
+    )
+    assert lido_withdrawal_preview.ok is True
+    assert lido_withdrawal_preview.data["asset_type"] == "evm-lido-withdrawal-queue"
+    assert (
+        lido_withdrawal_preview.data["confirmation_summary"]["lido_withdrawal_operation"]
+        == "request_withdrawal_steth"
+    )
+    assert (
+        lido_withdrawal_preview.data["confirmation_summary"]["quote_fingerprint"]
+        == "lido-withdrawal-fingerprint-1"
+    )
+    assert lido_withdrawal_preview.data["allowance"]["approval_required"] is True
+
+    lido_claim_prepare = await adapter.invoke(
+        "manage_evm_lido_withdrawal",
+        {
+            "operation": "claim_withdrawal",
+            "request_id": "102",
+            "mode": "prepare",
+            "purpose": "test lido claim",
+            "user_intent": True,
+            "network": "ethereum",
+        },
+    )
+    assert lido_claim_prepare.ok is True
+    assert lido_claim_prepare.data["execution_plan_only"] is True
+    assert lido_claim_prepare.data["allowance"]["approval_required"] is False
+
+    lido_withdrawal_approval = issue_approval_token(
+        tool_name="manage_evm_lido_withdrawal",
+        network="ethereum",
+        summary=lido_withdrawal_preview.data["confirmation_summary"],
+        mainnet_confirmed=True,
+        issued_by="test",
+    )
+    lido_withdrawal_executed = await adapter.invoke(
+        "manage_evm_lido_withdrawal",
+        {
+            "operation": "request_withdrawal_steth",
+            "amount_raw": "1000000000000000000",
+            "mode": "execute",
+            "purpose": "test lido withdraw request",
+            "approval_token": lido_withdrawal_approval,
+            "network": "ethereum",
+        },
+    )
+    assert lido_withdrawal_executed.ok is True
+    assert lido_withdrawal_executed.data["hash"].startswith("0x")
+    assert lido_withdrawal_executed.data["approve_hash"].startswith("0x")
+
+    lido_claim_preview = await adapter.invoke(
+        "manage_evm_lido_withdrawal",
+        {
+            "operation": "claim_withdrawal",
+            "request_id": "102",
+            "mode": "preview",
+            "purpose": "test lido claim",
+            "network": "ethereum",
+        },
+    )
+    assert lido_claim_preview.ok is True
+    assert lido_claim_preview.data["withdrawal_request"]["claimable"] is True
+
+    lido_claim_approval = issue_approval_token(
+        tool_name="manage_evm_lido_withdrawal",
+        network="ethereum",
+        summary=lido_claim_preview.data["confirmation_summary"],
+        mainnet_confirmed=True,
+        issued_by="test",
+    )
+    lido_claim_executed = await adapter.invoke(
+        "manage_evm_lido_withdrawal",
+        {
+            "operation": "claim_withdrawal",
+            "request_id": "102",
+            "mode": "execute",
+            "purpose": "test lido claim",
+            "approval_token": lido_claim_approval,
+            "network": "ethereum",
+        },
+    )
+    assert lido_claim_executed.ok is True
+    assert lido_claim_executed.data["hash"].startswith("0x")
+    assert lido_claim_executed.data["approve_hash"] is None
 
     swap_preview = await adapter.invoke(
         "swap_evm_tokens",

@@ -110,6 +110,15 @@ def _normalize_lido_operation(value: str) -> str:
     return operation
 
 
+def _normalize_lido_withdrawal_operation(value: str) -> str:
+    operation = str(value or "").strip().lower()
+    if operation not in {"request_withdrawal_steth", "request_withdrawal_wsteth", "claim_withdrawal"}:
+        raise WalletBackendError(
+            "Lido withdrawal operation must be one of: request_withdrawal_steth, request_withdrawal_wsteth, claim_withdrawal."
+        )
+    return operation
+
+
 def _normalize_aave_payload(
     *,
     chain: str,
@@ -207,6 +216,76 @@ def _normalize_lido_payload(
         "output_asset": _normalize_token_metadata(data.get("outputAsset")),
         "contracts": dict(data.get("contracts") or {}),
         "referral_address": str(data.get("referralAddress") or "").strip() or None,
+        "simulation": _normalize_swap_simulation(data.get("simulation")),
+        "hash": result.get("hash"),
+        "approve_hash": result.get("approveHash"),
+        "reset_allowance_hash": result.get("resetAllowanceHash"),
+        "result": result,
+        "chain_id": int(data.get("chainId") or 0),
+        "source": "wdk-evm-wallet",
+    }
+
+
+def _normalize_lido_withdrawal_payload(
+    *,
+    chain: str,
+    network: str,
+    wallet_id: str,
+    address: str,
+    operation: str,
+    amount_raw: str | None,
+    request_id: str | None,
+    data: dict[str, Any],
+    sign_only: bool,
+) -> dict[str, Any]:
+    result = dict(data.get("result") or {})
+    request = dict(data.get("operationRequest") or {})
+    resolved_amount = (
+        str(request.get("amount"))
+        if request.get("amount") is not None
+        else (str(amount_raw) if amount_raw is not None else None)
+    )
+    resolved_request_id = (
+        str(request.get("requestId"))
+        if request.get("requestId") is not None
+        else (str(request_id) if request_id is not None else None)
+    )
+    return {
+        "chain": chain,
+        "network": network,
+        "asset_type": "evm-lido-withdrawal-queue",
+        "asset": "ETH",
+        "wallet": wallet_id,
+        "from_address": str(data.get("address") or address),
+        "protocol": str(data.get("protocol") or "lido"),
+        "operation": str(data.get("operation") or operation),
+        "amount_raw": resolved_amount,
+        "amount_ui": str(data.get("amountFormatted")) if data.get("amountFormatted") is not None else None,
+        "request_id": resolved_request_id,
+        "queued_steth_amount_raw": (
+            str(data.get("queuedStEthAmountRaw")) if data.get("queuedStEthAmountRaw") is not None else None
+        ),
+        "queued_steth_amount_ui": (
+            str(data.get("queuedStEthAmountFormatted"))
+            if data.get("queuedStEthAmountFormatted") is not None
+            else None
+        ),
+        "estimated_fee_wei": str(data.get("estimatedFeeWei")) if data.get("estimatedFeeWei") is not None else None,
+        "estimated_operation_fee_wei": (
+            str(data.get("estimatedOperationFeeWei"))
+            if data.get("estimatedOperationFeeWei") is not None
+            else None
+        ),
+        "estimated_approval_fee_wei": str(data.get("estimatedApprovalFeeWei") or "0"),
+        "fee_estimate_available": bool(data.get("feeEstimateAvailable", True)),
+        "fee_estimate_error": data.get("feeEstimateError"),
+        "execution_supported": not sign_only,
+        "quote_fingerprint": str(data.get("quoteFingerprint") or "").strip() or None,
+        "allowance": _normalize_swap_allowance(data.get("allowance")),
+        "input_asset": _normalize_token_metadata(data.get("inputAsset")),
+        "queue_asset": _normalize_token_metadata(data.get("queueAsset")),
+        "withdrawal_queue": str(data.get("withdrawalQueue") or "").strip() or None,
+        "withdrawal_request": dict(data.get("withdrawalRequest") or {}),
         "simulation": _normalize_swap_simulation(data.get("simulation")),
         "hash": result.get("hash"),
         "approve_hash": result.get("approveHash"),
@@ -764,6 +843,30 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "source": "wdk-evm-wallet",
         }
 
+    async def get_evm_lido_withdrawal_requests(self) -> dict[str, Any]:
+        resolved_address = await self.get_address()
+        data = await self.client.post(
+            "/v1/evm/lido/withdrawals/get",
+            {
+                "walletId": self.wallet_id,
+                "address": resolved_address,
+                "accountIndex": self.account_index,
+                "network": self.network,
+            },
+        )
+        return {
+            "chain": self.chain,
+            "network": self.network,
+            "address": str(data.get("address") or resolved_address or ""),
+            "protocol": str(data.get("protocol") or "lido"),
+            "chain_id": int(data.get("chainId") or 0),
+            "withdrawal_queue": str(data.get("withdrawalQueue") or "").strip() or None,
+            "request_count": int(data.get("requestCount") or 0),
+            "claimable_count": int(data.get("claimableCount") or 0),
+            "requests": list(data.get("requests") or []),
+            "source": "wdk-evm-wallet",
+        }
+
     async def preview_evm_aave_operation(
         self,
         *,
@@ -899,6 +1002,83 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
                 address=await self.get_address(),
                 operation=normalized_operation,
                 amount_raw=amount_raw,
+                data=data,
+                sign_only=self.sign_only,
+            ),
+            "broadcasted": True,
+            "confirmed": False,
+        }
+
+    async def preview_evm_lido_withdrawal(
+        self,
+        *,
+        operation: str,
+        amount_raw: str | None = None,
+        request_id: str | None = None,
+    ) -> dict[str, Any]:
+        normalized_operation = _normalize_lido_withdrawal_operation(operation)
+        resolved_address = await self.get_address()
+        payload: dict[str, Any] = {
+            "walletId": self.wallet_id,
+            "address": resolved_address,
+            "accountIndex": self.account_index,
+            "network": self.network,
+        }
+        if amount_raw is not None:
+            payload["amount"] = amount_raw
+        if request_id is not None:
+            payload["requestId"] = request_id
+        data = await self.client.post(
+            f"/v1/evm/lido/{normalized_operation}/quote",
+            payload,
+        )
+        return _normalize_lido_withdrawal_payload(
+            chain=self.chain,
+            network=self.network,
+            wallet_id=self.wallet_id,
+            address=resolved_address,
+            operation=normalized_operation,
+            amount_raw=amount_raw,
+            request_id=request_id,
+            data=data,
+            sign_only=self.sign_only,
+        )
+
+    async def send_evm_lido_withdrawal(
+        self,
+        *,
+        operation: str,
+        amount_raw: str | None = None,
+        request_id: str | None = None,
+        expected_quote_fingerprint: str | None = None,
+    ) -> dict[str, Any]:
+        if self.sign_only:
+            raise WalletBackendError("wdk_evm_local is configured as sign_only.")
+        normalized_operation = _normalize_lido_withdrawal_operation(operation)
+        payload: dict[str, Any] = {
+            "walletId": self.wallet_id,
+            "accountIndex": self.account_index,
+            "network": self.network,
+        }
+        if amount_raw is not None:
+            payload["amount"] = amount_raw
+        if request_id is not None:
+            payload["requestId"] = request_id
+        if isinstance(expected_quote_fingerprint, str) and expected_quote_fingerprint.strip():
+            payload["expectedQuoteFingerprint"] = expected_quote_fingerprint
+        data = await self.client.post(
+            f"/v1/evm/lido/{normalized_operation}/send",
+            payload,
+        )
+        return {
+            **_normalize_lido_withdrawal_payload(
+                chain=self.chain,
+                network=self.network,
+                wallet_id=self.wallet_id,
+                address=await self.get_address(),
+                operation=normalized_operation,
+                amount_raw=amount_raw,
+                request_id=request_id,
                 data=data,
                 sign_only=self.sign_only,
             ),

@@ -354,6 +354,26 @@ class OpenClawWalletAdapter:
                 "allowance": payload.get("allowance"),
             }
 
+        if asset_type == "evm-lido-withdrawal-queue":
+            return {
+                "operation": action_label,
+                "network": str(payload.get("network") or getattr(self.backend, "network", "unknown")),
+                "wallet": payload.get("wallet"),
+                "from_address": payload.get("from_address"),
+                "protocol": payload.get("protocol"),
+                "lido_withdrawal_operation": payload.get("operation"),
+                "amount_raw": payload.get("amount_raw"),
+                "amount_ui": payload.get("amount_ui"),
+                "request_id": payload.get("request_id"),
+                "queued_steth_amount_raw": payload.get("queued_steth_amount_raw"),
+                "queued_steth_amount_ui": payload.get("queued_steth_amount_ui"),
+                "estimated_fee_wei": payload.get("estimated_fee_wei"),
+                "estimated_operation_fee_wei": payload.get("estimated_operation_fee_wei"),
+                "estimated_approval_fee_wei": payload.get("estimated_approval_fee_wei"),
+                "quote_fingerprint": payload.get("quote_fingerprint"),
+                "allowance": payload.get("allowance"),
+            }
+
         if asset_type == "bags-token-launch":
             launch_binding = {
                 "token_name": payload.get("token_name"),
@@ -1075,6 +1095,75 @@ class OpenClawWalletAdapter:
                                 },
                             },
                             "required": ["operation", "amount_raw", "mode", "purpose"],
+                            "additionalProperties": False,
+                        },
+                        read_only=False,
+                        requires_explicit_user_intent=True,
+                        risk_level="high",
+                    ),
+                )
+                tools.insert(
+                    13,
+                    AgentToolSpec(
+                        name="get_evm_lido_withdrawal_requests",
+                        description="Get read-only Lido withdrawal queue requests for the configured EVM wallet, including finalized and claimable request statuses.",
+                        input_schema={
+                            "type": "object",
+                            "properties": {
+                                "network": {
+                                    "type": "string",
+                                    "enum": ["ethereum"],
+                                    "description": "Optional EVM network override for this request.",
+                                },
+                            },
+                            "additionalProperties": False,
+                        },
+                        read_only=True,
+                        risk_level="low",
+                    ),
+                )
+                tools.insert(
+                    14,
+                    AgentToolSpec(
+                        name="manage_evm_lido_withdrawal",
+                        description=(
+                            "Preview, prepare, or execute a narrow Lido withdrawal queue operation on Ethereum mainnet. "
+                            "Supported operations are request_withdrawal_steth, request_withdrawal_wsteth, and claim_withdrawal. "
+                            "Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation."
+                        ),
+                        input_schema={
+                            "type": "object",
+                            "properties": {
+                                "operation": {
+                                    "type": "string",
+                                    "enum": [
+                                        "request_withdrawal_steth",
+                                        "request_withdrawal_wsteth",
+                                        "claim_withdrawal",
+                                    ],
+                                },
+                                "amount_raw": {
+                                    "type": "string",
+                                    "description": "Amount in base units as a base-10 integer string. Required for request operations.",
+                                },
+                                "request_id": {
+                                    "type": "string",
+                                    "description": "Withdrawal request id as a base-10 integer string. Required for claim_withdrawal.",
+                                },
+                                "mode": {
+                                    "type": "string",
+                                    "enum": ["preview", "prepare", "execute"],
+                                },
+                                "purpose": {"type": "string"},
+                                "user_intent": {"type": "boolean"},
+                                "approval_token": {"type": "string"},
+                                "network": {
+                                    "type": "string",
+                                    "enum": ["ethereum"],
+                                    "description": "Optional EVM network override for this request.",
+                                },
+                            },
+                            "required": ["operation", "mode", "purpose"],
                             "additionalProperties": False,
                         },
                         read_only=False,
@@ -2951,6 +3040,136 @@ class OpenClawWalletAdapter:
                     data=self._annotate_sensitive_payload(
                         result,
                         action_label="EVM Lido operation",
+                        mode="execute",
+                    ),
+                )
+
+            if tool_name == "get_evm_lido_withdrawal_requests":
+                data = await active_backend.get_evm_lido_withdrawal_requests()
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "manage_evm_lido_withdrawal":
+                operation = args.get("operation")
+                amount_raw = args.get("amount_raw")
+                request_id = args.get("request_id")
+                mode = args.get("mode")
+                purpose = args.get("purpose")
+                user_intent = args.get("user_intent", False)
+                approval_token = args.get("approval_token")
+
+                if operation not in {
+                    "request_withdrawal_steth",
+                    "request_withdrawal_wsteth",
+                    "claim_withdrawal",
+                }:
+                    raise WalletBackendError(
+                        "operation must be one of: request_withdrawal_steth, request_withdrawal_wsteth, claim_withdrawal."
+                    )
+                if mode not in {"preview", "prepare", "execute"}:
+                    raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
+                if not isinstance(purpose, str) or not purpose.strip():
+                    raise WalletBackendError("purpose is required.")
+                if operation == "claim_withdrawal":
+                    if not isinstance(request_id, str) or not request_id.strip().isdigit():
+                        raise WalletBackendError("request_id must be a positive integer string.")
+                    if int(request_id.strip()) <= 0:
+                        raise WalletBackendError("request_id must be greater than zero.")
+                else:
+                    if not isinstance(amount_raw, str) or not amount_raw.strip().isdigit():
+                        raise WalletBackendError("amount_raw must be a positive integer string.")
+                    if int(amount_raw.strip()) <= 0:
+                        raise WalletBackendError("amount_raw must be greater than zero.")
+
+                preview_kwargs = {
+                    "operation": str(operation),
+                    **(
+                        {"amount_raw": amount_raw.strip()}
+                        if isinstance(amount_raw, str) and amount_raw.strip()
+                        else {}
+                    ),
+                    **(
+                        {"request_id": request_id.strip()}
+                        if isinstance(request_id, str) and request_id.strip()
+                        else {}
+                    ),
+                }
+
+                if mode == "preview":
+                    preview = await active_backend.preview_evm_lido_withdrawal(**preview_kwargs)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            preview,
+                            action_label="EVM Lido withdrawal",
+                            mode="preview",
+                        ),
+                    )
+
+                if mode == "prepare":
+                    self._require_prepare_intent(user_intent)
+                    preview = await active_backend.preview_evm_lido_withdrawal(**preview_kwargs)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            self._build_prepare_plan(
+                                preview_payload=preview,
+                                action_label="EVM Lido withdrawal",
+                            ),
+                            action_label="EVM Lido withdrawal",
+                            mode="prepare",
+                        ),
+                    )
+
+                approval_payload = inspect_approval_token(
+                    approval_token,
+                    tool_name=tool_name,
+                    network=str(getattr(active_backend, "network", "unknown")),
+                    require_mainnet_confirmation=self._is_mainnet_for_backend(active_backend),
+                )
+                approval_summary = approval_payload.get("binding", {}).get("summary")
+                if not isinstance(approval_summary, dict):
+                    raise WalletBackendError(
+                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                    )
+                expected_summary = {
+                    "operation": "EVM Lido withdrawal",
+                    "network": str(getattr(active_backend, "network", "unknown")),
+                    "lido_withdrawal_operation": str(operation),
+                }
+                if operation == "claim_withdrawal":
+                    expected_summary["request_id"] = request_id.strip()
+                else:
+                    expected_summary["amount_raw"] = amount_raw.strip()
+                for key, expected_value in expected_summary.items():
+                    if approval_summary.get(key) != expected_value:
+                        raise WalletBackendError(
+                            "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                        )
+
+                approval_summary_copy = dict(approval_summary)
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=approval_summary_copy,
+                    action_label="EVM Lido withdrawal",
+                    backend=active_backend,
+                )
+                result = await active_backend.send_evm_lido_withdrawal(
+                    **preview_kwargs,
+                    expected_quote_fingerprint=(
+                        str(approval_summary_copy.get("quote_fingerprint")).strip()
+                        if approval_summary_copy.get("quote_fingerprint") is not None
+                        else None
+                    ),
+                )
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=self._annotate_sensitive_payload(
+                        result,
+                        action_label="EVM Lido withdrawal",
                         mode="execute",
                     ),
                 )
