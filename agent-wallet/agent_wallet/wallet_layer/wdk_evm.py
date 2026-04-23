@@ -101,6 +101,15 @@ def _normalize_aave_operation(value: str) -> str:
     return operation
 
 
+def _normalize_lido_operation(value: str) -> str:
+    operation = str(value or "").strip().lower()
+    if operation not in {"stake_eth_for_wsteth", "wrap_steth", "unwrap_wsteth"}:
+        raise WalletBackendError(
+            "Lido operation must be one of: stake_eth_for_wsteth, wrap_steth, unwrap_wsteth."
+        )
+    return operation
+
+
 def _normalize_aave_payload(
     *,
     chain: str,
@@ -142,6 +151,63 @@ def _normalize_aave_payload(
         "quote_fingerprint": str(data.get("quoteFingerprint") or "").strip() or None,
         "allowance": _normalize_swap_allowance(data.get("allowance")),
         "token_metadata": _normalize_token_metadata(data.get("tokenMetadata"), token),
+        "hash": result.get("hash"),
+        "approve_hash": result.get("approveHash"),
+        "reset_allowance_hash": result.get("resetAllowanceHash"),
+        "result": result,
+        "chain_id": int(data.get("chainId") or 0),
+        "source": "wdk-evm-wallet",
+    }
+
+
+def _normalize_lido_payload(
+    *,
+    chain: str,
+    network: str,
+    wallet_id: str,
+    address: str,
+    operation: str,
+    amount_raw: str,
+    data: dict[str, Any],
+    sign_only: bool,
+) -> dict[str, Any]:
+    result = dict(data.get("result") or {})
+    request = dict(data.get("operationRequest") or {})
+    amount = str(request.get("amount") or amount_raw)
+    return {
+        "chain": chain,
+        "network": network,
+        "asset_type": "evm-lido-staking",
+        "asset": "ETH",
+        "wallet": wallet_id,
+        "from_address": str(data.get("address") or address),
+        "protocol": str(data.get("protocol") or "lido"),
+        "operation": str(data.get("operation") or operation),
+        "amount_raw": amount,
+        "amount_ui": str(data.get("amountFormatted")) if data.get("amountFormatted") is not None else None,
+        "expected_output_amount_raw": str(data.get("expectedOutputAmountRaw") or "0"),
+        "expected_output_amount_ui": (
+            str(data.get("expectedOutputAmountFormatted"))
+            if data.get("expectedOutputAmountFormatted") is not None
+            else None
+        ),
+        "estimated_fee_wei": str(data.get("estimatedFeeWei")) if data.get("estimatedFeeWei") is not None else None,
+        "estimated_operation_fee_wei": (
+            str(data.get("estimatedOperationFeeWei"))
+            if data.get("estimatedOperationFeeWei") is not None
+            else None
+        ),
+        "estimated_approval_fee_wei": str(data.get("estimatedApprovalFeeWei") or "0"),
+        "fee_estimate_available": bool(data.get("feeEstimateAvailable", True)),
+        "fee_estimate_error": data.get("feeEstimateError"),
+        "execution_supported": not sign_only,
+        "quote_fingerprint": str(data.get("quoteFingerprint") or "").strip() or None,
+        "allowance": _normalize_swap_allowance(data.get("allowance")),
+        "input_asset": _normalize_token_metadata(data.get("inputAsset")),
+        "output_asset": _normalize_token_metadata(data.get("outputAsset")),
+        "contracts": dict(data.get("contracts") or {}),
+        "referral_address": str(data.get("referralAddress") or "").strip() or None,
+        "simulation": _normalize_swap_simulation(data.get("simulation")),
         "hash": result.get("hash"),
         "approve_hash": result.get("approveHash"),
         "reset_allowance_hash": result.get("resetAllowanceHash"),
@@ -644,6 +710,60 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "source": "wdk-evm-wallet",
         }
 
+    async def get_evm_lido_overview(self) -> dict[str, Any]:
+        resolved_address = await self.get_address()
+        data = await self.client.post(
+            "/v1/evm/lido/overview/get",
+            {
+                "walletId": self.wallet_id,
+                "address": resolved_address,
+                "accountIndex": self.account_index,
+                "network": self.network,
+            },
+        )
+        return {
+            "chain": self.chain,
+            "network": self.network,
+            "protocol": str(data.get("protocol") or "lido"),
+            "preferred_position_token": str(data.get("preferredPositionToken") or "wstETH"),
+            "chain_id": int(data.get("chainId") or 0),
+            "staking_asset": dict(data.get("stakingAsset") or {}),
+            "referral_address": str(data.get("referralAddress") or "").strip() or None,
+            "contracts": dict(data.get("contracts") or {}),
+            "steth_metadata": dict(data.get("stEthMetadata") or {}),
+            "wsteth_metadata": dict(data.get("wstEthMetadata") or {}),
+            "sample_rates": dict(data.get("sampleRates") or {}),
+            "source": "wdk-evm-wallet",
+        }
+
+    async def get_evm_lido_positions(self) -> dict[str, Any]:
+        resolved_address = await self.get_address()
+        data = await self.client.post(
+            "/v1/evm/lido/positions/get",
+            {
+                "walletId": self.wallet_id,
+                "address": resolved_address,
+                "accountIndex": self.account_index,
+                "network": self.network,
+            },
+        )
+        return {
+            "chain": self.chain,
+            "network": self.network,
+            "address": str(data.get("address") or resolved_address or ""),
+            "protocol": str(data.get("protocol") or "lido"),
+            "preferred_position_token": str(data.get("preferredPositionToken") or "wstETH"),
+            "chain_id": int(data.get("chainId") or 0),
+            "contracts": dict(data.get("contracts") or {}),
+            "native_balance_wei": str(data.get("nativeBalanceWei") or "0"),
+            "native_balance_ui": str(data.get("nativeBalanceFormatted") or "0"),
+            "steth_equivalent_total_raw": str(data.get("stEthEquivalentTotalRaw") or "0"),
+            "steth_equivalent_total_ui": str(data.get("stEthEquivalentTotalFormatted") or "0"),
+            "position_count": int(data.get("positionCount") or 0),
+            "positions": list(data.get("positions") or []),
+            "source": "wdk-evm-wallet",
+        }
+
     async def preview_evm_aave_operation(
         self,
         *,
@@ -710,6 +830,74 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
                 address=await self.get_address(),
                 operation=normalized_operation,
                 token_address=token_address,
+                amount_raw=amount_raw,
+                data=data,
+                sign_only=self.sign_only,
+            ),
+            "broadcasted": True,
+            "confirmed": False,
+        }
+
+    async def preview_evm_lido_operation(
+        self,
+        *,
+        operation: str,
+        amount_raw: str,
+    ) -> dict[str, Any]:
+        normalized_operation = _normalize_lido_operation(operation)
+        resolved_address = await self.get_address()
+        data = await self.client.post(
+            f"/v1/evm/lido/{normalized_operation}/quote",
+            {
+                "walletId": self.wallet_id,
+                "address": resolved_address,
+                "accountIndex": self.account_index,
+                "network": self.network,
+                "amount": amount_raw,
+            },
+        )
+        return _normalize_lido_payload(
+            chain=self.chain,
+            network=self.network,
+            wallet_id=self.wallet_id,
+            address=resolved_address,
+            operation=normalized_operation,
+            amount_raw=amount_raw,
+            data=data,
+            sign_only=self.sign_only,
+        )
+
+    async def send_evm_lido_operation(
+        self,
+        *,
+        operation: str,
+        amount_raw: str,
+        expected_quote_fingerprint: str | None = None,
+    ) -> dict[str, Any]:
+        if self.sign_only:
+            raise WalletBackendError("wdk_evm_local is configured as sign_only.")
+        normalized_operation = _normalize_lido_operation(operation)
+        data = await self.client.post(
+            f"/v1/evm/lido/{normalized_operation}/send",
+            {
+                "walletId": self.wallet_id,
+                "accountIndex": self.account_index,
+                "network": self.network,
+                "amount": amount_raw,
+                **(
+                    {"expectedQuoteFingerprint": expected_quote_fingerprint}
+                    if isinstance(expected_quote_fingerprint, str) and expected_quote_fingerprint.strip()
+                    else {}
+                ),
+            },
+        )
+        return {
+            **_normalize_lido_payload(
+                chain=self.chain,
+                network=self.network,
+                wallet_id=self.wallet_id,
+                address=await self.get_address(),
+                operation=normalized_operation,
                 amount_raw=amount_raw,
                 data=data,
                 sign_only=self.sign_only,

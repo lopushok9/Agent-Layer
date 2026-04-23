@@ -110,6 +110,12 @@ class AgentWalletBackend(ABC):
     async def get_evm_aave_positions(self) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support EVM Aave positions lookup.")
 
+    async def get_evm_lido_overview(self) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM Lido overview lookup.")
+
+    async def get_evm_lido_positions(self) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM Lido positions lookup.")
+
     async def preview_evm_aave_operation(
         self,
         *,
@@ -128,6 +134,23 @@ class AgentWalletBackend(ABC):
         expected_quote_fingerprint: str | None = None,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support EVM Aave operations.")
+
+    async def preview_evm_lido_operation(
+        self,
+        *,
+        operation: str,
+        amount_raw: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM Lido previews.")
+
+    async def send_evm_lido_operation(
+        self,
+        *,
+        operation: str,
+        amount_raw: str,
+        expected_quote_fingerprint: str | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM Lido operations.")
 
     async def preview_evm_swap(
         self,

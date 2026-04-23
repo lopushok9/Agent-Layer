@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { Contract } from "ethers";
+import { Contract, Interface } from "ethers";
 import WDK from "@tetherto/wdk";
 import { AaveV3Base, AaveV3Ethereum } from "@bgd-labs/aave-address-book";
 import AaveProtocolEvm from "@tetherto/wdk-protocol-lending-aave-evm";
@@ -20,6 +20,25 @@ const DEFAULT_SWAP_SLIPPAGE_BPS = 100;
 const DEFAULT_LIFI_SLIPPAGE = 0.005;
 const ALWAYS_DENIED_LIFI_BRIDGES = ["mayan"];
 const AAVE_RAY = 10n ** 27n;
+const LIDO_STETH_DECIMALS = 18;
+const LIDO_CONTRACTS_BY_NETWORK = {
+  ethereum: {
+    steth: {
+      address: "0xae7ab96520de3a18e5e111b5eaab095312d7fe84",
+      name: "Liquid staked Ether 2.0",
+      symbol: "stETH",
+      decimals: LIDO_STETH_DECIMALS,
+    },
+    wsteth: {
+      address: "0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0",
+      name: "Wrapped liquid staked Ether 2.0",
+      symbol: "wstETH",
+      decimals: LIDO_STETH_DECIMALS,
+    },
+    referralStaker: "0xa88f0329c2c4ce51ba3fc619bbf44efe7120dd0d",
+    withdrawalQueue: "0x889edc2edab5f40e902b864ad4d7ade8e412f9b1",
+  },
+};
 const AAVE_PROTOCOL_DATA_PROVIDER_BY_NETWORK = {
   ethereum: AaveV3Ethereum.AAVE_PROTOCOL_DATA_PROVIDER,
   base: AaveV3Base.AAVE_PROTOCOL_DATA_PROVIDER,
@@ -27,6 +46,17 @@ const AAVE_PROTOCOL_DATA_PROVIDER_BY_NETWORK = {
 const AAVE_PROTOCOL_DATA_PROVIDER_ABI = [
   "function getUserReserveData(address asset, address user) view returns (uint256 currentATokenBalance, uint256 currentStableDebt, uint256 currentVariableDebt, uint256 principalStableDebt, uint256 scaledVariableDebt, uint256 stableBorrowRate, uint256 liquidityRate, uint40 stableRateLastUpdated, bool usageAsCollateralEnabled)",
 ];
+const LIDO_WSTETH_ABI = [
+  "function getWstETHByStETH(uint256 _stETHAmount) view returns (uint256)",
+  "function getStETHByWstETH(uint256 _wstETHAmount) view returns (uint256)",
+  "function wrap(uint256 _stETHAmount) returns (uint256)",
+  "function unwrap(uint256 _wstETHAmount) returns (uint256)",
+];
+const LIDO_REFERRAL_STAKER_ABI = [
+  "function stakeETH(address _referral) payable returns (uint256)",
+];
+const LIDO_WSTETH_INTERFACE = new Interface(LIDO_WSTETH_ABI);
+const LIDO_REFERRAL_STAKER_INTERFACE = new Interface(LIDO_REFERRAL_STAKER_ABI);
 const LIFI_CHAIN_IDS_BY_NETWORK = {
   ethereum: "1",
   base: "8453",
@@ -148,10 +178,24 @@ function assertAaveSupportedNetwork(network) {
   }
 }
 
+function assertLidoSupportedNetwork(network) {
+  if (network !== "ethereum") {
+    throw new Error("Lido staking is currently supported only on ethereum mainnet.");
+  }
+}
+
 function normalizeAaveOperation(value) {
   const operation = assertNonEmptyString(value, "operation").toLowerCase();
   if (!["supply", "withdraw", "borrow", "repay"].includes(operation)) {
     throw new Error("operation must be one of: supply, withdraw, borrow, repay.");
+  }
+  return operation;
+}
+
+function normalizeLidoOperation(value) {
+  const operation = assertNonEmptyString(value, "operation").toLowerCase();
+  if (!["stake_eth_for_wsteth", "wrap_steth", "unwrap_wsteth"].includes(operation)) {
+    throw new Error("operation must be one of: stake_eth_for_wsteth, wrap_steth, unwrap_wsteth.");
   }
   return operation;
 }
@@ -290,6 +334,13 @@ function buildAaveOperationRequest({ operation, token, tokenAddress, amount, onB
   return {
     operation: normalizeAaveOperation(operation),
     token: normalizeAddress(preferredToken, "tokenAddress"),
+    amount: assertPositiveBigIntString(amount, "amount"),
+  };
+}
+
+function buildLidoOperationRequest({ operation, amount }) {
+  return {
+    operation: normalizeLidoOperation(operation),
     amount: assertPositiveBigIntString(amount, "amount"),
   };
 }
@@ -455,6 +506,18 @@ function computeAaveUsdValueRaw(amountRaw, decimals, priceUsdRaw) {
   return (BigInt(amountRaw || 0) * BigInt(priceUsdRaw)) / scale;
 }
 
+function withLidoMetadataDefaults(metadata, defaults) {
+  const resolved = metadata && typeof metadata === "object" ? { ...metadata } : {};
+  return {
+    address: String(resolved.address || defaults.address).toLowerCase(),
+    name: resolved.name || defaults.name,
+    symbol: resolved.symbol || defaults.symbol,
+    decimals: Number.isInteger(resolved.decimals) ? resolved.decimals : defaults.decimals,
+    verified: resolved.verified === true,
+    source: resolved.source || "lido-catalog",
+  };
+}
+
 async function rpcRequest(providerUrl, method, params = []) {
   let response;
   try {
@@ -512,6 +575,10 @@ async function rpcRequest(providerUrl, method, params = []) {
 
 async function ethCall(providerUrl, to, data) {
   return rpcRequest(providerUrl, "eth_call", [{ to, data }, "latest"]);
+}
+
+async function ethCallTransaction(providerUrl, tx) {
+  return rpcRequest(providerUrl, "eth_call", [tx, "latest"]);
 }
 
 function buildErc20ApproveTransaction(tokenAddress, spender, amount) {
@@ -1138,6 +1205,272 @@ export class WdkEvmWalletService {
           approvalExecution,
         });
         this.#throwAaveFailureWithCleanup(error, cleanup);
+      }
+    });
+  }
+
+  async getLidoOverview({ seedPhrase, address, accountIndex = 0, network }) {
+    return this.#withReadableAccount(
+      { seedPhrase, address, accountIndex, network },
+      async (account, runtimeConfig) => {
+        assertLidoSupportedNetwork(runtimeConfig.network);
+        const contracts = this.#getLidoContracts(runtimeConfig.network);
+        const [stEthMetadata, wstEthMetadata, rates] = await Promise.all([
+          this.#getLidoTokenMetadata(runtimeConfig, contracts.steth),
+          this.#getLidoTokenMetadata(runtimeConfig, contracts.wsteth),
+          this.#readLidoSampleRates(runtimeConfig),
+        ]);
+        return {
+          network: runtimeConfig.network,
+          chainId: runtimeConfig.chainId,
+          accountIndex,
+          protocol: "lido",
+          preferredPositionToken: "wstETH",
+          stakingAsset: {
+            type: "native",
+            symbol: runtimeConfig.nativeSymbol,
+            decimals: 18,
+          },
+          referralAddress: this.#getLidoReferralAddress(),
+          contracts: {
+            stETH: contracts.steth.address,
+            wstETH: contracts.wsteth.address,
+            referralStaker: contracts.referralStaker,
+            withdrawalQueue: contracts.withdrawalQueue,
+          },
+          stEthMetadata,
+          wstEthMetadata,
+          sampleRates: rates,
+          source: "lido-contracts",
+        };
+      }
+    );
+  }
+
+  async getLidoPositions({ seedPhrase, address, accountIndex = 0, network }) {
+    return this.#withReadableAccount(
+      { seedPhrase, address, accountIndex, network },
+      async (account, runtimeConfig) => {
+        assertLidoSupportedNetwork(runtimeConfig.network);
+        const accountAddress = await account.getAddress();
+        const contracts = this.#getLidoContracts(runtimeConfig.network);
+        const [nativeBalance, stEthMetadata, wstEthMetadata, stEthBalance, wstEthBalance] = await Promise.all([
+          account.getBalance(),
+          this.#getLidoTokenMetadata(runtimeConfig, contracts.steth),
+          this.#getLidoTokenMetadata(runtimeConfig, contracts.wsteth),
+          this.#readTokenBalanceWithFallback({
+            account,
+            runtimeConfig,
+            tokenAddress: contracts.steth.address,
+            ownerAddress: accountAddress,
+          }),
+          this.#readTokenBalanceWithFallback({
+            account,
+            runtimeConfig,
+            tokenAddress: contracts.wsteth.address,
+            ownerAddress: accountAddress,
+          }),
+        ]);
+        const wstEthAsStEth = await this.#quoteLidoOutputRaw({
+          runtimeConfig,
+          operation: "unwrap_wsteth",
+          amount: wstEthBalance,
+          fromAddress: accountAddress,
+        });
+        const stEthEquivalentTotal = stEthBalance + wstEthAsStEth;
+        const positions = [];
+        if (stEthBalance > 0n) {
+          positions.push({
+            asset: "stETH",
+            tokenAddress: contracts.steth.address,
+            tokenMetadata: stEthMetadata,
+            balanceRaw: stEthBalance.toString(),
+            balanceFormatted: formatUnits(stEthBalance, stEthMetadata.decimals),
+            stEthEquivalentRaw: stEthBalance.toString(),
+            stEthEquivalentFormatted: formatUnits(stEthBalance, stEthMetadata.decimals),
+          });
+        }
+        if (wstEthBalance > 0n) {
+          positions.push({
+            asset: "wstETH",
+            tokenAddress: contracts.wsteth.address,
+            tokenMetadata: wstEthMetadata,
+            balanceRaw: wstEthBalance.toString(),
+            balanceFormatted: formatUnits(wstEthBalance, wstEthMetadata.decimals),
+            stEthEquivalentRaw: wstEthAsStEth.toString(),
+            stEthEquivalentFormatted: formatUnits(wstEthAsStEth, stEthMetadata.decimals),
+          });
+        }
+        return {
+          network: runtimeConfig.network,
+          chainId: runtimeConfig.chainId,
+          accountIndex,
+          address: accountAddress,
+          protocol: "lido",
+          preferredPositionToken: "wstETH",
+          contracts: {
+            stETH: contracts.steth.address,
+            wstETH: contracts.wsteth.address,
+            referralStaker: contracts.referralStaker,
+            withdrawalQueue: contracts.withdrawalQueue,
+          },
+          nativeBalanceWei: BigInt(nativeBalance || 0).toString(),
+          nativeBalanceFormatted: formatUnits(BigInt(nativeBalance || 0), 18),
+          stEthEquivalentTotalRaw: stEthEquivalentTotal.toString(),
+          stEthEquivalentTotalFormatted: formatUnits(stEthEquivalentTotal, stEthMetadata.decimals),
+          positionCount: positions.length,
+          positions,
+          source: "lido-contracts",
+        };
+      }
+    );
+  }
+
+  async quoteLidoOperation({
+    seedPhrase,
+    address,
+    operation,
+    amount,
+    accountIndex = 0,
+    network,
+  }) {
+    return this.#withReadableAccount(
+      { seedPhrase, address, accountIndex, network },
+      async (account, runtimeConfig) => {
+        assertLidoSupportedNetwork(runtimeConfig.network);
+        const request = buildLidoOperationRequest({ operation, amount });
+        const accountAddress = await account.getAddress();
+        const plan = await this.#buildLidoOperationPlan({
+          account,
+          runtimeConfig,
+          address: accountAddress,
+          request,
+          tolerateOperationFeeFailure: true,
+        });
+        return this.#formatLidoOperationResponse({
+          runtimeConfig,
+          accountIndex,
+          address: accountAddress,
+          request,
+          plan,
+        });
+      }
+    );
+  }
+
+  async sendLidoOperation({
+    seedPhrase,
+    operation,
+    amount,
+    accountIndex = 0,
+    network,
+    expectedQuoteFingerprint = null,
+  }) {
+    return this.#withAccount({ seedPhrase, accountIndex, network }, async (account, runtimeConfig) => {
+      assertLidoSupportedNetwork(runtimeConfig.network);
+      const request = buildLidoOperationRequest({ operation, amount });
+      const normalizedExpectedQuoteFingerprint =
+        typeof expectedQuoteFingerprint === "string" && expectedQuoteFingerprint.trim()
+          ? expectedQuoteFingerprint.trim()
+          : null;
+      const address = await account.getAddress();
+      let initialPlan = await this.#buildLidoOperationPlan({
+        account,
+        runtimeConfig,
+        address,
+        request,
+        tolerateOperationFeeFailure: true,
+      });
+      this.#assertExpectedLidoFingerprint(
+        normalizedExpectedQuoteFingerprint,
+        initialPlan.quoteFingerprint
+      );
+
+      const approvalExecution = await this.#executeLidoApprovalsIfNeeded({
+        account,
+        runtimeConfig,
+        request,
+        plan: initialPlan,
+      });
+
+      let finalPlan = initialPlan;
+      try {
+        if (approvalExecution.performed) {
+          finalPlan = await this.#buildLidoOperationPlan({
+            account,
+            runtimeConfig,
+            address,
+            request,
+          });
+          this.#assertExpectedLidoFingerprint(
+            normalizedExpectedQuoteFingerprint,
+            finalPlan.quoteFingerprint
+          );
+        }
+
+        if (finalPlan.approval.required) {
+          throw createTaggedError(
+            "Lido operation still requires token approval after the approval step completed.",
+            "lido_approval_required",
+            {
+              spender: finalPlan.spender,
+              requiredAllowance: finalPlan.amount.toString(),
+              currentAllowance: finalPlan.currentAllowance.toString(),
+            }
+          );
+        }
+
+        if (finalPlan.operationFee === null) {
+          throw createTaggedError(
+            "Lido operation fee estimate was unavailable. Generate a new quote before sending.",
+            "lido_fee_unavailable",
+            {
+              operation: request.operation,
+              feeEstimateError: finalPlan.operationFeeError,
+            }
+          );
+        }
+
+        const result = await account.sendTransaction(finalPlan.operationTx);
+        const resultFee = BigInt(result?.fee || finalPlan.operationFee || 0);
+        const totalFee = approvalExecution.totalFee + resultFee;
+        return {
+          ...this.#formatLidoOperationResponse({
+            runtimeConfig,
+            accountIndex,
+            address,
+            request,
+            plan: {
+              ...finalPlan,
+              operationFee: resultFee,
+              totalEstimatedFee: totalFee,
+              approval: {
+                ...finalPlan.approval,
+                estimatedFee: approvalExecution.totalFee,
+              },
+            },
+          }),
+          result: {
+            ...result,
+            fee: resultFee.toString(),
+            totalFee: totalFee.toString(),
+            approvalFee: approvalExecution.totalFee.toString(),
+            ...(approvalExecution.approveHash ? { approveHash: approvalExecution.approveHash } : {}),
+            ...(approvalExecution.resetAllowanceHash
+              ? { resetAllowanceHash: approvalExecution.resetAllowanceHash }
+              : {}),
+          },
+        };
+      } catch (error) {
+        const cleanup = await this.#restoreAllowanceAfterFailedLidoOperation({
+          account,
+          runtimeConfig,
+          tokenAddress: finalPlan.inputTokenAddress,
+          spender: initialPlan.spender,
+          originalAllowance: initialPlan.currentAllowance,
+          approvalExecution,
+        });
+        this.#throwLidoFailureWithCleanup(error, cleanup);
       }
     });
   }
@@ -2710,6 +3043,464 @@ export class WdkEvmWalletService {
     throw error;
   }
 
+  #getLidoContracts(network) {
+    const contracts = LIDO_CONTRACTS_BY_NETWORK[network];
+    if (!contracts) {
+      throw new Error(`Lido contracts are not configured for network '${network}'.`);
+    }
+    return contracts;
+  }
+
+  #getLidoReferralAddress() {
+    const configured = String(this.config.lidoReferralAddress || "").trim();
+    if (!configured) {
+      return ZERO_ADDRESS;
+    }
+    return normalizeAddress(configured, "lidoReferralAddress").toLowerCase();
+  }
+
+  async #getLidoTokenMetadata(runtimeConfig, tokenDefinition) {
+    const metadata = await this.#getBestEffortTokenMetadata(runtimeConfig, tokenDefinition.address);
+    return withLidoMetadataDefaults(metadata, tokenDefinition);
+  }
+
+  async #readLidoSampleRates(runtimeConfig) {
+    const sampleAmount = 10n ** 18n;
+    const [wstEthPerStEthRaw, stEthPerWstEthRaw] = await Promise.all([
+      this.#quoteLidoOutputRaw({
+        runtimeConfig,
+        operation: "wrap_steth",
+        amount: sampleAmount,
+      }),
+      this.#quoteLidoOutputRaw({
+        runtimeConfig,
+        operation: "unwrap_wsteth",
+        amount: sampleAmount,
+      }),
+    ]);
+    return {
+      sampleBaseUnits: sampleAmount.toString(),
+      wstEthPerStEthRaw: wstEthPerStEthRaw.toString(),
+      wstEthPerStEthFormatted: formatUnits(wstEthPerStEthRaw, 18),
+      stEthPerWstEthRaw: stEthPerWstEthRaw.toString(),
+      stEthPerWstEthFormatted: formatUnits(stEthPerWstEthRaw, 18),
+    };
+  }
+
+  async #quoteLidoOutputRaw({ runtimeConfig, operation, amount, fromAddress = ZERO_ADDRESS }) {
+    const contracts = this.#getLidoContracts(runtimeConfig.network);
+    const normalizedOperation = normalizeLidoOperation(operation);
+    if (normalizedOperation === "stake_eth_for_wsteth") {
+      const data = LIDO_REFERRAL_STAKER_INTERFACE.encodeFunctionData("stakeETH", [
+        this.#getLidoReferralAddress(),
+      ]);
+      const raw = await ethCallTransaction(runtimeConfig.providerUrl, {
+        from: normalizeAddress(fromAddress, "fromAddress"),
+        to: contracts.referralStaker,
+        data,
+        value: toRpcHex(amount),
+      });
+      return decodeUint256Result(raw, "stakeETH");
+    }
+    const callData =
+      normalizedOperation === "wrap_steth"
+        ? LIDO_WSTETH_INTERFACE.encodeFunctionData("getWstETHByStETH", [amount])
+        : LIDO_WSTETH_INTERFACE.encodeFunctionData("getStETHByWstETH", [amount]);
+    const raw = await ethCall(runtimeConfig.providerUrl, contracts.wsteth.address, callData);
+    return decodeUint256Result(
+      raw,
+      normalizedOperation === "wrap_steth" ? "getWstETHByStETH" : "getStETHByWstETH"
+    );
+  }
+
+  async #buildLidoOperationPlan({
+    account,
+    runtimeConfig,
+    address,
+    request,
+    tolerateOperationFeeFailure = false,
+  }) {
+    const contracts = this.#getLidoContracts(runtimeConfig.network);
+    const nativeMetadata = {
+      address: ZERO_ADDRESS,
+      name: runtimeConfig.nativeSymbol === "ETH" ? "Ether" : runtimeConfig.nativeSymbol,
+      symbol: runtimeConfig.nativeSymbol,
+      decimals: 18,
+      verified: true,
+      source: "native-asset",
+    };
+    const [stEthMetadata, wstEthMetadata] = await Promise.all([
+      this.#getLidoTokenMetadata(runtimeConfig, contracts.steth),
+      this.#getLidoTokenMetadata(runtimeConfig, contracts.wsteth),
+    ]);
+    const inputTokenAddress =
+      request.operation === "wrap_steth"
+        ? contracts.steth.address
+        : request.operation === "unwrap_wsteth"
+          ? contracts.wsteth.address
+          : ZERO_ADDRESS;
+    const inputMetadata =
+      request.operation === "wrap_steth"
+        ? stEthMetadata
+        : request.operation === "unwrap_wsteth"
+          ? wstEthMetadata
+          : nativeMetadata;
+    const outputMetadata = request.operation === "unwrap_wsteth" ? stEthMetadata : wstEthMetadata;
+    const spender = request.operation === "wrap_steth" ? contracts.wsteth.address : null;
+    const currentAllowanceState =
+      request.operation === "wrap_steth"
+        ? await this.#getSwapAllowanceState({
+            account,
+            tokenAddress: contracts.steth.address,
+            spender: contracts.wsteth.address,
+          })
+        : {
+            currentAllowance: request.amount,
+            error: null,
+          };
+    const approval =
+      request.operation === "wrap_steth"
+        ? await this.#buildLidoApprovalPlan({
+            account,
+            runtimeConfig,
+            tokenAddress: contracts.steth.address,
+            spender: contracts.wsteth.address,
+            requiredAmount: request.amount,
+            currentAllowance: currentAllowanceState.currentAllowance,
+          })
+        : {
+            required: false,
+            estimatedFee: 0n,
+            steps: [],
+          };
+    if (request.operation === "wrap_steth" || request.operation === "unwrap_wsteth") {
+      const balance = await this.#readTokenBalanceWithFallback({
+        account,
+        runtimeConfig,
+        tokenAddress: inputTokenAddress,
+        ownerAddress: address,
+      });
+      if (balance < request.amount) {
+        throw createTaggedError(
+          "Insufficient token balance for Lido operation.",
+          "insufficient_funds",
+          {
+            network: runtimeConfig.network,
+            tokenAddress: inputTokenAddress,
+            ownerAddress: address,
+            currentBalance: balance.toString(),
+            requiredAmount: request.amount.toString(),
+            protocol: "lido",
+          }
+        );
+      }
+    }
+
+    const operationTx = this.#buildLidoOperationTransaction(runtimeConfig, request);
+    const expectedOutputAmount = await this.#quoteLidoOutputRaw({
+      runtimeConfig,
+      operation: request.operation,
+      amount: request.amount,
+      fromAddress: address,
+    });
+    const operationFeeQuote = await this.#quoteSwapTransaction({
+      account,
+      runtimeConfig,
+      from: address,
+      swapTx: operationTx,
+      tolerateFailure: tolerateOperationFeeFailure || approval.required,
+      operationLabel: `lido ${request.operation}`,
+    });
+    const simulation = approval.required
+      ? {
+          ok: null,
+          skipped: true,
+          reason: "allowance_required",
+        }
+      : await this.#simulatePreparedTransaction({
+          runtimeConfig,
+          from: address,
+          tx: operationTx,
+          operationLabel: "Lido operation",
+        });
+    const operationTransaction = {
+      to: operationTx.to,
+      value: operationTx.value.toString(),
+      dataHash: sha256Hex(String(operationTx.data || "")),
+    };
+    const quoteFingerprint = sha256Hex(
+      JSON.stringify({
+        chainId: runtimeConfig.chainId,
+        network: runtimeConfig.network,
+        from: address.toLowerCase(),
+        protocol: "lido",
+        operation: request.operation,
+        inputToken: inputTokenAddress.toLowerCase(),
+        outputToken: outputMetadata.address.toLowerCase(),
+        amount: request.amount.toString(),
+        outputAmount: expectedOutputAmount.toString(),
+        operationTxTo: operationTransaction.to.toLowerCase(),
+        operationTxValue: operationTransaction.value,
+      })
+    );
+    return {
+      quoteFingerprint,
+      contracts,
+      spender,
+      inputTokenAddress,
+      currentAllowance: currentAllowanceState.currentAllowance,
+      allowanceReadError: currentAllowanceState.error,
+      amount: request.amount,
+      expectedOutputAmount,
+      operationTx,
+      operationFee: operationFeeQuote.fee,
+      operationFeeError: operationFeeQuote.error,
+      totalEstimatedFee:
+        operationFeeQuote.fee !== null ? operationFeeQuote.fee + approval.estimatedFee : null,
+      approval,
+      inputMetadata,
+      outputMetadata,
+      simulation,
+      operationTransaction,
+    };
+  }
+
+  #buildLidoOperationTransaction(runtimeConfig, request) {
+    const contracts = this.#getLidoContracts(runtimeConfig.network);
+    if (request.operation === "stake_eth_for_wsteth") {
+      return {
+        to: contracts.referralStaker,
+        value: request.amount,
+        data: LIDO_REFERRAL_STAKER_INTERFACE.encodeFunctionData("stakeETH", [
+          this.#getLidoReferralAddress(),
+        ]),
+      };
+    }
+    return {
+      to: contracts.wsteth.address,
+      value: 0n,
+      data:
+        request.operation === "wrap_steth"
+          ? LIDO_WSTETH_INTERFACE.encodeFunctionData("wrap", [request.amount])
+          : LIDO_WSTETH_INTERFACE.encodeFunctionData("unwrap", [request.amount]),
+    };
+  }
+
+  async #buildLidoApprovalPlan({
+    account,
+    runtimeConfig,
+    tokenAddress,
+    spender,
+    requiredAmount,
+    currentAllowance,
+  }) {
+    const steps = [];
+    if (currentAllowance < requiredAmount) {
+      steps.push({ type: "approve", amount: requiredAmount.toString() });
+    }
+    let estimatedFee = 0n;
+    for (const step of steps) {
+      const quote = await account.quoteSendTransaction(
+        buildErc20ApproveTransaction(tokenAddress, spender, step.amount)
+      );
+      const fee = BigInt(quote.fee);
+      this.#assertMaxFee(runtimeConfig, fee, `lido ${step.type}`);
+      step.estimatedFeeWei = fee.toString();
+      estimatedFee += fee;
+    }
+    return {
+      required: steps.length > 0,
+      estimatedFee,
+      steps,
+    };
+  }
+
+  #formatLidoOperationResponse({ runtimeConfig, accountIndex, address, request, plan }) {
+    return {
+      network: runtimeConfig.network,
+      chainId: runtimeConfig.chainId,
+      accountIndex,
+      address,
+      protocol: "lido",
+      operation: request.operation,
+      preferredPositionToken: "wstETH",
+      operationRequest: {
+        amount: request.amount.toString(),
+      },
+      inputAsset: plan.inputMetadata,
+      outputAsset: plan.outputMetadata,
+      amountFormatted:
+        plan.inputMetadata && Number.isInteger(plan.inputMetadata.decimals)
+          ? formatUnits(request.amount, plan.inputMetadata.decimals)
+          : null,
+      expectedOutputAmountRaw: plan.expectedOutputAmount.toString(),
+      expectedOutputAmountFormatted:
+        plan.outputMetadata && Number.isInteger(plan.outputMetadata.decimals)
+          ? formatUnits(plan.expectedOutputAmount, plan.outputMetadata.decimals)
+          : null,
+      quoteFingerprint: plan.quoteFingerprint,
+      estimatedFeeWei: plan.totalEstimatedFee !== null ? plan.totalEstimatedFee.toString() : null,
+      estimatedOperationFeeWei: plan.operationFee !== null ? plan.operationFee.toString() : null,
+      estimatedApprovalFeeWei: plan.approval.estimatedFee.toString(),
+      feeEstimateAvailable: plan.operationFee !== null,
+      feeEstimateError: plan.operationFeeError,
+      allowance: {
+        spender: plan.spender,
+        currentAllowance: plan.currentAllowance.toString(),
+        requiredAllowance: plan.amount.toString(),
+        approvalRequired: plan.approval.required,
+        approvalSequence: plan.approval.steps,
+        readError: plan.allowanceReadError,
+      },
+      contracts: {
+        stETH: plan.contracts.steth.address,
+        wstETH: plan.contracts.wsteth.address,
+        referralStaker: plan.contracts.referralStaker,
+        withdrawalQueue: plan.contracts.withdrawalQueue,
+      },
+      referralAddress: this.#getLidoReferralAddress(),
+      simulation: plan.simulation,
+      operationTransaction: plan.operationTransaction,
+      source: "lido-contracts",
+    };
+  }
+
+  #assertExpectedLidoFingerprint(expectedQuoteFingerprint, actualQuoteFingerprint) {
+    if (!expectedQuoteFingerprint) {
+      return;
+    }
+    if (expectedQuoteFingerprint !== actualQuoteFingerprint) {
+      throw createTaggedError(
+        "Lido quote changed since preview. Generate a new preview and approval before execute.",
+        "lido_quote_changed",
+        {
+          expectedQuoteFingerprint,
+          actualQuoteFingerprint,
+        }
+      );
+    }
+  }
+
+  async #executeLidoApprovalsIfNeeded({ account, runtimeConfig, request, plan }) {
+    if (!plan.approval.required || !plan.spender || isZeroAddress(plan.inputTokenAddress)) {
+      return {
+        performed: false,
+        totalFee: 0n,
+        approveHash: null,
+        resetAllowanceHash: null,
+      };
+    }
+    let totalFee = 0n;
+    let approveHash = null;
+    let resetAllowanceHash = null;
+    for (const step of plan.approval.steps) {
+      const result = await account.approve({
+        token: plan.inputTokenAddress,
+        spender: plan.spender,
+        amount: step.amount,
+      });
+      totalFee += BigInt(result.fee || 0);
+      if (step.type === "reset_allowance") {
+        resetAllowanceHash = result.hash;
+      } else if (step.type === "approve") {
+        approveHash = result.hash;
+      }
+      await this.#waitForTransactionReceipt(runtimeConfig, result.hash);
+    }
+    return {
+      performed: true,
+      totalFee,
+      approveHash,
+      resetAllowanceHash,
+    };
+  }
+
+  async #restoreAllowanceAfterFailedLidoOperation({
+    account,
+    runtimeConfig,
+    tokenAddress,
+    spender,
+    originalAllowance,
+    approvalExecution,
+  }) {
+    if (!approvalExecution?.performed || !tokenAddress || isZeroAddress(tokenAddress) || !spender) {
+      return {
+        attempted: false,
+        restored: false,
+        originalAllowance: BigInt(originalAllowance || 0n).toString(),
+      };
+    }
+    const cleanup = {
+      attempted: true,
+      restored: false,
+      originalAllowance: BigInt(originalAllowance || 0n).toString(),
+      restoreHashes: [],
+      restoreSteps: [],
+      error: null,
+    };
+    try {
+      const restorePlan = await this.#buildAllowanceRestorePlan({
+        account,
+        runtimeConfig,
+        tokenAddress,
+        spender,
+        targetAllowance: BigInt(originalAllowance || 0n),
+        operationLabel: "lido",
+      });
+      cleanup.restoreSteps = restorePlan.steps.map((step) => ({ ...step }));
+      if (!restorePlan.required) {
+        cleanup.restored = true;
+        return cleanup;
+      }
+      for (const step of restorePlan.steps) {
+        const result = await account.approve({
+          token: tokenAddress,
+          spender,
+          amount: step.amount,
+        });
+        cleanup.restoreHashes.push({
+          type: step.type,
+          hash: result.hash,
+          fee: BigInt(result.fee || 0).toString(),
+        });
+        await this.#waitForTransactionReceipt(runtimeConfig, result.hash);
+      }
+      const finalAllowance = await account.getAllowance(tokenAddress, spender);
+      cleanup.finalAllowance = finalAllowance.toString();
+      cleanup.restored = finalAllowance === BigInt(originalAllowance || 0n);
+      return cleanup;
+    } catch (cleanupError) {
+      cleanup.error = {
+        message: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+        code:
+          cleanupError && typeof cleanupError === "object"
+            ? String(cleanupError.errorCode || cleanupError.code || "").trim() || null
+            : null,
+      };
+      return cleanup;
+    }
+  }
+
+  #throwLidoFailureWithCleanup(error, cleanup) {
+    if (cleanup?.attempted && cleanup.restored !== true) {
+      throw createTaggedError(
+        "Lido operation failed after approval and automatic allowance restore did not complete.",
+        "lido_cleanup_failed",
+        {
+          originalError:
+            error instanceof Error
+              ? {
+                  message: error.message,
+                  code: String(error.errorCode || error.code || "").trim() || null,
+                }
+              : { message: String(error), code: null },
+          cleanup,
+        }
+      );
+    }
+    throw error;
+  }
+
   async #getSwapAllowanceState({ account, tokenAddress, spender }) {
     try {
       return {
@@ -3000,11 +3791,12 @@ export class WdkEvmWalletService {
     swapTx,
     fallbackGasLimit = null,
     tolerateFailure,
+    operationLabel = "swap",
   }) {
     try {
       const quote = await account.quoteSendTransaction(swapTx);
       const fee = BigInt(quote.fee);
-      this.#assertMaxFee(runtimeConfig, fee, "swap");
+      this.#assertMaxFee(runtimeConfig, fee, operationLabel);
       return {
         fee,
         error: null,
@@ -3020,6 +3812,7 @@ export class WdkEvmWalletService {
             runtimeConfig,
             from,
             tx: swapTx,
+            operationLabel,
           });
           return {
             fee: rpcQuote.fee,
@@ -3031,6 +3824,7 @@ export class WdkEvmWalletService {
               const routeQuote = await this.#quotePreparedTransactionFromGasLimit({
                 runtimeConfig,
                 gasLimit: fallbackGasLimit,
+                operationLabel,
               });
               return {
                 fee: routeQuote.fee,
@@ -3085,6 +3879,7 @@ export class WdkEvmWalletService {
           const routeQuote = await this.#quotePreparedTransactionFromGasLimit({
             runtimeConfig,
             gasLimit: fallbackGasLimit,
+            operationLabel,
           });
           return {
             fee: routeQuote.fee,
@@ -3105,7 +3900,7 @@ export class WdkEvmWalletService {
     }
   }
 
-  async #quotePreparedTransactionFromRpc({ runtimeConfig, from, tx }) {
+  async #quotePreparedTransactionFromRpc({ runtimeConfig, from, tx, operationLabel = "swap" }) {
     const gasLimitHex = await rpcRequest(runtimeConfig.providerUrl, "eth_estimateGas", [
       {
         from: normalizeAddress(from, "from"),
@@ -3117,7 +3912,7 @@ export class WdkEvmWalletService {
     const gasLimit = BigInt(gasLimitHex || "0x0");
     const effectiveFeePerGas = await this.#getEffectiveGasPrice(runtimeConfig);
     const fee = gasLimit * effectiveFeePerGas;
-    this.#assertMaxFee(runtimeConfig, fee, "swap");
+    this.#assertMaxFee(runtimeConfig, fee, operationLabel);
     return {
       gasLimit,
       effectiveFeePerGas,
@@ -3125,11 +3920,15 @@ export class WdkEvmWalletService {
     };
   }
 
-  async #quotePreparedTransactionFromGasLimit({ runtimeConfig, gasLimit }) {
+  async #quotePreparedTransactionFromGasLimit({
+    runtimeConfig,
+    gasLimit,
+    operationLabel = "swap",
+  }) {
     const normalizedGasLimit = BigInt(gasLimit);
     const effectiveFeePerGas = await this.#getEffectiveGasPrice(runtimeConfig);
-    const fee = normalizedGasLimit * effectiveFeePerGas;
-    this.#assertMaxFee(runtimeConfig, fee, "swap");
+      const fee = normalizedGasLimit * effectiveFeePerGas;
+    this.#assertMaxFee(runtimeConfig, fee, operationLabel);
     return {
       gasLimit: normalizedGasLimit,
       effectiveFeePerGas,
@@ -3245,7 +4044,7 @@ export class WdkEvmWalletService {
     throw error;
   }
 
-  async #simulatePreparedTransaction({ runtimeConfig, from, tx }) {
+  async #simulatePreparedTransaction({ runtimeConfig, from, tx, operationLabel = "Swap" }) {
     try {
       await rpcRequest(runtimeConfig.providerUrl, "eth_call", [
         {
@@ -3265,7 +4064,7 @@ export class WdkEvmWalletService {
       return {
         ok: false,
         skipped: false,
-        message: `Swap simulation failed: ${message}`,
+        message: `${operationLabel} simulation failed: ${message}`,
         details:
           error && typeof error === "object" && error.errorDetails && typeof error.errorDetails === "object"
             ? { ...error.errorDetails }

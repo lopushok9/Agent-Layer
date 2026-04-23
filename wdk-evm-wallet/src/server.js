@@ -434,6 +434,18 @@ async function handleRequest(request, response) {
       return sendJson(response, 200, { ok: true, data });
     }
 
+    if (method === "POST" && url.pathname === "/v1/evm/lido/overview/get") {
+      const body = await withResolvedNetwork(await withResolvedSeedOrAddress(await readJsonBody(request)));
+      const data = await service.getLidoOverview(body);
+      return sendJson(response, 200, { ok: true, data });
+    }
+
+    if (method === "POST" && url.pathname === "/v1/evm/lido/positions/get") {
+      const body = await withResolvedNetwork(await withResolvedSeedOrAddress(await readJsonBody(request)));
+      const data = await service.getLidoPositions(body);
+      return sendJson(response, 200, { ok: true, data });
+    }
+
     const aaveOperationMatch = url.pathname.match(
       /^\/v1\/evm\/aave\/(supply|withdraw|borrow|repay)\/(quote|send)$/
     );
@@ -449,6 +461,24 @@ async function handleRequest(request, response) {
         action === "quote"
           ? await service.quoteAaveOperation({ ...body, operation })
           : await service.sendAaveOperation({ ...body, operation });
+      return sendJson(response, 200, { ok: true, data });
+    }
+
+    const lidoOperationMatch = url.pathname.match(
+      /^\/v1\/evm\/lido\/(stake_eth_for_wsteth|wrap_steth|unwrap_wsteth)\/(quote|send)$/
+    );
+    if (method === "POST" && lidoOperationMatch) {
+      const operation = lidoOperationMatch[1];
+      const action = lidoOperationMatch[2];
+      const rawBody = await readJsonBody(request);
+      const body =
+        action === "quote"
+          ? await withResolvedNetwork(await withResolvedSeedOrAddress(rawBody))
+          : await withResolvedNetwork(await withResolvedSeed(rawBody));
+      const data =
+        action === "quote"
+          ? await service.quoteLidoOperation({ ...body, operation })
+          : await service.sendLidoOperation({ ...body, operation });
       return sendJson(response, 200, { ok: true, data });
     }
 

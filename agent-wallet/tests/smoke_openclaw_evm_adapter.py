@@ -401,6 +401,194 @@ class FakeEvmBackend(AgentWalletBackend):
             "confirmed": False,
         }
 
+    async def get_evm_lido_overview(self) -> dict:
+        return {
+            "chain": "evm",
+            "network": self.network,
+            "protocol": "lido",
+            "preferred_position_token": "wstETH",
+            "chain_id": 1,
+            "staking_asset": {
+                "type": "native",
+                "symbol": "ETH",
+                "decimals": 18,
+            },
+            "referral_address": "0x0000000000000000000000000000000000000000",
+            "contracts": {
+                "stETH": "0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84",
+                "wstETH": "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0",
+                "referralStaker": "0xa88f0329C2c4ce51ba3fc619BBf44efE7120Dd0d",
+                "withdrawalQueue": "0x889edC2eDab5f40e902b864aD4d7AdE8E412F9B1",
+            },
+            "steth_metadata": {
+                "address": "0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84",
+                "name": "Liquid staked Ether 2.0",
+                "symbol": "stETH",
+                "decimals": 18,
+                "verified": True,
+                "source": "fake",
+            },
+            "wsteth_metadata": {
+                "address": "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0",
+                "name": "Wrapped liquid staked Ether 2.0",
+                "symbol": "wstETH",
+                "decimals": 18,
+                "verified": True,
+                "source": "fake",
+            },
+            "sample_rates": {
+                "sampleBaseUnits": "1000000000000000000",
+                "wstEthPerStEthRaw": "950000000000000000",
+                "wstEthPerStEthFormatted": "0.95",
+                "stEthPerWstEthRaw": "1050000000000000000",
+                "stEthPerWstEthFormatted": "1.05",
+            },
+            "source": "fake",
+        }
+
+    async def get_evm_lido_positions(self) -> dict:
+        return {
+            "chain": "evm",
+            "network": self.network,
+            "address": await self.get_address(),
+            "protocol": "lido",
+            "preferred_position_token": "wstETH",
+            "chain_id": 1,
+            "contracts": {
+                "stETH": "0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84",
+                "wstETH": "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0",
+                "referralStaker": "0xa88f0329C2c4ce51ba3fc619BBf44efE7120Dd0d",
+                "withdrawalQueue": "0x889edC2eDab5f40e902b864aD4d7AdE8E412F9B1",
+            },
+            "native_balance_wei": "1230000000000000000",
+            "native_balance_ui": "1.23",
+            "steth_equivalent_total_raw": "2100000000000000000",
+            "steth_equivalent_total_ui": "2.1",
+            "position_count": 2,
+            "positions": [
+                {
+                    "asset": "stETH",
+                    "balanceRaw": "1000000000000000000",
+                    "balanceFormatted": "1",
+                    "stEthEquivalentRaw": "1000000000000000000",
+                    "stEthEquivalentFormatted": "1",
+                },
+                {
+                    "asset": "wstETH",
+                    "balanceRaw": "1000000000000000000",
+                    "balanceFormatted": "1",
+                    "stEthEquivalentRaw": "1100000000000000000",
+                    "stEthEquivalentFormatted": "1.1",
+                },
+            ],
+            "source": "fake",
+        }
+
+    async def preview_evm_lido_operation(
+        self,
+        *,
+        operation: str,
+        amount_raw: str,
+    ) -> dict:
+        input_asset = (
+            {
+                "address": "0x0000000000000000000000000000000000000000",
+                "name": "Ether",
+                "symbol": "ETH",
+                "decimals": 18,
+                "verified": True,
+                "source": "native-asset",
+            }
+            if operation == "stake_eth_for_wsteth"
+            else {
+                "address": "0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84"
+                if operation == "wrap_steth"
+                else "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0",
+                "name": "Liquid staked Ether 2.0"
+                if operation == "wrap_steth"
+                else "Wrapped liquid staked Ether 2.0",
+                "symbol": "stETH" if operation == "wrap_steth" else "wstETH",
+                "decimals": 18,
+                "verified": True,
+                "source": "fake",
+            }
+        )
+        output_asset = {
+            "address": "0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84"
+            if operation == "unwrap_wsteth"
+            else "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0",
+            "name": "Liquid staked Ether 2.0"
+            if operation == "unwrap_wsteth"
+            else "Wrapped liquid staked Ether 2.0",
+            "symbol": "stETH" if operation == "unwrap_wsteth" else "wstETH",
+            "decimals": 18,
+            "verified": True,
+            "source": "fake",
+        }
+        requires_approval = operation == "wrap_steth"
+        return {
+            "chain": "evm",
+            "network": self.network,
+            "asset_type": "evm-lido-staking",
+            "asset": "ETH",
+            "wallet": "evm-wallet-123",
+            "from_address": await self.get_address(),
+            "protocol": "lido",
+            "operation": operation,
+            "amount_raw": amount_raw,
+            "amount_ui": "1",
+            "expected_output_amount_raw": "950000000000000000",
+            "expected_output_amount_ui": "0.95",
+            "estimated_fee_wei": "72000000000000",
+            "estimated_operation_fee_wei": "44000000000000",
+            "estimated_approval_fee_wei": "28000000000000" if requires_approval else "0",
+            "fee_estimate_available": True,
+            "quote_fingerprint": "lido-fingerprint-1",
+            "allowance": {
+                "spender": "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0" if requires_approval else None,
+                "current_allowance_raw": "0" if requires_approval else amount_raw,
+                "required_allowance_raw": amount_raw,
+                "approval_required": requires_approval,
+                "approval_sequence": (
+                    [{"type": "approve", "amount": amount_raw, "estimatedFeeWei": "28000000000000"}]
+                    if requires_approval
+                    else []
+                ),
+            },
+            "input_asset": input_asset,
+            "output_asset": output_asset,
+            "contracts": {
+                "stETH": "0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84",
+                "wstETH": "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0",
+                "referralStaker": "0xa88f0329C2c4ce51ba3fc619BBf44efE7120Dd0d",
+                "withdrawalQueue": "0x889edC2eDab5f40e902b864aD4d7AdE8E412F9B1",
+            },
+            "referral_address": "0x0000000000000000000000000000000000000000",
+            "simulation": {"ok": True, "skipped": False, "reason": None, "message": None, "details": None},
+            "source": "fake",
+        }
+
+    async def send_evm_lido_operation(
+        self,
+        *,
+        operation: str,
+        amount_raw: str,
+        expected_quote_fingerprint: str | None = None,
+    ) -> dict:
+        if expected_quote_fingerprint and expected_quote_fingerprint != "lido-fingerprint-1":
+            raise WalletBackendError("lido quote changed", code="lido_quote_changed")
+        preview = await self.preview_evm_lido_operation(
+            operation=operation,
+            amount_raw=amount_raw,
+        )
+        return {
+            **preview,
+            "hash": "0x" + "c" * 64,
+            "approve_hash": "0x" + "d" * 64 if operation == "wrap_steth" else None,
+            "broadcasted": True,
+            "confirmed": False,
+        }
+
     async def get_evm_swap_quote(
         self,
         *,
@@ -875,6 +1063,9 @@ async def _main() -> None:
     assert "get_evm_aave_reserves" in tool_names
     assert "get_evm_aave_positions" in tool_names
     assert "manage_evm_aave_position" in tool_names
+    assert "get_evm_lido_overview" in tool_names
+    assert "get_evm_lido_positions" in tool_names
+    assert "manage_evm_lido_position" in tool_names
     assert "get_evm_swap_quote" in tool_names
     assert "swap_evm_tokens" in tool_names
     assert "transfer_evm_native" in tool_names
@@ -1038,6 +1229,69 @@ async def _main() -> None:
     assert aave_executed.ok is True
     assert aave_executed.data["hash"].startswith("0x")
     assert aave_executed.data["approve_hash"].startswith("0x")
+
+    lido_overview = await adapter.invoke("get_evm_lido_overview", {"network": "ethereum"})
+    assert lido_overview.ok is True
+    assert lido_overview.data["protocol"] == "lido"
+    assert lido_overview.data["preferred_position_token"] == "wstETH"
+
+    lido_positions = await adapter.invoke("get_evm_lido_positions", {"network": "ethereum"})
+    assert lido_positions.ok is True
+    assert lido_positions.data["position_count"] == 2
+    assert lido_positions.data["positions"][1]["asset"] == "wstETH"
+
+    lido_preview = await adapter.invoke(
+        "manage_evm_lido_position",
+        {
+            "operation": "wrap_steth",
+            "amount_raw": "1000000000000000000",
+            "mode": "preview",
+            "purpose": "test lido wrap",
+            "network": "ethereum",
+        },
+    )
+    assert lido_preview.ok is True
+    assert lido_preview.data["asset_type"] == "evm-lido-staking"
+    assert lido_preview.data["confirmation_summary"]["lido_operation"] == "wrap_steth"
+    assert lido_preview.data["confirmation_summary"]["quote_fingerprint"] == "lido-fingerprint-1"
+    assert lido_preview.data["allowance"]["approval_required"] is True
+
+    lido_prepare = await adapter.invoke(
+        "manage_evm_lido_position",
+        {
+            "operation": "stake_eth_for_wsteth",
+            "amount_raw": "1000000000000000000",
+            "mode": "prepare",
+            "purpose": "test lido stake",
+            "user_intent": True,
+            "network": "ethereum",
+        },
+    )
+    assert lido_prepare.ok is True
+    assert lido_prepare.data["execution_plan_only"] is True
+    assert lido_prepare.data["allowance"]["approval_required"] is False
+
+    lido_approval = issue_approval_token(
+        tool_name="manage_evm_lido_position",
+        network="ethereum",
+        summary=lido_preview.data["confirmation_summary"],
+        mainnet_confirmed=True,
+        issued_by="test",
+    )
+    lido_executed = await adapter.invoke(
+        "manage_evm_lido_position",
+        {
+            "operation": "wrap_steth",
+            "amount_raw": "1000000000000000000",
+            "mode": "execute",
+            "purpose": "test lido wrap",
+            "approval_token": lido_approval,
+            "network": "ethereum",
+        },
+    )
+    assert lido_executed.ok is True
+    assert lido_executed.data["hash"].startswith("0x")
+    assert lido_executed.data["approve_hash"].startswith("0x")
 
     swap_preview = await adapter.invoke(
         "swap_evm_tokens",

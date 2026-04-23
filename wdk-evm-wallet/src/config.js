@@ -267,6 +267,7 @@ export function loadConfig(env = process.env) {
     lifiApiKey: String(env.LIFI_API_KEY ?? "").trim(),
     lifiIntegrator: String(env.LIFI_INTEGRATOR ?? "").trim() || "openclaw",
     lifiDefaultDenyBridges: String(env.LIFI_DEFAULT_DENY_BRIDGES ?? "").trim() || "mayan",
+    lidoReferralAddress: String(env.LIDO_REFERRAL_ADDRESS ?? "").trim(),
     networkProfiles,
   };
 }
