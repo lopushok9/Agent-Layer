@@ -18,8 +18,13 @@ def main() -> None:
 
     config_path = temp_root / "openclaw.json"
     env_path = temp_root / ".env"
+    runtime_root = temp_root / "agent-wallet-runtime" / "current"
+    stale_server = runtime_root / "wdk-evm-wallet" / "src" / "server.js"
+    stale_server.parent.mkdir(parents=True, exist_ok=True)
+    stale_server.write_text("// stale runtime without lido routes\n", encoding="utf-8")
 
     script = Path(__file__).resolve().parents[1] / "scripts" / "install_agent_wallet.py"
+    repo_root = Path(__file__).resolve().parents[2]
     env = dict(os.environ)
     env["OPENCLAW_HOME"] = str(temp_root)
     env["AGENT_WALLET_BOOT_KEY"] = "test-boot-key-for-universal-installer"
@@ -34,6 +39,8 @@ def main() -> None:
             str(config_path),
             "--env-path",
             str(env_path),
+            "--backend",
+            "none",
             "--skip-python-setup",
             "--skip-node-setup",
         ],
@@ -46,16 +53,23 @@ def main() -> None:
     assert payload["ok"] is True
     assert payload["env_created"] is True
     assert payload["config_created"] is True
-    assert payload["configured"] is True
+    assert payload["configured"] is False
     assert payload["pending_env"] == []
     assert payload["node_runtime"]["skipped"] is True
+    assert payload["runtime_sync"]["enabled"] is True
+    assert payload["runtime_sync"]["skipped"] is False
+    assert Path(payload["runtime_root"]).resolve() == runtime_root.resolve()
     assert Path(payload["env_path"]).exists()
     assert Path(payload["config_path"]).exists()
+    synced_server = runtime_root / "wdk-evm-wallet" / "src" / "server.js"
+    assert synced_server.exists()
+    assert synced_server.read_text(encoding="utf-8") == (
+        repo_root / "wdk-evm-wallet" / "src" / "server.js"
+    ).read_text(encoding="utf-8")
+    assert "/v1/evm/lido/overview/get" in synced_server.read_text(encoding="utf-8")
 
     config = json.loads(config_path.read_text(encoding="utf-8"))
-    plugin = config["plugins"]["entries"]["agent-wallet"]
-    assert plugin["enabled"] is True
-    assert plugin["config"]["backend"] == "solana_local"
+    assert config["plugins"]["entries"] == {}
 
     dry_run = subprocess.run(
         [
@@ -76,7 +90,11 @@ def main() -> None:
     )
     dry_payload = json.loads(dry_run.stdout)
     assert dry_payload["configured"] is False
-    assert dry_payload["pending_env"] == ["AGENT_WALLET_BOOT_KEY"]
+    assert dry_payload["pending_env"] == [
+        "AGENT_WALLET_BOOT_KEY",
+        "AGENT_WALLET_MASTER_KEY",
+        "AGENT_WALLET_APPROVAL_SECRET",
+    ]
 
     fresh_root = temp_root / "fresh-home"
     fresh_root.mkdir(parents=True, exist_ok=True)
