@@ -47,10 +47,43 @@ sh ./setup.sh
 
 If you want the installer to finish the OpenClaw plugin wiring in the same pass, provide the runtime secrets before running it:
 
+Solana:
+
 ```bash
 export AGENT_WALLET_BOOT_KEY="$(openssl rand -base64 32)"
 export AGENT_WALLET_MASTER_KEY="$(openssl rand -base64 32)"
 export AGENT_WALLET_APPROVAL_SECRET="$(openssl rand -base64 32)"
+```
+Bitcoin:
+
+```bash
+sh agent-wallet/scripts/setup_btc_wallet.sh
+```
+
+EVM:
+
+```bash
+cd wdk-evm-wallet && sh run-local.sh
+```
+
+Create a local EVM wallet binding for an OpenClaw user:
+
+```bash
+printf '%s\n' 'your-local-evm-password' | \
+agent-wallet/.venv/bin/python -m agent_wallet.openclaw_cli evm-wallet-create \
+  --user-id your-user-id \
+  --password-stdin \
+  --config-json '{"backend":"wdk_evm_local","network":"base","wdkEvmServiceUrl":"http://127.0.0.1:8081"}'
+```
+
+Unlock an existing EVM wallet binding:
+
+```bash
+printf '%s\n' 'your-local-evm-password' | \
+agent-wallet/.venv/bin/python -m agent_wallet.openclaw_cli evm-wallet-unlock \
+  --user-id your-user-id \
+  --password-stdin \
+  --config-json '{"backend":"wdk_evm_local","network":"base","wdkEvmServiceUrl":"http://127.0.0.1:8081"}'
 ```
 
 That generates three fresh local secrets in the current shell session. If you prefer Python instead of `openssl`:
