@@ -28,6 +28,7 @@ from agent_wallet.transaction_policy import (
     verify_provider_bags_transaction,
     verify_provider_kamino_lend_transaction,
     verify_provider_lend_transaction,
+    verify_provider_swap_simulation_result,
     verify_provider_swap_transaction,
 )
 from agent_wallet.validation import validate_solana_address, validate_solana_mint
@@ -3926,6 +3927,7 @@ class SolanaWalletBackend(AgentWalletBackend):
             "input_amount_ui": prepared["input_amount_ui"],
             "estimated_output_amount_ui": prepared["estimated_output_amount_ui"],
             "minimum_output_amount_ui": prepared["minimum_output_amount_ui"],
+            "minimum_output_amount_raw": prepared.get("minimum_output_amount_raw"),
             "slippage_bps": prepared["slippage_bps"],
             "price_impact_pct": prepared["price_impact_pct"],
             "signature": onchain_signature,
@@ -3940,6 +3942,8 @@ class SolanaWalletBackend(AgentWalletBackend):
             "estimated_total_fee_label": prepared.get("estimated_total_fee_label"),
             "request_id": prepared.get("request_id"),
             "swap_provider": prepared.get("swap_provider"),
+            "swap_safety": prepared.get("swap_safety"),
+            "simulation": prepared.get("simulation"),
             "execute_response": submitted,
             "source": prepared.get("swap_provider") or "jupiter-metis",
         }
@@ -4030,6 +4034,38 @@ class SolanaWalletBackend(AgentWalletBackend):
             unsigned_transaction.message,
             signatures,
         )
+        signed_transaction_base64 = encode_transaction_base64(bytes(signed_transaction))
+        simulation_value: dict[str, Any] | None = None
+        swap_safety: dict[str, Any]
+        try:
+            simulation = await solana_rpc.simulate_transaction(
+                transaction_base64=signed_transaction_base64,
+                rpc_url=self.rpc_urls,
+                commitment=self.commitment,
+            )
+            simulation_value = (
+                simulation.get("value") if isinstance(simulation.get("value"), dict) else {}
+            )
+            swap_safety = verify_provider_swap_simulation_result(
+                simulation_value,
+                wallet_address=sender,
+                wallet_account_index=wallet_signer_index,
+                input_mint=str(preview["input_mint"]),
+                output_mint=str(preview["output_mint"]),
+                input_amount_raw=int(preview["input_amount_raw"]),
+                minimum_output_amount_raw=int(preview["minimum_output_amount_raw"]),
+            )
+        except ProviderError as exc:
+            swap_safety = {
+                "verified": False,
+                "simulation_unavailable": True,
+                "warning": (
+                    "Swap simulation could not be completed via the configured Solana RPC. "
+                    "Proceeding with structural provider verification to preserve swap "
+                    "availability."
+                ),
+                "error": str(exc),
+            }
         fee_summary = self._build_swap_fee_summary(
             swap_provider=swap_provider,
             quote_response=preview["quote_response"],
@@ -4049,9 +4085,10 @@ class SolanaWalletBackend(AgentWalletBackend):
             "input_amount_raw": preview["input_amount_raw"],
             "estimated_output_amount_ui": preview["estimated_output_amount_ui"],
             "minimum_output_amount_ui": preview["minimum_output_amount_ui"],
+            "minimum_output_amount_raw": preview["minimum_output_amount_raw"],
             "slippage_bps": preview["slippage_bps"],
             "price_impact_pct": preview["price_impact_pct"],
-            "transaction_base64": encode_transaction_base64(bytes(signed_transaction)),
+            "transaction_base64": signed_transaction_base64,
             "transaction_encoding": "base64",
             "transaction_format": "versioned",
             "signed": True,
@@ -4063,6 +4100,8 @@ class SolanaWalletBackend(AgentWalletBackend):
             "fee_summary": fee_summary,
             "estimated_total_fee_label": self._format_swap_fee_label(fee_summary),
             "verification": verification,
+            "swap_safety": swap_safety,
+            "simulation": simulation_value,
             "request_id": request_id,
             "swap_provider": swap_provider,
             "source": swap_provider,

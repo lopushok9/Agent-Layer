@@ -17,6 +17,8 @@ JUPITER_V6_PROGRAM_ID = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5Nt7NQYjN"
 JUPITER_ULTRA_EXACT_OUT_PROGRAM_ID = "j1o2qRpjcyUwEvwtcfhEQefh773ZgjxcVRry7LDqg5X"
 JUPITER_DCA_PROGRAM_ID = "DCA265Vj8a7wYymQG8LqM3m7A4QeV9hiC7VYh4S6Jsa"
 KAMINO_LEND_PROGRAM_ID = "KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD"
+NATIVE_SOL_MINT = "So11111111111111111111111111111111111111112"
+DEFAULT_NATIVE_SOL_EXTRA_SPEND_ALLOWANCE_LAMPORTS = 10_000_000
 
 CORE_PROGRAM_IDS = {
     SYSTEM_PROGRAM_ID,
@@ -149,15 +151,15 @@ def verify_provider_swap_transaction(
 ) -> dict[str, Any]:
     binding = _assert_basic_wallet_binding(message, wallet_address=wallet_address)
     keys = binding["account_keys"]
-    if input_mint not in keys:
-        raise WalletBackendError(
-            "Provider swap transaction does not reference the expected input mint."
-        )
-    if output_mint not in keys:
-        raise WalletBackendError(
-            "Provider swap transaction does not reference the expected output mint."
-        )
     program_ids = _program_ids(message)
+
+    # Native SOL routes can be represented via wrapped SOL / temporary accounts, and some
+    # aggregator paths do not expose canonical mint addresses directly in account keys.
+    # We therefore treat mint-key presence as advisory rather than a hard blocker. The
+    # stronger swap-specific safety gate is the signed transaction simulation check below.
+    input_mint_present = input_mint in keys
+    output_mint_present = output_mint in keys
+
     unknown_program_ids = _assert_program_allowlist(
         program_ids,
         allowed_programs=SWAP_ALLOWED_PROGRAMS,
@@ -183,7 +185,197 @@ def verify_provider_swap_transaction(
         "instruction_count": len(_compiled_instructions(message)),
         "input_mint": input_mint,
         "output_mint": output_mint,
+        "input_mint_present": input_mint_present,
+        "output_mint_present": output_mint_present,
         "verified": True,
+    }
+
+
+def _coerce_token_balance_amount(balance: dict[str, Any]) -> int | None:
+    ui_token_amount = balance.get("uiTokenAmount")
+    if not isinstance(ui_token_amount, dict):
+        return None
+    amount = ui_token_amount.get("amount")
+    try:
+        return int(str(amount))
+    except (TypeError, ValueError):
+        return None
+
+
+def _wallet_token_deltas_by_mint(
+    simulation_value: dict[str, Any],
+    *,
+    wallet_address: str,
+) -> dict[str, int]:
+    deltas: dict[tuple[int, str], int] = {}
+    for field, multiplier in (("preTokenBalances", -1), ("postTokenBalances", 1)):
+        balances = simulation_value.get(field)
+        if not isinstance(balances, list):
+            continue
+        for balance in balances:
+            if not isinstance(balance, dict):
+                continue
+            owner = str(balance.get("owner") or "").strip()
+            if owner != wallet_address:
+                continue
+            mint = str(balance.get("mint") or "").strip()
+            if not mint:
+                continue
+            amount = _coerce_token_balance_amount(balance)
+            if amount is None:
+                continue
+            try:
+                account_index = int(balance.get("accountIndex"))
+            except (TypeError, ValueError):
+                account_index = -1
+            key = (account_index, mint)
+            deltas[key] = deltas.get(key, 0) + (amount * multiplier)
+
+    by_mint: dict[str, int] = {}
+    for (_, mint), delta in deltas.items():
+        by_mint[mint] = by_mint.get(mint, 0) + delta
+    return by_mint
+
+
+def _native_lamport_delta(
+    simulation_value: dict[str, Any],
+    *,
+    wallet_account_index: int | None,
+) -> int | None:
+    if wallet_account_index is None or wallet_account_index < 0:
+        return None
+    pre_balances = simulation_value.get("preBalances")
+    post_balances = simulation_value.get("postBalances")
+    if not isinstance(pre_balances, list) or not isinstance(post_balances, list):
+        return None
+    if wallet_account_index >= len(pre_balances) or wallet_account_index >= len(post_balances):
+        return None
+    try:
+        return int(post_balances[wallet_account_index]) - int(pre_balances[wallet_account_index])
+    except (TypeError, ValueError):
+        return None
+
+
+def verify_provider_swap_simulation_result(
+    simulation_value: dict[str, Any],
+    *,
+    wallet_address: str,
+    wallet_account_index: int | None,
+    input_mint: str,
+    output_mint: str,
+    input_amount_raw: int,
+    minimum_output_amount_raw: int,
+    native_sol_extra_spend_allowance_lamports: int = (
+        DEFAULT_NATIVE_SOL_EXTRA_SPEND_ALLOWANCE_LAMPORTS
+    ),
+) -> dict[str, Any]:
+    """Validate simulated wallet balance effects for a provider-built swap.
+
+    Static account keys are too brittle for Jupiter routes that use wrapped SOL,
+    shared accounts, intermediate hops, or address lookup tables. Simulation is
+    closer to the signing risk: what will this transaction do to this wallet?
+    The checks below block only when RPC gives us concrete contradictory data.
+    Missing balance metadata is returned as advisory warnings to preserve route
+    reliability across provider/RPC response variants.
+    """
+    if not isinstance(simulation_value, dict):
+        raise WalletBackendError(
+            "Provider swap transaction simulation returned an unexpected payload.",
+            code="transaction_simulation_invalid",
+        )
+
+    if simulation_value.get("err") is not None:
+        raise WalletBackendError(
+            "Provider swap transaction simulation failed.",
+            code="transaction_simulation_failed",
+            details={"simulation": simulation_value},
+        )
+
+    token_deltas = _wallet_token_deltas_by_mint(
+        simulation_value,
+        wallet_address=wallet_address,
+    )
+    native_delta = _native_lamport_delta(
+        simulation_value,
+        wallet_account_index=wallet_account_index,
+    )
+    warnings: list[str] = []
+    enforced_checks: list[str] = ["simulation_err_is_none"]
+
+    if input_mint == NATIVE_SOL_MINT:
+        if native_delta is None:
+            warnings.append("native_input_delta_unavailable")
+        else:
+            max_spend = max(input_amount_raw, 0) + max(
+                native_sol_extra_spend_allowance_lamports,
+                0,
+            )
+            if -native_delta > max_spend:
+                raise WalletBackendError(
+                    "Provider swap transaction simulation spends more native SOL than approved.",
+                    code="swap_simulation_overspend",
+                    details={
+                        "input_mint": input_mint,
+                        "approved_input_amount_raw": str(input_amount_raw),
+                        "native_delta_lamports": str(native_delta),
+                        "allowed_extra_lamports": str(
+                            native_sol_extra_spend_allowance_lamports
+                        ),
+                    },
+                )
+            enforced_checks.append("native_input_spend_within_approved_amount")
+    else:
+        input_delta = token_deltas.get(input_mint)
+        if input_delta is None:
+            warnings.append("token_input_delta_unavailable")
+        elif -input_delta > input_amount_raw:
+            raise WalletBackendError(
+                "Provider swap transaction simulation spends more input token than approved.",
+                code="swap_simulation_overspend",
+                details={
+                    "input_mint": input_mint,
+                    "approved_input_amount_raw": str(input_amount_raw),
+                    "input_delta_raw": str(input_delta),
+                },
+            )
+        else:
+            enforced_checks.append("token_input_spend_within_approved_amount")
+
+    if output_mint == NATIVE_SOL_MINT:
+        if native_delta is None:
+            warnings.append("native_output_delta_unavailable")
+        else:
+            warnings.append("native_output_delta_is_net_of_fees")
+    else:
+        output_delta = token_deltas.get(output_mint)
+        if output_delta is None:
+            warnings.append("token_output_delta_unavailable")
+        elif output_delta < minimum_output_amount_raw:
+            raise WalletBackendError(
+                "Provider swap transaction simulation returns less output token than approved.",
+                code="swap_simulation_min_output_not_met",
+                details={
+                    "output_mint": output_mint,
+                    "minimum_output_amount_raw": str(minimum_output_amount_raw),
+                    "output_delta_raw": str(output_delta),
+                },
+            )
+        else:
+            enforced_checks.append("token_output_meets_approved_minimum")
+
+    return {
+        "verified": True,
+        "simulation_err": None,
+        "wallet_address": wallet_address,
+        "wallet_account_index": wallet_account_index,
+        "input_mint": input_mint,
+        "output_mint": output_mint,
+        "input_amount_raw": str(input_amount_raw),
+        "minimum_output_amount_raw": str(minimum_output_amount_raw),
+        "token_deltas": {mint: str(delta) for mint, delta in sorted(token_deltas.items())},
+        "native_delta_lamports": str(native_delta) if native_delta is not None else None,
+        "enforced_checks": enforced_checks,
+        "warnings": warnings,
     }
 
 

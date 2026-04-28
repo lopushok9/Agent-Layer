@@ -12,6 +12,7 @@ from agent_wallet.transaction_policy import (
     JUPITER_V6_PROGRAM_ID,
     SWAP_ALLOWED_PROGRAMS,
     verify_provider_kamino_lend_transaction,
+    verify_provider_swap_simulation_result,
     verify_provider_swap_transaction,
 )
 from agent_wallet.wallet_layer.base import WalletBackendError
@@ -99,6 +100,129 @@ def main() -> None:
     assert no_recognized_result["verified"] is True
     assert no_recognized_result["has_recognized_jupiter_program"] is False
     assert no_recognized_result["recognized_jupiter_program_ids"] == []
+
+    route_without_literal_mints = _Message(
+        [wallet, JUPITER_V6_PROGRAM_ID],
+        [_Instruction(1)],
+    )
+    route_without_literal_mints_result = verify_provider_swap_transaction(
+        route_without_literal_mints,
+        wallet_address=wallet,
+        input_mint=input_mint,
+        output_mint=output_mint,
+    )
+    assert route_without_literal_mints_result["verified"] is True
+    assert route_without_literal_mints_result["input_mint_present"] is False
+    assert route_without_literal_mints_result["output_mint_present"] is False
+
+    simulation_result = verify_provider_swap_simulation_result(
+        {
+            "err": None,
+            "preBalances": [1_000_000_000],
+            "postBalances": [949_000_000],
+            "preTokenBalances": [
+                {
+                    "accountIndex": 2,
+                    "mint": output_mint,
+                    "owner": wallet,
+                    "uiTokenAmount": {"amount": "0"},
+                }
+            ],
+            "postTokenBalances": [
+                {
+                    "accountIndex": 2,
+                    "mint": output_mint,
+                    "owner": wallet,
+                    "uiTokenAmount": {"amount": "100"},
+                }
+            ],
+        },
+        wallet_address=wallet,
+        wallet_account_index=0,
+        input_mint=input_mint,
+        output_mint=output_mint,
+        input_amount_raw=50_000_000,
+        minimum_output_amount_raw=90,
+    )
+    assert simulation_result["verified"] is True
+    assert "token_output_meets_approved_minimum" in simulation_result["enforced_checks"]
+
+    try:
+        verify_provider_swap_simulation_result(
+            {
+                "err": None,
+                "preTokenBalances": [
+                    {
+                        "accountIndex": 2,
+                        "mint": output_mint,
+                        "owner": wallet,
+                        "uiTokenAmount": {"amount": "0"},
+                    }
+                ],
+                "postTokenBalances": [
+                    {
+                        "accountIndex": 2,
+                        "mint": output_mint,
+                        "owner": wallet,
+                        "uiTokenAmount": {"amount": "89"},
+                    }
+                ],
+            },
+            wallet_address=wallet,
+            wallet_account_index=0,
+            input_mint=input_mint,
+            output_mint=output_mint,
+            input_amount_raw=50_000_000,
+            minimum_output_amount_raw=90,
+        )
+        raise AssertionError("expected simulation policy to reject output below minimum")
+    except WalletBackendError as exc:
+        assert exc.code == "swap_simulation_min_output_not_met"
+
+    token_input_mint = "InputToken11111111111111111111111111111111111"
+    try:
+        verify_provider_swap_simulation_result(
+            {
+                "err": None,
+                "preTokenBalances": [
+                    {
+                        "accountIndex": 1,
+                        "mint": token_input_mint,
+                        "owner": wallet,
+                        "uiTokenAmount": {"amount": "1000"},
+                    },
+                    {
+                        "accountIndex": 2,
+                        "mint": output_mint,
+                        "owner": wallet,
+                        "uiTokenAmount": {"amount": "0"},
+                    },
+                ],
+                "postTokenBalances": [
+                    {
+                        "accountIndex": 1,
+                        "mint": token_input_mint,
+                        "owner": wallet,
+                        "uiTokenAmount": {"amount": "399"},
+                    },
+                    {
+                        "accountIndex": 2,
+                        "mint": output_mint,
+                        "owner": wallet,
+                        "uiTokenAmount": {"amount": "100"},
+                    },
+                ],
+            },
+            wallet_address=wallet,
+            wallet_account_index=0,
+            input_mint=token_input_mint,
+            output_mint=output_mint,
+            input_amount_raw=600,
+            minimum_output_amount_raw=90,
+        )
+        raise AssertionError("expected simulation policy to reject token overspend")
+    except WalletBackendError as exc:
+        assert exc.code == "swap_simulation_overspend"
 
     bad_wallet_not_signer = _Message(
         [sponsor, input_mint, output_mint, wallet, JUPITER_V6_PROGRAM_ID],
