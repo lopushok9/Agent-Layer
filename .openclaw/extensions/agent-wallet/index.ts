@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const PLUGIN_ID = "agent-wallet";
 const PLUGIN_ROOT = path.dirname(new URL(import.meta.url).pathname);
+let selectedEvmNetwork = null;
 
 function resolvePluginConfig(api) {
   const globalConfig = api?.config ?? {};
@@ -46,6 +47,20 @@ function supportsVeloraSwap(api) {
   return ["ethereum", "base"].includes(
     normalizeEvmNetwork(config.network || process.env.WDK_EVM_NETWORK)
   );
+}
+
+function normalizeSelectableEvmNetwork(value) {
+  const network = normalizeEvmNetwork(value);
+  if (!["ethereum", "base"].includes(network)) {
+    throw new Error("EVM network must be 'ethereum' or 'base'.");
+  }
+  return network;
+}
+
+function defaultSelectableEvmNetwork(api) {
+  const config = resolvePluginConfig(api);
+  const configured = normalizeEvmNetwork(config.network || process.env.WDK_EVM_NETWORK);
+  return ["ethereum", "base"].includes(configured) ? configured : null;
 }
 
 function resolvePythonBin(config) {
@@ -134,11 +149,41 @@ function registerTool(api, definition) {
     },
     optional: Boolean(definition.optional),
     async execute(_id, params = {}) {
+      if (definition.name === "set_evm_network") {
+        const network = normalizeSelectableEvmNetwork(params?.network);
+        const payload = await callWalletCli(api, "invoke", [
+          "--tool",
+          "get_evm_network",
+          "--arguments-json",
+          JSON.stringify({ network }),
+        ]);
+        if (payload?.ok === false) {
+          throw new Error(payload?.error || "set_evm_network failed");
+        }
+        selectedEvmNetwork = network;
+        return asContent({
+          selected_network: network,
+          session_active_network: network,
+          network_switch_persistent_for_runtime_session: true,
+          usage:
+            "Subsequent EVM tool calls in this OpenClaw plugin session use this network by default. You can still override a single call with its network parameter.",
+          data: payload?.data ?? {},
+        });
+      }
+
+      const effectiveParams = { ...(params ?? {}) };
+      if (
+        selectedEvmNetwork &&
+        definition.parameters?.properties?.network &&
+        effectiveParams.network === undefined
+      ) {
+        effectiveParams.network = selectedEvmNetwork;
+      }
       const payload = await callWalletCli(api, "invoke", [
         "--tool",
         definition.name,
         "--arguments-json",
-        JSON.stringify(params ?? {}),
+        JSON.stringify(effectiveParams),
       ]);
       if (payload?.ok === false) {
         throw new Error(payload?.error || `${definition.name} failed`);
@@ -770,12 +815,32 @@ const evmToolDefinitions = [
   {
     name: "get_wallet_capabilities",
     description: "Describe the connected wallet backend, chain, and safety limits.",
-    parameters: { type: "object", properties: {}, additionalProperties: false },
+    parameters: {
+      type: "object",
+      properties: {
+        network: {
+          type: "string",
+          enum: ["ethereum", "base"],
+          description: "Optional EVM network override for this request.",
+        },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: "get_wallet_address",
     description: "Return the configured wallet address for the connected backend.",
-    parameters: { type: "object", properties: {}, additionalProperties: false },
+    parameters: {
+      type: "object",
+      properties: {
+        network: {
+          type: "string",
+          enum: ["ethereum", "base"],
+          description: "Optional EVM network override for this request.",
+        },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: "get_wallet_balance",
@@ -849,6 +914,23 @@ const evmToolDefinitions = [
           enum: ["ethereum", "base"],
         },
       },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "set_evm_network",
+    description:
+      "Select the active EVM network for subsequent wallet tool calls in this OpenClaw plugin session. Use this to switch between ethereum and base instead of editing code or plugin configuration.",
+    parameters: {
+      type: "object",
+      properties: {
+        network: {
+          type: "string",
+          enum: ["ethereum", "base"],
+          description: "EVM network to make active for subsequent calls.",
+        },
+      },
+      required: ["network"],
       additionalProperties: false,
     },
   },
@@ -1144,6 +1226,7 @@ export default function registerAgentWalletPlugin(api) {
   api?.logger?.info?.("[agent-wallet] registering OpenClaw wallet plugin");
 
   const backend = resolveBackend(api);
+  selectedEvmNetwork = defaultSelectableEvmNetwork(api);
   const evmDefinitions = supportsVeloraSwap(api)
     ? evmToolDefinitions
     : evmToolDefinitions.filter(

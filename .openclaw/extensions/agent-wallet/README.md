@@ -76,7 +76,8 @@ Important:
 - The EVM flow also only supports local service URLs (`127.0.0.1` / `localhost` / `::1`) and uses a bearer token loaded from `~/.openclaw/wdk-evm-wallet/local-auth-token`.
 - The EVM tool surface is intentionally narrow: Velora swap quote/execute, Aave V3 account/reserve/position flows, native transfers, ERC-20 transfers, fee quotes, and receipt lookup only. No arbitrary calldata, standalone approvals, or generic contract execution are exposed to the agent.
 - Velora swap and Aave V3 support are currently limited to `ethereum` and `base`. Test carefully because the upstream WDK protocol packages are still beta.
-- EVM read and write tools now accept an optional per-call `network` override for `ethereum` or `base`, so the agent no longer needs host config edits just to switch between the two mainnet EVM paths.
+- EVM read and write tools accept an optional per-call `network` override for `ethereum` or `base`.
+- Agents can also call `set_evm_network` to select the active EVM network for the current OpenClaw plugin session. After that, EVM tools default to the selected network unless a specific call passes its own `network` value. Do not edit code, plugin config, or environment variables just to switch between Base and Ethereum.
 - `get_wallet_balance` for EVM now returns an enriched portfolio-style payload: native balance, discovered ERC-20 balances, and USD values when token discovery and pricing are available.
 - If the user needs to recover the mnemonic later, host-side reveal stays outside the agent tool surface via `agent-wallet/scripts/manage_openclaw_btc_wallet.py reveal-seed`.
 - Optional Jupiter overrides are available via `jupiterBaseUrl`, `jupiterUltraBaseUrl`, `jupiterPriceBaseUrl`, `jupiterPortfolioBaseUrl`, `jupiterLendBaseUrl`, and `jupiterApiKey`.

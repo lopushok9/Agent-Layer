@@ -1228,6 +1228,7 @@ async def _main() -> None:
     assert "get_lifi_transfer_status" in tool_names
     assert "swap_evm_lifi_cross_chain_tokens" in tool_names
     assert "get_evm_network" in tool_names
+    assert "set_evm_network" in tool_names
     assert "get_evm_token_metadata" in tool_names
     assert "get_evm_aave_account" in tool_names
     assert "get_evm_aave_reserves" in tool_names
@@ -1269,6 +1270,28 @@ async def _main() -> None:
     assert network_info.data["configured_network"] == "base"
     assert "ethereum" in network_info.data["agent_selectable_networks"]
     assert "base" in network_info.data["agent_selectable_networks"]
+
+    switch_adapter = OpenClawWalletAdapter(FakeEvmBackend())
+    switched_network = await switch_adapter.invoke("set_evm_network", {"network": "base"})
+    assert switched_network.ok is True
+    assert switched_network.data["selected_network"] == "base"
+    assert switched_network.data["session_active_network"] == "base"
+    assert switched_network.data["network_switch_persistent_for_runtime_session"] is True
+
+    default_network_after_switch = await switch_adapter.invoke("get_evm_network", {})
+    assert default_network_after_switch.ok is True
+    assert default_network_after_switch.data["configured_network"] == "base"
+
+    default_balance_after_switch = await switch_adapter.invoke(
+        "get_wallet_balance",
+        {},
+    )
+    assert default_balance_after_switch.ok is True
+    assert default_balance_after_switch.data["network"] == "base"
+
+    rejected_network = await switch_adapter.invoke("set_evm_network", {"network": "polygon"})
+    assert rejected_network.ok is False
+    assert "EVM network must be" in str(rejected_network.error)
 
     token_balance = await adapter.invoke(
         "get_evm_token_balance",

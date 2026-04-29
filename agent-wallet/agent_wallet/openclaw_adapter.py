@@ -25,6 +25,9 @@ On mainnet, execute mode requires an approval token that includes an explicit ma
 Before any mainnet execute, restate the network, operation type, asset, amount, and destination, validator, or stake account.
 If the preview result includes a confirmation_summary or mainnet_warning, surface it before asking for confirmation.
 Never bypass the approval token requirement for wallet writes.
+For EVM wallets, switch between Ethereum and Base with set_evm_network or by passing the
+network argument to EVM tools. Do not edit code, plugin config, or environment variables
+just to switch the active EVM network.
 """.strip()
 
 # Keep the backend implementation in place, but hide these agent-facing tools for now.
@@ -77,6 +80,20 @@ class OpenClawWalletAdapter:
     def _supports_evm_velora_for_backend(self, backend: AgentWalletBackend) -> bool:
         return str(getattr(backend, "chain", "")).strip().lower() == "evm" and self._is_mainnet_for_backend(backend)
 
+    def _normalize_evm_tool_network(self, value: Any) -> str:
+        network = str(value or "").strip().lower()
+        aliases = {
+            "mainnet": "ethereum",
+            "eth": "ethereum",
+            "eth-mainnet": "ethereum",
+            "base-mainnet": "base",
+            "base_sepolia": "base-sepolia",
+        }
+        network = aliases.get(network, network)
+        if network not in {"ethereum", "base"}:
+            raise WalletBackendError("EVM network must be 'ethereum' or 'base'.")
+        return network
+
     def _resolve_backend_for_args(self, args: dict[str, Any]) -> AgentWalletBackend:
         if str(getattr(self.backend, "chain", "")).strip().lower() != "evm":
             return self.backend
@@ -85,7 +102,7 @@ class OpenClawWalletAdapter:
             return self.backend
         if not isinstance(requested_network, str) or not requested_network.strip():
             raise WalletBackendError("network must be a non-empty string when provided.")
-        return self.backend.with_network(requested_network.strip())
+        return self.backend.with_network(self._normalize_evm_tool_network(requested_network))
 
     def _normalize_positive_limit(self, value: Any, *, field_name: str, default: int, maximum: int) -> int:
         if value is None:
@@ -642,7 +659,13 @@ class OpenClawWalletAdapter:
                     description="Describe the connected wallet backend, chain, and safety limits.",
                     input_schema={
                         "type": "object",
-                        "properties": {},
+                        "properties": {
+                            "network": {
+                                "type": "string",
+                                "enum": ["ethereum", "base"],
+                                "description": "Optional EVM network override for this request.",
+                            },
+                        },
                         "additionalProperties": False,
                     },
                     read_only=True,
@@ -653,7 +676,13 @@ class OpenClawWalletAdapter:
                     description="Return the configured wallet address for the connected backend.",
                     input_schema={
                         "type": "object",
-                        "properties": {},
+                        "properties": {
+                            "network": {
+                                "type": "string",
+                                "enum": ["ethereum", "base"],
+                                "description": "Optional EVM network override for this request.",
+                            },
+                        },
                         "additionalProperties": False,
                     },
                     read_only=True,
@@ -756,6 +785,28 @@ class OpenClawWalletAdapter:
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
+                        "additionalProperties": False,
+                    },
+                    read_only=True,
+                    risk_level="low",
+                ),
+                AgentToolSpec(
+                    name="set_evm_network",
+                    description=(
+                        "Select the active EVM network for subsequent wallet tool calls in this "
+                        "runtime session. Use this to switch between ethereum and base instead "
+                        "of editing code or plugin configuration."
+                    ),
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "network": {
+                                "type": "string",
+                                "enum": ["ethereum", "base"],
+                                "description": "EVM network to make active for subsequent calls.",
+                            },
+                        },
+                        "required": ["network"],
                         "additionalProperties": False,
                     },
                     read_only=True,
@@ -2788,6 +2839,20 @@ class OpenClawWalletAdapter:
 
             if tool_name == "get_evm_network":
                 data = await active_backend.get_evm_network_info()
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "set_evm_network":
+                requested_network = args.get("network")
+                network = self._normalize_evm_tool_network(requested_network)
+                self.backend = self.backend.with_network(network)
+                data = await self.backend.get_evm_network_info()
+                data["selected_network"] = network
+                data["session_active_network"] = str(getattr(self.backend, "network", "unknown"))
+                data["network_switch_persistent_for_runtime_session"] = True
+                data["usage"] = (
+                    "Subsequent EVM tool calls in this runtime session use this network by "
+                    "default. You can still override a single call with its network parameter."
+                )
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
 
             if tool_name == "get_evm_token_balance":
