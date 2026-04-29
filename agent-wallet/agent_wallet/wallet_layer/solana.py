@@ -91,6 +91,42 @@ def _coerce_int(value: Any) -> int | None:
         return None
 
 
+def _coerce_decimal(value: Any) -> Decimal | None:
+    if value is None or value == "":
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _format_decimal(value: Decimal | None, *, places: int = 2) -> str | None:
+    if value is None:
+        return None
+    quant = Decimal("1").scaleb(-places)
+    return str(value.quantize(quant))
+
+
+def _jupiter_price_entry(price_data: dict[str, Any], mint: str) -> dict[str, Any] | None:
+    entry = price_data.get(mint)
+    if isinstance(entry, dict):
+        return entry
+    data = price_data.get("data")
+    if isinstance(data, dict) and isinstance(data.get(mint), dict):
+        return data[mint]
+    return None
+
+
+def _jupiter_usd_price(entry: dict[str, Any] | None) -> Decimal | None:
+    if not isinstance(entry, dict):
+        return None
+    for key in ("usdPrice", "price", "usd", "value"):
+        price = _coerce_decimal(entry.get(key))
+        if price is not None:
+            return price
+    return None
+
+
 def _require_positive_integer_string(value: Any, *, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip().isdigit():
         raise WalletBackendError(f"{field_name} must be a positive integer string.")
@@ -245,7 +281,7 @@ class SolanaWalletBackend(AgentWalletBackend):
             external_dependencies=["solana-rpc", "pynacl" if self.signer else "solana-rpc"],
         )
 
-    async def get_balance(self, address: str | None = None) -> dict[str, Any]:
+    async def _get_native_balance(self, address: str | None = None) -> dict[str, Any]:
         wallet_address = address or self.address
         if not wallet_address:
             raise WalletBackendError(
@@ -257,6 +293,9 @@ class SolanaWalletBackend(AgentWalletBackend):
             commitment=self.commitment,
         )
 
+    async def get_balance(self, address: str | None = None) -> dict[str, Any]:
+        return await self.get_portfolio(address=address)
+
     async def get_portfolio(self, address: str | None = None) -> dict[str, Any]:
         wallet_address = address or self.address
         if not wallet_address:
@@ -265,21 +304,126 @@ class SolanaWalletBackend(AgentWalletBackend):
             )
         wallet_address = validate_solana_address(wallet_address)
         native_balance, tokens = await asyncio.gather(
-            self.get_balance(wallet_address),
+            self._get_native_balance(wallet_address),
             self._fetch_token_entries(wallet_address, include_zero_balances=False),
         )
         tokens.sort(
             key=lambda item: float(item.get("amount_ui") or 0),
             reverse=True,
         )
+        mints = [NATIVE_SOL_MINT]
+        for token in tokens:
+            mint = token.get("mint")
+            if isinstance(mint, str) and mint.strip() and mint not in mints:
+                mints.append(mint.strip())
+
+        price_data_by_mint: dict[str, dict[str, Any]] = {}
+        price_errors: list[str] = []
+        for index in range(0, len(mints), 20):
+            batch = mints[index : index + 20]
+            try:
+                price_data = await jupiter.fetch_prices(mints=batch)
+            except ProviderError as exc:
+                price_errors.append(str(exc))
+                continue
+            for mint in batch:
+                entry = _jupiter_price_entry(price_data, mint)
+                if entry is not None:
+                    price_data_by_mint[mint] = entry
+
+        native_price = _jupiter_usd_price(price_data_by_mint.get(NATIVE_SOL_MINT))
+        native_amount = _coerce_decimal(native_balance.get("balance_native"))
+        native_value = (
+            native_amount * native_price
+            if native_amount is not None and native_price is not None
+            else None
+        )
+        native_balance = {
+            **native_balance,
+            "mint": NATIVE_SOL_MINT,
+            "symbol": "SOL",
+            "balance_usd": _format_decimal(native_value),
+            "price_usd": str(native_price) if native_price is not None else None,
+            "value_usd": _format_decimal(native_value),
+            "pricing_source": "jupiter-price" if native_price is not None else None,
+        }
+
+        enriched_tokens: list[dict[str, Any]] = []
+        total_value = native_value or Decimal("0")
+        priced_asset_count = 1 if native_value is not None else 0
+        for token in tokens:
+            mint = str(token.get("mint") or "").strip()
+            amount = _coerce_decimal(token.get("amount_ui"))
+            price = _jupiter_usd_price(price_data_by_mint.get(mint))
+            value = amount * price if amount is not None and price is not None else None
+            if value is not None:
+                total_value += value
+                priced_asset_count += 1
+            enriched_tokens.append(
+                {
+                    **token,
+                    "price_usd": str(price) if price is not None else None,
+                    "value_usd": _format_decimal(value),
+                    "pricing_source": "jupiter-price" if price is not None else None,
+                    "price_raw": price_data_by_mint.get(mint),
+                }
+            )
+
+        assets = [
+            {
+                "asset_type": "native",
+                "mint": NATIVE_SOL_MINT,
+                "symbol": "SOL",
+                "amount_raw": str(
+                    int(
+                        (native_amount or Decimal("0"))
+                        * Decimal(solana_rpc.LAMPORTS_PER_SOL)
+                    )
+                ),
+                "amount_ui": native_balance.get("balance_native"),
+                "price_usd": native_balance.get("price_usd"),
+                "value_usd": native_balance.get("value_usd"),
+                "pricing_source": native_balance.get("pricing_source"),
+            }
+        ]
+        assets.extend(
+            {
+                "asset_type": "spl-token",
+                "mint": token.get("mint"),
+                "token_account": token.get("token_account"),
+                "amount_raw": token.get("amount_raw"),
+                "amount_ui": token.get("amount_ui"),
+                "decimals": token.get("decimals"),
+                "price_usd": token.get("price_usd"),
+                "value_usd": token.get("value_usd"),
+                "pricing_source": token.get("pricing_source"),
+            }
+            for token in enriched_tokens
+        )
+        assets.sort(
+            key=lambda item: float(item.get("value_usd") or 0),
+            reverse=True,
+        )
+        formatted_total_value = _format_decimal(total_value) if priced_asset_count else None
         return {
             "chain": "solana",
             "network": self.network,
             "address": wallet_address,
             "native_balance": native_balance,
-            "tokens": tokens,
-            "token_count": len(tokens),
-            "source": "solana-rpc",
+            "balance_native": native_balance.get("balance_native"),
+            "balance_usd": formatted_total_value,
+            "native_price_usd": native_balance.get("price_usd"),
+            "native_value_usd": native_balance.get("value_usd"),
+            "tokens": enriched_tokens,
+            "token_count": len(enriched_tokens),
+            "assets": assets,
+            "asset_count": len(assets),
+            "priced_asset_count": priced_asset_count,
+            "total_value_usd": formatted_total_value,
+            "pricing_source": "jupiter-price" if price_data_by_mint else None,
+            "pricing_errors": price_errors,
+            "token_discovery_source": "solana-rpc",
+            "source": "solana-rpc+jupiter-price",
         }
 
     async def get_token_prices(self, mints: list[str]) -> dict[str, Any]:
@@ -298,7 +442,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         price_data = await jupiter.fetch_prices(mints=unique_mints)
         items: list[dict[str, Any]] = []
         for mint in unique_mints:
-            entry = price_data.get(mint)
+            entry = _jupiter_price_entry(price_data, mint)
             items.append(
                 {
                     "mint": mint,
@@ -945,7 +1089,7 @@ class SolanaWalletBackend(AgentWalletBackend):
                 rpc_url=self.rpc_urls,
                 encoding="jsonParsed",
             ),
-            self.get_balance(stake_account),
+            self._get_native_balance(stake_account),
             solana_rpc.fetch_stake_activation(
                 stake_account,
                 rpc_url=self.rpc_urls,
@@ -1571,7 +1715,7 @@ class SolanaWalletBackend(AgentWalletBackend):
     async def get_state(self) -> SolanaWalletState:
         balance_native = None
         if self.address:
-            balance = await self.get_balance(self.address)
+            balance = await self._get_native_balance(self.address)
             balance_native = balance["balance_native"]
 
         return SolanaWalletState(
@@ -1652,7 +1796,7 @@ class SolanaWalletBackend(AgentWalletBackend):
 
         validator_set, balance, latest_blockhash, rent_exempt = await asyncio.gather(
             self.get_staking_validators(limit=200, include_delinquent=True),
-            self.get_balance(owner),
+            self._get_native_balance(owner),
             solana_rpc.fetch_latest_blockhash(
                 rpc_url=self.rpc_urls,
                 commitment=self.commitment,
@@ -2809,7 +2953,7 @@ class SolanaWalletBackend(AgentWalletBackend):
             raise WalletBackendError("amount must be greater than zero.")
 
         recipient = validate_solana_address(recipient)
-        balance = await self.get_balance(sender)
+        balance = await self._get_native_balance(sender)
         latest_blockhash = await solana_rpc.fetch_latest_blockhash(
             rpc_url=self.rpc_urls,
             commitment=self.commitment,

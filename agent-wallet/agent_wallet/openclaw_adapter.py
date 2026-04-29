@@ -1529,7 +1529,11 @@ class OpenClawWalletAdapter:
             ),
             AgentToolSpec(
                 name="get_wallet_balance",
-                description="Get the native token balance for the configured wallet address.",
+                description=(
+                    "Get the wallet overview for the configured Solana address: native SOL, "
+                    "non-zero SPL token accounts, per-asset USD values when available, and total_value_usd. "
+                    "Prices come from Jupiter, not Solana RPC."
+                ),
                 input_schema={
                     "type": "object",
                     "properties": {
@@ -1610,7 +1614,8 @@ class OpenClawWalletAdapter:
             AgentToolSpec(
                 name="get_wallet_portfolio",
                 description=(
-                    "Get the wallet portfolio including native balance and non-zero SPL token accounts."
+                    "Get the Solana wallet portfolio. This is the detailed equivalent of get_wallet_balance "
+                    "and includes native SOL, non-zero SPL token accounts, USD pricing when available, and total_value_usd."
                 ),
                 input_schema={
                     "type": "object",

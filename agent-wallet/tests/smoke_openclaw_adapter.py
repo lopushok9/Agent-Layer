@@ -28,7 +28,23 @@ class FakeBackend(AgentWalletBackend):
             "address": address or "Fake11111111111111111111111111111111111111111",
             "chain": "solana",
             "balance_native": 1.25,
-            "balance_usd": None,
+            "balance_usd": "25.50",
+            "native_value_usd": "25.00",
+            "tokens": [
+                {
+                    "mint": "FakeMint111111111111111111111111111111111111",
+                    "amount_ui": 0.5,
+                    "price_usd": "1",
+                    "value_usd": "0.50",
+                }
+            ],
+            "token_count": 1,
+            "assets": [
+                {"asset_type": "native", "symbol": "SOL", "amount_ui": 1.25, "value_usd": "25.00"},
+                {"asset_type": "spl-token", "mint": "FakeMint111111111111111111111111111111111111", "amount_ui": 0.5, "value_usd": "0.50"},
+            ],
+            "asset_count": 2,
+            "total_value_usd": "25.50",
             "source": "fake",
         }
 
@@ -1654,6 +1670,9 @@ async def main() -> None:
 
     balance = await adapter.invoke("get_wallet_balance")
     assert balance.ok and balance.data["balance_native"] == 1.25
+    assert balance.data["token_count"] == 1
+    assert balance.data["asset_count"] == 2
+    assert balance.data["total_value_usd"] == "25.50"
 
     portfolio = await adapter.invoke("get_wallet_portfolio")
     assert portfolio.ok and portfolio.data["token_count"] == 1

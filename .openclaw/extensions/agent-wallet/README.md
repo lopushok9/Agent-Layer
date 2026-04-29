@@ -78,7 +78,8 @@ Important:
 - Velora swap and Aave V3 support are currently limited to `ethereum` and `base`. Test carefully because the upstream WDK protocol packages are still beta.
 - EVM read and write tools accept an optional per-call `network` override for `ethereum` or `base`.
 - Agents can also call `set_evm_network` to select the active EVM network for the current OpenClaw plugin session. After that, EVM tools default to the selected network unless a specific call passes its own `network` value. Do not edit code, plugin config, or environment variables just to switch between Base and Ethereum.
-- `get_wallet_balance` for EVM now returns an enriched portfolio-style payload: native balance, discovered ERC-20 balances, and USD values when token discovery and pricing are available.
+- `get_wallet_balance` returns an enriched wallet overview for Solana and EVM: native balance, discovered token balances, per-asset USD values when pricing is available, and `total_value_usd`.
+- Solana wallet overview uses Solana RPC only for balance and token-account discovery. Token prices come from Jupiter, not RPC, and internal transfer/staking checks continue to use native-only balance reads.
 - If the user needs to recover the mnemonic later, host-side reveal stays outside the agent tool surface via `agent-wallet/scripts/manage_openclaw_btc_wallet.py reveal-seed`.
 - Optional Jupiter overrides are available via `jupiterBaseUrl`, `jupiterUltraBaseUrl`, `jupiterPriceBaseUrl`, `jupiterPortfolioBaseUrl`, `jupiterLendBaseUrl`, and `jupiterApiKey`.
 - Optional Kamino overrides are available via `kaminoBaseUrl` and `kaminoProgramId`.

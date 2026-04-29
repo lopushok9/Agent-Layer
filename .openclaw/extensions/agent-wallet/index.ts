@@ -206,7 +206,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "get_wallet_balance",
-    description: "Get the wallet balance. For EVM this returns native balance, discovered ERC-20 balances, and USD portfolio fields including total_value_usd when available.",
+    description: "Get the wallet overview: native balance, discovered token balances, per-asset USD values when available, and total_value_usd. Solana token discovery uses RPC; pricing uses Jupiter rather than RPC.",
     parameters: {
       type: "object",
       properties: {
@@ -262,7 +262,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "get_wallet_portfolio",
-    description: "Get the wallet portfolio including native balance and non-zero SPL token accounts.",
+    description: "Get the Solana wallet portfolio. This is the detailed equivalent of get_wallet_balance and includes native SOL, non-zero SPL token accounts, USD pricing when available, and total_value_usd.",
     parameters: {
       type: "object",
       properties: {
