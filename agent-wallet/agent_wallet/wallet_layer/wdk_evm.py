@@ -477,6 +477,20 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             result["portfolio_error"] = str(exc)
             result["tokens"] = []
             result["token_count"] = 0
+            result["assets"] = [
+                {
+                    "asset_type": "native",
+                    "symbol": result["asset"],
+                    "amount_raw": result["balance_wei"],
+                    "amount_ui": result["balance_native"],
+                    "price_usd": None,
+                    "value_usd": None,
+                    "pricing_source": None,
+                }
+            ]
+            result["asset_count"] = 1
+            result["priced_asset_count"] = 0
+            result["balance_usd"] = None
             result["total_value_usd"] = None
             result["native_price_usd"] = None
             result["native_value_usd"] = None
@@ -488,6 +502,10 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
                 "native_value_usd": portfolio.get("native_value_usd"),
                 "tokens": list(portfolio.get("tokens") or []),
                 "token_count": int(portfolio.get("token_count") or 0),
+                "assets": list(portfolio.get("assets") or []),
+                "asset_count": int(portfolio.get("asset_count") or 0),
+                "priced_asset_count": int(portfolio.get("priced_asset_count") or 0),
+                "balance_usd": portfolio.get("balance_usd"),
                 "total_value_usd": portfolio.get("total_value_usd"),
                 "pricing_source": portfolio.get("pricing_source"),
                 "token_discovery_source": portfolio.get("token_discovery_source"),

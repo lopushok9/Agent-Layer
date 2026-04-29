@@ -415,6 +415,39 @@ async def build_portfolio_snapshot(
         reverse=True,
     )
 
+    native_asset = {
+        "asset_type": "native",
+        "symbol": native_symbol,
+        "amount_raw": str(native_balance_wei),
+        "amount_ui": str(native_balance),
+        "price_usd": _format_decimal(Decimal(str(native_price_usd)), places=6)
+        if native_price_usd is not None
+        else None,
+        "value_usd": _format_decimal(native_value_usd, places=2),
+        "pricing_source": "coingecko" if native_price_usd is not None else None,
+    }
+    assets = [native_asset]
+    assets.extend(
+        {
+            "asset_type": "erc20",
+            "token_address": token.get("token_address"),
+            "symbol": (token.get("token_metadata") or {}).get("symbol"),
+            "amount_raw": token.get("balance_raw"),
+            "amount_ui": token.get("balance_ui"),
+            "decimals": (token.get("token_metadata") or {}).get("decimals"),
+            "price_usd": token.get("price_usd"),
+            "value_usd": token.get("value_usd"),
+            "pricing_source": "coingecko" if token.get("price_usd") is not None else None,
+        }
+        for token in portfolio_tokens
+    )
+    assets.sort(
+        key=lambda item: _to_decimal(item.get("value_usd")) or Decimal("-1"),
+        reverse=True,
+    )
+    priced_asset_count = sum(1 for asset in assets if asset.get("value_usd") is not None)
+    formatted_total_value = _format_decimal(total_value, places=2) if total_value > 0 else None
+
     return {
         "address": address,
         "network": normalized_network,
@@ -427,7 +460,11 @@ async def build_portfolio_snapshot(
         "native_value_usd": _format_decimal(native_value_usd, places=2),
         "tokens": portfolio_tokens,
         "token_count": len(portfolio_tokens),
-        "total_value_usd": _format_decimal(total_value, places=2) if total_value > 0 else None,
+        "assets": assets,
+        "asset_count": len(assets),
+        "priced_asset_count": priced_asset_count,
+        "balance_usd": formatted_total_value,
+        "total_value_usd": formatted_total_value,
         "pricing_source": "coingecko",
         "token_discovery_source": "alchemy_getTokenBalances",
     }

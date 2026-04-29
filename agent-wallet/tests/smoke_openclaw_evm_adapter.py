@@ -58,6 +58,28 @@ class FakeEvmBackend(AgentWalletBackend):
                 }
             ],
             "token_count": 1,
+            "assets": [
+                {
+                    "asset_type": "native",
+                    "symbol": "ETH",
+                    "amount_raw": "1230000000000000000",
+                    "amount_ui": "1.23",
+                    "price_usd": "3200",
+                    "value_usd": "3936",
+                },
+                {
+                    "asset_type": "erc20",
+                    "token_address": "0x2222222222222222222222222222222222222222",
+                    "symbol": "USDC",
+                    "amount_raw": "42000000",
+                    "amount_ui": "42",
+                    "price_usd": "1",
+                    "value_usd": "42",
+                },
+            ],
+            "asset_count": 2,
+            "priced_asset_count": 2,
+            "balance_usd": "3978",
             "total_value_usd": "3978",
             "source": "fake",
         }
@@ -1259,6 +1281,8 @@ async def _main() -> None:
     assert balance.ok is True
     assert balance.data["balance_wei"] == "1230000000000000000"
     assert balance.data["token_count"] == 1
+    assert balance.data["asset_count"] == 2
+    assert balance.data["balance_usd"] == "3978"
     assert balance.data["total_value_usd"] == "3978"
 
     base_balance = await adapter.invoke("get_wallet_balance", {"network": "base"})
