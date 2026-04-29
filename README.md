@@ -100,6 +100,18 @@ Run it three times and assign the outputs to:
 
 Without those secrets, the installer still lays down the runtime and installs dependencies, but it stops short of the final hardened OpenClaw config step and prints the exact `next_configure_command` you should run after secrets are available.
 
+## Connect the MCP server
+
+```json
+{
+  "mcpServers": {
+    "agent-layer": {
+      "url": "https://agent-layer-production-852f.up.railway.app/mcp"
+    }
+  }
+}
+```
+
 ## What you get after install
 
 If you install from GitHub release, the bundle is extracted under:
