@@ -1,0 +1,16 @@
+**/node_modules/
+**/.venv/
+**/.runtime-venv/
+**/.pytest_cache/
+**/__pycache__/
+**/*.pyc
+**/.DS_Store
+**/dist/
+graphify-out/
+telegram-mvp-bot/
+mcp-server/
+provider-gateway/
+landing/
+docs/
+solana-8004/
+*.tgz

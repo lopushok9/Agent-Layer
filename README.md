@@ -39,6 +39,21 @@ Install from the latest GitHub release bundle:
 curl -fsSL https://raw.githubusercontent.com/lopushok9/Agent-Layer/main/install-from-github.sh | sh
 ```
 
+Install through npm:
+
+```bash
+npx openclaw-agent-wallet install
+```
+
+Or install the CLI globally first:
+
+```bash
+npm install -g openclaw-agent-wallet
+openclaw-agent-wallet install
+```
+
+The npm CLI runs the same bundled `setup.sh` installer. It installs the Python wallet backend, local BTC/EVM runtimes, runtime copy, and OpenClaw config using the same safety rules as the local installer.
+
 Install from a local clone:
 
 ```bash

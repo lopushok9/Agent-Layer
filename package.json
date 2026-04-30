@@ -1,0 +1,61 @@
+{
+  "name": "openclaw-agent-wallet",
+  "version": "0.1.0",
+  "description": "NPM installer for the OpenClaw Agent Wallet local runtime.",
+  "type": "module",
+  "bin": {
+    "openclaw-agent-wallet": "./bin/openclaw-agent-wallet.mjs"
+  },
+  "scripts": {
+    "check": "node --check bin/openclaw-agent-wallet.mjs",
+    "test:npm-installer": "python3 agent-wallet/tests/smoke_npm_installer.py",
+    "pack:dry-run": "npm pack --dry-run"
+  },
+  "files": [
+    "bin/",
+    "setup.sh",
+    "install-from-github.sh",
+    "README.md",
+    "CHANGELOG.md",
+    "RELEASING.md",
+    "LICENSE*",
+    "agent-wallet/agent_wallet/",
+    "agent-wallet/scripts/",
+    "agent-wallet/skills/",
+    "agent-wallet/examples/",
+    "agent-wallet/.env.example",
+    "agent-wallet/AGENTS.md",
+    "agent-wallet/README.md",
+    "agent-wallet/openclaw.plugin.json",
+    "agent-wallet/pyproject.toml",
+    ".openclaw/AGENTS.md",
+    ".openclaw/extensions/agent-wallet/",
+    "wdk-btc-wallet/src/",
+    "wdk-btc-wallet/bootstrap.sh",
+    "wdk-btc-wallet/run-local.sh",
+    "wdk-btc-wallet/README.md",
+    "wdk-btc-wallet/package.json",
+    "wdk-btc-wallet/package-lock.json",
+    "wdk-evm-wallet/src/",
+    "wdk-evm-wallet/bootstrap.sh",
+    "wdk-evm-wallet/run-local.sh",
+    "wdk-evm-wallet/README.md",
+    "wdk-evm-wallet/package.json",
+    "wdk-evm-wallet/package-lock.json",
+    "!agent-wallet/**/__pycache__/**",
+    "!agent-wallet/**/*.pyc",
+    "!agent-wallet/.pytest_cache/**",
+    "!agent-wallet/.runtime-venv/**",
+    "!**/node_modules/**",
+    "!**/.DS_Store"
+  ],
+  "keywords": [
+    "openclaw",
+    "agent-wallet",
+    "wallet",
+    "solana",
+    "bitcoin",
+    "evm"
+  ],
+  "license": "SEE LICENSE IN LICENSE"
+}
