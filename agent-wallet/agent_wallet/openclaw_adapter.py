@@ -25,6 +25,8 @@ On mainnet, execute mode requires an approval token that includes an explicit ma
 Before any mainnet execute, restate the network, operation type, asset, amount, and destination, validator, or stake account.
 If the preview result includes a confirmation_summary or mainnet_warning, surface it before asking for confirmation.
 Never bypass the approval token requirement for wallet writes.
+In OpenClaw, switch between Solana, EVM, and Bitcoin wallets with set_wallet_backend.
+The plugin config is the startup default, not something to edit during a normal conversation.
 For EVM wallets, switch between Ethereum and Base with set_evm_network or by passing the
 network argument to EVM tools. Do not edit code, plugin config, or environment variables
 just to switch the active EVM network.

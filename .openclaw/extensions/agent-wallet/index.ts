@@ -6,7 +6,10 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const PLUGIN_ID = "agent-wallet";
 const PLUGIN_ROOT = path.dirname(new URL(import.meta.url).pathname);
+let selectedWalletBackend = null;
+let selectedSolanaNetwork = null;
 let selectedEvmNetwork = null;
+let selectedBtcNetwork = null;
 
 function resolvePluginConfig(api) {
   const globalConfig = api?.config ?? {};
@@ -25,9 +28,42 @@ function resolveUserId(api, config) {
 
 function resolveBackend(api) {
   const config = resolvePluginConfig(api);
-  return String(config.backend || process.env.AGENT_WALLET_BACKEND || "solana_local")
-    .trim()
-    .toLowerCase();
+  return normalizeWalletBackend(config.backend || process.env.AGENT_WALLET_BACKEND || "solana_local");
+}
+
+function normalizeWalletBackend(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  const aliases = {
+    sol: "solana_local",
+    solana: "solana_local",
+    solana_local: "solana_local",
+    "solana-local": "solana_local",
+    evm: "wdk_evm_local",
+    ethereum: "wdk_evm_local",
+    eth: "wdk_evm_local",
+    base: "wdk_evm_local",
+    wdk_evm_local: "wdk_evm_local",
+    "wdk-evm-local": "wdk_evm_local",
+    evm_local: "wdk_evm_local",
+    "evm-local": "wdk_evm_local",
+    btc: "wdk_btc_local",
+    bitcoin: "wdk_btc_local",
+    wdk_btc_local: "wdk_btc_local",
+    "wdk-btc-local": "wdk_btc_local",
+    btc_local: "wdk_btc_local",
+    "btc-local": "wdk_btc_local",
+  };
+  const backend = aliases[normalized] || normalized;
+  if (!["solana_local", "wdk_evm_local", "wdk_btc_local"].includes(backend)) {
+    throw new Error("Wallet backend must be solana, evm, base, ethereum, btc, or bitcoin.");
+  }
+  return backend;
+}
+
+function backendLabel(backend) {
+  if (backend === "wdk_evm_local") return "evm";
+  if (backend === "wdk_btc_local") return "bitcoin";
+  return "solana";
 }
 
 function normalizeEvmNetwork(value) {
@@ -42,13 +78,6 @@ function normalizeEvmNetwork(value) {
   return aliases[normalized] || normalized;
 }
 
-function supportsVeloraSwap(api) {
-  const config = resolvePluginConfig(api);
-  return ["ethereum", "base"].includes(
-    normalizeEvmNetwork(config.network || process.env.WDK_EVM_NETWORK)
-  );
-}
-
 function normalizeSelectableEvmNetwork(value) {
   const network = normalizeEvmNetwork(value);
   if (!["ethereum", "base"].includes(network)) {
@@ -57,10 +86,115 @@ function normalizeSelectableEvmNetwork(value) {
   return network;
 }
 
+function normalizeSolanaNetwork(value) {
+  const network = String(value || "").trim().toLowerCase();
+  if (!network) return null;
+  const aliases = {
+    solana: "mainnet",
+    "solana-mainnet": "mainnet",
+    mainnet_beta: "mainnet",
+    "mainnet-beta": "mainnet",
+  };
+  const normalized = aliases[network] || network;
+  if (!["mainnet", "devnet", "testnet"].includes(normalized)) {
+    throw new Error("Solana network must be mainnet, devnet, or testnet.");
+  }
+  return normalized;
+}
+
+function normalizeBtcNetwork(value) {
+  const network = String(value || "").trim().toLowerCase();
+  if (!network) return null;
+  const aliases = {
+    btc: "bitcoin",
+    bitcoin_mainnet: "bitcoin",
+    "bitcoin-mainnet": "bitcoin",
+    mainnet: "bitcoin",
+  };
+  const normalized = aliases[network] || network;
+  if (!["bitcoin", "testnet", "regtest"].includes(normalized)) {
+    throw new Error("Bitcoin network must be bitcoin, testnet, or regtest.");
+  }
+  return normalized;
+}
+
 function defaultSelectableEvmNetwork(api) {
   const config = resolvePluginConfig(api);
   const configured = normalizeEvmNetwork(config.network || process.env.WDK_EVM_NETWORK);
   return ["ethereum", "base"].includes(configured) ? configured : null;
+}
+
+function defaultSolanaNetwork(api) {
+  const config = resolvePluginConfig(api);
+  try {
+    return normalizeSolanaNetwork(config.network || process.env.SOLANA_NETWORK) || "mainnet";
+  } catch {
+    return "mainnet";
+  }
+}
+
+function defaultBtcNetwork(api) {
+  const config = resolvePluginConfig(api);
+  try {
+    return normalizeBtcNetwork(config.network || process.env.WDK_BTC_NETWORK) || "bitcoin";
+  } catch {
+    return "bitcoin";
+  }
+}
+
+function inferBackendForTool(toolName) {
+  if (
+    toolName.startsWith("get_evm_") ||
+    toolName.startsWith("manage_evm_") ||
+    toolName.startsWith("swap_evm_") ||
+    toolName.startsWith("transfer_evm_") ||
+    toolName === "set_evm_network"
+  ) {
+    return "wdk_evm_local";
+  }
+  if (toolName.startsWith("get_btc_") || toolName === "transfer_btc") {
+    return "wdk_btc_local";
+  }
+  if (
+    toolName.includes("solana") ||
+    toolName.includes("jupiter") ||
+    toolName.includes("kamino") ||
+    toolName.includes("bags") ||
+    toolName === "transfer_sol" ||
+    toolName === "transfer_spl_token" ||
+    toolName === "sign_wallet_message" ||
+    toolName === "close_empty_token_accounts" ||
+    toolName === "request_devnet_airdrop" ||
+    toolName === "get_wallet_portfolio" ||
+    toolName === "get_solana_token_prices"
+  ) {
+    return "solana_local";
+  }
+  return null;
+}
+
+function activeBackendForTool(api, toolName) {
+  return selectedWalletBackend || inferBackendForTool(toolName) || resolveBackend(api);
+}
+
+function networkForBackend(api, backend) {
+  const config = resolvePluginConfig(api);
+  if (backend === "wdk_evm_local") {
+    return selectedEvmNetwork || defaultSelectableEvmNetwork(api) || "ethereum";
+  }
+  if (backend === "wdk_btc_local") {
+    return selectedBtcNetwork || defaultBtcNetwork(api);
+  }
+  return selectedSolanaNetwork || normalizeSolanaNetwork(config.network || process.env.SOLANA_NETWORK) || "mainnet";
+}
+
+function effectiveConfigForBackend(api, backend) {
+  const config = resolvePluginConfig(api);
+  return {
+    ...config,
+    backend,
+    network: networkForBackend(api, backend),
+  };
 }
 
 function resolvePythonBin(config) {
@@ -94,8 +228,8 @@ function buildCliEnv(packageRoot) {
   return env;
 }
 
-async function callWalletCli(api, command, extraArgs = []) {
-  const config = resolvePluginConfig(api);
+async function callWalletCli(api, command, extraArgs = [], configOverride = null) {
+  const config = configOverride || resolvePluginConfig(api);
   const packageRoot = resolvePackageRoot(config);
   const pythonBin = resolvePythonBin(config);
   const userId = resolveUserId(api, config);
@@ -149,42 +283,117 @@ function registerTool(api, definition) {
     },
     optional: Boolean(definition.optional),
     async execute(_id, params = {}) {
+      if (definition.name === "get_active_wallet_backend") {
+        const configuredBackend = resolveBackend(api);
+        const activeBackend = selectedWalletBackend || configuredBackend;
+        const activeNetwork = networkForBackend(api, activeBackend);
+        return asContent({
+          active_backend: activeBackend,
+          active_wallet: backendLabel(activeBackend),
+          active_network: activeNetwork,
+          configured_backend: configuredBackend,
+          configured_network: String(resolvePluginConfig(api).network || "").trim() || null,
+          session_override_active: Boolean(selectedWalletBackend),
+          available_wallets: ["solana", "evm", "bitcoin"],
+          usage:
+            "Use set_wallet_backend to switch between Solana, EVM, and Bitcoin for this OpenClaw plugin session. Do not edit plugin config for normal wallet switching.",
+        });
+      }
+
+      if (definition.name === "set_wallet_backend") {
+        const requestedWallet = String(params?.backend || params?.wallet || "").trim().toLowerCase();
+        const backend = normalizeWalletBackend(requestedWallet);
+        const impliedNetwork =
+          ["base", "base-mainnet"].includes(requestedWallet)
+            ? "base"
+            : ["ethereum", "eth", "mainnet", "eth-mainnet"].includes(requestedWallet)
+              ? "ethereum"
+              : null;
+        if (backend === "wdk_evm_local") {
+          selectedEvmNetwork = normalizeSelectableEvmNetwork(
+            params?.network || impliedNetwork || selectedEvmNetwork || defaultSelectableEvmNetwork(api) || "ethereum"
+          );
+        } else if (backend === "solana_local") {
+          selectedSolanaNetwork = normalizeSolanaNetwork(
+            params?.network || selectedSolanaNetwork || defaultSolanaNetwork(api)
+          );
+        } else if (backend === "wdk_btc_local") {
+          selectedBtcNetwork = normalizeBtcNetwork(
+            params?.network || selectedBtcNetwork || defaultBtcNetwork(api)
+          );
+        }
+        const configOverride = effectiveConfigForBackend(api, backend);
+        const payload = await callWalletCli(api, "invoke", [
+          "--tool",
+          backend === "wdk_evm_local" ? "get_evm_network" : "get_wallet_capabilities",
+          "--arguments-json",
+          JSON.stringify({}),
+        ], configOverride);
+        if (payload?.ok === false) {
+          throw new Error(payload?.error || "set_wallet_backend failed");
+        }
+        selectedWalletBackend = backend;
+        return asContent({
+          selected_backend: backend,
+          selected_wallet: backendLabel(backend),
+          selected_network: networkForBackend(api, backend),
+          configured_backend: resolveBackend(api),
+          session_override_active: true,
+          config_file_changed: false,
+          usage:
+            "Subsequent wallet calls in this OpenClaw plugin session use this wallet backend by default. The startup plugin config remains unchanged.",
+          data: payload?.data ?? {},
+        });
+      }
+
       if (definition.name === "set_evm_network") {
         const network = normalizeSelectableEvmNetwork(params?.network);
+        const configOverride = effectiveConfigForBackend(api, "wdk_evm_local");
+        configOverride.network = network;
         const payload = await callWalletCli(api, "invoke", [
           "--tool",
           "get_evm_network",
           "--arguments-json",
           JSON.stringify({ network }),
-        ]);
+        ], configOverride);
         if (payload?.ok === false) {
           throw new Error(payload?.error || "set_evm_network failed");
         }
+        selectedWalletBackend = "wdk_evm_local";
         selectedEvmNetwork = network;
         return asContent({
+          selected_backend: "wdk_evm_local",
+          selected_wallet: "evm",
           selected_network: network,
           session_active_network: network,
+          session_override_active: true,
           network_switch_persistent_for_runtime_session: true,
           usage:
-            "Subsequent EVM tool calls in this OpenClaw plugin session use this network by default. You can still override a single call with its network parameter.",
+            "Subsequent wallet calls in this OpenClaw plugin session use the EVM wallet on this network by default. You can still override a single EVM call with its network parameter.",
           data: payload?.data ?? {},
         });
       }
 
       const effectiveParams = { ...(params ?? {}) };
+      const activeBackend = activeBackendForTool(api, definition.name);
       if (
+        activeBackend === "wdk_evm_local" &&
         selectedEvmNetwork &&
         definition.parameters?.properties?.network &&
         effectiveParams.network === undefined
       ) {
         effectiveParams.network = selectedEvmNetwork;
       }
+      const configOverride = effectiveConfigForBackend(api, activeBackend);
+      if (activeBackend === "wdk_evm_local" && effectiveParams.network !== undefined) {
+        configOverride.network = normalizeSelectableEvmNetwork(effectiveParams.network);
+      }
       const payload = await callWalletCli(api, "invoke", [
         "--tool",
         definition.name,
         "--arguments-json",
         JSON.stringify(effectiveParams),
-      ]);
+      ], configOverride);
       if (payload?.ok === false) {
         throw new Error(payload?.error || `${definition.name} failed`);
       }
@@ -192,6 +401,59 @@ function registerTool(api, definition) {
     },
   });
 }
+
+const walletSessionToolDefinitions = [
+  {
+    name: "get_wallet_capabilities",
+    description: "Describe the active wallet backend, chain, network, address, and safety limits. Use set_wallet_backend to switch between Solana, EVM, and Bitcoin instead of editing plugin config.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_wallet_address",
+    description: "Return the active wallet address for the current session-selected backend.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_wallet_balance",
+    description: "Get the active wallet overview. Solana and EVM return native assets, discovered token balances, per-asset USD values when available, and total_value_usd. Use set_wallet_backend first when the user asks to switch wallets.",
+    parameters: {
+      type: "object",
+      properties: {
+        address: {
+          type: "string",
+          description: "Optional wallet address override.",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_active_wallet_backend",
+    description: "Show which wallet backend is active in this OpenClaw plugin session and whether it differs from the startup plugin config.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "set_wallet_backend",
+    description:
+      "Switch the active wallet backend for this OpenClaw plugin session. Use this for user requests like 'switch to EVM wallet', 'use Base', 'switch back to Solana', or 'use Bitcoin'. This does not edit code, environment variables, or plugin config.",
+    parameters: {
+      type: "object",
+      properties: {
+        backend: {
+          type: "string",
+          enum: ["solana", "sol", "evm", "ethereum", "base", "bitcoin", "btc"],
+          description: "Wallet backend or common alias to make active.",
+        },
+        network: {
+          type: "string",
+          description: "Optional network for the selected wallet. Examples: mainnet, devnet, ethereum, base, bitcoin, testnet.",
+        },
+      },
+      required: ["backend"],
+      additionalProperties: false,
+    },
+  },
+];
 
 const solanaToolDefinitions = [
   {
@@ -1226,34 +1488,33 @@ export default function registerAgentWalletPlugin(api) {
   api?.logger?.info?.("[agent-wallet] registering OpenClaw wallet plugin");
 
   const backend = resolveBackend(api);
+  selectedWalletBackend = null;
+  selectedSolanaNetwork = defaultSolanaNetwork(api);
   selectedEvmNetwork = defaultSelectableEvmNetwork(api);
-  const evmDefinitions = supportsVeloraSwap(api)
-    ? evmToolDefinitions
-    : evmToolDefinitions.filter(
-        (definition) =>
-          definition.name !== "get_evm_aave_account" &&
-          definition.name !== "get_evm_aave_reserves" &&
-          definition.name !== "get_evm_aave_positions" &&
-          definition.name !== "manage_evm_aave_position" &&
-          definition.name !== "get_evm_lido_overview" &&
-          definition.name !== "get_evm_lido_positions" &&
-          definition.name !== "manage_evm_lido_position" &&
-          definition.name !== "get_evm_lido_withdrawal_requests" &&
-          definition.name !== "manage_evm_lido_withdrawal" &&
-          definition.name !== "get_evm_swap_quote" &&
-          definition.name !== "swap_evm_tokens"
-      );
-  const toolDefinitions =
-    backend === "wdk_btc_local" || backend === "wdk-btc-local" || backend === "btc_local"
-      ? btcToolDefinitions
-      : backend === "wdk_evm_local" ||
-          backend === "wdk-evm-local" ||
-          backend === "evm_local" ||
-          backend === "evm-local"
-        ? evmDefinitions
-        : solanaToolDefinitions;
+  selectedBtcNetwork = defaultBtcNetwork(api);
+  const duplicateSessionToolNames = new Set(
+    walletSessionToolDefinitions.map((definition) => definition.name)
+  );
+  const toolDefinitions = [];
+  const seen = new Set();
+  for (const definition of [
+    ...walletSessionToolDefinitions,
+    ...solanaToolDefinitions.filter((item) => !duplicateSessionToolNames.has(item.name)),
+    ...btcToolDefinitions.filter((item) => !duplicateSessionToolNames.has(item.name)),
+    ...evmToolDefinitions.filter((item) => !duplicateSessionToolNames.has(item.name)),
+  ]) {
+    if (seen.has(definition.name)) {
+      continue;
+    }
+    seen.add(definition.name);
+    toolDefinitions.push(definition);
+  }
 
   for (const definition of toolDefinitions) {
     registerTool(api, definition);
   }
+
+  api?.logger?.info?.(
+    `[agent-wallet] default wallet backend ${backend}; registered ${toolDefinitions.length} multi-wallet tools`
+  );
 }

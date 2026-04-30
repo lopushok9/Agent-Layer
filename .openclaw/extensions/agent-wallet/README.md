@@ -76,6 +76,7 @@ Important:
 - The EVM flow also only supports local service URLs (`127.0.0.1` / `localhost` / `::1`) and uses a bearer token loaded from `~/.openclaw/wdk-evm-wallet/local-auth-token`.
 - The EVM tool surface is intentionally narrow: Velora swap quote/execute, Aave V3 account/reserve/position flows, native transfers, ERC-20 transfers, fee quotes, and receipt lookup only. No arbitrary calldata, standalone approvals, or generic contract execution are exposed to the agent.
 - Velora swap and Aave V3 support are currently limited to `ethereum` and `base`. Test carefully because the upstream WDK protocol packages are still beta.
+- Agents can call `set_wallet_backend` to switch the active wallet for the current OpenClaw plugin session between Solana, EVM, and Bitcoin. This does not edit `openclaw.json`; plugin config remains the startup default.
 - EVM read and write tools accept an optional per-call `network` override for `ethereum` or `base`.
 - Agents can also call `set_evm_network` to select the active EVM network for the current OpenClaw plugin session. After that, EVM tools default to the selected network unless a specific call passes its own `network` value. Do not edit code, plugin config, or environment variables just to switch between Base and Ethereum.
 - `get_wallet_balance` returns an enriched wallet overview for Solana and EVM: native balance, discovered token balances, per-asset USD values when pricing is available, and `total_value_usd`.
