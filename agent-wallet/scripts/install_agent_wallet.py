@@ -157,6 +157,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rpc-urls", default="")
     parser.add_argument("--sign-only", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--sync-runtime", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--install-from-runtime", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--skip-python-setup", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--skip-node-setup", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--dry-run", action=argparse.BooleanOptionalAction, default=False)
@@ -363,17 +364,66 @@ def _build_next_steps(
 
 def main() -> None:
     args = build_parser().parse_args()
-    package_root = Path(args.package_root).expanduser().resolve()
-    extension_path = Path(args.extension_path).expanduser().resolve()
-    wdk_btc_root = Path(args.wdk_btc_root).expanduser().resolve()
-    wdk_evm_root = Path(args.wdk_evm_root).expanduser().resolve()
+    source_package_root = Path(args.package_root).expanduser().resolve()
+    source_extension_path = Path(args.extension_path).expanduser().resolve()
+    source_wdk_btc_root = Path(args.wdk_btc_root).expanduser().resolve()
+    source_wdk_evm_root = Path(args.wdk_evm_root).expanduser().resolve()
     runtime_root = Path(args.runtime_root).expanduser().resolve()
     config_path = Path(args.config_path).expanduser()
     env_path = Path(args.env_path).expanduser()
     env_example_path = Path(args.env_example_path).expanduser()
     venv_path = Path(args.venv_path).expanduser()
+    source_root = _infer_source_root(
+        source_package_root,
+        source_extension_path,
+        source_wdk_btc_root,
+        source_wdk_evm_root,
+    )
+
+    runtime_sync: dict[str, object]
+    if not args.sync_runtime:
+        runtime_sync = {
+            "enabled": False,
+            "skipped": True,
+            "reason": "sync_runtime_disabled",
+            "source_root": str(source_root),
+            "runtime_root": str(runtime_root),
+            "copied_paths": [],
+        }
+    elif args.dry_run:
+        runtime_sync = {
+            "enabled": True,
+            "skipped": False,
+            "reason": "dry_run",
+            "source_root": str(source_root),
+            "runtime_root": str(runtime_root),
+            "copied_paths": INCLUDED_RUNTIME_ROOT_FILES + INCLUDED_RUNTIME_TOP_LEVEL_DIRS,
+        }
+    else:
+        runtime_sync = _sync_runtime_tree(source_root, runtime_root)
+
+    if args.install_from_runtime:
+        package_root = runtime_root / "agent-wallet"
+        extension_path = runtime_root / ".openclaw" / "extensions" / "agent-wallet"
+        wdk_btc_root = runtime_root / "wdk-btc-wallet"
+        wdk_evm_root = runtime_root / "wdk-evm-wallet"
+    else:
+        package_root = source_package_root
+        extension_path = source_extension_path
+        wdk_btc_root = source_wdk_btc_root
+        wdk_evm_root = source_wdk_evm_root
+
     install_config_script = package_root / "scripts" / "install_openclaw_local_config.py"
-    source_root = _infer_source_root(package_root, extension_path, wdk_btc_root, wdk_evm_root)
+    if args.install_from_runtime:
+        default_source_env_path = source_package_root / ".env"
+        default_source_venv_path = source_package_root / ".venv"
+        if env_path.resolve() == default_source_env_path.resolve():
+            env_path = package_root / ".env"
+        if venv_path.resolve() == default_source_venv_path.resolve():
+            venv_path = package_root / ".venv"
+        source_env_example_path = source_package_root / ".env.example"
+        if env_example_path.resolve() == source_env_example_path.resolve():
+            env_example_path = package_root / ".env.example"
 
     env_created = _ensure_env_file(env_path, env_example_path)
     config_created = _ensure_openclaw_config(config_path)
@@ -409,28 +459,6 @@ def main() -> None:
                 _ensure_node_runtime(args.npm_bin, wdk_evm_root),
             ]
 
-    runtime_sync: dict[str, object]
-    if not args.sync_runtime:
-        runtime_sync = {
-            "enabled": False,
-            "skipped": True,
-            "reason": "sync_runtime_disabled",
-            "source_root": str(source_root),
-            "runtime_root": str(runtime_root),
-            "copied_paths": [],
-        }
-    elif args.dry_run:
-        runtime_sync = {
-            "enabled": True,
-            "skipped": False,
-            "reason": "dry_run",
-            "source_root": str(source_root),
-            "runtime_root": str(runtime_root),
-            "copied_paths": INCLUDED_RUNTIME_ROOT_FILES + INCLUDED_RUNTIME_TOP_LEVEL_DIRS,
-        }
-    else:
-        runtime_sync = _sync_runtime_tree(source_root, runtime_root)
-
     backend_enabled = args.backend.strip().lower() not in {"", "none"}
     pending_env = _pending_env_names() if backend_enabled else []
     configured = False
@@ -458,6 +486,7 @@ def main() -> None:
                 "wdk_btc_root": str(wdk_btc_root),
                 "wdk_evm_root": str(wdk_evm_root),
                 "runtime_root": str(runtime_root),
+                "install_from_runtime": bool(args.install_from_runtime),
                 "python_bin": str(python_bin),
                 "venv_created": venv_created,
                 "node_runtime": node_runtime,

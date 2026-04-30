@@ -42,17 +42,33 @@ curl -fsSL https://raw.githubusercontent.com/lopushok9/Agent-Layer/main/install-
 Install through npm:
 
 ```bash
-npx openclaw-agent-wallet install
+npx @agentlayer/openclaw-agent-wallet install --yes
 ```
 
 Or install the CLI globally first:
 
 ```bash
-npm install -g openclaw-agent-wallet
-openclaw-agent-wallet install
+npm install -g @agentlayer/openclaw-agent-wallet
+openclaw-agent-wallet install --yes
 ```
 
-The npm CLI runs the same bundled `setup.sh` installer. It installs the Python wallet backend, local BTC/EVM runtimes, runtime copy, and OpenClaw config using the same safety rules as the local installer.
+The npm CLI runs the same bundled installer, but uses a versioned runtime layout:
+
+```bash
+~/.openclaw/agent-wallet-runtime/releases/<version>
+~/.openclaw/agent-wallet-runtime/current
+```
+
+`--yes` generates local runtime secrets when this is the first install. The installer stores `master_key` and `approval_secret` in `~/.openclaw/sealed_keys.json`; only the boot key needed to unlock that sealed bundle is written to the installed runtime `.env`.
+
+Useful npm CLI commands:
+
+```bash
+openclaw-agent-wallet status
+openclaw-agent-wallet doctor
+openclaw-agent-wallet update --yes
+openclaw-agent-wallet rollback
+```
 
 Install from a local clone:
 

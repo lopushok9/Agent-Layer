@@ -18,7 +18,8 @@ def main() -> None:
 
     config_path = temp_root / "openclaw.json"
     env_path = temp_root / ".env"
-    runtime_root = temp_root / "agent-wallet-runtime" / "current"
+    runtime_base = temp_root / "agent-wallet-runtime"
+    runtime_root = runtime_base / "releases" / "0.1.0"
     cli = repo_root / "bin" / "openclaw-agent-wallet.mjs"
 
     env = dict(os.environ)
@@ -43,12 +44,11 @@ def main() -> None:
             "node",
             str(cli),
             "install",
+            "--yes",
             "--config-path",
             str(config_path),
             "--env-path",
             str(env_path),
-            "--runtime-root",
-            str(runtime_root),
             "--backend",
             "none",
             "--skip-python-setup",
@@ -69,6 +69,30 @@ def main() -> None:
     assert (runtime_root / ".openclaw" / "extensions" / "agent-wallet").exists()
     assert (runtime_root / "wdk-btc-wallet" / "package.json").exists()
     assert (runtime_root / "wdk-evm-wallet" / "package.json").exists()
+    assert (runtime_base / "current").is_symlink()
+    assert (runtime_base / "current").resolve() == runtime_root.resolve()
+
+    status = subprocess.run(
+        ["node", str(cli), "status"],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=env,
+    )
+    status_payload = json.loads(status.stdout)
+    assert status_payload["active_version"] == "0.1.0"
+    assert status_payload["available_releases"] == ["0.1.0"]
+
+    other_runtime = runtime_base / "releases" / "0.0.9"
+    other_runtime.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["node", str(cli), "rollback", "--to", "0.0.9"],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=env,
+    )
+    assert (runtime_base / "current").resolve() == other_runtime.resolve()
 
     print("smoke_npm_installer: ok")
 

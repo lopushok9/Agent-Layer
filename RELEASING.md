@@ -1,5 +1,72 @@
 # Releasing
 
+## npm installer package
+
+The production installer is published as:
+
+```text
+@agentlayer/openclaw-agent-wallet
+```
+
+Expected user install path:
+
+```bash
+npx @agentlayer/openclaw-agent-wallet install --yes
+```
+
+The npm package ships source and installer scripts only. It must not ship local
+state such as `node_modules/`, `.venv/`, `__pycache__/`, wallet files, or
+OpenClaw secrets.
+
+Before publishing a tag, verify locally:
+
+```bash
+npm run check
+python3 agent-wallet/tests/smoke_npm_installer.py
+python3 agent-wallet/tests/smoke_install_agent_wallet.py
+npm --cache /tmp/npm-cache pack --dry-run
+```
+
+The GitHub workflow `.github/workflows/npm-installer.yml` verifies the package
+on pull requests and publishes tagged releases to npm. Repository secrets must
+include:
+
+```text
+NPM_TOKEN
+```
+
+Publish stable releases from version tags:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The workflow runs:
+
+```bash
+npm publish --access public --provenance
+```
+
+For pre-release channels, publish manually or extend the workflow with npm
+dist-tags:
+
+```bash
+npm publish --access public --tag beta
+npm dist-tag add @agentlayer/openclaw-agent-wallet@0.1.0-beta.1 beta
+```
+
+Runtime updates are versioned under:
+
+```text
+~/.openclaw/agent-wallet-runtime/releases/<version>
+~/.openclaw/agent-wallet-runtime/current
+```
+
+The CLI switches `current` only after a successful install/update. `rollback`
+switches `current` back to the recorded previous runtime or to a specific
+installed version.
+
 This repository's `v0.1.0-beta.2` public release should be framed around six repo-owned deliverables:
 
 1. `mcp-server/` - the finance and crypto MCP server

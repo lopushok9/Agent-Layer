@@ -1,5 +1,5 @@
 {
-  "name": "openclaw-agent-wallet",
+  "name": "@agentlayer/openclaw-agent-wallet",
   "version": "0.1.0",
   "description": "NPM installer for the OpenClaw Agent Wallet local runtime.",
   "type": "module",
