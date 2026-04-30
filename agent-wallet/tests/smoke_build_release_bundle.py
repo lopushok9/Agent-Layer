@@ -82,12 +82,12 @@ def main() -> None:
     assert f"{bundle_root}/wdk-btc-wallet/package.json" in names
     assert f"{bundle_root}/wdk-evm-wallet/package.json" in names
     assert f"{bundle_root}/.openclaw/extensions/agent-wallet/index.ts" in names
-    assert f"{bundle_root}/mcp-server/server.py" in names
-    assert f"{bundle_root}/provider-gateway/requirements.txt" in names
-    assert f"{bundle_root}/solana-8004/package.json" in names
     assert f"{bundle_root}/agent-a2a-gateway/requirements.txt" in names
     assert f"{bundle_root}/bundle-manifest.json" in names
 
+    assert f"{bundle_root}/mcp-server/server.py" not in names
+    assert f"{bundle_root}/provider-gateway/requirements.txt" not in names
+    assert f"{bundle_root}/solana-8004/package.json" not in names
     assert f"{bundle_root}/landing/package.json" not in names
     assert f"{bundle_root}/docs/package.json" not in names
     assert f"{bundle_root}/bot_mvp.md" not in names

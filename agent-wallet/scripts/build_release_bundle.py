@@ -27,9 +27,6 @@ INCLUDED_TOP_LEVEL_DIRS = [
     ".openclaw",
     "agent-a2a-gateway",
     "agent-wallet",
-    "mcp-server",
-    "provider-gateway",
-    "solana-8004",
     "wdk-btc-wallet",
     "wdk-evm-wallet",
 ]

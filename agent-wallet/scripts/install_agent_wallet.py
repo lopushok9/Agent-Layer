@@ -26,9 +26,6 @@ INCLUDED_RUNTIME_TOP_LEVEL_DIRS = [
     ".openclaw",
     "agent-wallet",
     "agent-a2a-gateway",
-    "mcp-server",
-    "provider-gateway",
-    "solana-8004",
     "wdk-btc-wallet",
     "wdk-evm-wallet",
 ]
