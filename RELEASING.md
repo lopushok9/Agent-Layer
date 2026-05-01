@@ -29,12 +29,19 @@ npm --cache /tmp/npm-cache pack --dry-run
 ```
 
 The GitHub workflow `.github/workflows/npm-installer.yml` verifies the package
-on pull requests and publishes tagged releases to npm. Repository secrets must
-include:
+on pull requests and publishes tagged releases to npm through npm Trusted
+Publishing. Configure the npm package's trusted publisher before publishing:
 
 ```text
-NPM_TOKEN
+Provider: GitHub Actions
+Organization or user: lopushok9
+Repository: market-pulse
+Workflow filename: npm-installer.yml
 ```
+
+Do not use `NPM_TOKEN` for publishing unless Trusted Publishing is unavailable.
+Token-based publishes can fail with `EOTP` when package or account policy
+requires two-factor authentication.
 
 Publish stable releases from version tags. The tag must match both
 `package.json` and `agent-wallet/pyproject.toml`:
@@ -47,7 +54,7 @@ git push origin v0.1.6
 The workflow runs:
 
 ```bash
-npm publish --access public --provenance --tag latest
+npm publish --access public --tag latest
 ```
 
 For pre-release tags, use a semver prerelease version in both package files,
