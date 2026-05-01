@@ -35,12 +35,12 @@ Publishing. Configure the npm package's trusted publisher before publishing:
 ```text
 Provider: GitHub Actions
 Organization or user: lopushok9
-Repository: market-pulse
+Repository: Agent-Layer
 Workflow filename: npm-installer.yml
 ```
 
 The `repository.url` field in `package.json` must exactly match the GitHub
-repository URL, for example `https://github.com/lopushok9/market-pulse.git`.
+repository URL, for example `https://github.com/lopushok9/Agent-Layer.git`.
 Do not use the `git+https://` npm shorthand for Trusted Publishing releases.
 
 Do not use `NPM_TOKEN` for publishing unless Trusted Publishing is unavailable.
