@@ -1,11 +1,11 @@
 {
   "name": "@agentlayer.tech/wallet",
-  "version": "0.1.7-beta.10",
+  "version": "0.1.7-beta.11",
   "description": "NPM installer for the OpenClaw Agent Wallet local runtime.",
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/lopushok9/market-pulse.git"
+    "url": "https://github.com/lopushok9/market-pulse.git"
   },
   "bugs": {
     "url": "https://github.com/lopushok9/market-pulse/issues"

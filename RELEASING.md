@@ -39,6 +39,10 @@ Repository: market-pulse
 Workflow filename: npm-installer.yml
 ```
 
+The `repository.url` field in `package.json` must exactly match the GitHub
+repository URL, for example `https://github.com/lopushok9/market-pulse.git`.
+Do not use the `git+https://` npm shorthand for Trusted Publishing releases.
+
 Do not use `NPM_TOKEN` for publishing unless Trusted Publishing is unavailable.
 Token-based publishes can fail with `EOTP` when package or account policy
 requires two-factor authentication.
