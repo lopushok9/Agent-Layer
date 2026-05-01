@@ -68,16 +68,6 @@ jobs:
       - name: Use npm with trusted publishing support
         run: npm install -g npm@latest
 
-      - name: Print publish environment
-        run: |
-          node --version
-          npm --version
-          test -n "$ACTIONS_ID_TOKEN_REQUEST_URL"
-          test -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN"
-          echo "ref=$GITHUB_REF"
-          echo "repository=$GITHUB_REPOSITORY"
-          echo "workflow=$GITHUB_WORKFLOW"
-
       - name: Check release version metadata
         id: version
         run: npm run check:release-version
