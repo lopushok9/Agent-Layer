@@ -22,7 +22,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-          registry-url: "https://registry.npmjs.org"
 
       - uses: actions/setup-python@v5
         with:
@@ -62,7 +61,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-          registry-url: "https://registry.npmjs.org"
+
+      - name: Use npm with trusted publishing support
+        run: npm install -g npm@latest
 
       - name: Check release version metadata
         id: version
