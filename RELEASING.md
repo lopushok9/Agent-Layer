@@ -5,13 +5,13 @@
 The production installer is published as:
 
 ```text
-@agentlayer/openclaw-agent-wallet
+@agentlayer.tech/wallet
 ```
 
 Expected user install path:
 
 ```bash
-npx @agentlayer/openclaw-agent-wallet install --yes
+npx @agentlayer.tech/wallet install --yes
 ```
 
 The npm package ships source and installer scripts only. It must not ship local
@@ -22,6 +22,7 @@ Before publishing a tag, verify locally:
 
 ```bash
 npm run check
+npm run check:release-version
 python3 agent-wallet/tests/smoke_npm_installer.py
 python3 agent-wallet/tests/smoke_install_agent_wallet.py
 npm --cache /tmp/npm-cache pack --dry-run
@@ -35,25 +36,26 @@ include:
 NPM_TOKEN
 ```
 
-Publish stable releases from version tags:
+Publish stable releases from version tags. The tag must match both
+`package.json` and `agent-wallet/pyproject.toml`:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.6
+git push origin v0.1.6
 ```
 
 The workflow runs:
 
 ```bash
-npm publish --access public --provenance
+npm publish --access public --provenance --tag latest
 ```
 
-For pre-release channels, publish manually or extend the workflow with npm
-dist-tags:
+For pre-release tags, use a semver prerelease version in both package files,
+then push the matching tag. The workflow publishes those with npm tag `beta`:
 
 ```bash
-npm publish --access public --tag beta
-npm dist-tag add @agentlayer/openclaw-agent-wallet@0.1.0-beta.1 beta
+git tag v0.1.7-beta.1
+git push origin v0.1.7-beta.1
 ```
 
 Runtime updates are versioned under:

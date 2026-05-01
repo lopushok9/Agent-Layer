@@ -32,10 +32,10 @@ Common install options:
   --network <network>   devnet, mainnet, base, ethereum, bitcoin, etc.
 
 Examples:
-  npx openclaw-agent-wallet install --yes
-  npx openclaw-agent-wallet install --backend none
-  npx openclaw-agent-wallet update --yes
-  npx openclaw-agent-wallet status
+  npx @agentlayer.tech/wallet install --yes
+  npx @agentlayer.tech/wallet install --backend none
+  npx @agentlayer.tech/wallet update --yes
+  npx @agentlayer.tech/wallet status
 
 The installer writes a versioned runtime under:
   ~/.openclaw/agent-wallet-runtime/releases/<version>
@@ -83,6 +83,75 @@ function hasCommand(name) {
     stdio: "ignore",
   });
   return result.status === 0;
+}
+
+function commandPath(name) {
+  const result = spawnSync("command", ["-v", name], {
+    shell: true,
+    encoding: "utf8",
+  });
+  if (result.status !== 0) return "";
+  return result.stdout.trim();
+}
+
+function pythonVersion(pythonBin) {
+  if (!pythonBin) return null;
+  const result = spawnSync(
+    pythonBin,
+    ["-c", "import sys,json; print(json.dumps({'version': sys.version.split()[0], 'major': sys.version_info[0], 'minor': sys.version_info[1]}))"],
+    { encoding: "utf8" },
+  );
+  if (result.status !== 0) return null;
+  try {
+    return JSON.parse(result.stdout);
+  } catch {
+    return null;
+  }
+}
+
+function pythonOk(version) {
+  return Boolean(version && (version.major > 3 || (version.major === 3 && version.minor >= 10)));
+}
+
+function pythonVenvOk(pythonBin) {
+  if (!pythonBin) return false;
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-python-check-"));
+  try {
+    const result = spawnSync(pythonBin, ["-m", "venv", path.join(tempRoot, "venv")], {
+      stdio: "ignore",
+    });
+    return result.status === 0;
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
+function pythonProbe(pythonBin) {
+  const version = pythonVersion(pythonBin);
+  const version_ok = pythonOk(version);
+  const venv_ok = version_ok ? pythonVenvOk(pythonBin) : false;
+  return {
+    path: pythonBin || "",
+    version: version?.version || null,
+    version_ok,
+    venv_ok,
+    ok: version_ok && venv_ok,
+  };
+}
+
+function selectedPythonProbe() {
+  const candidates = [];
+  if (process.env.OPENCLAW_AGENT_WALLET_PYTHON) {
+    candidates.push(process.env.OPENCLAW_AGENT_WALLET_PYTHON);
+  } else {
+    for (const name of ["python3.14", "python3.13", "python3.12", "python3.11", "python3.10", "python3"]) {
+      const found = commandPath(name);
+      if (found && !candidates.includes(found)) candidates.push(found);
+    }
+  }
+
+  const probes = candidates.map((candidate) => pythonProbe(candidate));
+  return probes.find((probe) => probe.ok) || probes[0] || pythonProbe("");
 }
 
 function readLinkOrNull(target) {
@@ -243,11 +312,19 @@ function runDoctor() {
     ["wdk-btc-wallet", path.join(packageRoot, "wdk-btc-wallet", "package.json")],
     ["wdk-evm-wallet", path.join(packageRoot, "wdk-evm-wallet", "package.json")],
   ];
-  const commands = ["python3", "node", "npm"];
+  const commands = ["node", "npm"];
   const missing = [];
+  const python = selectedPythonProbe();
 
   for (const command of commands) {
     if (!hasCommand(command)) missing.push(`command:${command}`);
+  }
+  if (!python.path) {
+    missing.push("command:python3.10-or-python3");
+  } else if (!python.version_ok) {
+    missing.push(`python>=3.10:selected:${python.version || "unknown"}`);
+  } else if (!python.venv_ok) {
+    missing.push(`python-venv-ensurepip:selected:${python.version || "unknown"}`);
   }
   for (const [label, target] of requiredPaths) {
     if (!fs.existsSync(target)) missing.push(`${label}:${target}`);
@@ -266,6 +343,7 @@ function runDoctor() {
         current_runtime: currentRuntimePath(),
         active_version: activeVersion(),
         releases: listReleases(),
+        python,
         commands: Object.fromEntries(commands.map((command) => [command, hasCommand(command)])),
         missing,
       },

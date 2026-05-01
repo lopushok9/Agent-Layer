@@ -79,7 +79,7 @@ def _default_env_example_path() -> Path:
 
 
 def _default_config_path() -> Path:
-    return Path(os.path.expanduser("~/.openclaw/openclaw.json"))
+    return _resolve_openclaw_home() / "openclaw.json"
 
 
 def _default_venv_path() -> Path:
@@ -307,12 +307,21 @@ def _ensure_node_runtime(npm_bin: str, project_root: Path) -> dict[str, object]:
         raise SystemExit(f"Missing package.json for Node runtime at '{project_root}'.")
     package_lock = project_root / "package-lock.json"
     command = [npm_bin, "ci"] if package_lock.exists() else [npm_bin, "install"]
-    subprocess.run(command, cwd=project_root, check=True)
+    env = dict(os.environ)
+    cache_dir = (
+        env.get("OPENCLAW_AGENT_WALLET_NPM_CACHE")
+        or str(_resolve_openclaw_home() / "npm-cache")
+    )
+    env["NPM_CONFIG_CACHE"] = cache_dir
+    env["npm_config_cache"] = cache_dir
+    Path(cache_dir).expanduser().mkdir(parents=True, exist_ok=True)
+    subprocess.run(command, cwd=project_root, check=True, env=env)
     return {
         "project_root": str(project_root),
         "package_json": str(package_json),
         "package_lock": str(package_lock) if package_lock.exists() else None,
         "command": command,
+        "cache_dir": cache_dir,
     }
 
 
@@ -336,7 +345,12 @@ def _build_next_steps(
     python_bin: Path,
     script_path: Path,
     args: argparse.Namespace,
+    *,
+    package_root: Path | None = None,
+    extension_path: Path | None = None,
 ) -> list[str]:
+    effective_package_root = package_root or Path(args.package_root).expanduser()
+    effective_extension_path = extension_path or Path(args.extension_path).expanduser()
     command = [
         str(python_bin),
         str(script_path),
@@ -356,8 +370,8 @@ def _build_next_steps(
     if args.rpc_urls.strip():
         command.extend(["--rpc-urls", args.rpc_urls.strip()])
     command.append("--sign-only" if args.sign_only else "--no-sign-only")
-    command.extend(["--extension-path", str(Path(args.extension_path).expanduser())])
-    command.extend(["--package-root", str(Path(args.package_root).expanduser())])
+    command.extend(["--extension-path", str(effective_extension_path)])
+    command.extend(["--package-root", str(effective_package_root)])
     command.extend(["--python-bin", str(python_bin)])
     return command
 
@@ -465,7 +479,13 @@ def main() -> None:
     configure_stdout = ""
     if backend_enabled and not pending_env and not args.dry_run:
         result = subprocess.run(
-            _build_next_steps(python_bin, install_config_script, args),
+            _build_next_steps(
+                python_bin,
+                install_config_script,
+                args,
+                package_root=package_root,
+                extension_path=extension_path,
+            ),
             capture_output=True,
             text=True,
             check=True,
@@ -493,7 +513,13 @@ def main() -> None:
                 "runtime_sync": runtime_sync,
                 "configured": configured,
                 "pending_env": pending_env,
-                "next_configure_command": _build_next_steps(python_bin, install_config_script, args),
+                "next_configure_command": _build_next_steps(
+                    python_bin,
+                    install_config_script,
+                    args,
+                    package_root=package_root,
+                    extension_path=extension_path,
+                ),
                 "configure_result": json.loads(configure_stdout) if configure_stdout else None,
             },
             indent=2,

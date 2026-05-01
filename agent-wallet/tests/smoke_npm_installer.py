@@ -11,6 +11,7 @@ from pathlib import Path
 
 def main() -> None:
     repo_root = Path(__file__).resolve().parents[2]
+    package_version = json.loads((repo_root / "package.json").read_text(encoding="utf-8"))["version"]
     temp_root = Path("/tmp/openclaw-npm-installer-smoke")
     if temp_root.exists():
         shutil.rmtree(temp_root)
@@ -19,7 +20,7 @@ def main() -> None:
     config_path = temp_root / "openclaw.json"
     env_path = temp_root / ".env"
     runtime_base = temp_root / "agent-wallet-runtime"
-    runtime_root = runtime_base / "releases" / "0.1.0"
+    runtime_root = runtime_base / "releases" / package_version
     cli = repo_root / "bin" / "openclaw-agent-wallet.mjs"
 
     env = dict(os.environ)
@@ -80,8 +81,8 @@ def main() -> None:
         env=env,
     )
     status_payload = json.loads(status.stdout)
-    assert status_payload["active_version"] == "0.1.0"
-    assert status_payload["available_releases"] == ["0.1.0"]
+    assert status_payload["active_version"] == package_version
+    assert status_payload["available_releases"] == [package_version]
 
     other_runtime = runtime_base / "releases" / "0.0.9"
     other_runtime.mkdir(parents=True, exist_ok=True)

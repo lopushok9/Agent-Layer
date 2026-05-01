@@ -1,6 +1,6 @@
 {
-  "name": "@agentlayer/openclaw-agent-wallet",
-  "version": "0.1.0",
+  "name": "@agentlayer.tech/wallet",
+  "version": "0.1.6",
   "description": "NPM installer for the OpenClaw Agent Wallet local runtime.",
   "type": "module",
   "bin": {
@@ -8,11 +8,13 @@
   },
   "scripts": {
     "check": "node --check bin/openclaw-agent-wallet.mjs",
+    "check:release-version": "node scripts/check_release_version.mjs",
     "test:npm-installer": "python3 agent-wallet/tests/smoke_npm_installer.py",
     "pack:dry-run": "npm pack --dry-run"
   },
   "files": [
     "bin/",
+    "scripts/check_release_version.mjs",
     "setup.sh",
     "install-from-github.sh",
     "README.md",

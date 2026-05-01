@@ -42,13 +42,13 @@ curl -fsSL https://raw.githubusercontent.com/lopushok9/Agent-Layer/main/install-
 Install through npm:
 
 ```bash
-npx @agentlayer/openclaw-agent-wallet install --yes
+npx @agentlayer.tech/wallet install --yes
 ```
 
 Or install the CLI globally first:
 
 ```bash
-npm install -g @agentlayer/openclaw-agent-wallet
+npm install -g @agentlayer.tech/wallet
 openclaw-agent-wallet install --yes
 ```
 

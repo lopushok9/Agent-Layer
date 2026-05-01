@@ -4,9 +4,9 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openclaw-agent-wallet"
-version = "0.1.0"
+version = "0.1.6"
 description = "Plugin-friendly wallet backend for OpenClaw agents"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
     "httpx>=0.27.0",
     "pydantic>=2.0.0",
@@ -27,5 +27,5 @@ dev = [
 packages = ["agent_wallet"]
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py310"
 line-length = 100

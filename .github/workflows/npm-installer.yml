@@ -34,6 +34,9 @@ jobs:
       - name: Check npm installer CLI
         run: npm run check
 
+      - name: Check release version metadata
+        run: npm run check:release-version
+
       - name: Smoke npm installer wrapper
         run: python agent-wallet/tests/smoke_npm_installer.py
 
@@ -61,7 +64,11 @@ jobs:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
+      - name: Check release version metadata
+        id: version
+        run: npm run check:release-version
+
       - name: Publish npm package
-        run: npm publish --access public --provenance
+        run: npm publish --access public --provenance --tag "${{ steps.version.outputs.npm_tag }}"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
