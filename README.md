@@ -10,6 +10,7 @@ The repository includes:
 
 - `agent-wallet/` - the main wallet backend for AgentLayer
 - `.openclaw/` - the local AgentLayer bridge layer
+- `hermes/` - optional Hermes Agent plugin bridge for the same wallet backend
 - `wdk-btc-wallet/` - the local Bitcoin wallet service
 - `wdk-evm-wallet/` - the local EVM wallet service
 - `provider-gateway/` - shared provider access for Solana RPC, Bags, and related finance reads
@@ -138,6 +139,24 @@ Without those secrets, the installer still lays down the runtime and installs de
   }
 }
 ```
+
+## Connect Hermes Agent
+
+OpenClaw remains the primary local environment, but the repo also ships an optional Hermes Agent bridge at:
+
+```bash
+hermes/plugins/agent_wallet
+```
+
+It exposes only two Hermes tools: `agent_wallet_tools` for discovery and `agent_wallet_invoke` for forwarding a single call into the existing Python wallet CLI. Install it by symlinking the plugin directory into Hermes:
+
+```bash
+mkdir -p ~/.hermes/plugins
+ln -s /absolute/path/to/openclaw_skill/hermes/plugins/agent_wallet ~/.hermes/plugins/agent_wallet
+export AGENT_WALLET_PACKAGE_ROOT=/absolute/path/to/openclaw_skill/agent-wallet
+```
+
+Secrets stay in the existing protected OpenClaw runtime paths, especially `~/.openclaw/sealed_keys.json`; do not put wallet secrets into Hermes tool config.
 
 ## What you get after install
 

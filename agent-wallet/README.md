@@ -18,6 +18,7 @@ The package now includes a thin adapter for agent runtimes:
 - `agent_wallet.plugin_bundle.build_openclaw_plugin_bundle`
 - `agent_wallet.openclaw_runtime.onboard_openclaw_user_wallet`
 - `agent_wallet.openclaw_cli` for the official OpenClaw TypeScript plugin bridge
+- `hermes/plugins/agent_wallet` as an optional Hermes Agent bridge to the same CLI
 
 It provides:
 
@@ -26,6 +27,17 @@ It provides:
 - a single `invoke()` method for safe dispatch
 - OpenClaw-style plugin manifest and skill bundle
 - explicit network-aware results so the host and agent can see `devnet` vs `mainnet`
+
+## Hermes integration
+
+The optional Hermes plugin is intentionally a bridge, not a port of the OpenClaw plugin. It registers:
+
+- `agent_wallet_tools` - read-only discovery for the underlying Python adapter tool specs.
+- `agent_wallet_invoke` - a dispatcher that calls `python -m agent_wallet.openclaw_cli invoke`.
+
+Install it by symlinking `hermes/plugins/agent_wallet` into `~/.hermes/plugins/agent_wallet` and setting `AGENT_WALLET_PACKAGE_ROOT` when Hermes is launched outside this repository. OpenClaw remains the canonical host integration and wallet safety policy remains in Python.
+
+Hermes tool config must not contain wallet secrets. Use the existing sealed runtime path and host-issued approval tokens for execute flows.
 
 Current safe tools:
 
