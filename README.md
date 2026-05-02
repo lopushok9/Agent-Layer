@@ -1,11 +1,9 @@
+![AgentLayer](logo+name.png)
+# AgentLayer
+
 ```bash
 npx @agentlayer.tech/wallet install --yes
 ```
-
-![AgentLayer](logo+name.png)
-
-# AgentLayer
-
 AgentLayer is a beta local-first wallet and finance stack for agents.
 
 The repository includes:
