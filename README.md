@@ -49,7 +49,7 @@ Or install the CLI globally first:
 
 ```bash
 npm install -g @agentlayer.tech/wallet
-openclaw-agent-wallet install --yes
+wallet install --yes
 ```
 
 The npm CLI runs the same bundled installer, but uses a versioned runtime layout:
@@ -64,10 +64,10 @@ The npm CLI runs the same bundled installer, but uses a versioned runtime layout
 Useful npm CLI commands:
 
 ```bash
-openclaw-agent-wallet status
-openclaw-agent-wallet doctor
-openclaw-agent-wallet update --yes
-openclaw-agent-wallet rollback
+wallet status
+wallet doctor
+wallet update --yes
+wallet rollback
 ```
 
 Install from a local clone:

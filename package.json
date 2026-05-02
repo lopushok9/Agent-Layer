@@ -1,6 +1,6 @@
 {
   "name": "@agentlayer.tech/wallet",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "NPM installer for the OpenClaw Agent Wallet local runtime.",
   "type": "module",
   "repository": {
@@ -11,10 +11,7 @@
     "url": "https://github.com/lopushok9/Agent-Layer/issues"
   },
   "homepage": "https://github.com/lopushok9/Agent-Layer#readme",
-  "bin": {
-    "wallet": "./bin/openclaw-agent-wallet.mjs",
-    "openclaw-agent-wallet": "./bin/openclaw-agent-wallet.mjs"
-  },
+  "bin": "./bin/openclaw-agent-wallet.mjs",
   "scripts": {
     "check": "node --check bin/openclaw-agent-wallet.mjs",
     "check:release-version": "node scripts/check_release_version.mjs",
