@@ -119,6 +119,25 @@ def main() -> None:
     assert status_payload["active_version"] == package_version
     assert status_payload["available_releases"] == [package_version]
 
+    current_directory_runtime = temp_root / "directory-current-runtime"
+    shutil.copytree(runtime_root, current_directory_runtime)
+    current_link = runtime_base / "current"
+    current_link.unlink()
+    shutil.copytree(current_directory_runtime, current_link)
+    hermes_result_from_directory_current = subprocess.run(
+        ["node", str(cli), "hermes", "install", "--yes", "--force"],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=hermes_env,
+    )
+    directory_current_payload = json.loads(hermes_result_from_directory_current.stdout)
+    assert Path(directory_current_payload["agent_wallet_package_root"]).resolve() == (
+        current_link / "agent-wallet"
+    ).resolve()
+    shutil.rmtree(current_link)
+    current_link.symlink_to(runtime_root, target_is_directory=True)
+
     other_runtime = runtime_base / "releases" / "0.0.9"
     other_runtime.mkdir(parents=True, exist_ok=True)
     subprocess.run(

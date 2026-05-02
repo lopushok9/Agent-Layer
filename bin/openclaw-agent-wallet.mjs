@@ -79,6 +79,21 @@ function currentRuntimePath(env = process.env) {
   return path.join(resolveRuntimeBase(env), "current");
 }
 
+function resolvedCurrentRuntimeRoot(env = process.env) {
+  const currentPath = currentRuntimePath(env);
+  const currentTarget = readLinkOrNull(currentPath);
+  if (currentTarget) {
+    return path.resolve(path.dirname(currentPath), currentTarget);
+  }
+  try {
+    const stat = fs.statSync(currentPath);
+    if (stat.isDirectory()) return currentPath;
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  return "";
+}
+
 function previousRuntimePath(env = process.env) {
   return path.join(resolveRuntimeBase(env), "previous");
 }
@@ -328,10 +343,8 @@ function readEnvFile(pathname) {
 }
 
 function currentBootKey(env = process.env) {
-  const currentPath = currentRuntimePath(env);
-  const currentTarget = readLinkOrNull(currentPath);
-  if (!currentTarget) return "";
-  const currentRoot = path.resolve(path.dirname(currentPath), currentTarget);
+  const currentRoot = resolvedCurrentRuntimeRoot(env);
+  if (!currentRoot) return "";
   return readEnvFile(path.join(currentRoot, "agent-wallet", ".env")).AGENT_WALLET_BOOT_KEY || "";
 }
 
@@ -599,11 +612,10 @@ function runRollback(args) {
 }
 
 function resolveHermesPluginSource() {
-  const current = currentRuntimePath();
-  const currentTarget = readLinkOrNull(current);
+  const currentRoot = resolvedCurrentRuntimeRoot();
   const candidates = [];
-  if (currentTarget) {
-    candidates.push(path.resolve(path.dirname(current), currentTarget, "hermes", "plugins", "agent_wallet"));
+  if (currentRoot) {
+    candidates.push(path.join(currentRoot, "hermes", "plugins", "agent_wallet"));
   }
   candidates.push(path.join(packageRoot, "hermes", "plugins", "agent_wallet"));
   for (const source of candidates) {
@@ -615,10 +627,9 @@ function resolveHermesPluginSource() {
 }
 
 function resolveAgentWalletPackageRoot(env = process.env) {
-  const current = currentRuntimePath(env);
-  const currentTarget = readLinkOrNull(current);
-  if (currentTarget) {
-    const runtimePackage = path.resolve(path.dirname(current), currentTarget, "agent-wallet");
+  const currentRoot = resolvedCurrentRuntimeRoot(env);
+  if (currentRoot) {
+    const runtimePackage = path.join(currentRoot, "agent-wallet");
     if (fs.existsSync(path.join(runtimePackage, "agent_wallet", "__init__.py"))) {
       return runtimePackage;
     }
