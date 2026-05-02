@@ -1,217 +1,216 @@
 # Releasing
 
-## npm installer package
-
-The production installer is published as:
+This repo publishes the npm installer as:
 
 ```text
 @agentlayer.tech/wallet
 ```
 
-Expected user install path:
+The public install command is:
 
 ```bash
 npx @agentlayer.tech/wallet install --yes
 ```
 
-The npm package ships source and installer scripts only. It must not ship local
-state such as `node_modules/`, `.venv/`, `__pycache__/`, wallet files, or
-OpenClaw secrets.
+## When npm Publishes
 
-Before publishing a tag, verify locally:
+Normal commits and pushes do not publish new npm versions. They only run the
+GitHub Actions verification job.
+
+An npm publish happens only when you push a git tag that starts with `v`, for
+example `v0.1.10`.
+
+The same tag workflow also creates a GitHub Release on the repository's
+Releases page after npm publish succeeds.
+
+The tag version must match both source version files:
+
+```text
+package.json
+agent-wallet/pyproject.toml
+```
+
+If those versions do not match the tag, the workflow fails before publishing.
+
+## Stable Release
+
+Use a stable release when users should get it from the default install command.
+
+Example: publish `0.1.10` as npm `latest`.
+
+1. Update `package.json`:
+
+```json
+"version": "0.1.10"
+```
+
+2. Update `agent-wallet/pyproject.toml`:
+
+```toml
+version = "0.1.10"
+```
+
+3. Run local checks:
 
 ```bash
 npm run check
-npm run check:release-version
+GITHUB_REF_NAME=v0.1.10 npm run check:release-version
 python3 agent-wallet/tests/smoke_npm_installer.py
 python3 agent-wallet/tests/smoke_install_agent_wallet.py
 npm --cache /tmp/npm-cache pack --dry-run
 ```
 
-The GitHub workflow `.github/workflows/npm-installer.yml` verifies the package
-on pull requests and publishes tagged releases to npm through npm Trusted
-Publishing. Configure the npm package's trusted publisher before publishing:
+4. Commit the version change:
+
+```bash
+git add package.json agent-wallet/pyproject.toml
+git commit -m "Release npm installer 0.1.10"
+```
+
+5. Create and push the release tag:
+
+```bash
+git tag -a v0.1.10 -m "v0.1.10"
+git push origin main
+git push origin v0.1.10
+```
+
+6. Check npm after GitHub Actions finishes:
+
+```bash
+npm view @agentlayer.tech/wallet dist-tags
+npm view @agentlayer.tech/wallet@latest version
+```
+
+Expected result:
 
 ```text
-Provider: GitHub Actions
-Organization or user: lopushok9
-Repository: Agent-Layer
-Workflow filename: npm-installer.yml
+latest: 0.1.10
 ```
 
-The `repository.url` field in `package.json` must exactly match the GitHub
-repository URL, for example `https://github.com/lopushok9/Agent-Layer.git`.
-Do not use the `git+https://` npm shorthand for Trusted Publishing releases.
+The GitHub Releases page should also contain a new release named `v0.1.10`.
 
-Do not use `NPM_TOKEN` for publishing unless Trusted Publishing is unavailable.
-Token-based publishes can fail with `EOTP` when package or account policy
-requires two-factor authentication.
+## Beta Release
 
-Publish stable releases from version tags. The tag must match both
-`package.json` and `agent-wallet/pyproject.toml`:
+Use a beta release when you want to test npm publishing without changing the
+default user install command.
+
+Example: publish `0.1.11-beta.1` as npm `beta`.
+
+1. Set both version files to the beta version:
+
+```json
+"version": "0.1.11-beta.1"
+```
+
+```toml
+version = "0.1.11-beta.1"
+```
+
+2. Run checks:
 
 ```bash
-git tag v0.1.6
-git push origin v0.1.6
+npm run check
+GITHUB_REF_NAME=v0.1.11-beta.1 npm run check:release-version
+npm --cache /tmp/npm-cache pack --dry-run
 ```
 
-The workflow runs:
+3. Commit, tag, and push:
 
 ```bash
-npm publish --access public --tag latest
+git add package.json agent-wallet/pyproject.toml
+git commit -m "Release npm installer 0.1.11-beta.1"
+git tag -a v0.1.11-beta.1 -m "v0.1.11-beta.1"
+git push origin main
+git push origin v0.1.11-beta.1
 ```
 
-For pre-release tags, use a semver prerelease version in both package files,
-then push the matching tag. The workflow publishes those with npm tag `beta`:
+4. Test the beta package:
 
 ```bash
-git tag v0.1.7-beta.1
-git push origin v0.1.7-beta.1
+npx @agentlayer.tech/wallet@beta --version
+npx @agentlayer.tech/wallet@beta doctor
 ```
 
-Runtime updates are versioned under:
+The GitHub Releases page should contain a new prerelease named
+`v0.1.11-beta.1`.
+
+## What Ships
+
+The npm package is intentionally limited to the wallet installer runtime:
+
+```text
+.openclaw/extensions/agent-wallet
+agent-wallet
+wdk-btc-wallet
+wdk-evm-wallet
+bin
+scripts
+setup.sh
+install-from-github.sh
+README.md
+CHANGELOG.md
+RELEASING.md
+LICENSE
+```
+
+It must not ship unrelated repo projects or generated local state:
+
+```text
+landing
+solana-8004
+provider-gateway
+mcp-server
+agent-a2a-gateway
+docs
+node_modules
+.venv
+__pycache__
+.pytest_cache
+.DS_Store
+wallet files
+OpenClaw secrets
+```
+
+The package allowlist lives in `package.json` under `files`.
+
+## Runtime Layout
+
+Installer releases are copied into the user's OpenClaw home:
 
 ```text
 ~/.openclaw/agent-wallet-runtime/releases/<version>
 ~/.openclaw/agent-wallet-runtime/current
 ```
 
-The CLI switches `current` only after a successful install/update. `rollback`
-switches `current` back to the recorded previous runtime or to a specific
-installed version.
+The CLI switches `current` only after a successful install or update.
 
-This repository's `v0.1.0-beta.2` public release should be framed around six repo-owned deliverables:
+Rollback switches `current` back to the previous runtime or to a specific
+installed version:
 
-1. `mcp-server/` - the finance and crypto MCP server
-2. `agent-wallet/` - the Python wallet backend
-3. `.openclaw/extensions/agent-wallet/` - the repo-shipped OpenClaw extension bridge
-4. `wdk-btc-wallet/` - the BTC-only wallet service built on Tether WDK
-5. `provider-gateway/` - the shared non-custodial provider access layer
-6. `docs/` - the Starlight-based documentation site
+```bash
+npx @agentlayer.tech/wallet rollback
+```
 
-### Release title
+## GitHub And npm Setup
+
+Publishing uses npm Trusted Publishing through GitHub Actions. The npm package
+must have this trusted publisher configured:
 
 ```text
-AgentLayer Beta v0.1.0-beta.2
+Provider: GitHub Actions
+Organization or user: lopushok9
+Repository: Agent-Layer
+Workflow filename: npm-installer.yml
+Environment name: empty
 ```
 
-### Release body
+The `repository.url` field in `package.json` must exactly match the GitHub
+repository URL:
 
-```md
-This is the second public beta release of the OpenClaw finance stack.
-
-This release keeps the original beta foundation and adds three new repo-owned components:
-
-- `mcp-server/` - finance and crypto MCP server
-- `agent-wallet/` - Python wallet backend
-- `.openclaw/extensions/agent-wallet/` - OpenClaw extension bridge for the wallet backend
-- `wdk-btc-wallet/` - BTC-only wallet service for local Bitcoin operations
-- `provider-gateway/` - shared provider access for hosted Solana RPC defaults, Bags, and Jupiter Earn
-- `docs/` - documentation app for setup, architecture, and capability reference
-
-## Highlights
-
-- Expands the beta stack with a dedicated local BTC wallet service
-- Adds a non-custodial shared provider gateway for Solana RPC, Bags, and Jupiter Earn
-- Adds a separate documentation app for onboarding and reference material
-- Keeps the MCP server, wallet backend, and OpenClaw extension bridge as the core beta foundation
-
-## Included in this release
-
-### New in `v0.1.0-beta.2`
-
-#### `wdk-btc-wallet/`
-
-- Separate BTC-only wallet service built on top of Tether WDK
-- Local encrypted wallet vault, localhost-only HTTP surface, and local bearer-token auth
-- Covers Bitcoin network selection, wallet lifecycle, balances, transfers, fees, and spendability
-
-#### `provider-gateway/`
-
-- Shared non-custodial provider layer for onboarding-friendly defaults
-- Hosted Solana RPC gateway with method allowlist
-- Shared Bags launch and fees access plus shared Jupiter Earn relay
-
-#### `docs/`
-
-- Separate Starlight-based documentation app for AgentLayer
-- Covers getting started, infrastructure boundaries, wallet architecture, and capabilities
-- Gives the beta stack a repo-owned documentation surface for onboarding and review
-
-### Existing beta foundation
-
-#### `mcp-server/`
-
-- MCP server for crypto, DeFi, gas, on-chain, and agent identity workflows
-- Structured tools for market data, protocol analytics, and blockchain lookups
-- Self-hostable base for OpenClaw or other MCP-compatible clients
-
-#### `agent-wallet/`
-
-- Local Solana wallet backend for OpenClaw-connected agents
-- Read, preview, prepare, and approval-gated execute flows
-- Local secret handling and explicit operator approval model for risky actions
-
-#### `.openclaw/extensions/agent-wallet/`
-
-- Thin TypeScript bridge from OpenClaw into the Python wallet backend
-- Repo-tracked plugin manifest and config schema
-- Keeps wallet policy and execution logic in Python while exposing a small operational tool surface to OpenClaw
-
-## Beta notes
-
-- This is a beta release and should not be treated as production-ready custody infrastructure
-- Mainnet use should remain cautious, explicit, and operator-controlled
-- Early feedback on usability, safety, and integration gaps is expected and welcome
+```text
+https://github.com/lopushok9/Agent-Layer.git
 ```
 
-## Suggested release note structure
-
-### Highlights
-
-- Expands the stack with `wdk-btc-wallet/`, `provider-gateway/`, and `docs/`
-- Keeps `mcp-server/`, `agent-wallet/`, and `.openclaw/extensions/agent-wallet/` as the base beta foundation
-- Beta release intended for testing, onboarding, and early adopters
-
-### Included in this release
-
-#### `wdk-btc-wallet/`
-
-- Local BTC wallet service built on Tether WDK
-- Wallet lifecycle, balances, fee rates, spendability, and transfer support
-- Separate runtime from the existing Solana wallet backend
-
-#### `provider-gateway/`
-
-- Hosted Solana RPC defaults through a shared gateway
-- Bags launch and fees provider access
-- Jupiter Earn provider access
-
-#### `docs/`
-
-- Separate documentation app for setup and architecture reference
-- Covers infrastructure and wallet capability docs
-- Repo-owned docs surface for the public beta
-
-#### `mcp-server/`
-
-- MCP server for crypto, DeFi, and on-chain data workflows
-- Read-oriented market, protocol, gas, and identity tooling
-- Local/self-hostable deployment path
-
-#### `agent-wallet/`
-
-- Local Solana wallet backend for OpenClaw-connected agents
-- Read, preview, prepare, and approved execute flows
-- Encrypted local secret handling and explicit approval gating for risky actions
-
-#### `.openclaw/extensions/agent-wallet/`
-
-- Thin TypeScript bridge from OpenClaw into the Python wallet backend
-- Plugin manifest and config schema tracked in the repo
-- Repo-local extension package for OpenClaw integration
-
-### Beta notes
-
-- This is a beta release and should not be presented as production-ready custody infrastructure
-- Mainnet usage should remain cautious and operator-controlled
+Do not use `NPM_TOKEN` unless Trusted Publishing is unavailable. Token-based
+publishes can fail with `EOTP` when npm requires two-factor authentication.
