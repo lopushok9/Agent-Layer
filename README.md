@@ -1,3 +1,7 @@
+```bash
+npx @agentlayer.tech/wallet install --yes
+```
+
 ![AgentLayer](logo+name.png)
 
 # AgentLayer
@@ -32,12 +36,6 @@ System prerequisites:
 - `python3`
 - `node`
 - `npm`
-
-Install from the latest GitHub release bundle:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/lopushok9/Agent-Layer/main/install-from-github.sh | sh
-```
 
 Install through npm:
 
@@ -145,7 +143,7 @@ Without those secrets, the installer still lays down the runtime and installs de
 
 ## What you get after install
 
-If you install from GitHub release, the bundle is extracted under:
+If you install through npm, the runtime is extracted under:
 
 ```bash
 ~/.openclaw/agent-wallet-runtime/current
