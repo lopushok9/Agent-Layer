@@ -35,9 +35,15 @@ The optional Hermes plugin is intentionally a bridge, not a port of the OpenClaw
 - `agent_wallet_tools` - read-only discovery for the underlying Python adapter tool specs.
 - `agent_wallet_invoke` - a dispatcher that calls `python -m agent_wallet.openclaw_cli invoke`.
 
-Install it by symlinking `hermes/plugins/agent_wallet` into `~/.hermes/plugins/agent_wallet` and setting `AGENT_WALLET_PACKAGE_ROOT` when Hermes is launched outside this repository. OpenClaw remains the canonical host integration and wallet safety policy remains in Python.
+Install it with:
 
-Hermes tool config must not contain wallet secrets. Use the existing sealed runtime path and host-issued approval tokens for execute flows.
+```bash
+npx @agentlayer.tech/wallet hermes install --yes
+```
+
+That command symlinks `hermes/plugins/agent_wallet` into `~/.hermes/plugins/agent_wallet`, enables the plugin with `hermes plugins enable agent-wallet`, and writes `AGENT_WALLET_PACKAGE_ROOT`, `AGENT_WALLET_PYTHON`, and `AGENT_WALLET_BOOT_KEY_FILE` into `~/.hermes/.env`. OpenClaw remains the canonical host integration and wallet safety policy remains in Python.
+
+Hermes tool config must not contain wallet secrets. Use the existing sealed runtime path and host-issued approval tokens for execute flows. `AGENT_WALLET_BOOT_KEY_FILE` lets OpenClaw and Hermes reference one local boot-key file instead of duplicating the boot key across multiple env files.
 
 Current safe tools:
 

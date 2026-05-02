@@ -63,6 +63,7 @@ Useful npm CLI commands:
 ```bash
 wallet status
 wallet doctor
+wallet hermes install --yes
 wallet update --yes
 wallet rollback
 ```
@@ -151,12 +152,10 @@ hermes/plugins/agent_wallet
 It exposes only two Hermes tools: `agent_wallet_tools` for discovery and `agent_wallet_invoke` for forwarding a single call into the existing Python wallet CLI. Install it by symlinking the plugin directory into Hermes:
 
 ```bash
-mkdir -p ~/.hermes/plugins
-ln -s /absolute/path/to/openclaw_skill/hermes/plugins/agent_wallet ~/.hermes/plugins/agent_wallet
-export AGENT_WALLET_PACKAGE_ROOT=/absolute/path/to/openclaw_skill/agent-wallet
+npx @agentlayer.tech/wallet hermes install --yes
 ```
 
-Secrets stay in the existing protected OpenClaw runtime paths, especially `~/.openclaw/sealed_keys.json`; do not put wallet secrets into Hermes tool config.
+That command installs the Hermes plugin, runs `hermes plugins enable agent-wallet`, writes non-secret runtime paths into `~/.hermes/.env`, and points Hermes at a local boot-key file. Secrets stay in the existing protected OpenClaw runtime paths, especially `~/.openclaw/sealed_keys.json`; do not put wallet secrets into Hermes tool config.
 
 ## What you get after install
 
@@ -174,6 +173,7 @@ The installer then does the following:
 - creates a minimal `~/.openclaw/openclaw.json` if one does not exist
 - if the required secrets are already present, writes or updates `~/.openclaw/sealed_keys.json`
 - if the required secrets are already present, patches `~/.openclaw/openclaw.json` to load the `agent-wallet` extension and point it at the installed runtime
+- `wallet hermes install --yes` additionally connects Hermes Agent to the same runtime without copying wallet tools or policy
 
 When the installer reaches the final config step, the default plugin config is:
 

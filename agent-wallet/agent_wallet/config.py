@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     agent_wallet_backend: str = "none"
     agent_wallet_sign_only: bool = False
     agent_wallet_boot_key: str = ""
+    agent_wallet_boot_key_file: str = ""
     agent_wallet_approval_ttl_seconds: int = 600
     agent_wallet_per_user_key_derivation: bool = True
     agent_wallet_encrypt_user_wallets: bool = True
@@ -297,7 +298,16 @@ def _env_bool(name: str, default: bool) -> bool:
 
 def resolve_boot_key() -> str:
     """Resolve the boot key used to unlock sealed secrets from disk."""
-    return os.getenv("AGENT_WALLET_BOOT_KEY", settings.agent_wallet_boot_key).strip()
+    direct = os.getenv("AGENT_WALLET_BOOT_KEY", settings.agent_wallet_boot_key).strip()
+    if direct:
+        return direct
+    key_file = os.getenv("AGENT_WALLET_BOOT_KEY_FILE", settings.agent_wallet_boot_key_file).strip()
+    if not key_file:
+        return ""
+    try:
+        return Path(key_file).expanduser().read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
 
 
 def _reject_legacy_runtime_secret_env(var_name: str) -> None:

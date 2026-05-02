@@ -53,6 +53,8 @@
     "wdk-evm-wallet/package-lock.json",
     "!agent-wallet/**/__pycache__/**",
     "!agent-wallet/**/*.pyc",
+    "!hermes/**/__pycache__/**",
+    "!hermes/**/*.pyc",
     "!agent-wallet/.pytest_cache/**",
     "!agent-wallet/.runtime-venv/**",
     "!**/node_modules/**",

@@ -26,6 +26,7 @@ INCLUDED_RUNTIME_TOP_LEVEL_DIRS = [
     ".openclaw",
     "agent-wallet",
     "agent-a2a-gateway",
+    "hermes",
     "wdk-btc-wallet",
     "wdk-evm-wallet",
 ]

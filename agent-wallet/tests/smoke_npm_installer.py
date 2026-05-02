@@ -68,10 +68,45 @@ def main() -> None:
     assert (runtime_root / "setup.sh").exists()
     assert (runtime_root / "agent-wallet").exists()
     assert (runtime_root / ".openclaw" / "extensions" / "agent-wallet").exists()
+    assert (runtime_root / "hermes" / "plugins" / "agent_wallet" / "plugin.yaml").exists()
     assert (runtime_root / "wdk-btc-wallet" / "package.json").exists()
     assert (runtime_root / "wdk-evm-wallet" / "package.json").exists()
     assert (runtime_base / "current").is_symlink()
     assert (runtime_base / "current").resolve() == runtime_root.resolve()
+
+    fake_bin = temp_root / "fake-bin"
+    fake_bin.mkdir(parents=True, exist_ok=True)
+    fake_hermes = fake_bin / "hermes"
+    fake_hermes.write_text(
+        "#!/bin/sh\n"
+        "echo \"$@\" >> \"$OPENCLAW_HOME/hermes-calls.log\"\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    fake_hermes.chmod(0o755)
+    hermes_home = temp_root / "hermes-home"
+    hermes_env = dict(env)
+    hermes_env["PATH"] = f"{fake_bin}{os.pathsep}{env.get('PATH', '')}"
+    hermes_env["HERMES_HOME"] = str(hermes_home)
+    hermes_result = subprocess.run(
+        ["node", str(cli), "hermes", "install", "--yes"],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=hermes_env,
+    )
+    hermes_payload = json.loads(hermes_result.stdout)
+    assert hermes_payload["ok"] is True
+    assert Path(hermes_payload["plugin_target"]).is_symlink()
+    assert Path(hermes_payload["plugin_target"]).resolve() == (
+        runtime_root / "hermes" / "plugins" / "agent_wallet"
+    ).resolve()
+    assert Path(hermes_payload["agent_wallet_package_root"]).resolve() == (runtime_root / "agent-wallet").resolve()
+    assert Path(hermes_payload["boot_key_file"]).read_text(encoding="utf-8").strip() == env["AGENT_WALLET_BOOT_KEY"]
+    hermes_env_file = (hermes_home / ".env").read_text(encoding="utf-8")
+    assert f"AGENT_WALLET_PACKAGE_ROOT={runtime_root / 'agent-wallet'}" in hermes_env_file
+    assert f"AGENT_WALLET_BOOT_KEY_FILE={hermes_payload['boot_key_file']}" in hermes_env_file
+    assert (temp_root / "hermes-calls.log").read_text(encoding="utf-8").strip() == "plugins enable agent-wallet"
 
     status = subprocess.run(
         ["node", str(cli), "status"],
