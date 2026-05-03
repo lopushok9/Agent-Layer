@@ -468,7 +468,7 @@ function buildInstallerEnv(args) {
   const sealedKeysPath = path.join(resolveOpenclawHome(env), "sealed_keys.json");
   const sealedKeysExist = fs.existsSync(sealedKeysPath);
   if (!env.AGENT_WALLET_BOOT_KEY) {
-    const existingBootKey = currentBootKey(env);
+    const existingBootKey = resolveBootKeyFromFile(env) || currentBootKey(env);
     if (existingBootKey) {
       env.AGENT_WALLET_BOOT_KEY = existingBootKey;
     }
