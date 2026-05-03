@@ -1,7 +1,7 @@
 """Hermes Agent plugin bridge for AgentLayer wallet tools."""
 
-from .schemas import AGENT_WALLET_INVOKE, AGENT_WALLET_TOOLS
-from .tools import agent_wallet_invoke, agent_wallet_tools
+from .schemas import AGENT_WALLET_APPROVE, AGENT_WALLET_INVOKE, AGENT_WALLET_TOOLS
+from .tools import agent_wallet_approve, agent_wallet_invoke, agent_wallet_tools
 
 
 def register(ctx):
@@ -19,4 +19,11 @@ def register(ctx):
         schema=AGENT_WALLET_INVOKE,
         handler=agent_wallet_invoke,
         description=AGENT_WALLET_INVOKE["description"],
+    )
+    ctx.register_tool(
+        name=AGENT_WALLET_APPROVE["name"],
+        toolset="agent_wallet",
+        schema=AGENT_WALLET_APPROVE,
+        handler=agent_wallet_approve,
+        description=AGENT_WALLET_APPROVE["description"],
     )

@@ -2,10 +2,11 @@
 
 This is a thin Hermes Agent bridge to the existing AgentLayer/OpenClaw wallet backend.
 
-It intentionally does not copy the OpenClaw TypeScript extension or reimplement wallet policy. Hermes gets two tools:
+It intentionally does not copy the OpenClaw TypeScript extension or reimplement wallet policy. Hermes gets three tools:
 
 - `agent_wallet_tools` - lists the underlying wallet tools and schemas from the Python adapter without creating or unlocking a wallet.
 - `agent_wallet_invoke` - forwards one tool call to `python -m agent_wallet.openclaw_cli invoke`.
+- `agent_wallet_approve` - issues a short-lived approval token through `python -m agent_wallet.openclaw_cli issue-approval` after explicit user confirmation of the exact preview summary.
 
 OpenClaw remains the primary local environment. This plugin only expands the same backend into Hermes.
 
@@ -16,7 +17,8 @@ OpenClaw remains the primary local environment. This plugin only expands the sam
 3. Register a small Hermes bridge instead of one Hermes tool per wallet operation.
 4. Use discovery from `OpenClawWalletAdapter.list_tools()` so Hermes sees the current backend schemas without duplicated metadata.
 5. Forward execution to `agent_wallet.openclaw_cli invoke` so config validation, sealed secrets, approval-token checks, and backend dispatch stay authoritative in Python.
-6. Add broader Hermes ergonomics later only where it improves safety, such as an installer wrapper or read-only status command.
+6. Forward token issuance to `agent_wallet.openclaw_cli issue-approval` so Hermes can complete preview/approve/execute without learning sealed secrets.
+7. Add broader Hermes ergonomics later only where it improves safety, such as an installer wrapper or read-only status command.
 
 ## Install
 
@@ -45,5 +47,6 @@ hermes chat
 
 - Secrets must stay in the existing protected runtime path, especially `~/.openclaw/sealed_keys.json`.
 - Do not pass `privateKey`, `masterKey`, or `approvalSecret` through Hermes tool config.
-- Write-capable wallet tools still require preview first and an external host-issued `approval_token` for execute mode.
+- Write-capable wallet tools still require preview first and an `approval_token` bound to the exact `confirmation_summary`.
+- Use `agent_wallet_approve` only after the user explicitly confirms the exact operation. Mainnet execute requires `mainnet_confirmed=true`.
 - Use `agent_wallet_tools` before invoking unfamiliar tool names.

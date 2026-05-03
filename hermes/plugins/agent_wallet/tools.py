@@ -152,6 +152,62 @@ def _call_wallet_cli(args: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "error": f"wallet CLI returned invalid JSON: {exc}"}
 
 
+def _call_issue_approval(args: dict[str, Any]) -> dict[str, Any]:
+    if args.get("user_confirmed") is not True:
+        raise RuntimeError(
+            "user_confirmed=true is required after explicit user approval of the exact confirmation_summary."
+        )
+    package_root = _resolve_package_root()
+    config = _base_config(args)
+    tool_name = str(args.get("tool_name") or "").strip()
+    if not tool_name:
+        raise RuntimeError("tool_name is required.")
+
+    summary = args.get("confirmation_summary")
+    if not isinstance(summary, dict) or not summary:
+        raise RuntimeError("confirmation_summary must be the non-empty object returned by preview/prepare.")
+
+    command = [
+        _python_bin(package_root),
+        "-m",
+        "agent_wallet.openclaw_cli",
+        "issue-approval",
+        "--user-id",
+        _user_id(args),
+        "--tool",
+        tool_name,
+        "--summary-json",
+        json.dumps(summary),
+        "--config-json",
+        json.dumps(config),
+    ]
+    if args.get("mainnet_confirmed") is True:
+        command.append("--mainnet-confirmed")
+    ttl_seconds = args.get("ttl_seconds")
+    if ttl_seconds is not None:
+        ttl = int(ttl_seconds)
+        if ttl <= 0 or ttl > 3600:
+            raise RuntimeError("ttl_seconds must be between 1 and 3600.")
+        command.extend(["--ttl-seconds", str(ttl)])
+
+    completed = subprocess.run(
+        command,
+        cwd=str(package_root),
+        env=_cli_env(package_root),
+        text=True,
+        capture_output=True,
+        timeout=float(os.getenv("AGENT_WALLET_HERMES_TIMEOUT", "120")),
+        check=False,
+    )
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip()
+        return {"ok": False, "error": detail or f"wallet CLI exited {completed.returncode}"}
+    try:
+        return json.loads(completed.stdout.strip() or "{}")
+    except json.JSONDecodeError as exc:
+        return {"ok": False, "error": f"wallet CLI returned invalid JSON: {exc}"}
+
+
 class _SchemaOnlyBackend:
     def __init__(self, *, name: str, chain: str, network: str):
         self.name = name
@@ -237,5 +293,12 @@ def agent_wallet_tools(args: dict, **kwargs) -> str:
 def agent_wallet_invoke(args: dict, **kwargs) -> str:
     try:
         return _json(_call_wallet_cli(args or {}))
+    except Exception as exc:
+        return _json({"ok": False, "error": str(exc)})
+
+
+def agent_wallet_approve(args: dict, **kwargs) -> str:
+    try:
+        return _json(_call_issue_approval(args or {}))
     except Exception as exc:
         return _json({"ok": False, "error": str(exc)})

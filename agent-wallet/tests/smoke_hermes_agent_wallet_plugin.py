@@ -46,6 +46,7 @@ def main() -> None:
         assert [item["name"] for item in context.tools] == [
             "agent_wallet_tools",
             "agent_wallet_invoke",
+            "agent_wallet_approve",
         ]
     finally:
         sys.path.pop(0)
@@ -104,6 +105,48 @@ def main() -> None:
     assert captured["command"][1:4] == ["-m", "agent_wallet.openclaw_cli", "invoke"]
     assert "--user-id" in captured["command"]
     assert "hermes-test-user" in captured["command"]
+    assert captured["kwargs"]["cwd"] == str(ROOT / "agent-wallet")
+
+    blocked_approval = json.loads(
+        tools.agent_wallet_approve(
+            {
+                "tool_name": "transfer_sol",
+                "confirmation_summary": {"operation": "transfer SOL"},
+                "user_confirmed": False,
+            }
+        )
+    )
+    assert blocked_approval["ok"] is False
+    assert "user_confirmed=true is required" in blocked_approval["error"]
+
+    captured.clear()
+    tools.subprocess.run = fake_run
+    try:
+        approval = json.loads(
+            tools.agent_wallet_approve(
+                {
+                    "tool_name": "transfer_sol",
+                    "backend": "solana_local",
+                    "network": "devnet",
+                    "confirmation_summary": {
+                        "operation": "transfer SOL",
+                        "network": "devnet",
+                        "amount_lamports": "1000",
+                    },
+                    "user_confirmed": True,
+                    "ttl_seconds": 60,
+                    "user_id": "hermes-test-user",
+                }
+            )
+        )
+    finally:
+        tools.subprocess.run = original_run
+
+    assert approval["ok"] is True
+    assert captured["command"][1:4] == ["-m", "agent_wallet.openclaw_cli", "issue-approval"]
+    assert "--summary-json" in captured["command"]
+    assert "--ttl-seconds" in captured["command"]
+    assert "60" in captured["command"]
     assert captured["kwargs"]["cwd"] == str(ROOT / "agent-wallet")
 
     with tempfile.TemporaryDirectory() as temp_dir:

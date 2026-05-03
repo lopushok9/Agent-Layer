@@ -4,3 +4,4 @@ description: Thin Hermes Agent bridge to the existing AgentLayer/OpenClaw wallet
 provides_tools:
   - agent_wallet_tools
   - agent_wallet_invoke
+  - agent_wallet_approve
