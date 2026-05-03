@@ -18,7 +18,8 @@ OpenClaw remains the primary local environment. This plugin only expands the sam
 4. Use discovery from `OpenClawWalletAdapter.list_tools()` so Hermes sees the current backend schemas without duplicated metadata.
 5. Forward execution to `agent_wallet.openclaw_cli invoke` so config validation, sealed secrets, approval-token checks, and backend dispatch stay authoritative in Python.
 6. Forward token issuance to `agent_wallet.openclaw_cli issue-approval` so Hermes can complete preview/approve/execute without learning sealed secrets.
-7. Add broader Hermes ergonomics later only where it improves safety, such as an installer wrapper or read-only status command.
+7. Cache successful Solana swap previews briefly in Hermes and bind the cached payload digest into the approval token. Execute can then reuse the exact Jupiter preview the user approved instead of re-quoting volatile markets.
+8. Add broader Hermes ergonomics later only where it improves safety, such as an installer wrapper or read-only status command.
 
 ## Install
 
@@ -50,3 +51,4 @@ hermes chat
 - Write-capable wallet tools still require preview first and an `approval_token` bound to the exact `confirmation_summary`.
 - Use `agent_wallet_approve` only after the user explicitly confirms the exact operation. Mainnet execute requires `mainnet_confirmed=true`.
 - Use `agent_wallet_tools` before invoking unfamiliar tool names.
+- Solana swap previews are cached at `~/.hermes/agent_wallet_preview_cache.json` with `0600` permissions for a short window. The cache contains unsigned preview payloads only; signing and approval checks remain in `agent-wallet/`.

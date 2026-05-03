@@ -11,6 +11,14 @@ from agent_wallet.models import AgentToolResult, AgentToolSpec
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendError
 
 
+def _canonical_json_text(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def preview_payload_digest(preview: dict[str, Any]) -> str:
+    return hashlib.sha256(_canonical_json_text(preview).encode("utf-8")).hexdigest()
+
+
 WALLET_RUNTIME_INSTRUCTIONS = """
 Use wallet tools only when the user explicitly asks for wallet-related actions.
 Treat any signing request as sensitive.
@@ -4433,12 +4441,37 @@ class OpenClawWalletAdapter:
                     )
 
                 approval_summary_copy = dict(approval_summary)
-                execute_preview = await self.backend.preview_swap(
-                    input_mint=input_mint.strip(),
-                    output_mint=output_mint.strip(),
-                    amount_ui=float(amount),
-                    slippage_bps=slippage_bps,
-                )
+                approved_preview = args.get("_approved_preview")
+                if isinstance(approval_summary_copy.get("_preview_digest"), str):
+                    if not isinstance(approved_preview, dict):
+                        raise WalletBackendError(
+                            "Approved swap preview payload is required for execute mode. Generate a new preview and approval before execute."
+                        )
+                    if preview_payload_digest(approved_preview) != approval_summary_copy["_preview_digest"]:
+                        raise WalletBackendError(
+                            "approved preview payload does not match the approval token. Generate a new preview and approval before execute."
+                        )
+                    preview_summary = self._build_confirmation_summary(
+                        action_label="Swap",
+                        payload=approved_preview,
+                    )
+                    summary_without_digest = {
+                        key: value
+                        for key, value in approval_summary_copy.items()
+                        if key != "_preview_digest"
+                    }
+                    if preview_summary != summary_without_digest:
+                        raise WalletBackendError(
+                            "approved preview payload does not match the approval token. Generate a new preview and approval before execute."
+                        )
+                    execute_preview = dict(approved_preview)
+                else:
+                    execute_preview = await self.backend.preview_swap(
+                        input_mint=input_mint.strip(),
+                        output_mint=output_mint.strip(),
+                        amount_ui=float(amount),
+                        slippage_bps=slippage_bps,
+                    )
                 self._require_execute_approval(
                     approval_token=approval_token,
                     tool_name=tool_name,

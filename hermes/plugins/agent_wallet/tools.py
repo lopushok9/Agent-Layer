@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import json
 import os
+import base64
+import hashlib
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +19,120 @@ BACKENDS = ("solana_local", "wdk_btc_local", "wdk_evm_local")
 
 def _json(data: dict[str, Any]) -> str:
     return json.dumps(data, sort_keys=True)
+
+
+def _canonical_json_text(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def _preview_digest(preview: dict[str, Any]) -> str:
+    return hashlib.sha256(_canonical_json_text(preview).encode("utf-8")).hexdigest()
+
+
+def _hermes_home() -> Path:
+    return Path(os.getenv("HERMES_HOME", "~/.hermes")).expanduser()
+
+
+def _preview_cache_path() -> Path:
+    return _hermes_home() / "agent_wallet_preview_cache.json"
+
+
+def _read_preview_cache() -> dict[str, Any]:
+    path = _preview_cache_path()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"previews": {}}
+    if not isinstance(payload, dict):
+        return {"previews": {}}
+    previews = payload.get("previews")
+    if not isinstance(previews, dict):
+        payload["previews"] = {}
+    return payload
+
+
+def _write_preview_cache(cache: dict[str, Any]) -> None:
+    path = _preview_cache_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(cache, sort_keys=True), encoding="utf-8")
+        path.chmod(0o600)
+    except OSError:
+        pass
+
+
+def _prune_preview_cache(cache: dict[str, Any]) -> dict[str, Any]:
+    now = time.time()
+    previews = cache.get("previews")
+    if not isinstance(previews, dict):
+        previews = {}
+    cache["previews"] = {
+        key: value
+        for key, value in previews.items()
+        if isinstance(value, dict) and float(value.get("expires_at") or 0) > now
+    }
+    return cache
+
+
+def _cache_swap_preview(tool_name: str, result: dict[str, Any], ttl_seconds: int = 900) -> None:
+    if tool_name != "swap_solana_tokens" or result.get("ok") is not True:
+        return
+    preview = result.get("data")
+    if not isinstance(preview, dict):
+        return
+    if preview.get("mode") != "preview" or preview.get("asset_type") != "swap":
+        return
+    summary = preview.get("confirmation_summary")
+    if not isinstance(summary, dict):
+        return
+    digest = _preview_digest(preview)
+    cache = _prune_preview_cache(_read_preview_cache())
+    cache["previews"][digest] = {
+        "expires_at": time.time() + ttl_seconds,
+        "preview": preview,
+        "confirmation_summary": summary,
+    }
+    _write_preview_cache(cache)
+
+
+def _lookup_preview_for_summary(summary: dict[str, Any]) -> tuple[str, dict[str, Any]] | tuple[None, None]:
+    cache = _prune_preview_cache(_read_preview_cache())
+    for digest, entry in cache.get("previews", {}).items():
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("confirmation_summary") == summary and isinstance(entry.get("preview"), dict):
+            _write_preview_cache(cache)
+            return str(digest), entry["preview"]
+    _write_preview_cache(cache)
+    return None, None
+
+
+def _approval_token_preview_digest(token: str) -> str:
+    if not isinstance(token, str) or "." not in token:
+        return ""
+    encoded_payload = token.split(".", 1)[0]
+    try:
+        padding = "=" * (-len(encoded_payload) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(encoded_payload + padding).decode("utf-8"))
+    except Exception:
+        return ""
+    summary = payload.get("binding", {}).get("summary") if isinstance(payload, dict) else None
+    if not isinstance(summary, dict):
+        return ""
+    digest = summary.get("_preview_digest")
+    return str(digest).strip() if isinstance(digest, str) else ""
+
+
+def _lookup_preview_for_token(token: str) -> dict[str, Any] | None:
+    digest = _approval_token_preview_digest(token)
+    if not digest:
+        return None
+    cache = _prune_preview_cache(_read_preview_cache())
+    entry = cache.get("previews", {}).get(digest)
+    _write_preview_cache(cache)
+    if isinstance(entry, dict) and isinstance(entry.get("preview"), dict):
+        return entry["preview"]
+    return None
 
 
 def _repo_relative_package_root() -> Path:
@@ -119,6 +236,12 @@ def _call_wallet_cli(args: dict[str, Any]) -> dict[str, Any]:
     tool_args = args.get("arguments") or {}
     if not isinstance(tool_args, dict):
         raise RuntimeError("arguments must be a JSON object when provided.")
+    if tool_name == "swap_solana_tokens" and str(tool_args.get("mode") or "") == "execute":
+        approval_token = str(tool_args.get("approval_token") or "").strip()
+        cached_preview = _lookup_preview_for_token(approval_token)
+        if cached_preview is not None and "_approved_preview" not in tool_args:
+            tool_args = dict(tool_args)
+            tool_args["_approved_preview"] = cached_preview
 
     command = [
         _python_bin(package_root),
@@ -147,7 +270,9 @@ def _call_wallet_cli(args: dict[str, Any]) -> dict[str, Any]:
         detail = completed.stderr.strip() or completed.stdout.strip()
         return {"ok": False, "error": detail or f"wallet CLI exited {completed.returncode}"}
     try:
-        return json.loads(completed.stdout.strip() or "{}")
+        result = json.loads(completed.stdout.strip() or "{}")
+        _cache_swap_preview(tool_name, result)
+        return result
     except json.JSONDecodeError as exc:
         return {"ok": False, "error": f"wallet CLI returned invalid JSON: {exc}"}
 
@@ -166,6 +291,10 @@ def _call_issue_approval(args: dict[str, Any]) -> dict[str, Any]:
     summary = args.get("confirmation_summary")
     if not isinstance(summary, dict) or not summary:
         raise RuntimeError("confirmation_summary must be the non-empty object returned by preview/prepare.")
+    summary_for_token = dict(summary)
+    preview_digest, _preview = _lookup_preview_for_summary(summary)
+    if preview_digest:
+        summary_for_token["_preview_digest"] = preview_digest
 
     command = [
         _python_bin(package_root),
@@ -177,7 +306,7 @@ def _call_issue_approval(args: dict[str, Any]) -> dict[str, Any]:
         "--tool",
         tool_name,
         "--summary-json",
-        json.dumps(summary),
+        json.dumps(summary_for_token),
         "--config-json",
         json.dumps(config),
     ]

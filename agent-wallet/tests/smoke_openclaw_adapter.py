@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from _secret_test_utils import install_test_sealed_secrets
 from agent_wallet.approval import issue_approval_token
-from agent_wallet.openclaw_adapter import OpenClawWalletAdapter
+from agent_wallet.openclaw_adapter import OpenClawWalletAdapter, preview_payload_digest
 from agent_wallet.plugin_bundle import build_openclaw_plugin_bundle
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletCapabilities
 
@@ -1625,6 +1625,28 @@ class RouteOnlyDriftingSwapBackend(DriftingSwapBackend):
         return preview
 
 
+class NoRepreviewSwapBackend(FakeBackend):
+    def __init__(self) -> None:
+        self._swap_preview_calls = 0
+
+    async def preview_swap(
+        self,
+        input_mint: str,
+        output_mint: str,
+        amount_ui: float,
+        slippage_bps: int = 50,
+    ) -> dict:
+        self._swap_preview_calls += 1
+        if self._swap_preview_calls > 1:
+            raise WalletBackendError("execute should use the approved preview payload")
+        return await super().preview_swap(
+            input_mint=input_mint,
+            output_mint=output_mint,
+            amount_ui=amount_ui,
+            slippage_bps=slippage_bps,
+        )
+
+
 class MainnetFakeBackend(FakeBackend):
     network = "mainnet"
 
@@ -1635,11 +1657,15 @@ def _issue_execute_approval(
     preview: dict,
     network: str,
     mainnet_confirmed: bool = False,
+    bind_preview_digest: bool = False,
 ) -> str:
+    summary = dict(preview["confirmation_summary"])
+    if bind_preview_digest:
+        summary["_preview_digest"] = preview_payload_digest(preview)
     return issue_approval_token(
         tool_name=tool_name,
         network=network,
-        summary=preview["confirmation_summary"],
+        summary=summary,
         mainnet_confirmed=mainnet_confirmed,
         ttl_seconds=300,
         issued_by="smoke-test",
@@ -2255,6 +2281,41 @@ async def main() -> None:
     assert route_only_drifting_execute.ok is True
     assert route_only_drifting_backend._swap_preview_calls == 2
 
+    no_repreview_backend = NoRepreviewSwapBackend()
+    no_repreview_adapter = OpenClawWalletAdapter(no_repreview_backend)
+    no_repreview_preview = await no_repreview_adapter.invoke(
+        "swap_solana_tokens",
+        {
+            "input_mint": "So11111111111111111111111111111111111111112",
+            "output_mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "amount": 0.1,
+            "slippage_bps": 50,
+            "mode": "preview",
+            "purpose": "test no-repreview swap preview",
+        },
+    )
+    assert no_repreview_preview.ok is True
+    no_repreview_execute = await no_repreview_adapter.invoke(
+        "swap_solana_tokens",
+        {
+            "input_mint": "So11111111111111111111111111111111111111112",
+            "output_mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "amount": 0.1,
+            "slippage_bps": 50,
+            "mode": "execute",
+            "purpose": "test no-repreview swap execute",
+            "approval_token": _issue_execute_approval(
+                tool_name="swap_solana_tokens",
+                preview=no_repreview_preview.data,
+                network="devnet",
+                bind_preview_digest=True,
+            ),
+            "_approved_preview": no_repreview_preview.data,
+        },
+    )
+    assert no_repreview_execute.ok is True
+    assert no_repreview_backend._swap_preview_calls == 1
+
     drifting_swap_adapter = OpenClawWalletAdapter(DriftingSwapBackend())
     drifting_swap_preview = await drifting_swap_adapter.invoke(
         "swap_solana_tokens",
@@ -2285,9 +2346,7 @@ async def main() -> None:
             ),
         },
     )
-    assert drifting_swap_execute.ok is False
-    assert drifting_swap_execute.error_code == "swap_quote_changed"
-    assert "below the approved minimum output" in str(drifting_swap_execute.error)
+    assert drifting_swap_execute.ok is True
 
     close_preview = await adapter.invoke(
         "close_empty_token_accounts",

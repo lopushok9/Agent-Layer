@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import base64
 import json
 import os
 import sys
@@ -148,6 +149,116 @@ def main() -> None:
     assert "--ttl-seconds" in captured["command"]
     assert "60" in captured["command"]
     assert captured["kwargs"]["cwd"] == str(ROOT / "agent-wallet")
+
+    def fake_approval_token(summary: dict) -> str:
+        payload = {
+            "v": 1,
+            "binding": {
+                "tool": "swap_solana_tokens",
+                "network": "mainnet",
+                "summary": summary,
+            },
+        }
+        encoded = base64.urlsafe_b64encode(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).decode("ascii").rstrip("=")
+        return f"{encoded}.fake-signature"
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        os.environ["HERMES_HOME"] = temp_dir
+        swap_summary = {
+            "operation": "Swap",
+            "network": "mainnet",
+            "input_mint": "So11111111111111111111111111111111111111112",
+            "output_mint": "444DPguaifQZ5NicFicD9Kni6emKexyqqG4dEkUaBAGS",
+            "input_amount_ui": 0.003,
+            "slippage_bps": 100,
+            "quote_fingerprint": "preview-fingerprint",
+        }
+        swap_preview = {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "preview",
+            "asset_type": "swap",
+            "input_mint": swap_summary["input_mint"],
+            "output_mint": swap_summary["output_mint"],
+            "input_amount_ui": swap_summary["input_amount_ui"],
+            "slippage_bps": swap_summary["slippage_bps"],
+            "confirmation_summary": swap_summary,
+            "quote_response": {"transaction": "unsigned-jupiter-order"},
+            "swap_provider": "jupiter-ultra",
+        }
+        approved_token = {"value": ""}
+
+        class SwapCompleted:
+            returncode = 0
+            stderr = ""
+
+            def __init__(self, stdout: str):
+                self.stdout = stdout
+
+        def fake_swap_run(command, **kwargs):
+            captured["command"] = command
+            captured["kwargs"] = kwargs
+            subcommand = command[3]
+            if subcommand == "invoke":
+                arguments = json.loads(command[command.index("--arguments-json") + 1])
+                if arguments.get("mode") == "preview":
+                    return SwapCompleted(json.dumps({"ok": True, "data": swap_preview}))
+                assert arguments.get("mode") == "execute"
+                assert arguments.get("_approved_preview") == swap_preview
+                return SwapCompleted(json.dumps({"ok": True, "data": {"executed": True}}))
+            assert subcommand == "issue-approval"
+            summary = json.loads(command[command.index("--summary-json") + 1])
+            assert summary["quote_fingerprint"] == "preview-fingerprint"
+            assert isinstance(summary.get("_preview_digest"), str) and summary["_preview_digest"]
+            approved_token["value"] = fake_approval_token(summary)
+            return SwapCompleted(json.dumps({"ok": True, "approval_token": approved_token["value"]}))
+
+        captured.clear()
+        tools.subprocess.run = fake_swap_run
+        try:
+            cached_preview = json.loads(
+                tools.agent_wallet_invoke(
+                    {
+                        "tool_name": "swap_solana_tokens",
+                        "backend": "solana_local",
+                        "network": "mainnet",
+                        "arguments": {"mode": "preview"},
+                    }
+                )
+            )
+            assert cached_preview["ok"] is True
+            cached_approval = json.loads(
+                tools.agent_wallet_approve(
+                    {
+                        "tool_name": "swap_solana_tokens",
+                        "backend": "solana_local",
+                        "network": "mainnet",
+                        "confirmation_summary": swap_summary,
+                        "user_confirmed": True,
+                        "mainnet_confirmed": True,
+                    }
+                )
+            )
+            assert cached_approval["ok"] is True
+            cached_execute = json.loads(
+                tools.agent_wallet_invoke(
+                    {
+                        "tool_name": "swap_solana_tokens",
+                        "backend": "solana_local",
+                        "network": "mainnet",
+                        "arguments": {
+                            "mode": "execute",
+                            "approval_token": approved_token["value"],
+                        },
+                    }
+                )
+            )
+            assert cached_execute["ok"] is True
+        finally:
+            tools.subprocess.run = original_run
+            os.environ.pop("HERMES_HOME", None)
 
     with tempfile.TemporaryDirectory() as temp_dir:
         boot_key_file = Path(temp_dir) / "boot-key"
