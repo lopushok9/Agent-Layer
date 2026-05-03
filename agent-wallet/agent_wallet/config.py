@@ -102,10 +102,10 @@ def _normalize_swap_provider(value: str | None) -> str:
     aliases = {
         "proxy": "jupiter",
         "shared": "jupiter",
-        "bags": "jupiter",
+        "bags": "bags",
     }
     provider = aliases.get(provider, provider)
-    if provider not in {"auto", "jupiter"}:
+    if provider not in {"auto", "jupiter", "bags"}:
         return "auto"
     return provider
 
@@ -285,6 +285,8 @@ def resolve_runtime_solana_swap_config(network: str) -> dict[str, str]:
 
     if requested == "jupiter":
         return {"provider": "jupiter", "transport": "direct"}
+    if requested == "bags":
+        return {"provider": "bags", "transport": "provider-gateway"}
 
     return {"provider": "jupiter", "transport": "direct"}
 

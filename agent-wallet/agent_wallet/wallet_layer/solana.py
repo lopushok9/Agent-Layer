@@ -46,6 +46,7 @@ TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
 NATIVE_SOL_MINT = "So11111111111111111111111111111111111111112"
 STAKE_PROGRAM_ID = "Stake11111111111111111111111111111111111111"
+BAGS_MINT_SUFFIX = "BAGS"
 
 
 def _load_signing_key():
@@ -1188,6 +1189,59 @@ class SolanaWalletBackend(AgentWalletBackend):
         if isinstance(route_fee_bps, int):
             parts.append(f"route fee {route_fee_bps} bps (already reflected in quoted output)")
         return "; ".join(parts)
+
+    def _prefer_bags_swap_route(self, input_mint: str, output_mint: str) -> bool:
+        if str(self.swap_provider or "").strip().lower() == "bags":
+            return True
+        return input_mint.endswith(BAGS_MINT_SUFFIX) or output_mint.endswith(BAGS_MINT_SUFFIX)
+
+    async def _fetch_bags_swap_quote(
+        self,
+        *,
+        input_mint: str,
+        output_mint: str,
+        amount_raw: int,
+        slippage_bps: int,
+    ) -> dict[str, Any]:
+        return await bags.fetch_trade_quote(
+            input_mint=input_mint,
+            output_mint=output_mint,
+            amount_raw=amount_raw,
+            slippage_bps=slippage_bps,
+        )
+
+    async def _fetch_jupiter_swap_quote(
+        self,
+        *,
+        input_mint: str,
+        output_mint: str,
+        amount_raw: int,
+        taker: str | None,
+        slippage_bps: int,
+    ) -> tuple[dict[str, Any], str]:
+        try:
+            quote = await jupiter.fetch_ultra_order(
+                input_mint=input_mint,
+                output_mint=output_mint,
+                amount_raw=amount_raw,
+                taker=taker,
+                slippage_bps=slippage_bps,
+            )
+            return quote, "jupiter-ultra"
+        except ProviderError as ultra_error:
+            try:
+                quote = await jupiter.fetch_quote(
+                    input_mint=input_mint,
+                    output_mint=output_mint,
+                    amount_raw=amount_raw,
+                    slippage_bps=slippage_bps,
+                )
+                return quote, "jupiter-metis"
+            except ProviderError as metis_error:
+                raise ProviderError(
+                    "jupiter",
+                    f"Jupiter Ultra and Metis quote failed: {ultra_error}; {metis_error}",
+                ) from metis_error
 
     def _require_mainnet_bags(self, feature: str) -> None:
         if self.network != "mainnet":
@@ -3956,23 +4010,34 @@ class SolanaWalletBackend(AgentWalletBackend):
             raise WalletBackendError("amount is too small for the input token decimals.")
 
         sender = await self.get_address()
-        quote_source = "jupiter-ultra"
-        try:
-            quote = await jupiter.fetch_ultra_order(
-                input_mint=input_mint,
-                output_mint=output_mint,
-                amount_raw=raw_amount,
-                taker=sender,
-                slippage_bps=slippage_bps,
-            )
-        except ProviderError:
-            quote = await jupiter.fetch_quote(
+        if self._prefer_bags_swap_route(input_mint, output_mint):
+            quote = await self._fetch_bags_swap_quote(
                 input_mint=input_mint,
                 output_mint=output_mint,
                 amount_raw=raw_amount,
                 slippage_bps=slippage_bps,
             )
-            quote_source = "jupiter-metis"
+            quote_source = "bags"
+        else:
+            try:
+                quote, quote_source = await self._fetch_jupiter_swap_quote(
+                    input_mint=input_mint,
+                    output_mint=output_mint,
+                    amount_raw=raw_amount,
+                    taker=sender,
+                    slippage_bps=slippage_bps,
+                )
+            except ProviderError as jupiter_error:
+                try:
+                    quote = await self._fetch_bags_swap_quote(
+                        input_mint=input_mint,
+                        output_mint=output_mint,
+                        amount_raw=raw_amount,
+                        slippage_bps=slippage_bps,
+                    )
+                    quote_source = "bags"
+                except ProviderError:
+                    raise jupiter_error
 
         out_amount_raw = int(quote.get("outAmount") or 0)
         other_threshold_raw = int(
@@ -4145,6 +4210,17 @@ class SolanaWalletBackend(AgentWalletBackend):
             )
             request_id = swap_build.get("requestId")
             last_valid_block_height = swap_build.get("expireAt")
+            prioritization_fee_lamports = swap_build.get("prioritizationFeeLamports")
+            compute_unit_limit = swap_build.get("computeUnitLimit")
+        elif swap_provider == "bags":
+            swap_build = await bags.build_swap_transaction(
+                user_public_key=sender,
+                quote_response=preview["quote_response"],
+            )
+            unsigned_transaction = VersionedTransaction.from_bytes(
+                base64.b64decode(str(swap_build["swapTransaction"]))
+            )
+            last_valid_block_height = swap_build.get("lastValidBlockHeight")
             prioritization_fee_lamports = swap_build.get("prioritizationFeeLamports")
             compute_unit_limit = swap_build.get("computeUnitLimit")
         else:

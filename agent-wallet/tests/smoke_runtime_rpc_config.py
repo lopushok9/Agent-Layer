@@ -224,8 +224,8 @@ def main() -> None:
 
         os.environ["SOLANA_SWAP_PROVIDER"] = "bags"
         assert resolve_runtime_solana_swap_config("mainnet") == {
-            "provider": "jupiter",
-            "transport": "direct",
+            "provider": "bags",
+            "transport": "provider-gateway",
         }
     finally:
         for key, value in original_env.items():
