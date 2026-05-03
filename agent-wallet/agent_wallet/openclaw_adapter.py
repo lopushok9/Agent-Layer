@@ -4398,19 +4398,65 @@ class OpenClawWalletAdapter:
                         ),
                     )
 
+                approval_payload = inspect_approval_token(
+                    approval_token,
+                    tool_name=tool_name,
+                    network=str(getattr(self.backend, "network", "unknown")),
+                    require_mainnet_confirmation=self._is_mainnet_for_backend(self.backend),
+                )
+                approval_summary = approval_payload.get("binding", {}).get("summary")
+                if not isinstance(approval_summary, dict):
+                    raise WalletBackendError(
+                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                    )
+                expected_summary = {
+                    "operation": "Swap",
+                    "network": str(getattr(self.backend, "network", "unknown")),
+                    "input_mint": input_mint.strip(),
+                    "output_mint": output_mint.strip(),
+                    "slippage_bps": slippage_bps,
+                }
+                for key, expected_value in expected_summary.items():
+                    if approval_summary.get(key) != expected_value:
+                        raise WalletBackendError(
+                            "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                        )
+                try:
+                    approved_amount = float(approval_summary.get("input_amount_ui"))
+                except (TypeError, ValueError):
+                    raise WalletBackendError(
+                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                    )
+                if approved_amount != float(amount):
+                    raise WalletBackendError(
+                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                    )
+
+                approval_summary_copy = dict(approval_summary)
                 execute_preview = await self.backend.preview_swap(
                     input_mint=input_mint.strip(),
                     output_mint=output_mint.strip(),
                     amount_ui=float(amount),
                     slippage_bps=slippage_bps,
                 )
+                approved_minimum = approval_summary_copy.get("minimum_output_amount_ui")
+                fresh_minimum = execute_preview.get("minimum_output_amount_ui")
+                if approved_minimum is not None and fresh_minimum is not None:
+                    try:
+                        if float(fresh_minimum) < float(approved_minimum):
+                            raise WalletBackendError(
+                                "Swap quote changed below the approved minimum output. Generate a new preview and approval before execute.",
+                                code="swap_quote_changed",
+                            )
+                    except (TypeError, ValueError) as exc:
+                        raise WalletBackendError(
+                            "Swap quote minimum output could not be compared. Generate a new preview and approval before execute.",
+                            code="swap_quote_changed",
+                        ) from exc
                 self._require_execute_approval(
                     approval_token=approval_token,
                     tool_name=tool_name,
-                    summary=self._build_confirmation_summary(
-                        action_label="Swap",
-                        payload=execute_preview,
-                    ),
+                    summary=approval_summary_copy,
                     action_label="Swap",
                 )
 
