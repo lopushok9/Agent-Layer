@@ -1601,6 +1601,30 @@ class DriftingSwapBackend(FakeBackend):
         return preview
 
 
+class RouteOnlyDriftingSwapBackend(DriftingSwapBackend):
+    async def preview_swap(
+        self,
+        input_mint: str,
+        output_mint: str,
+        amount_ui: float,
+        slippage_bps: int = 50,
+    ) -> dict:
+        self._swap_preview_calls += 1
+        preview = await FakeBackend.preview_swap(
+            self,
+            input_mint=input_mint,
+            output_mint=output_mint,
+            amount_ui=amount_ui,
+            slippage_bps=slippage_bps,
+        )
+        if self._swap_preview_calls > 1:
+            preview["route_plan"] = [{"swapInfo": {"label": "fresh-route-same-minimum"}}]
+            preview["quote_response"] = {
+                "routePlan": [{"swapInfo": {"label": "fresh-route-same-minimum"}}]
+            }
+        return preview
+
+
 class MainnetFakeBackend(FakeBackend):
     network = "mainnet"
 
@@ -2198,6 +2222,39 @@ async def main() -> None:
     assert bags_launch_execute.ok and bags_launch_execute.data["confirmed"] is True
     assert bags_launch_execute.data["token_symbol"] == "CLAW"
 
+    route_only_drifting_backend = RouteOnlyDriftingSwapBackend()
+    route_only_drifting_adapter = OpenClawWalletAdapter(route_only_drifting_backend)
+    route_only_drifting_preview = await route_only_drifting_adapter.invoke(
+        "swap_solana_tokens",
+        {
+            "input_mint": "So11111111111111111111111111111111111111112",
+            "output_mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "amount": 0.1,
+            "slippage_bps": 50,
+            "mode": "preview",
+            "purpose": "test route-only drifting swap preview",
+        },
+    )
+    assert route_only_drifting_preview.ok is True
+    route_only_drifting_execute = await route_only_drifting_adapter.invoke(
+        "swap_solana_tokens",
+        {
+            "input_mint": "So11111111111111111111111111111111111111112",
+            "output_mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "amount": 0.1,
+            "slippage_bps": 50,
+            "mode": "execute",
+            "purpose": "test route-only drifting swap execute",
+            "approval_token": _issue_execute_approval(
+                tool_name="swap_solana_tokens",
+                preview=route_only_drifting_preview.data,
+                network="devnet",
+            ),
+        },
+    )
+    assert route_only_drifting_execute.ok is True
+    assert route_only_drifting_backend._swap_preview_calls == 2
+
     drifting_swap_adapter = OpenClawWalletAdapter(DriftingSwapBackend())
     drifting_swap_preview = await drifting_swap_adapter.invoke(
         "swap_solana_tokens",
@@ -2229,7 +2286,8 @@ async def main() -> None:
         },
     )
     assert drifting_swap_execute.ok is False
-    assert "approval_token does not match the requested operation" in str(drifting_swap_execute.error)
+    assert drifting_swap_execute.error_code == "swap_quote_changed"
+    assert "below the approved minimum output" in str(drifting_swap_execute.error)
 
     close_preview = await adapter.invoke(
         "close_empty_token_accounts",

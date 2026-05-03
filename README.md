@@ -10,6 +10,7 @@ The repository includes:
 
 - `agent-wallet/` - the main wallet backend for AgentLayer
 - `.openclaw/` - the local AgentLayer bridge layer
+- `hermes/` - optional Hermes Agent plugin bridge for the same wallet backend
 - `wdk-btc-wallet/` - the local Bitcoin wallet service
 - `wdk-evm-wallet/` - the local EVM wallet service
 - `provider-gateway/` - shared provider access for Solana RPC, Bags, and related finance reads
@@ -62,6 +63,7 @@ Useful npm CLI commands:
 ```bash
 wallet status
 wallet doctor
+wallet hermes install --yes
 wallet update --yes
 wallet rollback
 ```
@@ -139,6 +141,22 @@ Without those secrets, the installer still lays down the runtime and installs de
 }
 ```
 
+## Connect Hermes Agent
+
+OpenClaw remains the primary local environment, but the repo also ships an optional Hermes Agent bridge at:
+
+```bash
+hermes/plugins/agent_wallet
+```
+
+It exposes only two Hermes tools: `agent_wallet_tools` for discovery and `agent_wallet_invoke` for forwarding a single call into the existing Python wallet CLI. Install it by symlinking the plugin directory into Hermes:
+
+```bash
+npx @agentlayer.tech/wallet hermes install --yes
+```
+
+That command installs the Hermes plugin, runs `hermes plugins enable agent-wallet`, writes non-secret runtime paths into `~/.hermes/.env`, and points Hermes at a local boot-key file. Secrets stay in the existing protected OpenClaw runtime paths, especially `~/.openclaw/sealed_keys.json`; do not put wallet secrets into Hermes tool config.
+
 ## What you get after install
 
 If you install through npm, the runtime is extracted under:
@@ -155,6 +173,7 @@ The installer then does the following:
 - creates a minimal `~/.openclaw/openclaw.json` if one does not exist
 - if the required secrets are already present, writes or updates `~/.openclaw/sealed_keys.json`
 - if the required secrets are already present, patches `~/.openclaw/openclaw.json` to load the `agent-wallet` extension and point it at the installed runtime
+- `wallet hermes install --yes` additionally connects Hermes Agent to the same runtime without copying wallet tools or policy
 
 When the installer reaches the final config step, the default plugin config is:
 

@@ -53,6 +53,18 @@ def main() -> None:
     assert resolve_approval_secret() == "sealed-approval-secret"
     assert resolve_solana_private_key().strip() == material["secret_material"].strip()
 
+    boot_key_file = temp_home / "agent-wallet-runtime" / "boot-key"
+    boot_key_file.parent.mkdir(parents=True, exist_ok=True)
+    boot_key_file.write_text(os.environ["AGENT_WALLET_BOOT_KEY"] + "\n", encoding="utf-8")
+    os.environ.pop("AGENT_WALLET_BOOT_KEY", None)
+    os.environ["AGENT_WALLET_BOOT_KEY_FILE"] = str(boot_key_file)
+
+    assert resolve_wallet_master_key() == "sealed-master-key"
+    assert resolve_approval_secret() == "sealed-approval-secret"
+    assert resolve_solana_private_key().strip() == material["secret_material"].strip()
+    os.environ["AGENT_WALLET_BOOT_KEY"] = boot_key_file.read_text(encoding="utf-8").strip()
+    os.environ.pop("AGENT_WALLET_BOOT_KEY_FILE", None)
+
     os.environ["AGENT_WALLET_MASTER_KEY"] = "direct-master-key"
     os.environ["AGENT_WALLET_APPROVAL_SECRET"] = "direct-approval-secret"
     os.environ["SOLANA_AGENT_PRIVATE_KEY"] = "direct-private-key"

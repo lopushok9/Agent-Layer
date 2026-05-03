@@ -19,6 +19,7 @@ function printHelp() {
 
 Usage:
   openclaw-agent-wallet install [options]
+  openclaw-agent-wallet hermes install [options]
   openclaw-agent-wallet update [options]
   openclaw-agent-wallet status
   openclaw-agent-wallet rollback [--to <version>]
@@ -33,6 +34,7 @@ Common install options:
 
 Examples:
   npx @agentlayer.tech/wallet install --yes
+  npx @agentlayer.tech/wallet hermes install --yes
   npx @agentlayer.tech/wallet install --backend none
   npx @agentlayer.tech/wallet update --yes
   npx @agentlayer.tech/wallet status
@@ -65,12 +67,31 @@ function resolveRuntimeBase(env = process.env) {
   return path.join(resolveOpenclawHome(env), "agent-wallet-runtime");
 }
 
+function resolveHermesHome(env = process.env) {
+  return path.resolve(expandHome(env.HERMES_HOME || "~/.hermes"));
+}
+
 function releaseRootFor(version, env = process.env) {
   return path.join(resolveRuntimeBase(env), "releases", version);
 }
 
 function currentRuntimePath(env = process.env) {
   return path.join(resolveRuntimeBase(env), "current");
+}
+
+function resolvedCurrentRuntimeRoot(env = process.env) {
+  const currentPath = currentRuntimePath(env);
+  const currentTarget = readLinkOrNull(currentPath);
+  if (currentTarget) {
+    return path.resolve(path.dirname(currentPath), currentTarget);
+  }
+  try {
+    const stat = fs.statSync(currentPath);
+    if (stat.isDirectory()) return currentPath;
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  return "";
 }
 
 function previousRuntimePath(env = process.env) {
@@ -282,6 +303,31 @@ function envFileSet(pathname, updates) {
   }
 }
 
+function envFileUnset(pathname, keys) {
+  let lines = [];
+  try {
+    lines = fs.readFileSync(pathname, "utf8").split(/\r?\n/);
+  } catch (error) {
+    if (error?.code === "ENOENT") return;
+    throw error;
+  }
+  const blocked = new Set(keys);
+  const next = [];
+  for (const line of lines) {
+    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=/);
+    if (match && blocked.has(match[1])) {
+      continue;
+    }
+    if (line.length > 0) next.push(line);
+  }
+  fs.writeFileSync(pathname, `${next.join("\n")}\n`, { mode: 0o600 });
+  try {
+    fs.chmodSync(pathname, 0o600);
+  } catch {
+    // ignored
+  }
+}
+
 function readEnvFile(pathname) {
   try {
     const result = {};
@@ -297,11 +343,53 @@ function readEnvFile(pathname) {
 }
 
 function currentBootKey(env = process.env) {
-  const currentPath = currentRuntimePath(env);
-  const currentTarget = readLinkOrNull(currentPath);
-  if (!currentTarget) return "";
-  const currentRoot = path.resolve(path.dirname(currentPath), currentTarget);
+  const currentRoot = resolvedCurrentRuntimeRoot(env);
+  if (!currentRoot) return "";
   return readEnvFile(path.join(currentRoot, "agent-wallet", ".env")).AGENT_WALLET_BOOT_KEY || "";
+}
+
+function readTextIfExists(pathname) {
+  try {
+    return fs.readFileSync(pathname, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") return "";
+    throw error;
+  }
+}
+
+function writeSecretFile(pathname, value) {
+  fs.mkdirSync(path.dirname(pathname), { recursive: true });
+  fs.writeFileSync(pathname, `${String(value || "").trim()}\n`, { mode: 0o600 });
+  try {
+    fs.chmodSync(pathname, 0o600);
+  } catch {
+    // ignored
+  }
+}
+
+function resolveBootKeyFromFile(env = process.env) {
+  const keyFile = String(env.AGENT_WALLET_BOOT_KEY_FILE || "").trim();
+  if (!keyFile) return "";
+  return readTextIfExists(path.resolve(expandHome(keyFile))).trim();
+}
+
+function defaultBootKeyFile(env = process.env) {
+  return path.join(resolveRuntimeBase(env), "boot-key");
+}
+
+function ensureBootKeyFile(env = process.env) {
+  const configuredFile = String(env.AGENT_WALLET_BOOT_KEY_FILE || "").trim();
+  const keyFile = configuredFile ? path.resolve(expandHome(configuredFile)) : defaultBootKeyFile(env);
+  const existing = readTextIfExists(keyFile).trim();
+  if (existing) {
+    return { path: keyFile, status: "existing" };
+  }
+  const bootKey = String(env.AGENT_WALLET_BOOT_KEY || "").trim() || resolveBootKeyFromFile(env) || currentBootKey(env);
+  if (!bootKey) {
+    return { path: keyFile, status: "missing" };
+  }
+  writeSecretFile(keyFile, bootKey);
+  return { path: keyFile, status: "created" };
 }
 
 function runDoctor() {
@@ -523,6 +611,132 @@ function runRollback(args) {
   return 0;
 }
 
+function resolveHermesPluginSource() {
+  const currentRoot = resolvedCurrentRuntimeRoot();
+  const candidates = [];
+  if (currentRoot) {
+    candidates.push(path.join(currentRoot, "hermes", "plugins", "agent_wallet"));
+  }
+  candidates.push(path.join(packageRoot, "hermes", "plugins", "agent_wallet"));
+  for (const source of candidates) {
+    if (fs.existsSync(path.join(source, "plugin.yaml"))) {
+      return source;
+    }
+  }
+  throw new Error(`Missing Hermes plugin bundle. Checked: ${candidates.join(", ")}`);
+}
+
+function resolveAgentWalletPackageRoot(env = process.env) {
+  const currentRoot = resolvedCurrentRuntimeRoot(env);
+  if (currentRoot) {
+    const runtimePackage = path.join(currentRoot, "agent-wallet");
+    if (fs.existsSync(path.join(runtimePackage, "agent_wallet", "__init__.py"))) {
+      return runtimePackage;
+    }
+  }
+  return path.join(packageRoot, "agent-wallet");
+}
+
+function resolveAgentWalletPython(packageRootPath) {
+  for (const candidate of [
+    process.env.AGENT_WALLET_PYTHON,
+    process.env.OPENCLAW_AGENT_WALLET_PYTHON,
+    path.join(packageRootPath, ".venv", "bin", "python"),
+    path.join(packageRootPath, ".runtime-venv", "bin", "python"),
+    commandPath("python3"),
+  ]) {
+    if (!candidate) continue;
+    if (path.isAbsolute(candidate) && !fs.existsSync(candidate)) continue;
+    return candidate;
+  }
+  return "python3";
+}
+
+function runHermesInstall(args) {
+  const hermesHome = resolveHermesHome();
+  const userPluginsDir = path.join(hermesHome, "plugins");
+  const pluginSource = resolveHermesPluginSource();
+  const pluginTarget = path.join(userPluginsDir, "agent_wallet");
+  const force = hasFlag(args, "--force");
+  const skipEnable = hasFlag(args, "--skip-enable");
+  const hermesBin = commandPath("hermes");
+  const agentWalletPackageRoot = resolveAgentWalletPackageRoot();
+  const agentWalletPython = resolveAgentWalletPython(agentWalletPackageRoot);
+  const hermesEnvPath = path.join(hermesHome, ".env");
+  const existingHermesEnv = readEnvFile(hermesEnvPath);
+  const bootKeyFile = ensureBootKeyFile({ ...process.env, ...existingHermesEnv });
+
+  fs.mkdirSync(userPluginsDir, { recursive: true });
+  try {
+    const existing = fs.lstatSync(pluginTarget);
+    if (!existing.isSymbolicLink()) {
+      if (!force) {
+        throw new Error(`${pluginTarget} exists and is not a symlink. Pass --force to replace it.`);
+      }
+      fs.rmSync(pluginTarget, { recursive: true, force: true });
+    } else {
+      fs.unlinkSync(pluginTarget);
+    }
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  fs.symlinkSync(pluginSource, pluginTarget, "dir");
+
+  envFileSet(hermesEnvPath, {
+    AGENT_WALLET_PACKAGE_ROOT: agentWalletPackageRoot,
+    AGENT_WALLET_PYTHON: agentWalletPython,
+    AGENT_WALLET_BOOT_KEY_FILE: bootKeyFile.path,
+  });
+  if (bootKeyFile.status !== "missing") {
+    envFileUnset(hermesEnvPath, ["AGENT_WALLET_BOOT_KEY"]);
+  }
+
+  let enable = { attempted: false, ok: false, skipped: skipEnable, error: "" };
+  if (!skipEnable) {
+    if (!hermesBin) {
+      enable = {
+        attempted: false,
+        ok: false,
+        skipped: false,
+        error: "Hermes CLI was not found on PATH. Run `hermes plugins enable agent-wallet` after installing Hermes.",
+      };
+    } else {
+      const result = spawnSync(hermesBin, ["plugins", "enable", "agent-wallet"], {
+        cwd: packageRoot,
+        encoding: "utf8",
+        env: { ...process.env, HERMES_HOME: hermesHome },
+      });
+      enable = {
+        attempted: true,
+        ok: result.status === 0,
+        skipped: false,
+        error: result.status === 0 ? "" : (result.stderr || result.stdout || "").trim(),
+      };
+    }
+  }
+
+  console.log(
+    JSON.stringify(
+      {
+        ok: enable.skipped || enable.ok,
+        hermes_home: hermesHome,
+        plugin_source: pluginSource,
+        plugin_target: pluginTarget,
+        env_path: hermesEnvPath,
+        agent_wallet_package_root: agentWalletPackageRoot,
+        agent_wallet_python: agentWalletPython,
+        boot_key_file: bootKeyFile.path,
+        boot_key_file_status: bootKeyFile.status,
+        hermes_enable: enable,
+        restart_required: true,
+      },
+      null,
+      2,
+    ),
+  );
+  return enable.skipped || enable.ok ? 0 : 1;
+}
+
 const args = process.argv.slice(2);
 const command = args[0] || "install";
 
@@ -554,6 +768,16 @@ if (command === "update") {
 
 if (command === "rollback") {
   process.exit(runRollback(args.slice(1)));
+}
+
+if (command === "hermes") {
+  const subcommand = args[1] || "install";
+  if (subcommand === "install" || subcommand === "setup") {
+    process.exit(runHermesInstall(args.slice(2)));
+  }
+  console.error(`Unknown hermes command: ${subcommand}`);
+  console.error("Run `openclaw-agent-wallet hermes install --yes` to connect Hermes Agent.");
+  process.exit(2);
 }
 
 if (command.startsWith("-")) {

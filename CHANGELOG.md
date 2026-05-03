@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added an optional Hermes Agent bridge plugin under `hermes/plugins/agent_wallet`
+  that forwards into the existing Python wallet CLI instead of duplicating
+  OpenClaw wallet tools or policy.
+- Added `wallet hermes install --yes` and `AGENT_WALLET_BOOT_KEY_FILE` support
+  for smoother Hermes onboarding without manual `.env` editing.
 - Replaced the repo license with `PolyForm Small Business 1.0.0`.
 - Clarified in `README.md` that individuals can audit, fork, run, and modify
   the code for themselves, and that company use follows the PolyForm small
