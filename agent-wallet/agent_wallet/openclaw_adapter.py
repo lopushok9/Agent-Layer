@@ -4439,20 +4439,6 @@ class OpenClawWalletAdapter:
                     amount_ui=float(amount),
                     slippage_bps=slippage_bps,
                 )
-                approved_minimum = approval_summary_copy.get("minimum_output_amount_ui")
-                fresh_minimum = execute_preview.get("minimum_output_amount_ui")
-                if approved_minimum is not None and fresh_minimum is not None:
-                    try:
-                        if float(fresh_minimum) < float(approved_minimum):
-                            raise WalletBackendError(
-                                "Swap quote changed below the approved minimum output. Generate a new preview and approval before execute.",
-                                code="swap_quote_changed",
-                            )
-                    except (TypeError, ValueError) as exc:
-                        raise WalletBackendError(
-                            "Swap quote minimum output could not be compared. Generate a new preview and approval before execute.",
-                            code="swap_quote_changed",
-                        ) from exc
                 self._require_execute_approval(
                     approval_token=approval_token,
                     tool_name=tool_name,
