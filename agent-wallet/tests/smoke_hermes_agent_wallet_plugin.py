@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 from types import ModuleType
 
@@ -104,6 +105,26 @@ def main() -> None:
     assert "--user-id" in captured["command"]
     assert "hermes-test-user" in captured["command"]
     assert captured["kwargs"]["cwd"] == str(ROOT / "agent-wallet")
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        boot_key_file = Path(temp_dir) / "boot-key"
+        boot_key_file.write_text("test-boot-key\n", encoding="utf-8")
+        old_boot_key = os.environ.pop("AGENT_WALLET_BOOT_KEY", None)
+        old_boot_key_file = os.environ.get("AGENT_WALLET_BOOT_KEY_FILE")
+        os.environ["AGENT_WALLET_BOOT_KEY_FILE"] = str(boot_key_file)
+        try:
+            env = tools._cli_env(ROOT / "agent-wallet")
+        finally:
+            if old_boot_key is not None:
+                os.environ["AGENT_WALLET_BOOT_KEY"] = old_boot_key
+            else:
+                os.environ.pop("AGENT_WALLET_BOOT_KEY", None)
+            if old_boot_key_file is not None:
+                os.environ["AGENT_WALLET_BOOT_KEY_FILE"] = old_boot_key_file
+            else:
+                os.environ.pop("AGENT_WALLET_BOOT_KEY_FILE", None)
+
+    assert env["AGENT_WALLET_BOOT_KEY"] == "test-boot-key"
 
     print("smoke_hermes_agent_wallet_plugin: ok")
 

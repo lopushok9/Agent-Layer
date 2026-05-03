@@ -97,6 +97,15 @@ def _cli_env(package_root: Path) -> dict[str, str]:
     env = dict(os.environ)
     prior = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = str(package_root) if not prior else f"{package_root}{os.pathsep}{prior}"
+    if not env.get("AGENT_WALLET_BOOT_KEY"):
+        key_file = env.get("AGENT_WALLET_BOOT_KEY_FILE", "").strip()
+        if key_file:
+            try:
+                boot_key = Path(key_file).expanduser().read_text(encoding="utf-8").strip()
+            except OSError:
+                boot_key = ""
+            if boot_key:
+                env["AGENT_WALLET_BOOT_KEY"] = boot_key
     return env
 
 
