@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 
@@ -52,6 +53,38 @@ def _gateway_route_missing(status_code: int, payload: Any) -> bool:
         if "not found" in message:
             return True
     return False
+
+
+async def _gateway_get(path_suffix: str, *, params: dict[str, Any] | None = None) -> tuple[int, Any]:
+    """Make a GET request through provider gateway."""
+    client = get_client()
+    response = await client.get(
+        f"{_gateway_base_url()}/v1/jupiter/swap/{path_suffix}",
+        params=params,
+        headers=_gateway_headers(),
+    )
+    if not response.content:
+        return response.status_code, {}
+    try:
+        return response.status_code, response.json()
+    except ValueError:
+        return response.status_code, response.text[:500]
+
+
+async def _gateway_post(path_suffix: str, *, body: dict[str, Any]) -> tuple[int, Any]:
+    """Make a POST request through provider gateway."""
+    client = get_client()
+    response = await client.post(
+        f"{_gateway_base_url()}/v1/jupiter/swap/{path_suffix}",
+        json=body,
+        headers={**_gateway_headers(), "Content-Type": "application/json"},
+    )
+    if not response.content:
+        return response.status_code, {}
+    try:
+        return response.status_code, response.json()
+    except ValueError:
+        return response.status_code, response.text[:500]
 
 
 def _direct_jupiter_enabled() -> bool:
@@ -187,7 +220,57 @@ async def fetch_quote(
     only_direct_routes: bool = False,
     swap_mode: str = "ExactIn",
 ) -> dict[str, Any]:
-    """Fetch a Jupiter quote for an exact-in swap."""
+    """Fetch a Jupiter quote for an exact-in swap.
+
+    Tries direct Jupiter API first. On free-tier errors (TOKEN_NOT_TRADABLE,
+    NOT_SUPPORTED) falls back to provider gateway when configured.
+    """
+    # Try direct first
+    try:
+        return await _fetch_quote_direct(
+            input_mint=input_mint,
+            output_mint=output_mint,
+            amount_raw=amount_raw,
+            slippage_bps=slippage_bps,
+            restrict_intermediate_tokens=restrict_intermediate_tokens,
+            only_direct_routes=only_direct_routes,
+            swap_mode=swap_mode,
+        )
+    except ProviderError as exc:
+        error_msg = str(exc).lower()
+        # Only fall back for known free-tier limitations
+        gateway_fallback_errors = (
+            "token not tradable",
+            "not supported",
+            "restrict_intermediate_tokens",
+        )
+        if not any(phrase in error_msg for phrase in gateway_fallback_errors):
+            raise
+        if not _gateway_enabled():
+            raise
+        # Retry via gateway with relaxed restrictions
+        return await _fetch_quote_via_gateway(
+            input_mint=input_mint,
+            output_mint=output_mint,
+            amount_raw=amount_raw,
+            slippage_bps=slippage_bps,
+            restrict_intermediate_tokens=False,
+            only_direct_routes=only_direct_routes,
+            swap_mode=swap_mode,
+        )
+
+
+async def _fetch_quote_direct(
+    *,
+    input_mint: str,
+    output_mint: str,
+    amount_raw: int,
+    slippage_bps: int = 50,
+    restrict_intermediate_tokens: bool = True,
+    only_direct_routes: bool = False,
+    swap_mode: str = "ExactIn",
+) -> dict[str, Any]:
+    """Fetch a Jupiter quote directly from Jupiter API."""
     client = get_client()
     params = {
         "inputMint": input_mint,
@@ -209,6 +292,40 @@ async def fetch_quote(
     if not isinstance(data, dict) or "outAmount" not in data:
         raise ProviderError("jupiter", "Unexpected quote response from Jupiter.")
     return data
+
+
+async def _fetch_quote_via_gateway(
+    *,
+    input_mint: str,
+    output_mint: str,
+    amount_raw: int,
+    slippage_bps: int = 50,
+    restrict_intermediate_tokens: bool = False,
+    only_direct_routes: bool = False,
+    swap_mode: str = "ExactIn",
+) -> dict[str, Any]:
+    """Fetch a Jupiter quote via provider gateway (uses API key)."""
+    params: dict[str, Any] = {
+        "inputMint": input_mint,
+        "outputMint": output_mint,
+        "amount": str(amount_raw),
+        "slippageBps": str(slippage_bps),
+        "swapMode": swap_mode,
+    }
+    if not restrict_intermediate_tokens:
+        params["restrictIntermediateTokens"] = "false"
+    if only_direct_routes:
+        params["onlyDirectRoutes"] = "true"
+
+    status_code, payload = await _gateway_get("quote", params=params)
+    if status_code != 200:
+        error_msg = payload if isinstance(payload, str) else json.dumps(payload)
+        raise ProviderError("jupiter-gateway", f"HTTP {status_code}: {error_msg}")
+    if isinstance(payload, dict) and payload.get("errorCode"):
+        raise ProviderError("jupiter-gateway", str(payload.get("error") or payload.get("errorCode")))
+    if not isinstance(payload, dict) or "outAmount" not in payload:
+        raise ProviderError("jupiter-gateway", "Unexpected quote response from gateway.")
+    return payload
 
 
 async def fetch_ultra_order(
@@ -257,7 +374,35 @@ async def build_swap_transaction(
     quote_response: dict[str, Any],
     wrap_and_unwrap_sol: bool = True,
 ) -> dict[str, Any]:
-    """Build a serialized swap transaction from a Jupiter quote."""
+    """Build a serialized swap transaction from a Jupiter quote.
+
+    Tries direct Jupiter API first. Falls back to provider gateway on error.
+    """
+    # Try direct first
+    try:
+        return await _build_swap_direct(
+            user_public_key=user_public_key,
+            quote_response=quote_response,
+            wrap_and_unwrap_sol=wrap_and_unwrap_sol,
+        )
+    except ProviderError as exc:
+        if not _gateway_enabled():
+            raise
+        # Fall back to gateway
+        return await _build_swap_via_gateway(
+            user_public_key=user_public_key,
+            quote_response=quote_response,
+            wrap_and_unwrap_sol=wrap_and_unwrap_sol,
+        )
+
+
+async def _build_swap_direct(
+    *,
+    user_public_key: str,
+    quote_response: dict[str, Any],
+    wrap_and_unwrap_sol: bool = True,
+) -> dict[str, Any]:
+    """Build a swap transaction directly via Jupiter API."""
     client = get_client()
     body = {
         "userPublicKey": user_public_key,
@@ -277,6 +422,31 @@ async def build_swap_transaction(
     if not isinstance(data, dict) or "swapTransaction" not in data:
         raise ProviderError("jupiter", "Unexpected swap response from Jupiter.")
     return data
+
+
+async def _build_swap_via_gateway(
+    *,
+    user_public_key: str,
+    quote_response: dict[str, Any],
+    wrap_and_unwrap_sol: bool = True,
+) -> dict[str, Any]:
+    """Build a swap transaction via provider gateway (uses API key)."""
+    body = {
+        "userPublicKey": user_public_key,
+        "quoteResponse": quote_response,
+        "wrapAndUnwrapSol": wrap_and_unwrap_sol,
+        "dynamicComputeUnitLimit": True,
+        "prioritizationFeeLamports": "auto",
+    }
+    status_code, payload = await _gateway_post("swap", body=body)
+    if status_code != 200:
+        error_msg = payload if isinstance(payload, str) else json.dumps(payload)
+        raise ProviderError("jupiter-gateway", f"HTTP {status_code}: {error_msg}")
+    if isinstance(payload, dict) and payload.get("errorCode"):
+        raise ProviderError("jupiter-gateway", str(payload.get("error") or payload.get("errorCode")))
+    if not isinstance(payload, dict) or "swapTransaction" not in payload:
+        raise ProviderError("jupiter-gateway", "Unexpected swap response from gateway.")
+    return payload
 
 
 async def execute_ultra_order(

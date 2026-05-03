@@ -143,6 +143,12 @@ def _jupiter_headers() -> dict[str, str]:
         raise RuntimeError("JUPITER_API_KEY is not configured")
     return {"x-api-key": api_key}
 
+def _jupiter_swap_base_url() -> str:
+    return _trim(os.getenv("JUPITER_SWAP_API_BASE_URL")) or "https://lite-api.jup.ag/swap/v1"
+
+def _jupiter_swap_configured() -> bool:
+    return bool(_trim(os.getenv("JUPITER_API_KEY")))
+
 
 def _provider_url_from_env(name: str, default: str = "") -> str:
     return _trim(os.getenv(name)) or default
@@ -286,6 +292,11 @@ def _status_payload() -> dict[str, Any]:
             "earn_earnings": True,
             "earn_deposit": True,
             "earn_withdraw": True,
+        },
+        "jupiter_swap_configured": _jupiter_swap_configured(),
+        "jupiter_swap_features": {
+            "swap_quote": True,
+            "swap_swap": True,
         },
     }
 
@@ -961,6 +972,70 @@ async def jupiter_earn_withdraw(request: Request) -> JSONResponse:
     return JSONResponse(payload, status_code=status_code)
 
 
+async def jupiter_swap_quote(request: Request) -> JSONResponse:
+    """Proxy Jupiter swap quote with API key."""
+    auth_error = _require_bearer(request)
+    if auth_error:
+        return _json_error(auth_error, 401)
+
+    if not _jupiter_swap_configured():
+        return _json_error("Jupiter swap is not configured", 503)
+
+    try:
+        params: dict[str, str] = {}
+        for name in ("inputMint", "outputMint", "amount", "slippageBps",
+                      "restrictIntermediateTokens", "onlyDirectRoutes", "swapMode"):
+            value = request.query_params.get(name, "").strip()
+            if value:
+                params[name] = value
+        if "inputMint" not in params or "outputMint" not in params or "amount" not in params:
+            return _json_error("inputMint, outputMint, and amount are required", 400)
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+
+    try:
+        status_code, payload = await _http_get(
+            f"{_jupiter_swap_base_url()}/quote",
+            headers=_jupiter_headers(),
+            params=params,
+        )
+    except (RuntimeError, httpx.HTTPError) as exc:
+        return _json_error(f"Jupiter swap quote error: {exc}", 502)
+
+    return JSONResponse(payload, status_code=status_code)
+
+
+async def jupiter_swap_swap(request: Request) -> JSONResponse:
+    """Proxy Jupiter swap transaction build with API key."""
+    auth_error = _require_bearer(request)
+    if auth_error:
+        return _json_error(auth_error, 401)
+
+    if not _jupiter_swap_configured():
+        return _json_error("Jupiter swap is not configured", 503)
+
+    try:
+        body = _require_body_dict(await request.json())
+        _require_string_field(body, "userPublicKey")
+        if "quoteResponse" not in body or not isinstance(body["quoteResponse"], dict):
+            return _json_error("quoteResponse is required and must be an object", 400)
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except Exception:
+        return _json_error("Invalid JSON body", 400)
+
+    try:
+        status_code, payload = await _http_post(
+            f"{_jupiter_swap_base_url()}/swap",
+            headers={**_jupiter_headers(), "Content-Type": "application/json"},
+            json_body=body,
+        )
+    except (RuntimeError, httpx.HTTPError) as exc:
+        return _json_error(f"Jupiter swap swap error: {exc}", 502)
+
+    return JSONResponse(payload, status_code=status_code)
+
+
 routes = [
     Route("/health", health, methods=["GET"]),
     Route("/v1/status", status, methods=["GET"]),
@@ -981,6 +1056,8 @@ routes = [
     Route("/v1/jupiter/earn/earnings", jupiter_earn_earnings, methods=["GET"]),
     Route("/v1/jupiter/earn/deposit", jupiter_earn_deposit, methods=["POST"]),
     Route("/v1/jupiter/earn/withdraw", jupiter_earn_withdraw, methods=["POST"]),
+    Route("/v1/jupiter/swap/quote", jupiter_swap_quote, methods=["GET"]),
+    Route("/v1/jupiter/swap/swap", jupiter_swap_swap, methods=["POST"]),
 ]
 
 app = Starlette(debug=False, routes=routes)
