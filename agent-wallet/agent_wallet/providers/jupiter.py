@@ -240,7 +240,8 @@ async def fetch_quote(
         error_msg = str(exc).lower()
         # Only fall back for known free-tier limitations
         gateway_fallback_errors = (
-            "token not tradable",
+            "not tradable",
+            "token_not_tradable",
             "not supported",
             "restrict_intermediate_tokens",
         )
@@ -312,8 +313,6 @@ async def _fetch_quote_via_gateway(
         "slippageBps": str(slippage_bps),
         "swapMode": swap_mode,
     }
-    if not restrict_intermediate_tokens:
-        params["restrictIntermediateTokens"] = "false"
     if only_direct_routes:
         params["onlyDirectRoutes"] = "true"
 
