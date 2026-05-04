@@ -4,6 +4,11 @@
 ```bash
 npx @agentlayer.tech/wallet install --yes
 ```
+For install to Hermes use
+```bash
+npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet hermes install --yes
+```
+
 AgentLayer is a beta local-first wallet and finance stack for agents.
 
 The repository includes:
