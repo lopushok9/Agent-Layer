@@ -48,6 +48,8 @@ def main() -> None:
             "agent_wallet_tools",
             "agent_wallet_invoke",
             "agent_wallet_approve",
+            "agent_wallet_evm_status",
+            "agent_wallet_evm_setup",
         ]
     finally:
         sys.path.pop(0)
@@ -149,6 +151,74 @@ def main() -> None:
     assert "--ttl-seconds" in captured["command"]
     assert "60" in captured["command"]
     assert captured["kwargs"]["cwd"] == str(ROOT / "agent-wallet")
+
+    class HostCompleted:
+        returncode = 0
+        stderr = ""
+
+        def __init__(self, stdout: str):
+            self.stdout = stdout
+
+    host_commands = []
+
+    def fake_host_run(command, **kwargs):
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        host_commands.append((command, kwargs))
+        script_name = Path(command[1]).name
+        if script_name == "manage_openclaw_evm_wallet.py":
+            return HostCompleted(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "service": {"healthy": True},
+                        "bindings": [],
+                    }
+                )
+            )
+        assert script_name == "bootstrap_openclaw_evm.py"
+        assert kwargs["input"] == "evm-password\n"
+        return HostCompleted(
+            json.dumps(
+                {
+                    "ok": True,
+                    "evm_setup": {"action": "created"},
+                }
+            )
+        )
+
+    captured.clear()
+    tools.subprocess.run = fake_host_run
+    try:
+        evm_status = json.loads(
+            tools.agent_wallet_evm_status(
+                {
+                    "user_id": "hermes-test-user",
+                    "network": "base",
+                }
+            )
+        )
+        evm_setup = json.loads(
+            tools.agent_wallet_evm_setup(
+                {
+                    "password": "evm-password",
+                    "user_id": "hermes-test-user",
+                    "network": "base",
+                    "bind_network_pair": False,
+                }
+            )
+        )
+    finally:
+        tools.subprocess.run = original_run
+
+    assert evm_status["ok"] is True
+    assert evm_setup["ok"] is True
+    assert Path(host_commands[0][0][1]).name == "manage_openclaw_evm_wallet.py"
+    assert Path(host_commands[1][0][1]).name == "bootstrap_openclaw_evm.py"
+    assert "--password-stdin" in host_commands[1][0]
+    assert "--network" in host_commands[1][0]
+    assert "base" in host_commands[1][0]
+    assert "--no-bind-network-pair" in host_commands[1][0]
 
     def fake_approval_token(summary: dict) -> str:
         payload = {

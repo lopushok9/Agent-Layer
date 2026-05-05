@@ -132,3 +132,75 @@ AGENT_WALLET_APPROVE = {
         "additionalProperties": False,
     },
 }
+
+AGENT_WALLET_EVM_STATUS = {
+    "name": "agent_wallet_evm_status",
+    "description": (
+        "Inspect the local EVM wallet runtime used by AgentLayer/OpenClaw. "
+        "Returns wdk-evm-wallet health, network info, and existing user wallet "
+        "bindings without changing wallet state."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "user_id": {
+                "type": "string",
+                "description": "Optional local wallet owner id to inspect.",
+            },
+            "network": {
+                "type": "string",
+                "description": "Optional EVM network hint, such as ethereum, base, sepolia, or base-sepolia.",
+            },
+            "service_url": {
+                "type": "string",
+                "description": "Optional localhost override for the wdk-evm-wallet service.",
+            },
+        },
+        "additionalProperties": False,
+    },
+}
+
+AGENT_WALLET_EVM_SETUP = {
+    "name": "agent_wallet_evm_setup",
+    "description": (
+        "Create or unlock the local EVM wallet binding used by AgentLayer/OpenClaw "
+        "for Hermes. This can auto-start the localhost-only wdk-evm-wallet service, "
+        "set up the selected network, and bind the same wallet to the paired EVM network "
+        "such as ethereum/base."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "password": {
+                "type": "string",
+                "description": "Local EVM wallet password used to create or unlock the vault wallet.",
+            },
+            "user_id": {
+                "type": "string",
+                "description": "Optional local wallet owner id. Defaults to AGENT_WALLET_USER_ID, USER, or hermes-local-user.",
+            },
+            "network": {
+                "type": "string",
+                "description": "Selected EVM network, typically ethereum or base.",
+            },
+            "label": {
+                "type": "string",
+                "description": "Optional wallet label used when creating a new local EVM wallet.",
+            },
+            "service_url": {
+                "type": "string",
+                "description": "Optional localhost override for the wdk-evm-wallet service.",
+            },
+            "auto_start_service": {
+                "type": "boolean",
+                "description": "Whether to auto-start the local wdk-evm-wallet service when it is not healthy. Defaults to true.",
+            },
+            "bind_network_pair": {
+                "type": "boolean",
+                "description": "Whether to also bind the paired EVM network such as ethereum/base. Defaults to true.",
+            },
+        },
+        "required": ["password"],
+        "additionalProperties": False,
+    },
+}

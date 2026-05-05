@@ -34,6 +34,9 @@ The optional Hermes plugin is intentionally a bridge, not a port of the OpenClaw
 
 - `agent_wallet_tools` - read-only discovery for the underlying Python adapter tool specs.
 - `agent_wallet_invoke` - a dispatcher that calls `python -m agent_wallet.openclaw_cli invoke`.
+- `agent_wallet_approve` - a host approval-token issuer for exact execute operations.
+- `agent_wallet_evm_status` - a read-only EVM runtime and binding inspector.
+- `agent_wallet_evm_setup` - a host-side EVM bootstrap helper for Hermes.
 
 Install it with:
 
@@ -44,6 +47,12 @@ npx @agentlayer.tech/wallet hermes install --yes
 That command symlinks `hermes/plugins/agent_wallet` into `~/.hermes/plugins/agent_wallet`, enables the plugin with `hermes plugins enable agent-wallet`, and writes `AGENT_WALLET_PACKAGE_ROOT`, `AGENT_WALLET_PYTHON`, and `AGENT_WALLET_BOOT_KEY_FILE` into `~/.hermes/.env`. OpenClaw remains the canonical host integration and wallet safety policy remains in Python.
 
 Hermes tool config must not contain wallet secrets. Use the existing sealed runtime path and host-issued approval tokens for execute flows. `AGENT_WALLET_BOOT_KEY_FILE` lets OpenClaw and Hermes reference one local boot-key file instead of duplicating the boot key across multiple env files.
+
+For EVM on Hermes, the intended host flow is:
+
+- call `agent_wallet_evm_status` to inspect `wdk-evm-wallet` health and current bindings
+- call `agent_wallet_evm_setup` once to auto-start the local service when needed, create or unlock the local EVM wallet, and patch local OpenClaw config to `backend=wdk_evm_local`
+- then use ordinary `agent_wallet_invoke` calls for EVM reads, transfers, swaps, and Aave flows
 
 Current safe tools:
 
@@ -374,6 +383,21 @@ For the local EVM backend (`backend=wdk_evm_local`), the lifecycle mirrors the B
   - `evm-wallet-get`
   - `evm-wallet-unlock`
   - `evm-wallet-lock`
+
+For a simpler host-side bootstrap, use:
+
+```bash
+sh agent-wallet/scripts/setup_evm_wallet.sh
+```
+
+That wrapper:
+
+- prompts for `user-id` and EVM network when run interactively
+- defaults to `http://127.0.0.1:8081`
+- can auto-start `wdk-evm-wallet/run-local.sh` if the local service is not already healthy
+- creates or unlocks the local EVM wallet binding
+- also binds the paired EVM network by default: `ethereum <-> base`, `sepolia <-> base-sepolia`
+- patches OpenClaw config to `backend=wdk_evm_local`
 
 Example host-side EVM wallet creation:
 

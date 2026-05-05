@@ -174,6 +174,13 @@ def _python_bin(package_root: Path) -> str:
     return "python3"
 
 
+def _script_path(package_root: Path, name: str) -> Path:
+    script = package_root / "scripts" / name
+    if not script.exists():
+        raise RuntimeError(f"Required host script is missing: {script}")
+    return script
+
+
 def _user_id(args: dict[str, Any]) -> str:
     value = (
         args.get("user_id")
@@ -277,6 +284,37 @@ def _call_wallet_cli(args: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "error": f"wallet CLI returned invalid JSON: {exc}"}
 
 
+def _run_host_script(
+    package_root: Path,
+    script_name: str,
+    script_args: list[str],
+    *,
+    stdin_text: str | None = None,
+) -> dict[str, Any]:
+    command = [
+        _python_bin(package_root),
+        str(_script_path(package_root, script_name)),
+        *script_args,
+    ]
+    completed = subprocess.run(
+        command,
+        cwd=str(package_root),
+        env=_cli_env(package_root),
+        text=True,
+        input=stdin_text,
+        capture_output=True,
+        timeout=float(os.getenv("AGENT_WALLET_HERMES_TIMEOUT", "120")),
+        check=False,
+    )
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip()
+        return {"ok": False, "error": detail or f"host script exited {completed.returncode}"}
+    try:
+        return json.loads(completed.stdout.strip() or "{}")
+    except json.JSONDecodeError as exc:
+        return {"ok": False, "error": f"host script returned invalid JSON: {exc}"}
+
+
 def _call_issue_approval(args: dict[str, Any]) -> dict[str, Any]:
     if args.get("user_confirmed") is not True:
         raise RuntimeError(
@@ -335,6 +373,54 @@ def _call_issue_approval(args: dict[str, Any]) -> dict[str, Any]:
         return json.loads(completed.stdout.strip() or "{}")
     except json.JSONDecodeError as exc:
         return {"ok": False, "error": f"wallet CLI returned invalid JSON: {exc}"}
+
+
+def _call_evm_status(args: dict[str, Any]) -> dict[str, Any]:
+    package_root = _resolve_package_root()
+    command = ["status"]
+    user_id = str(args.get("user_id") or "").strip()
+    network = str(args.get("network") or "").strip()
+    service_url = str(args.get("service_url") or "").strip()
+    if user_id:
+        command.extend(["--user-id", user_id])
+    if network:
+        command.extend(["--network", network])
+    if service_url:
+        command.extend(["--service-url", service_url])
+    return _run_host_script(package_root, "manage_openclaw_evm_wallet.py", command)
+
+
+def _call_evm_setup(args: dict[str, Any]) -> dict[str, Any]:
+    package_root = _resolve_package_root()
+    password = str(args.get("password") or "").strip()
+    if not password:
+        raise RuntimeError("password is required.")
+    command = [
+        "--user-id",
+        _user_id(args),
+        "--password-stdin",
+    ]
+    network = str(args.get("network") or "").strip()
+    label = str(args.get("label") or "").strip()
+    service_url = str(args.get("service_url") or "").strip()
+    auto_start_service = args.get("auto_start_service")
+    bind_network_pair = args.get("bind_network_pair")
+    if network:
+        command.extend(["--network", network])
+    if label:
+        command.extend(["--label", label])
+    if service_url:
+        command.extend(["--service-url", service_url])
+    if auto_start_service is False:
+        command.append("--no-auto-start-service")
+    if bind_network_pair is False:
+        command.append("--no-bind-network-pair")
+    return _run_host_script(
+        package_root,
+        "bootstrap_openclaw_evm.py",
+        command,
+        stdin_text=f"{password}\n",
+    )
 
 
 class _SchemaOnlyBackend:
@@ -429,5 +515,19 @@ def agent_wallet_invoke(args: dict, **kwargs) -> str:
 def agent_wallet_approve(args: dict, **kwargs) -> str:
     try:
         return _json(_call_issue_approval(args or {}))
+    except Exception as exc:
+        return _json({"ok": False, "error": str(exc)})
+
+
+def agent_wallet_evm_status(args: dict, **kwargs) -> str:
+    try:
+        return _json(_call_evm_status(args or {}))
+    except Exception as exc:
+        return _json({"ok": False, "error": str(exc)})
+
+
+def agent_wallet_evm_setup(args: dict, **kwargs) -> str:
+    try:
+        return _json(_call_evm_setup(args or {}))
     except Exception as exc:
         return _json({"ok": False, "error": str(exc)})

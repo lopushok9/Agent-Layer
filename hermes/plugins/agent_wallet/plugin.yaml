@@ -5,3 +5,5 @@ provides_tools:
   - agent_wallet_tools
   - agent_wallet_invoke
   - agent_wallet_approve
+  - agent_wallet_evm_status
+  - agent_wallet_evm_setup

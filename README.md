@@ -97,28 +97,10 @@ sh agent-wallet/scripts/setup_btc_wallet.sh
 EVM:
 
 ```bash
-cd wdk-evm-wallet && sh run-local.sh
+sh agent-wallet/scripts/setup_evm_wallet.sh
 ```
 
-Create a local EVM wallet binding for an OpenClaw user:
-
-```bash
-printf '%s\n' 'your-local-evm-password' | \
-agent-wallet/.venv/bin/python -m agent_wallet.openclaw_cli evm-wallet-create \
-  --user-id your-user-id \
-  --password-stdin \
-  --config-json '{"backend":"wdk_evm_local","network":"base","wdkEvmServiceUrl":"http://127.0.0.1:8081"}'
-```
-
-Unlock an existing EVM wallet binding:
-
-```bash
-printf '%s\n' 'your-local-evm-password' | \
-agent-wallet/.venv/bin/python -m agent_wallet.openclaw_cli evm-wallet-unlock \
-  --user-id your-user-id \
-  --password-stdin \
-  --config-json '{"backend":"wdk_evm_local","network":"base","wdkEvmServiceUrl":"http://127.0.0.1:8081"}'
-```
+That host-side bootstrap can auto-start the local `wdk-evm-wallet` service, create or unlock the vault wallet, bind both `base` and `ethereum` for the same local user, and patch OpenClaw config to `backend=wdk_evm_local`.
 
 That generates three fresh local secrets in the current shell session. If you prefer Python instead of `openssl`:
 
@@ -154,7 +136,15 @@ OpenClaw remains the primary local environment, but the repo also ships an optio
 hermes/plugins/agent_wallet
 ```
 
-It exposes only two Hermes tools: `agent_wallet_tools` for discovery and `agent_wallet_invoke` for forwarding a single call into the existing Python wallet CLI. Install it by symlinking the plugin directory into Hermes:
+It exposes a thin bridge, not a port of wallet logic:
+
+- `agent_wallet_tools`
+- `agent_wallet_invoke`
+- `agent_wallet_approve`
+- `agent_wallet_evm_status`
+- `agent_wallet_evm_setup`
+
+Install it by symlinking the plugin directory into Hermes:
 
 ```bash
 npx @agentlayer.tech/wallet hermes install --yes
@@ -234,15 +224,23 @@ sh agent-wallet/scripts/reveal_btc_seed.sh
 
 ## EVM setup
 
-The EVM runtime is installed by `setup.sh`, but the host-side wallet onboarding is still a manual CLI flow.
-
-Start the local EVM service:
+The EVM runtime is installed by `setup.sh`, and the host-side onboarding now has the same one-command shape as BTC:
 
 ```bash
-cd wdk-evm-wallet && sh run-local.sh
+sh agent-wallet/scripts/setup_evm_wallet.sh
 ```
 
-Create a local EVM wallet binding for an OpenClaw user:
+That flow:
+
+- prompts for `user-id`
+- prompts for `ethereum`, `base`, `sepolia`, or `base-sepolia`
+- defaults to `http://127.0.0.1:8081`
+- can auto-start `wdk-evm-wallet/run-local.sh` if the local service is not already healthy
+- creates or unlocks the local EVM wallet binding
+- also binds the paired EVM network by default: `ethereum <-> base`, `sepolia <-> base-sepolia`
+- patches OpenClaw config to `backend=wdk_evm_local`
+
+You can still use the lower-level CLI if needed:
 
 ```bash
 printf '%s\n' 'your-local-evm-password' | \
@@ -251,31 +249,6 @@ agent-wallet/.venv/bin/python -m agent_wallet.openclaw_cli evm-wallet-create \
   --password-stdin \
   --config-json '{"backend":"wdk_evm_local","network":"base","wdkEvmServiceUrl":"http://127.0.0.1:8081"}'
 ```
-
-Unlock an existing EVM wallet binding:
-
-```bash
-printf '%s\n' 'your-local-evm-password' | \
-agent-wallet/.venv/bin/python -m agent_wallet.openclaw_cli evm-wallet-unlock \
-  --user-id your-user-id \
-  --password-stdin \
-  --config-json '{"backend":"wdk_evm_local","network":"base","wdkEvmServiceUrl":"http://127.0.0.1:8081"}'
-```
-
-Then switch the OpenClaw plugin config to the EVM backend:
-
-```bash
-AGENT_WALLET_BOOT_KEY='...' \
-agent-wallet/.venv/bin/python agent-wallet/scripts/install_openclaw_local_config.py \
-  --backend wdk_evm_local \
-  --network base \
-  --user-id your-user-id \
-  --package-root agent-wallet \
-  --extension-path .openclaw/extensions/agent-wallet \
-  --python-bin agent-wallet/.venv/bin/python
-```
-
-That final config step assumes `~/.openclaw/sealed_keys.json` already exists. The normal path is to let the main installer create it by running install with `AGENT_WALLET_BOOT_KEY`, `AGENT_WALLET_MASTER_KEY`, and `AGENT_WALLET_APPROVAL_SECRET` available.
 
 Important EVM notes:
 

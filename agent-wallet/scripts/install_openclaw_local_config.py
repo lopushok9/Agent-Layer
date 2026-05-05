@@ -72,6 +72,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--wdk-btc-service-url", default="")
     parser.add_argument("--wdk-btc-wallet-id", default="")
     parser.add_argument("--wdk-btc-account-index", type=int, default=0)
+    parser.add_argument("--wdk-evm-service-url", default="")
+    parser.add_argument("--wdk-evm-wallet-id", default="")
+    parser.add_argument("--wdk-evm-account-index", type=int, default=0)
     parser.add_argument("--sign-only", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--encrypt-user-wallets", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument(
@@ -183,6 +186,12 @@ def main() -> None:
         plugin_config["wdkBtcWalletId"] = args.wdk_btc_wallet_id.strip()
     if args.wdk_btc_account_index is not None:
         plugin_config["wdkBtcAccountIndex"] = int(args.wdk_btc_account_index)
+    if args.wdk_evm_service_url.strip():
+        plugin_config["wdkEvmServiceUrl"] = args.wdk_evm_service_url.strip()
+    if args.wdk_evm_wallet_id.strip():
+        plugin_config["wdkEvmWalletId"] = args.wdk_evm_wallet_id.strip()
+    if args.wdk_evm_account_index is not None:
+        plugin_config["wdkEvmAccountIndex"] = int(args.wdk_evm_account_index)
     if args.write_master_key:
         raise SystemExit(
             "Refusing to write masterKey into config. Runtime secrets must live in sealed_keys.json."
