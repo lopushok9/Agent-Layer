@@ -69,6 +69,14 @@ def main() -> None:
     assert (runtime_root / "agent-wallet").exists()
     assert (runtime_root / ".openclaw" / "extensions" / "agent-wallet").exists()
     assert (runtime_root / "hermes" / "plugins" / "agent_wallet" / "plugin.yaml").exists()
+    assert (runtime_root / "agent-wallet" / "scripts" / "manage_openclaw_evm_wallet.py").exists()
+    assert (runtime_root / "agent-wallet" / "scripts" / "bootstrap_openclaw_evm.py").exists()
+    assert (runtime_root / "agent-wallet" / "scripts" / "setup_evm_wallet.sh").exists()
+    hermes_schemas = (runtime_root / "hermes" / "plugins" / "agent_wallet" / "schemas.py").read_text(
+        encoding="utf-8"
+    )
+    assert "agent_wallet_evm_status" in hermes_schemas
+    assert "agent_wallet_evm_setup" in hermes_schemas
     assert (runtime_root / "wdk-btc-wallet" / "package.json").exists()
     assert (runtime_root / "wdk-evm-wallet" / "package.json").exists()
     assert (runtime_base / "current").is_symlink()

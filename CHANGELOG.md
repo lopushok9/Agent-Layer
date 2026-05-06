@@ -7,6 +7,14 @@
   OpenClaw wallet tools or policy.
 - Added `wallet hermes install --yes` and `AGENT_WALLET_BOOT_KEY_FILE` support
   for smoother Hermes onboarding without manual `.env` editing.
+- Added Hermes EVM onboarding helpers:
+  `agent_wallet_evm_status` and `agent_wallet_evm_setup`.
+- Added host-side EVM bootstrap scripts for packaged/runtime installs:
+  `manage_openclaw_evm_wallet.py`, `bootstrap_openclaw_evm.py`, and
+  `setup_evm_wallet.sh`.
+- Kept Hermes EVM routing on the existing `wdk-evm-wallet` and
+  `provider-gateway` path for `ethereum` and `base`, without copying wallet
+  policy or duplicating tool implementations.
 - Replaced the repo license with `PolyForm Small Business 1.0.0`.
 - Clarified in `README.md` that individuals can audit, fork, run, and modify
   the code for themselves, and that company use follows the PolyForm small
@@ -14,6 +22,23 @@
 - Removed direct Mayan swap routing from `agent-wallet`, `.openclaw`, and
   `wdk-evm-wallet`; cross-chain swaps now stay on LI.FI/Jupiter-backed paths
   with Mayan denied as a LI.FI bridge.
+
+## v0.1.12 - 2026-05-06
+
+### Added
+
+- Hermes EVM runtime helpers for packaged installs:
+  `agent_wallet_evm_status` and `agent_wallet_evm_setup`.
+- Host-side EVM lifecycle scripts in the runtime bundle:
+  `manage_openclaw_evm_wallet.py`, `bootstrap_openclaw_evm.py`, and
+  `setup_evm_wallet.sh`.
+
+### Changed
+
+- Hermes installs now support the same local EVM onboarding shape as BTC:
+  inspect runtime health, auto-start the local service, create or unlock the
+  vault wallet, and bind paired `ethereum/base` networks through the thin
+  bridge.
 
 ## v0.1.0-beta.2 - 2026-03-31
 
