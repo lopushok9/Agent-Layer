@@ -44,10 +44,14 @@ Implemented endpoints:
 - `GET /v1/jupiter/earn/earnings` — authenticated Jupiter Earn earnings
 - `POST /v1/jupiter/earn/deposit` — authenticated Jupiter Earn deposit transaction build
 - `POST /v1/jupiter/earn/withdraw` — authenticated Jupiter Earn withdraw transaction build
+- `GET /v1/houdini/tokens` — authenticated Houdini token catalog relay
+- `GET /v1/houdini/quotes/private` — authenticated Houdini private quote relay
+- `POST /v1/houdini/exchanges/multi` — authenticated Houdini multi-order creation
+- `GET /v1/houdini/exchanges/multi/{multiId}` — authenticated Houdini multi-order status
+- `GET /v1/houdini/exchanges/multi/{multiId}/tx` — authenticated Houdini Solana prebuilt transaction fetch
 
 Not implemented yet:
 
-- partner endpoints
 - admin fee-share endpoints
 - user-aware rate limiting / quotas
 - request signing / replay protection
@@ -79,6 +83,12 @@ Configure the surfaces you want to expose:
   - `BAGS_API_KEY`
 - Jupiter Earn relay:
   - `JUPITER_API_KEY`
+- Houdini private swap relay:
+  - `HOUDINI_API_KEY`
+  - `HOUDINI_API_SECRET`
+  - optional `HOUDINI_API_BASE_URL`
+  - optional `HOUDINI_USER_AGENT`
+  - optional `HOUDINI_USER_TIMEZONE`
 
 Optional:
 
@@ -177,6 +187,13 @@ If you switch back to protected mode with `REQUIRE_BEARER_AUTH=true`, add:
 -H "Authorization: Bearer YOUR_PROVIDER_GATEWAY_BEARER_TOKEN"
 ```
 
+Houdini private quotes:
+
+```bash
+curl "http://localhost:8000/v1/houdini/quotes/private?from=sol-token-id&to=sol-token-id&amount=0.1" \
+  -H "Authorization: Bearer YOUR_PROVIDER_GATEWAY_BEARER_TOKEN"
+```
+
 ## Design notes
 
 - simplicity first: one process, one app file, narrow endpoint surface
@@ -184,6 +201,8 @@ If you switch back to protected mode with `REQUIRE_BEARER_AUTH=true`, add:
 - user friendly: good default shared mode, while future `agent-wallet` integration can switch to direct user RPC when user keys are configured
 - launch flow stays non-custodial: gateway prepares metadata/config/launch tx, user wallet still signs and broadcasts
 - EVM shared RPC remains allowlisted. It is intended for wallet reads, simulation, fee estimation, and raw tx broadcast from the local signer, not as a generic public Ethereum proxy.
+- Houdini private swap routing stays non-custodial: the gateway owns partner secrets and compliance headers, but the local wallet still verifies, signs, and broadcasts the Solana funding transaction.
+- Houdini `x-user-ip` is derived at the gateway from ingress headers such as `cf-connecting-ip`, `x-real-ip`, or `x-forwarded-for`; the client does not supply the authoritative IP.
 
 ## Agent-wallet mode
 
@@ -192,9 +211,12 @@ If you switch back to protected mode with `REQUIRE_BEARER_AUTH=true`, add:
 - shared RPC mode via `PROVIDER_GATEWAY_URL` for onboarding-friendly defaults
 - explicit Bags launch / fees mode via the gateway-backed Bags client
 - explicit Jupiter Earn mode via the gateway-backed Earn client
+- explicit Houdini mode via the gateway-backed private payout client
 - `wdk-evm-wallet` can also use this service as its upstream RPC transport for `ethereum` / `base`
 
 Default Jupiter swap routing stays direct regardless of whether RPC is shared or user-owned. The gateway is used here for Bags launch/fees and Jupiter Earn, not for ordinary swaps.
+
+Houdini routing is different: for production it is expected to go through this gateway so partner credentials and compliance headers are centralized server-side, while `agent-wallet` keeps local signing and approval policy.
 
 ## Railway
 
@@ -221,6 +243,9 @@ Recommended setup:
    - optional:
      - `PROVIDER_GATEWAY_BEARER_TOKEN`
      - `BAGS_API_BASE_URL`
+     - `HOUDINI_API_KEY`
+     - `HOUDINI_API_SECRET`
+     - `HOUDINI_API_BASE_URL`
      - `ALLOWED_ORIGINS`
      - `HTTP_TIMEOUT_SECONDS`
 5. Set the start command below.
@@ -236,9 +261,11 @@ Notes:
 
 - Railway injects `PORT`; the command above already respects it.
 - Keep `PROVIDER_GATEWAY_BEARER_TOKEN`, `BAGS_API_KEY`, and any RPC API keys as Railway service variables or sealed variables, not in repo files.
+- Keep `HOUDINI_API_KEY` and `HOUDINI_API_SECRET` in Railway service variables only.
 - Public beta mode can run with `REQUIRE_BEARER_AUTH=false`, but rate limiting / edge protection is still strongly recommended.
 - For a Bags-only deployment, you can omit all RPC variables.
 - For a shared-RPC deployment, you can omit `BAGS_API_KEY` only if you do not need any Bags endpoints.
+- For Houdini-enabled deployment, add both Houdini partner secrets and keep the gateway behind auth or edge controls.
 
 Example production variable sets:
 
@@ -254,6 +281,16 @@ Example production variable sets:
 3. Bags + shared Solana RPC gateway
    - `REQUIRE_BEARER_AUTH=false`
    - `BAGS_API_KEY=...`
+   - plus one of:
+     - `SHARED_SOLANA_RPC_URL=...`
+     - `HELIUS_API_KEY=...`
+     - `ALCHEMY_API_KEY=...`
+
+4. Houdini + shared Solana RPC gateway
+   - `REQUIRE_BEARER_AUTH=true`
+   - `PROVIDER_GATEWAY_BEARER_TOKEN=...`
+   - `HOUDINI_API_KEY=...`
+   - `HOUDINI_API_SECRET=...`
    - plus one of:
      - `SHARED_SOLANA_RPC_URL=...`
      - `HELIUS_API_KEY=...`

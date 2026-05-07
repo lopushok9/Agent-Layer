@@ -265,6 +265,27 @@ class OpenClawWalletAdapter:
                 "transaction_data_hash": payload.get("transaction_data_hash"),
             }
 
+        if asset_type == "solana-private-swap":
+            return {
+                "operation": action_label,
+                "network": str(payload.get("network") or getattr(self.backend, "network", "unknown")),
+                "swap_provider": payload.get("source") or "houdini",
+                "owner": payload.get("owner"),
+                "destination_address": payload.get("destination_address"),
+                "input_token_id": payload.get("input_token_id"),
+                "output_token_id": payload.get("output_token_id"),
+                "input_token_symbol": payload.get("input_token_symbol"),
+                "output_token_symbol": payload.get("output_token_symbol"),
+                "input_token_address": payload.get("input_token_address"),
+                "output_token_address": payload.get("output_token_address"),
+                "input_amount_ui": payload.get("input_amount_ui"),
+                "estimated_output_amount_ui": payload.get("estimated_output_amount_ui"),
+                "private_duration_minutes": payload.get("private_duration_minutes"),
+                "quote_id": payload.get("quote_id"),
+                "anonymous": payload.get("anonymous"),
+                "use_xmr": payload.get("use_xmr"),
+            }
+
         if asset_type == "evm-lifi-cross-chain-swap":
             return {
                 "operation": action_label,
@@ -2151,6 +2172,82 @@ class OpenClawWalletAdapter:
                     read_only=False,
                     requires_explicit_user_intent=True,
                     risk_level="high",
+                )
+            )
+
+            tools.append(
+                AgentToolSpec(
+                    name="swap_solana_privately",
+                    description=(
+                        "Preview, prepare, or execute a Solana private payout through Houdini's anonymous routing. "
+                        "The initial implementation supports same-token private payouts only, such as SOL->SOL or USDC->USDC. "
+                        "Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation."
+                    ),
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "input_token": {
+                                "type": "string",
+                                "description": "Source Solana token identifier. Symbol, name, mint address, or Houdini token id.",
+                            },
+                            "output_token": {
+                                "type": "string",
+                                "description": "Destination Solana token identifier. For the initial implementation, this must resolve to the same token as input_token.",
+                            },
+                            "destination_address": {
+                                "type": "string",
+                                "description": "Destination Solana wallet address that should receive the privately routed payout.",
+                            },
+                            "amount": {
+                                "type": "number",
+                                "description": "Input token amount in UI units.",
+                            },
+                            "use_xmr": {
+                                "type": "boolean",
+                                "description": "Optional. Force Houdini's XMR privacy hop when available.",
+                            },
+                            "mode": {
+                                "type": "string",
+                                "enum": ["preview", "prepare", "execute"],
+                            },
+                            "purpose": {"type": "string"},
+                            "user_intent": {"type": "boolean"},
+                            "approval_token": {"type": "string"},
+                        },
+                        "required": [
+                            "input_token",
+                            "output_token",
+                            "destination_address",
+                            "amount",
+                            "mode",
+                            "purpose",
+                        ],
+                        "additionalProperties": False,
+                    },
+                    read_only=False,
+                    requires_explicit_user_intent=True,
+                    risk_level="high",
+                )
+            )
+
+            tools.append(
+                AgentToolSpec(
+                    name="get_solana_private_swap_status",
+                    description=(
+                        "Check Houdini status for a Solana private payout created by swap_solana_privately. "
+                        "Use multi_id from the execute result, and optionally houdini_id to focus one order."
+                    ),
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "multi_id": {"type": "string"},
+                            "houdini_id": {"type": "string"},
+                        },
+                        "required": ["multi_id"],
+                        "additionalProperties": False,
+                    },
+                    read_only=True,
+                    risk_level="low",
                 )
             )
 
@@ -4489,6 +4586,162 @@ class OpenClawWalletAdapter:
                         mode="execute",
                     ),
                 )
+
+            if tool_name == "swap_solana_privately":
+                input_token = args.get("input_token")
+                output_token = args.get("output_token")
+                destination_address = args.get("destination_address")
+                amount = args.get("amount")
+                use_xmr = args.get("use_xmr", False)
+                mode = args.get("mode")
+                purpose = args.get("purpose")
+                user_intent = args.get("user_intent", False)
+                approval_token = args.get("approval_token")
+
+                if not isinstance(input_token, str) or not input_token.strip():
+                    raise WalletBackendError("input_token is required.")
+                if not isinstance(output_token, str) or not output_token.strip():
+                    raise WalletBackendError("output_token is required.")
+                if not isinstance(destination_address, str) or not destination_address.strip():
+                    raise WalletBackendError("destination_address is required.")
+                if not isinstance(amount, (int, float)) or amount <= 0:
+                    raise WalletBackendError("amount must be a positive number.")
+                if not isinstance(use_xmr, bool):
+                    raise WalletBackendError("use_xmr must be a boolean when provided.")
+                if mode not in {"preview", "prepare", "execute"}:
+                    raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
+                if not isinstance(purpose, str) or not purpose.strip():
+                    raise WalletBackendError("purpose is required.")
+
+                preview_kwargs = {
+                    "input_token": input_token.strip(),
+                    "output_token": output_token.strip(),
+                    "destination_address": destination_address.strip(),
+                    "amount_ui": float(amount),
+                    "use_xmr": use_xmr,
+                }
+
+                if mode == "preview":
+                    preview = await self.backend.preview_solana_private_swap(**preview_kwargs)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            preview,
+                            action_label="Solana private swap",
+                            mode="preview",
+                        ),
+                    )
+
+                if mode == "prepare":
+                    self._require_prepare_intent(user_intent)
+                    preview = await self.backend.preview_solana_private_swap(**preview_kwargs)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            self._build_prepare_plan(
+                                preview_payload=preview,
+                                action_label="Solana private swap",
+                            ),
+                            action_label="Solana private swap",
+                            mode="prepare",
+                        ),
+                    )
+
+                approval_payload = inspect_approval_token(
+                    approval_token,
+                    tool_name=tool_name,
+                    network=str(getattr(self.backend, "network", "unknown")),
+                    require_mainnet_confirmation=self._is_mainnet_for_backend(self.backend),
+                )
+                approval_summary = approval_payload.get("binding", {}).get("summary")
+                if not isinstance(approval_summary, dict):
+                    raise WalletBackendError(
+                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                    )
+                expected_summary = {
+                    "operation": "Solana private swap",
+                    "network": str(getattr(self.backend, "network", "unknown")),
+                    "destination_address": destination_address.strip(),
+                    "use_xmr": use_xmr,
+                }
+                for key, expected_value in expected_summary.items():
+                    if approval_summary.get(key) != expected_value:
+                        raise WalletBackendError(
+                            "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                        )
+                try:
+                    approved_amount = float(approval_summary.get("input_amount_ui"))
+                except (TypeError, ValueError):
+                    raise WalletBackendError(
+                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                    )
+                if approved_amount != float(amount):
+                    raise WalletBackendError(
+                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                    )
+
+                approval_summary_copy = dict(approval_summary)
+                approved_preview = args.get("_approved_preview")
+                execute_preview = None
+                if isinstance(approval_summary_copy.get("_preview_digest"), str):
+                    if not isinstance(approved_preview, dict):
+                        raise WalletBackendError(
+                            "Approved private swap preview payload is required for execute mode. Generate a new preview and approval before execute."
+                        )
+                    if preview_payload_digest(approved_preview) != approval_summary_copy["_preview_digest"]:
+                        raise WalletBackendError(
+                            "approved preview payload does not match the approval token. Generate a new preview and approval before execute."
+                        )
+                    preview_summary = self._build_confirmation_summary(
+                        action_label="Solana private swap",
+                        payload=approved_preview,
+                    )
+                    summary_without_digest = {
+                        key: value
+                        for key, value in approval_summary_copy.items()
+                        if key != "_preview_digest"
+                    }
+                    if preview_summary != summary_without_digest:
+                        raise WalletBackendError(
+                            "approved preview payload does not match the approval token. Generate a new preview and approval before execute."
+                        )
+                    execute_preview = dict(approved_preview)
+
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=approval_summary_copy,
+                    action_label="Solana private swap",
+                )
+
+                result = await self.backend.execute_solana_private_swap(
+                    **preview_kwargs,
+                    approved_preview=execute_preview,
+                )
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=self._annotate_sensitive_payload(
+                        result,
+                        action_label="Solana private swap",
+                        mode="execute",
+                    ),
+                )
+
+            if tool_name == "get_solana_private_swap_status":
+                multi_id = args.get("multi_id")
+                houdini_id = args.get("houdini_id")
+                if not isinstance(multi_id, str) or not multi_id.strip():
+                    raise WalletBackendError("multi_id is required.")
+                if houdini_id is not None and not isinstance(houdini_id, str):
+                    raise WalletBackendError("houdini_id must be a string when provided.")
+                data = await self.backend.get_solana_private_swap_status(
+                    multi_id=multi_id.strip(),
+                    houdini_id=houdini_id.strip() if isinstance(houdini_id, str) and houdini_id.strip() else None,
+                )
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
 
             if tool_name == "swap_solana_lifi_cross_chain_tokens":
                 input_token = args.get("input_token")

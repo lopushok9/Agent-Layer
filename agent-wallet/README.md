@@ -89,6 +89,8 @@ Current safe tools:
 - `stake_sol_native`
 - `transfer_spl_token`
 - `swap_solana_tokens`
+- `swap_solana_privately` - Houdini-backed private Solana payout flow for same-token `SOL->SOL` or `USDC->USDC` transfers to a destination wallet.
+- `get_solana_private_swap_status`
 - `get_jupiter_earn_tokens`
 - `get_jupiter_earn_positions`
 - `get_jupiter_earn_earnings`
@@ -184,6 +186,30 @@ For production `mainnet`, prefer a dedicated RPC instead of the public Solana en
 - or just `ALCHEMY_API_KEY` / `HELIUS_API_KEY`, which auto-derive a primary Solana RPC for `mainnet` or `devnet`
 
 Production recommendation: treat RPC as deployment-owned config, not wallet logic. Runtime env wins over `openclaw.json` plugin config, so keep `Alchemy/Helius/QuickNode` endpoints in deployment secrets or service env and use plugin `rpcUrl` / `rpcUrls` only as local fallback.
+
+For Houdini-backed private Solana payouts, also provide:
+
+- `HOUDINI_API_KEY`
+- `HOUDINI_API_SECRET`
+- `HOUDINI_USER_IP`
+- optional `HOUDINI_USER_AGENT`
+- optional `HOUDINI_USER_TIMEZONE`
+
+The current MVP intentionally keeps the scope narrow:
+
+- supported private routes are same-token Solana payouts only
+- `SOL -> SOL`
+- `USDC -> USDC`
+- execution uses Houdini `multi` order creation plus the Solana prebuilt transaction endpoint, so the wallet still signs and verifies a concrete funding transaction locally before broadcast
+
+This is a private payout flow expressed in Houdini's swap terminology. Cross-token private swaps can be added later without changing the OpenClaw/Hermes approval model.
+
+For production, the cleaner setup is to place Houdini partner secrets on `provider-gateway` and let `agent-wallet` consume the narrow gateway endpoints through `PROVIDER_GATEWAY_URL` and optional `PROVIDER_GATEWAY_BEARER_TOKEN`. In that mode:
+
+- the gateway owns `HOUDINI_API_KEY` / `HOUDINI_API_SECRET`
+- the gateway derives the authoritative user IP from ingress
+- `agent-wallet` still performs preview/prepare/execute, local transaction verification, signing, and broadcast
+- direct Houdini env vars can be omitted from the wallet runtime
 
 For OpenClaw onboarding, `agent-wallet` now ships with a hosted default provider gateway:
 

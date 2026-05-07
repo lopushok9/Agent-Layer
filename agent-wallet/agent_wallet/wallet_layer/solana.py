@@ -11,7 +11,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from agent_wallet.models import AgentWalletCapabilities, SolanaWalletState
-from agent_wallet.providers import bags, jupiter, kamino, lifi, solana_rpc
+from agent_wallet.providers import bags, houdini, jupiter, kamino, lifi, solana_rpc
 from agent_wallet.solana_stake import (
     STAKE_STATE_V2_SIZE,
     deactivate_stake as build_deactivate_stake_instruction,
@@ -26,6 +26,8 @@ from agent_wallet.solana_tx import (
 )
 from agent_wallet.transaction_policy import (
     verify_provider_bags_transaction,
+    verify_provider_houdini_simulation_result,
+    verify_provider_houdini_transaction,
     verify_provider_kamino_lend_transaction,
     verify_provider_lend_transaction,
     verify_provider_swap_simulation_result,
@@ -697,6 +699,432 @@ class SolanaWalletBackend(AgentWalletBackend):
             "can_send": self.get_capabilities().can_send_transaction,
             "sign_only": self.sign_only,
             "source": "lifi",
+        }
+
+    @staticmethod
+    def _houdini_token_is_native(token: dict[str, Any]) -> bool:
+        chain = str(token.get("chain") or "").strip().lower()
+        symbol = str(token.get("symbol") or "").strip().lower()
+        address = str(token.get("address") or "").strip().lower()
+        return chain == "solana" and symbol == "sol" and address in {"", "sol", "native", "11111111111111111111111111111111", NATIVE_SOL_MINT.lower()}
+
+    def _normalize_houdini_private_preview_payload(
+        self,
+        *,
+        owner: str,
+        input_token: dict[str, Any],
+        output_token: dict[str, Any],
+        destination_address: str,
+        amount_ui: Decimal,
+        quote: dict[str, Any],
+        use_xmr: bool,
+    ) -> dict[str, Any]:
+        min_private = (
+            input_token.get("min_max_private")
+            if isinstance(input_token.get("min_max_private"), dict)
+            else {}
+        )
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "mode": "preview",
+            "asset_type": "solana-private-swap",
+            "owner": owner,
+            "destination_address": destination_address,
+            "input_token_query": input_token.get("symbol"),
+            "output_token_query": output_token.get("symbol"),
+            "input_token_id": input_token.get("id"),
+            "output_token_id": output_token.get("id"),
+            "input_token_symbol": input_token.get("symbol"),
+            "output_token_symbol": output_token.get("symbol"),
+            "input_token_name": input_token.get("name"),
+            "output_token_name": output_token.get("name"),
+            "input_token_address": input_token.get("address"),
+            "output_token_address": output_token.get("address"),
+            "input_token_chain": input_token.get("chain"),
+            "output_token_chain": output_token.get("chain"),
+            "input_token_decimals": input_token.get("decimals"),
+            "output_token_decimals": output_token.get("decimals"),
+            "input_is_native": self._houdini_token_is_native(input_token),
+            "output_is_native": self._houdini_token_is_native(output_token),
+            "input_amount_ui": float(amount_ui),
+            "estimated_output_amount_ui": float(Decimal(str(quote.get("amountOut") or "0"))),
+            "estimated_output_amount_usd": quote.get("amountOutUsd"),
+            "input_private_min_ui": min_private.get("min"),
+            "input_private_max_ui": min_private.get("max"),
+            "private_duration_minutes": quote.get("duration"),
+            "quote_id": quote.get("quoteId"),
+            "quote_type": quote.get("type"),
+            "rewards_available": quote.get("rewardsAvailable"),
+            "anonymous": True,
+            "use_xmr": bool(use_xmr),
+            "can_send": self.get_capabilities().can_send_transaction,
+            "sign_only": self.sign_only,
+            "source": "houdini",
+        }
+
+    async def _wait_for_houdini_order_ready(
+        self,
+        *,
+        multi_id: str,
+        houdini_id: str,
+        timeout_seconds: float = 20.0,
+        poll_interval_seconds: float = 2.0,
+    ) -> dict[str, Any]:
+        deadline = asyncio.get_running_loop().time() + timeout_seconds
+        last_order: dict[str, Any] | None = None
+        while True:
+            status_payload = await houdini.fetch_multi_status(multi_id=multi_id)
+            orders = status_payload.get("orders")
+            if isinstance(orders, list):
+                for candidate in orders:
+                    if (
+                        isinstance(candidate, dict)
+                        and str(candidate.get("houdiniId") or "").strip() == houdini_id
+                    ):
+                        last_order = candidate
+                        break
+            if last_order is None:
+                raise WalletBackendError("Houdini order disappeared before funding could start.")
+            if str(last_order.get("statusLabel") or "").strip().upper() != "INITIALIZING":
+                return last_order
+            if asyncio.get_running_loop().time() >= deadline:
+                raise WalletBackendError(
+                    "Houdini order stayed in INITIALIZING too long. Generate a new preview and try again."
+                )
+            await asyncio.sleep(poll_interval_seconds)
+
+    async def preview_solana_private_swap(
+        self,
+        *,
+        input_token: str,
+        output_token: str,
+        destination_address: str,
+        amount_ui: float,
+        use_xmr: bool = False,
+    ) -> dict[str, Any]:
+        if self.network != "mainnet":
+            raise WalletBackendError("Houdini private Solana swaps are only enabled for Solana mainnet.")
+        owner = await self.get_address()
+        if not owner:
+            raise WalletBackendError(
+                "No Solana wallet address configured. Set SOLANA_AGENT_PUBLIC_KEY or a signer."
+            )
+        if not isinstance(destination_address, str) or not destination_address.strip():
+            raise WalletBackendError("destination_address is required.")
+        destination_address = validate_solana_address(destination_address.strip())
+        if not isinstance(amount_ui, (int, float)) or amount_ui <= 0:
+            raise WalletBackendError("amount must be a positive number.")
+
+        amount_decimal = Decimal(str(amount_ui))
+        resolved_input = await houdini.resolve_cex_token(term=input_token, chain="solana")
+        resolved_output = await houdini.resolve_cex_token(term=output_token, chain="solana")
+        if str(resolved_input.get("id") or "") != str(resolved_output.get("id") or ""):
+            raise WalletBackendError(
+                "The initial Houdini Solana private route supports same-token private payouts only. "
+                "Use the same token for input and output, for example SOL->SOL or USDC->USDC."
+            )
+
+        private_quotes = await houdini.fetch_private_quotes(
+            from_token_id=str(resolved_input["id"]),
+            to_token_id=str(resolved_output["id"]),
+            amount_ui=amount_decimal,
+        )
+        best_quote = houdini.select_best_private_quote(private_quotes)
+        return self._normalize_houdini_private_preview_payload(
+            owner=owner,
+            input_token=resolved_input,
+            output_token=resolved_output,
+            destination_address=destination_address,
+            amount_ui=amount_decimal,
+            quote=best_quote,
+            use_xmr=use_xmr,
+        )
+
+    async def get_solana_private_swap_status(
+        self,
+        *,
+        multi_id: str,
+        houdini_id: str | None = None,
+    ) -> dict[str, Any]:
+        if self.network != "mainnet":
+            raise WalletBackendError("Houdini private Solana swaps are only enabled for Solana mainnet.")
+        if not isinstance(multi_id, str) or not multi_id.strip():
+            raise WalletBackendError("multi_id is required.")
+        payload = await houdini.fetch_multi_status(multi_id=multi_id.strip())
+        orders = payload.get("orders") if isinstance(payload.get("orders"), list) else []
+        selected_order = None
+        if isinstance(houdini_id, str) and houdini_id.strip():
+            for order in orders:
+                if isinstance(order, dict) and str(order.get("houdiniId") or "").strip() == houdini_id.strip():
+                    selected_order = order
+                    break
+            if selected_order is None:
+                raise WalletBackendError("houdini_id was not found inside the requested multi_id.")
+        elif len(orders) == 1 and isinstance(orders[0], dict):
+            selected_order = orders[0]
+
+        terminal_statuses = {"FINISHED", "FAILED", "EXPIRED", "REFUNDED"}
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "asset_type": "solana-private-swap",
+            "multi_id": payload.get("multiId") or multi_id.strip(),
+            "order_count": len([item for item in orders if isinstance(item, dict)]),
+            "orders": orders,
+            "selected_order": selected_order,
+            "selected_houdini_id": (
+                str(selected_order.get("houdiniId") or "").strip()
+                if isinstance(selected_order, dict)
+                else None
+            ),
+            "selected_status": (
+                str(selected_order.get("statusLabel") or "").strip()
+                if isinstance(selected_order, dict)
+                else None
+            ),
+            "all_terminal": all(
+                isinstance(item, dict)
+                and str(item.get("statusLabel") or "").strip().upper() in terminal_statuses
+                for item in orders
+            )
+            if orders
+            else False,
+            "source": "houdini",
+        }
+
+    async def execute_solana_private_swap(
+        self,
+        *,
+        input_token: str,
+        output_token: str,
+        destination_address: str,
+        amount_ui: float,
+        use_xmr: bool = False,
+        approved_preview: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if self.network != "mainnet":
+            raise WalletBackendError("Houdini private Solana swaps are only enabled for Solana mainnet.")
+        if not self.signer:
+            raise WalletBackendError("Solana signer is not configured.")
+        if self.sign_only:
+            raise WalletBackendError(
+                "This wallet backend is in sign-only mode. Disable sign_only to broadcast transactions."
+            )
+
+        preview = (
+            dict(approved_preview)
+            if isinstance(approved_preview, dict)
+            else await self.preview_solana_private_swap(
+                input_token=input_token,
+                output_token=output_token,
+                destination_address=destination_address,
+                amount_ui=amount_ui,
+                use_xmr=use_xmr,
+            )
+        )
+        owner = str(preview.get("owner") or await self.get_address() or "").strip()
+        if not owner:
+            raise WalletBackendError("No Solana wallet address configured for Houdini execution.")
+
+        create_payload = await houdini.create_multi_swap(
+            orders=[
+                {
+                    "from": preview["input_token_id"],
+                    "to": preview["output_token_id"],
+                    "amount": float(preview["input_amount_ui"]),
+                    "addressTo": str(preview["destination_address"]),
+                    "anonymous": True,
+                    **({"useXmr": True} if bool(preview.get("use_xmr")) else {}),
+                }
+            ]
+        )
+        orders = create_payload.get("orders") if isinstance(create_payload.get("orders"), list) else []
+        if len(orders) != 1 or not isinstance(orders[0], dict):
+            raise WalletBackendError("Houdini did not return the expected single-order multi-swap payload.")
+        if isinstance(orders[0].get("error"), dict):
+            error = orders[0]["error"]
+            raise WalletBackendError(
+                f"Houdini rejected the private swap request: {error.get('message') or 'unknown error'}.",
+                code=str(error.get("code") or "").strip() or None,
+                details=error,
+            )
+        order = orders[0].get("order")
+        if not isinstance(order, dict):
+            raise WalletBackendError("Houdini returned no order object for the private swap.")
+        multi_id = str(create_payload.get("multiId") or order.get("multiId") or "").strip()
+        houdini_id = str(order.get("houdiniId") or "").strip()
+        if not multi_id or not houdini_id:
+            raise WalletBackendError("Houdini private swap response is missing tracking identifiers.")
+
+        order = await self._wait_for_houdini_order_ready(
+            multi_id=multi_id,
+            houdini_id=houdini_id,
+        )
+        if str(order.get("receiverAddress") or "").strip() != str(preview["destination_address"]):
+            raise WalletBackendError("Houdini order receiverAddress does not match the approved destination.")
+        if not bool(order.get("anonymous")):
+            raise WalletBackendError("Houdini order is not marked anonymous as required.")
+        if str(order.get("inSymbol") or "").strip().upper() != str(preview["input_token_symbol"] or "").strip().upper():
+            raise WalletBackendError("Houdini order input token symbol does not match the approved token.")
+        if str(order.get("outSymbol") or "").strip().upper() != str(preview["output_token_symbol"] or "").strip().upper():
+            raise WalletBackendError("Houdini order output token symbol does not match the approved token.")
+        expected_output = Decimal(str(preview["estimated_output_amount_ui"]))
+        order_output = Decimal(str(order.get("outAmount") or "0"))
+        if order_output < expected_output:
+            raise WalletBackendError(
+                "Houdini order output fell below the approved preview. Generate a new preview and approval before execute.",
+                code="private_swap_quote_changed",
+                details={
+                    "approved_estimated_output_amount_ui": str(expected_output),
+                    "order_output_amount_ui": str(order_output),
+                    "multi_id": multi_id,
+                    "houdini_id": houdini_id,
+                },
+            )
+        input_decimals = int(preview.get("input_token_decimals") or (9 if bool(preview.get("input_is_native")) else 0))
+        input_amount_raw = int(
+            (Decimal(str(preview["input_amount_ui"])) * (Decimal(10) ** input_decimals))
+            .to_integral_value()
+        )
+
+        transaction_payload = await houdini.fetch_multi_solana_transactions(
+            multi_id=multi_id,
+            sender=owner,
+        )
+        batches = transaction_payload.get("transactions")
+        if not isinstance(batches, list) or not batches:
+            raise WalletBackendError("Houdini did not return any Solana funding transactions.")
+        selected_batch = None
+        for batch in batches:
+            if not isinstance(batch, dict):
+                continue
+            batch_ids = batch.get("houdiniIds")
+            if isinstance(batch_ids, list) and houdini_id in [str(value) for value in batch_ids]:
+                selected_batch = batch
+                break
+        if selected_batch is None:
+            raise WalletBackendError("Houdini Solana funding transaction did not include the expected order id.")
+        tx_data = selected_batch.get("txData") if isinstance(selected_batch.get("txData"), dict) else {}
+        transaction_base64 = str(tx_data.get("data") or "").strip()
+        if not transaction_base64:
+            raise WalletBackendError("Houdini Solana funding transaction is missing txData.data.")
+
+        try:
+            from solders.transaction import Transaction, VersionedTransaction
+        except ImportError as exc:
+            raise WalletBackendError(
+                "solana and solders packages are required for Houdini private swap execution."
+            ) from exc
+
+        raw_transaction = self._bags_decode_serialized_transaction_bytes(transaction_base64)
+        loaded_addresses: list[str] = []
+        try:
+            unsigned_transaction = VersionedTransaction.from_bytes(raw_transaction)
+            message = unsigned_transaction.message
+            loaded_addresses = await self._resolve_versioned_message_lookup_addresses(message)
+        except Exception:
+            unsigned_transaction = Transaction.from_bytes(raw_transaction)
+            message = unsigned_transaction.message
+
+        verification = verify_provider_houdini_transaction(
+            message,
+            wallet_address=owner,
+            deposit_address=str(order.get("depositAddress") or "").strip(),
+            amount_raw=input_amount_raw,
+            is_native_input=bool(preview.get("input_is_native")),
+            token_mint=(
+                None if bool(preview.get("input_is_native")) else str(preview.get("input_token_address") or "").strip()
+            ),
+            loaded_addresses=loaded_addresses,
+        )
+        signed_transaction_base64 = await self._sign_versioned_provider_transaction(
+            transaction_base64=transaction_base64,
+            wallet_signer_index=int(verification.get("wallet_signer_index") or 0),
+        )
+        try:
+            simulation = await solana_rpc.simulate_transaction(
+                transaction_base64=signed_transaction_base64,
+                rpc_url=self.rpc_urls,
+                commitment=self.commitment,
+            )
+            simulation_value = (
+                simulation.get("value") if isinstance(simulation.get("value"), dict) else {}
+            )
+            simulation_safety = verify_provider_houdini_simulation_result(
+                simulation_value,
+                wallet_address=owner,
+                wallet_account_index=int(verification.get("wallet_signer_index") or 0),
+                is_native_input=bool(preview.get("input_is_native")),
+                token_mint=(
+                    None
+                    if bool(preview.get("input_is_native"))
+                    else str(preview.get("input_token_address") or "").strip()
+                ),
+                amount_raw=int(verification["amount_raw"]),
+            )
+        except ProviderError as exc:
+            simulation_safety = {
+                "verified": False,
+                "simulation_unavailable": True,
+                "warning": (
+                    "Houdini funding transaction simulation could not be completed via the configured Solana RPC. "
+                    "Proceeding with structural verification."
+                ),
+                "error": str(exc),
+            }
+
+        submitted = await solana_rpc.send_transaction(
+            transaction_base64=signed_transaction_base64,
+            rpc_url=self.rpc_urls,
+        )
+        signature = str(submitted.get("signature") or "").strip() or None
+        status = None
+        confirmed = False
+        if signature:
+            status = await solana_rpc.wait_for_confirmation(
+                signature=signature,
+                rpc_url=self.rpc_urls,
+            )
+            confirmed = status is not None
+
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "mode": "execute",
+            "asset_type": "solana-private-swap",
+            "owner": owner,
+            "destination_address": str(preview["destination_address"]),
+            "input_token_id": preview["input_token_id"],
+            "output_token_id": preview["output_token_id"],
+            "input_token_symbol": preview["input_token_symbol"],
+            "output_token_symbol": preview["output_token_symbol"],
+            "input_token_address": preview["input_token_address"],
+            "output_token_address": preview["output_token_address"],
+            "input_is_native": bool(preview.get("input_is_native")),
+            "input_amount_ui": preview["input_amount_ui"],
+            "estimated_output_amount_ui": preview["estimated_output_amount_ui"],
+            "private_duration_minutes": order.get("eta") or preview.get("private_duration_minutes"),
+            "multi_id": multi_id,
+            "houdini_id": houdini_id,
+            "deposit_address": order.get("depositAddress"),
+            "order_status": order.get("statusLabel"),
+            "order": order,
+            "funding_batch_houdini_ids": selected_batch.get("houdiniIds"),
+            "signature": signature,
+            "broadcasted": bool(signature),
+            "confirmed": confirmed,
+            "confirmation_status": status.get("confirmationStatus") if status else None,
+            "slot": status.get("slot") if status else None,
+            "verification": verification,
+            "simulation": simulation_safety,
+            "execute_response": submitted,
+            "status_tracking": {
+                "multi_id": multi_id,
+                "houdini_id": houdini_id,
+                "poll_status_tool": "get_solana_private_swap_status",
+            },
+            "source": "houdini",
         }
 
     async def preview_solana_lifi_cross_chain_swap(
@@ -2250,28 +2678,40 @@ class SolanaWalletBackend(AgentWalletBackend):
         try:
             from solders.keypair import Keypair
             from solders.message import to_bytes_versioned
-            from solders.transaction import VersionedTransaction
+            from solders.transaction import Transaction, VersionedTransaction
         except ImportError as exc:
             raise WalletBackendError(
                 "solana and solders packages are required for provider transaction signing."
             ) from exc
 
-        unsigned_transaction = VersionedTransaction.from_bytes(
-            self._bags_decode_serialized_transaction_bytes(transaction_base64)
-        )
+        raw_transaction = self._bags_decode_serialized_transaction_bytes(transaction_base64)
         keypair = Keypair.from_bytes(self.signer.export_keypair_bytes())
-        signature = keypair.sign_message(to_bytes_versioned(unsigned_transaction.message))
-        signatures = list(unsigned_transaction.signatures)
-        if wallet_signer_index >= len(signatures):
-            raise WalletBackendError(
-                "Provider transaction signer layout is incompatible with local signing."
+        try:
+            unsigned_transaction = VersionedTransaction.from_bytes(raw_transaction)
+            signature = keypair.sign_message(to_bytes_versioned(unsigned_transaction.message))
+            signatures = list(unsigned_transaction.signatures)
+            if wallet_signer_index >= len(signatures):
+                raise WalletBackendError(
+                    "Provider transaction signer layout is incompatible with local signing."
+                )
+            signatures[wallet_signer_index] = signature
+            signed_transaction = VersionedTransaction.populate(
+                unsigned_transaction.message,
+                signatures,
             )
-        signatures[wallet_signer_index] = signature
-        signed_transaction = VersionedTransaction.populate(
-            unsigned_transaction.message,
-            signatures,
-        )
-        return encode_transaction_base64(bytes(signed_transaction))
+            return encode_transaction_base64(bytes(signed_transaction))
+        except Exception:
+            unsigned_transaction = Transaction.from_bytes(raw_transaction)
+            signatures = list(unsigned_transaction.signatures)
+            if wallet_signer_index >= len(signatures):
+                raise WalletBackendError(
+                    "Provider transaction signer layout is incompatible with local signing."
+                )
+            unsigned_transaction.partial_sign(
+                [keypair],
+                unsigned_transaction.message.recent_blockhash,
+            )
+            return encode_transaction_base64(bytes(unsigned_transaction))
 
     async def _prepare_jupiter_lend_transaction(
         self,

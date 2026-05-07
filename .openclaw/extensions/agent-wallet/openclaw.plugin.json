@@ -171,6 +171,36 @@
           "sensitive": true
         }
       },
+      "houdiniBaseUrl": {
+        "type": "string",
+        "description": "Optional Houdini Partner API base URL for private Solana payouts."
+      },
+      "houdiniApiKey": {
+        "type": "string",
+        "description": "Optional Houdini Partner API key.",
+        "uiHints": {
+          "sensitive": true
+        }
+      },
+      "houdiniApiSecret": {
+        "type": "string",
+        "description": "Optional Houdini Partner API secret.",
+        "uiHints": {
+          "sensitive": true
+        }
+      },
+      "houdiniUserIp": {
+        "type": "string",
+        "description": "Required Houdini compliance header: end-user IP address."
+      },
+      "houdiniUserAgent": {
+        "type": "string",
+        "description": "Required Houdini compliance header: end-user agent string."
+      },
+      "houdiniUserTimezone": {
+        "type": "string",
+        "description": "Required Houdini compliance header: end-user timezone, for example Europe/Moscow."
+      },
       "kaminoBaseUrl": {
         "type": "string",
         "description": "Optional Kamino REST API base URL."

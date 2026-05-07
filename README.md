@@ -193,6 +193,16 @@ For Solana specifically, install alone does not make signed transactions availab
 - read-only mode: `SOLANA_AGENT_PUBLIC_KEY`
 - signing mode: a sealed `private_key` or `SOLANA_AGENT_KEYPAIR_PATH`
 
+Optional private Solana payout routing is also available through Houdini. To enable it, add the Houdini partner credentials to the wallet runtime:
+
+- `HOUDINI_API_KEY`
+- `HOUDINI_API_SECRET`
+- `HOUDINI_USER_IP`
+
+The first supported flow is intentionally narrow: same-token private Solana payouts (`SOL->SOL` and `USDC->USDC`) through the existing preview/prepare/execute safety model. The runtime creates the Houdini order server-side, fetches the prebuilt Solana funding transaction, verifies it locally, signs it with the local wallet, and then broadcasts it.
+
+For production, prefer placing the Houdini partner secrets on `provider-gateway` and exposing only the authenticated Houdini relay endpoints to `agent-wallet`. That keeps `HOUDINI_API_KEY` and `HOUDINI_API_SECRET` out of end-user runtimes while preserving local signing.
+
 ## BTC setup
 
 The BTC path already has a one-command host bootstrap wrapper:

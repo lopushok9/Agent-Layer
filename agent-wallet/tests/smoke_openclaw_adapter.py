@@ -851,6 +851,127 @@ class FakeBackend(AgentWalletBackend):
             "source": "fake",
         }
 
+    async def preview_solana_private_swap(
+        self,
+        *,
+        input_token: str,
+        output_token: str,
+        destination_address: str,
+        amount_ui: float,
+        use_xmr: bool = False,
+    ) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "preview",
+            "asset_type": "solana-private-swap",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "destination_address": destination_address,
+            "input_token_id": "houdini-sol-token",
+            "output_token_id": "houdini-sol-token",
+            "input_token_symbol": "SOL",
+            "output_token_symbol": "SOL",
+            "input_token_name": "Solana",
+            "output_token_name": "Solana",
+            "input_token_address": "11111111111111111111111111111111",
+            "output_token_address": "11111111111111111111111111111111",
+            "input_token_chain": "solana",
+            "output_token_chain": "solana",
+            "input_token_decimals": 9,
+            "output_token_decimals": 9,
+            "input_is_native": True,
+            "output_is_native": True,
+            "input_amount_ui": amount_ui,
+            "estimated_output_amount_ui": amount_ui * 0.985,
+            "estimated_output_amount_usd": "19.70",
+            "input_private_min_ui": 0.01,
+            "input_private_max_ui": 100.0,
+            "private_duration_minutes": 28,
+            "quote_id": "houdini-private-quote-1",
+            "quote_type": "private",
+            "rewards_available": False,
+            "anonymous": True,
+            "use_xmr": use_xmr,
+            "can_send": True,
+            "sign_only": False,
+            "source": "houdini",
+        }
+
+    async def execute_solana_private_swap(
+        self,
+        *,
+        input_token: str,
+        output_token: str,
+        destination_address: str,
+        amount_ui: float,
+        use_xmr: bool = False,
+        approved_preview: dict | None = None,
+    ) -> dict:
+        preview = approved_preview or await self.preview_solana_private_swap(
+            input_token=input_token,
+            output_token=output_token,
+            destination_address=destination_address,
+            amount_ui=amount_ui,
+            use_xmr=use_xmr,
+        )
+        return {
+            **preview,
+            "mode": "execute",
+            "multi_id": "multi_fake_private_1",
+            "houdini_id": "houdini_private_1",
+            "deposit_address": "HoudiniDeposit1111111111111111111111111111111",
+            "order_status": "CONFIRMING",
+            "order": {
+                "multiId": "multi_fake_private_1",
+                "houdiniId": "houdini_private_1",
+                "statusLabel": "CONFIRMING",
+                "receiverAddress": destination_address,
+                "anonymous": True,
+                "depositAddress": "HoudiniDeposit1111111111111111111111111111111",
+            },
+            "funding_batch_houdini_ids": ["houdini_private_1"],
+            "signature": "HoudiniSolSig1111111111111111111111111111111111",
+            "broadcasted": True,
+            "confirmed": True,
+            "confirmation_status": "confirmed",
+            "slot": 4567,
+            "verification": {"verified": True},
+            "simulation": {"verified": True},
+            "execute_response": {"signature": "HoudiniSolSig1111111111111111111111111111111111"},
+            "status_tracking": {
+                "multi_id": "multi_fake_private_1",
+                "houdini_id": "houdini_private_1",
+                "poll_status_tool": "get_solana_private_swap_status",
+            },
+            "source": "houdini",
+        }
+
+    async def get_solana_private_swap_status(
+        self,
+        *,
+        multi_id: str,
+        houdini_id: str | None = None,
+    ) -> dict:
+        selected_order = {
+            "multiId": multi_id,
+            "houdiniId": houdini_id or "houdini_private_1",
+            "statusLabel": "ANONYMIZING",
+            "receiverAddress": "FakeRecipient1111111111111111111111111111111111",
+        }
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "asset_type": "solana-private-swap",
+            "multi_id": multi_id,
+            "order_count": 1,
+            "orders": [selected_order],
+            "selected_order": selected_order,
+            "selected_houdini_id": selected_order["houdiniId"],
+            "selected_status": selected_order["statusLabel"],
+            "all_terminal": False,
+            "source": "houdini",
+        }
+
     async def preview_bags_fee_claim(self, token_mint: str) -> dict:
         return {
             "chain": "solana",
@@ -1684,14 +1805,16 @@ async def main() -> None:
     tool_names = {tool.name for tool in adapter.list_tools()}
     bundle_tool_names = {tool["name"] for tool in bundle["tools"]}
 
-    assert len(tool_names) == 37
+    assert len(tool_names) == 39
     assert bundle["manifest"]["id"] == "agent-wallet"
-    assert len(bundle_tool_names) == 37
+    assert len(bundle_tool_names) == 39
     assert "Wallet Operator" in bundle["instructions"]
     assert "get_lifi_supported_chains" in tool_names
     assert "get_lifi_quote" in tool_names
     assert "get_lifi_transfer_status" in tool_names
     assert "swap_solana_lifi_cross_chain_tokens" in tool_names
+    assert "swap_solana_privately" in tool_names
+    assert "get_solana_private_swap_status" in tool_names
     assert "get_jupiter_portfolio" not in tool_names
     assert "get_jupiter_earn_tokens" in tool_names
     assert "jupiter_earn_deposit" in tool_names
@@ -1708,6 +1831,7 @@ async def main() -> None:
     assert "kamino_lend_deposit" in bundle_tool_names
     assert "claim_bags_fees" in bundle_tool_names
     assert "launch_bags_token" in bundle_tool_names
+    assert "swap_solana_privately" in bundle_tool_names
 
     capabilities = await adapter.invoke("get_wallet_capabilities")
     assert capabilities.ok and capabilities.data["backend"] == "fake_wallet"
@@ -2084,6 +2208,69 @@ async def main() -> None:
         },
     )
     assert executed_swap.ok and executed_swap.data["confirmed"] is True
+
+    private_swap_preview = await mainnet_adapter.invoke(
+        "swap_solana_privately",
+        {
+            "input_token": "SOL",
+            "output_token": "SOL",
+            "destination_address": "FakeRecipient1111111111111111111111111111111111",
+            "amount": 0.1,
+            "use_xmr": True,
+            "mode": "preview",
+            "purpose": "test private swap preview",
+        },
+    )
+    assert private_swap_preview.ok
+    assert private_swap_preview.data["asset_type"] == "solana-private-swap"
+    assert private_swap_preview.data["confirmation_summary"]["use_xmr"] is True
+
+    private_swap_prepare = await mainnet_adapter.invoke(
+        "swap_solana_privately",
+        {
+            "input_token": "SOL",
+            "output_token": "SOL",
+            "destination_address": "FakeRecipient1111111111111111111111111111111111",
+            "amount": 0.1,
+            "use_xmr": True,
+            "mode": "prepare",
+            "purpose": "test private swap prepare",
+            "user_intent": True,
+        },
+    )
+    assert private_swap_prepare.ok and private_swap_prepare.data["execution_plan_only"] is True
+
+    private_swap_execute = await mainnet_adapter.invoke(
+        "swap_solana_privately",
+        {
+            "input_token": "SOL",
+            "output_token": "SOL",
+            "destination_address": "FakeRecipient1111111111111111111111111111111111",
+            "amount": 0.1,
+            "use_xmr": True,
+            "mode": "execute",
+            "purpose": "test private swap execute",
+            "approval_token": _issue_execute_approval(
+                tool_name="swap_solana_privately",
+                preview=private_swap_preview.data,
+                network="mainnet",
+                mainnet_confirmed=True,
+                bind_preview_digest=True,
+            ),
+            "_approved_preview": private_swap_preview.data,
+        },
+    )
+    assert private_swap_execute.ok and private_swap_execute.data["confirmed"] is True
+    assert private_swap_execute.data["status_tracking"]["poll_status_tool"] == (
+        "get_solana_private_swap_status"
+    )
+
+    private_swap_status = await mainnet_adapter.invoke(
+        "get_solana_private_swap_status",
+        {"multi_id": "multi_fake_private_1", "houdini_id": "houdini_private_1"},
+    )
+    assert private_swap_status.ok
+    assert private_swap_status.data["selected_status"] == "ANONYMIZING"
 
     lifi_cross_chain_preview = await mainnet_adapter.invoke(
         "swap_solana_lifi_cross_chain_tokens",

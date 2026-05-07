@@ -143,6 +143,58 @@ def _jupiter_headers() -> dict[str, str]:
         raise RuntimeError("JUPITER_API_KEY is not configured")
     return {"x-api-key": api_key}
 
+
+def _houdini_base_url() -> str:
+    return _trim(os.getenv("HOUDINI_API_BASE_URL")) or "https://api-partner.houdiniswap.com/v2"
+
+
+def _houdini_configured() -> bool:
+    return bool(_trim(os.getenv("HOUDINI_API_KEY")) and _trim(os.getenv("HOUDINI_API_SECRET")))
+
+
+def _extract_request_ip(request: Request) -> str:
+    for header_name in ("cf-connecting-ip", "x-real-ip", "x-forwarded-for"):
+        raw = request.headers.get(header_name, "").strip()
+        if not raw:
+            continue
+        if header_name == "x-forwarded-for":
+            return raw.split(",")[0].strip()
+        return raw
+    client = request.client
+    if client and getattr(client, "host", ""):
+        return str(client.host).strip()
+    return ""
+
+
+def _houdini_headers(request: Request) -> dict[str, str]:
+    api_key = _trim(os.getenv("HOUDINI_API_KEY"))
+    api_secret = _trim(os.getenv("HOUDINI_API_SECRET"))
+    if not api_key or not api_secret:
+        raise RuntimeError("HOUDINI_API_KEY and HOUDINI_API_SECRET are required")
+
+    user_ip = _extract_request_ip(request)
+    if not user_ip:
+        raise RuntimeError("Could not determine user IP for Houdini compliance headers")
+
+    user_agent = (
+        request.headers.get("x-user-agent", "").strip()
+        or request.headers.get("user-agent", "").strip()
+        or _trim(os.getenv("HOUDINI_USER_AGENT"))
+        or "AgentLayer/provider-gateway"
+    )
+    user_timezone = (
+        request.headers.get("x-user-timezone", "").strip()
+        or _trim(os.getenv("HOUDINI_USER_TIMEZONE"))
+        or "UTC"
+    )
+    return {
+        "Accept": "application/json",
+        "Authorization": f"{api_key}:{api_secret}",
+        "x-user-ip": user_ip,
+        "x-user-agent": user_agent,
+        "x-user-timezone": user_timezone,
+    }
+
 def _jupiter_swap_base_url() -> str:
     return _trim(os.getenv("JUPITER_SWAP_API_BASE_URL")) or "https://lite-api.jup.ag/swap/v1"
 
@@ -292,6 +344,14 @@ def _status_payload() -> dict[str, Any]:
             "earn_earnings": True,
             "earn_deposit": True,
             "earn_withdraw": True,
+        },
+        "houdini_configured": _houdini_configured(),
+        "houdini_features": {
+            "tokens": True,
+            "private_quotes": True,
+            "multi_create": True,
+            "multi_status": True,
+            "multi_tx": True,
         },
         "jupiter_swap_configured": _jupiter_swap_configured(),
         "jupiter_swap_features": {
@@ -1036,6 +1096,128 @@ async def jupiter_swap_swap(request: Request) -> JSONResponse:
     return JSONResponse(payload, status_code=status_code)
 
 
+async def houdini_tokens(request: Request) -> JSONResponse:
+    auth_error = _require_bearer(request)
+    if auth_error:
+        return _json_error(auth_error, 401)
+
+    try:
+        params: dict[str, Any] = {"chain": _require_query(request, "chain")}
+        params.update(_copy_optional_query(request, ["hasCex", "page", "pageSize"]))
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+
+    try:
+        status_code, payload = await _http_get(
+            f"{_houdini_base_url()}/tokens",
+            headers=_houdini_headers(request),
+            params=params,
+        )
+    except (RuntimeError, httpx.HTTPError) as exc:
+        return _json_error(f"Houdini tokens error: {exc}", 502)
+
+    return JSONResponse(payload, status_code=status_code)
+
+
+async def houdini_private_quotes(request: Request) -> JSONResponse:
+    auth_error = _require_bearer(request)
+    if auth_error:
+        return _json_error(auth_error, 401)
+
+    try:
+        params = {
+            "from": _require_query(request, "from"),
+            "to": _require_query(request, "to"),
+            "amount": _require_query(request, "amount"),
+            "types": "private",
+        }
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+
+    try:
+        status_code, payload = await _http_get(
+            f"{_houdini_base_url()}/quotes",
+            headers=_houdini_headers(request),
+            params=params,
+        )
+    except (RuntimeError, httpx.HTTPError) as exc:
+        return _json_error(f"Houdini quotes error: {exc}", 502)
+
+    return JSONResponse(payload, status_code=status_code)
+
+
+async def houdini_multi_create(request: Request) -> JSONResponse:
+    auth_error = _require_bearer(request)
+    if auth_error:
+        return _json_error(auth_error, 401)
+
+    try:
+        body = _require_body_dict(await request.json())
+        orders = body.get("orders")
+        if not isinstance(orders, list) or not orders:
+            return _json_error("Field 'orders' is required and must be a non-empty array", 400)
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except Exception:
+        return _json_error("Invalid JSON body", 400)
+
+    try:
+        status_code, payload = await _http_post(
+            f"{_houdini_base_url()}/exchanges/multi",
+            headers={**_houdini_headers(request), "Content-Type": "application/json"},
+            json_body=body,
+        )
+    except (RuntimeError, httpx.HTTPError) as exc:
+        return _json_error(f"Houdini multi create error: {exc}", 502)
+
+    return JSONResponse(payload, status_code=status_code)
+
+
+async def houdini_multi_status(request: Request) -> JSONResponse:
+    auth_error = _require_bearer(request)
+    if auth_error:
+        return _json_error(auth_error, 401)
+
+    multi_id = str(request.path_params.get("multi_id", "")).strip()
+    if not multi_id:
+        return _json_error("multi_id is required", 400)
+
+    try:
+        status_code, payload = await _http_get(
+            f"{_houdini_base_url()}/exchanges/multi/{multi_id}",
+            headers=_houdini_headers(request),
+        )
+    except (RuntimeError, httpx.HTTPError) as exc:
+        return _json_error(f"Houdini multi status error: {exc}", 502)
+
+    return JSONResponse(payload, status_code=status_code)
+
+
+async def houdini_multi_tx(request: Request) -> JSONResponse:
+    auth_error = _require_bearer(request)
+    if auth_error:
+        return _json_error(auth_error, 401)
+
+    multi_id = str(request.path_params.get("multi_id", "")).strip()
+    if not multi_id:
+        return _json_error("multi_id is required", 400)
+    try:
+        params = {"sender": _require_query(request, "sender")}
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+
+    try:
+        status_code, payload = await _http_get(
+            f"{_houdini_base_url()}/exchanges/multi/{multi_id}/tx",
+            headers=_houdini_headers(request),
+            params=params,
+        )
+    except (RuntimeError, httpx.HTTPError) as exc:
+        return _json_error(f"Houdini multi tx error: {exc}", 502)
+
+    return JSONResponse(payload, status_code=status_code)
+
+
 routes = [
     Route("/health", health, methods=["GET"]),
     Route("/v1/status", status, methods=["GET"]),
@@ -1058,6 +1240,11 @@ routes = [
     Route("/v1/jupiter/earn/withdraw", jupiter_earn_withdraw, methods=["POST"]),
     Route("/v1/jupiter/swap/quote", jupiter_swap_quote, methods=["GET"]),
     Route("/v1/jupiter/swap/swap", jupiter_swap_swap, methods=["POST"]),
+    Route("/v1/houdini/tokens", houdini_tokens, methods=["GET"]),
+    Route("/v1/houdini/quotes/private", houdini_private_quotes, methods=["GET"]),
+    Route("/v1/houdini/exchanges/multi", houdini_multi_create, methods=["POST"]),
+    Route("/v1/houdini/exchanges/multi/{multi_id:str}", houdini_multi_status, methods=["GET"]),
+    Route("/v1/houdini/exchanges/multi/{multi_id:str}/tx", houdini_multi_tx, methods=["GET"]),
 ]
 
 app = Starlette(debug=False, routes=routes)

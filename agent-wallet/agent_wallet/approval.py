@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import base64
+import functools
 import hashlib
 import hmac
 import json
+import secrets
 import time
 from typing import Any
 
@@ -33,6 +35,7 @@ def _sign_payload(payload: dict[str, Any], secret: str) -> str:
     return _urlsafe_b64(digest)
 
 
+@functools.lru_cache(maxsize=1)
 def _approval_secret() -> str:
     secret = resolve_approval_secret().strip()
     if not secret:
@@ -70,6 +73,7 @@ def issue_approval_token(
         "v": APPROVAL_TOKEN_VERSION,
         "iat": now,
         "exp": now + ttl,
+        "jti": secrets.token_urlsafe(16),
         "issued_by": issued_by,
         "binding": build_operation_binding(tool_name=tool_name, network=network, summary=summary),
         "mainnet_confirmed": bool(mainnet_confirmed),

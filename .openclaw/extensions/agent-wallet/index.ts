@@ -760,6 +760,41 @@ const solanaToolDefinitions = [
     },
   },
   {
+    name: "swap_solana_privately",
+    description: "Preview, prepare, or execute a Solana private payout through Houdini's anonymous routing. The initial implementation supports same-token private payouts only, such as SOL->SOL or USDC->USDC. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    optional: true,
+    parameters: {
+      type: "object",
+      properties: {
+        input_token: { type: "string" },
+        output_token: { type: "string" },
+        destination_address: { type: "string" },
+        amount: { type: "number" },
+        use_xmr: { type: "boolean" },
+        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
+        purpose: { type: "string" },
+        user_intent: { type: "boolean" },
+        approval_token: { type: "string" },
+      },
+      required: ["input_token", "output_token", "destination_address", "amount", "mode", "purpose"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_solana_private_swap_status",
+    description: "Check Houdini status for a Solana private payout created by swap_solana_privately.",
+    optional: true,
+    parameters: {
+      type: "object",
+      properties: {
+        multi_id: { type: "string" },
+        houdini_id: { type: "string" },
+      },
+      required: ["multi_id"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "swap_solana_lifi_cross_chain_tokens",
     description: "Preview, prepare, or execute a Solana-origin cross-chain swap through LI.FI. This currently supports Solana as the source chain and ethereum/base as the destination chain. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
     optional: true,
