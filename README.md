@@ -1,6 +1,10 @@
 ![AgentLayer](logo+name.png)
 # AgentLayer
 
+[![npm version](https://img.shields.io/npm/v/%40agentlayer.tech%2Fwallet)](https://www.npmjs.com/package/@agentlayer.tech/wallet)
+[![npm downloads](https://img.shields.io/npm/dm/%40agentlayer.tech%2Fwallet)](https://www.npmjs.com/package/@agentlayer.tech/wallet)
+[![license](https://img.shields.io/github/license/lopushok9/Agent-Layer)](https://github.com/lopushok9/Agent-Layer/blob/main/LICENSE)
+
 ```bash
 npx @agentlayer.tech/wallet install --yes
 ```
