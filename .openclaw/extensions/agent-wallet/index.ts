@@ -183,9 +183,21 @@ function networkForBackend(api, backend) {
     return selectedEvmNetwork || defaultSelectableEvmNetwork(api) || "ethereum";
   }
   if (backend === "wdk_btc_local") {
-    return selectedBtcNetwork || defaultBtcNetwork(api);
+    try {
+      return selectedBtcNetwork || defaultBtcNetwork(api);
+    } catch {
+      return "bitcoin";
+    }
   }
-  return selectedSolanaNetwork || normalizeSolanaNetwork(config.network || process.env.SOLANA_NETWORK) || "mainnet";
+  try {
+    return (
+      selectedSolanaNetwork ||
+      normalizeSolanaNetwork(config.network || process.env.SOLANA_NETWORK) ||
+      "mainnet"
+    );
+  } catch {
+    return "mainnet";
+  }
 }
 
 function effectiveConfigForBackend(api, backend) {

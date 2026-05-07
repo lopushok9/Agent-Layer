@@ -15,6 +15,7 @@ from typing import Any
 
 SECRET_CONFIG_KEYS = {"privateKey", "masterKey", "approvalSecret"}
 BACKENDS = ("solana_local", "wdk_btc_local", "wdk_evm_local")
+PREVIEW_BOUND_SWAP_TOOLS = {"swap_solana_tokens", "swap_solana_privately"}
 
 
 def _json(data: dict[str, Any]) -> str:
@@ -75,12 +76,12 @@ def _prune_preview_cache(cache: dict[str, Any]) -> dict[str, Any]:
 
 
 def _cache_swap_preview(tool_name: str, result: dict[str, Any], ttl_seconds: int = 900) -> None:
-    if tool_name != "swap_solana_tokens" or result.get("ok") is not True:
+    if tool_name not in PREVIEW_BOUND_SWAP_TOOLS or result.get("ok") is not True:
         return
     preview = result.get("data")
     if not isinstance(preview, dict):
         return
-    if preview.get("mode") != "preview" or preview.get("asset_type") != "swap":
+    if preview.get("mode") != "preview" or preview.get("asset_type") not in {"swap", "solana-private-swap"}:
         return
     summary = preview.get("confirmation_summary")
     if not isinstance(summary, dict):
@@ -192,6 +193,85 @@ def _user_id(args: dict[str, Any]) -> str:
     return str(value).strip() or "hermes-local-user"
 
 
+def _normalize_backend(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    aliases = {
+        "sol": "solana_local",
+        "solana": "solana_local",
+        "solana_local": "solana_local",
+        "solana-local": "solana_local",
+        "evm": "wdk_evm_local",
+        "ethereum": "wdk_evm_local",
+        "eth": "wdk_evm_local",
+        "base": "wdk_evm_local",
+        "wdk_evm_local": "wdk_evm_local",
+        "wdk-evm-local": "wdk_evm_local",
+        "btc": "wdk_btc_local",
+        "bitcoin": "wdk_btc_local",
+        "wdk_btc_local": "wdk_btc_local",
+        "wdk-btc-local": "wdk_btc_local",
+    }
+    backend = aliases.get(normalized, normalized)
+    if backend not in BACKENDS:
+        raise RuntimeError(
+            "Wallet backend must be one of solana_local, wdk_btc_local, or wdk_evm_local."
+        )
+    return backend
+
+
+def _infer_backend_for_tool(tool_name: str) -> str | None:
+    if (
+        tool_name.startswith("get_evm_")
+        or tool_name.startswith("manage_evm_")
+        or tool_name.startswith("swap_evm_")
+        or tool_name.startswith("transfer_evm_")
+        or tool_name == "agent_wallet_evm_status"
+        or tool_name == "agent_wallet_evm_setup"
+    ):
+        return "wdk_evm_local"
+    if tool_name.startswith("get_btc_") or tool_name == "transfer_btc":
+        return "wdk_btc_local"
+    if (
+        "solana" in tool_name
+        or "jupiter" in tool_name
+        or "kamino" in tool_name
+        or "bags" in tool_name
+        or tool_name in {"transfer_sol", "transfer_spl_token", "sign_wallet_message", "close_empty_token_accounts", "request_devnet_airdrop", "get_wallet_portfolio", "get_solana_token_prices"}
+    ):
+        return "solana_local"
+    return None
+
+
+def _normalize_network_for_backend(backend: str, raw_network: Any) -> str:
+    network = str(raw_network or "").strip().lower()
+    if backend == "wdk_evm_local":
+        aliases = {
+            "mainnet": "ethereum",
+            "eth": "ethereum",
+            "eth-mainnet": "ethereum",
+            "base-mainnet": "base",
+        }
+        normalized = aliases.get(network, network)
+        return normalized if normalized in {"ethereum", "base"} else "ethereum"
+    if backend == "wdk_btc_local":
+        aliases = {
+            "btc": "bitcoin",
+            "bitcoin_mainnet": "bitcoin",
+            "bitcoin-mainnet": "bitcoin",
+            "mainnet": "bitcoin",
+        }
+        normalized = aliases.get(network, network)
+        return normalized if normalized in {"bitcoin", "testnet", "regtest"} else "bitcoin"
+    aliases = {
+        "solana": "mainnet",
+        "solana-mainnet": "mainnet",
+        "mainnet_beta": "mainnet",
+        "mainnet-beta": "mainnet",
+    }
+    normalized = aliases.get(network, network)
+    return normalized if normalized in {"mainnet", "devnet", "testnet"} else "mainnet"
+
+
 def _reject_secret_config(config: dict[str, Any]) -> None:
     present = sorted(key for key in SECRET_CONFIG_KEYS if str(config.get(key) or "").strip())
     if present:
@@ -202,16 +282,20 @@ def _reject_secret_config(config: dict[str, Any]) -> None:
         )
 
 
-def _base_config(args: dict[str, Any]) -> dict[str, Any]:
+def _base_config(args: dict[str, Any], *, tool_name: str | None = None) -> dict[str, Any]:
     raw = args.get("config") or {}
     if not isinstance(raw, dict):
         raise RuntimeError("config must be a JSON object when provided.")
     config = dict(raw)
     backend = args.get("backend") or os.getenv("AGENT_WALLET_BACKEND")
-    network = args.get("network") or os.getenv("AGENT_WALLET_NETWORK")
+    if not backend and tool_name:
+        backend = _infer_backend_for_tool(tool_name)
     if backend:
-        config["backend"] = str(backend).strip()
-    if network:
+        config["backend"] = _normalize_backend(backend)
+    network = args.get("network") or os.getenv("AGENT_WALLET_NETWORK") or config.get("network")
+    if backend:
+        config["network"] = _normalize_network_for_backend(config["backend"], network)
+    elif network:
         config["network"] = str(network).strip()
     _reject_secret_config(config)
     return config
@@ -235,15 +319,15 @@ def _cli_env(package_root: Path) -> dict[str, str]:
 
 def _call_wallet_cli(args: dict[str, Any]) -> dict[str, Any]:
     package_root = _resolve_package_root()
-    config = _base_config(args)
     tool_name = str(args.get("tool_name") or "").strip()
     if not tool_name:
         raise RuntimeError("tool_name is required.")
+    config = _base_config(args, tool_name=tool_name)
 
     tool_args = args.get("arguments") or {}
     if not isinstance(tool_args, dict):
         raise RuntimeError("arguments must be a JSON object when provided.")
-    if tool_name == "swap_solana_tokens" and str(tool_args.get("mode") or "") == "execute":
+    if tool_name in PREVIEW_BOUND_SWAP_TOOLS and str(tool_args.get("mode") or "") == "execute":
         approval_token = str(tool_args.get("approval_token") or "").strip()
         cached_preview = _lookup_preview_for_token(approval_token)
         if cached_preview is not None and "_approved_preview" not in tool_args:
@@ -321,10 +405,10 @@ def _call_issue_approval(args: dict[str, Any]) -> dict[str, Any]:
             "user_confirmed=true is required after explicit user approval of the exact confirmation_summary."
         )
     package_root = _resolve_package_root()
-    config = _base_config(args)
     tool_name = str(args.get("tool_name") or "").strip()
     if not tool_name:
         raise RuntimeError("tool_name is required.")
+    config = _base_config(args, tool_name=tool_name)
 
     summary = args.get("confirmation_summary")
     if not isinstance(summary, dict) or not summary:
