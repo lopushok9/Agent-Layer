@@ -30,20 +30,60 @@ def _default_config_path() -> Path:
     return Path(os.path.expanduser("~/.openclaw/openclaw.json"))
 
 
+def _resolve_openclaw_home() -> Path:
+    return Path(os.path.expanduser(os.getenv("OPENCLAW_HOME", "~/.openclaw")))
+
+
+def _default_runtime_root() -> Path:
+    explicit_target = os.getenv("OPENCLAW_INSTALL_TARGET", "").strip()
+    if explicit_target:
+        return Path(explicit_target).expanduser()
+    explicit_root = os.getenv("OPENCLAW_INSTALL_ROOT", "").strip()
+    if explicit_root:
+        return Path(explicit_root).expanduser() / "current"
+    return _resolve_openclaw_home() / "agent-wallet-runtime" / "current"
+
+
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def _trusted_runtime_root() -> Path | None:
+    runtime_root = _default_runtime_root().resolve()
+    plugin_manifest = runtime_root / ".openclaw" / "extensions" / "agent-wallet" / "openclaw.plugin.json"
+    package_root = runtime_root / "agent-wallet"
+    if plugin_manifest.exists() and package_root.exists():
+        return runtime_root
+    return None
+
+
 def _default_extension_path() -> Path:
+    runtime_root = _trusted_runtime_root()
+    if runtime_root is not None:
+        return runtime_root / ".openclaw" / "extensions" / "agent-wallet"
     return _repo_root() / ".openclaw" / "extensions" / "agent-wallet"
 
 
 def _default_package_root() -> Path:
+    runtime_root = _trusted_runtime_root()
+    if runtime_root is not None:
+        return runtime_root / "agent-wallet"
     return Path(__file__).resolve().parents[1]
 
 
 def _default_python_bin() -> str:
-    return os.getenv("OPENCLAW_AGENT_WALLET_PYTHON", sys.executable)
+    explicit = os.getenv("OPENCLAW_AGENT_WALLET_PYTHON", "").strip()
+    if explicit:
+        return explicit
+    runtime_root = _trusted_runtime_root()
+    if runtime_root is not None:
+        wrapper = runtime_root / "agent-wallet" / ".runtime-venv" / "bin" / "openclaw-agent-wallet-python"
+        if wrapper.exists():
+            return str(wrapper)
+        runtime_python = runtime_root / "agent-wallet" / ".runtime-venv" / "bin" / "python"
+        if runtime_python.exists():
+            return str(runtime_python)
+    return sys.executable
 
 
 def _default_user_id() -> str:

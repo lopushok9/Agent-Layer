@@ -562,6 +562,7 @@ Public-safe helper scripts are available in `agent-wallet/scripts/`:
 - `finalize_openclaw_local_wallet_config.py`
 
 Both scripts now use generic defaults instead of hardcoded local usernames or paths. Sensitive secrets must be supplied via protected environment variables, not config JSON or CLI arguments.
+When `~/.openclaw/agent-wallet-runtime/current` exists, the config installer now prefers that trusted runtime path over a workspace checkout for the plugin manifest, package root, and Python bridge launcher.
 
 Recommended devnet setup:
 

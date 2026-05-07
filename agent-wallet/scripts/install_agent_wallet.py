@@ -288,6 +288,22 @@ def _venv_python(venv_path: Path) -> Path:
     return venv_path / "bin" / "python"
 
 
+def _venv_python_wrapper(venv_path: Path) -> Path:
+    if os.name == "nt":
+        return _venv_python(venv_path)
+    return venv_path / "bin" / "openclaw-agent-wallet-python"
+
+
+def _ensure_python_wrapper(venv_path: Path) -> Path:
+    if os.name == "nt":
+        return _venv_python(venv_path)
+    wrapper = _venv_python_wrapper(venv_path)
+    wrapper.parent.mkdir(parents=True, exist_ok=True)
+    wrapper.write_text('#!/bin/sh\nexec "$(dirname "$0")/python" "$@"\n', encoding="utf-8")
+    wrapper.chmod(0o755)
+    return wrapper
+
+
 def _ensure_python_runtime(venv_path: Path, package_root: Path) -> tuple[Path, bool]:
     created = False
     python_bin = _venv_python(venv_path)
@@ -299,7 +315,7 @@ def _ensure_python_runtime(venv_path: Path, package_root: Path) -> tuple[Path, b
         [str(python_bin), "-m", "pip", "install", "-e", str(package_root)],
         check=True,
     )
-    return python_bin, created
+    return _ensure_python_wrapper(venv_path), created
 
 
 def _ensure_node_runtime(npm_bin: str, project_root: Path) -> dict[str, object]:
@@ -449,7 +465,7 @@ def main() -> None:
         if not args.dry_run:
             python_bin, venv_created = _ensure_python_runtime(venv_path, package_root)
         else:
-            python_bin = _venv_python(venv_path)
+            python_bin = _venv_python_wrapper(venv_path)
 
     node_runtime = {
         "skipped": bool(args.skip_node_setup),
