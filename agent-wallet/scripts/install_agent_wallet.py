@@ -44,6 +44,7 @@ EXCLUDED_RUNTIME_DIR_NAMES = {
 }
 EXCLUDED_RUNTIME_FILE_NAMES = {
     ".DS_Store",
+    ".env",
 }
 EXCLUDED_RUNTIME_SUFFIXES = {
     ".pyc",
@@ -270,6 +271,39 @@ def _ensure_env_file(env_path: Path, env_example_path: Path) -> bool:
     return True
 
 
+def _upsert_env_value(env_path: Path, key: str, value: str) -> bool:
+    if not env_path.exists():
+        return False
+    lines = env_path.read_text(encoding="utf-8").splitlines()
+    updated = False
+    replaced = False
+    prefix = f"{key}="
+    new_line = f"{key}={value}"
+    for index, line in enumerate(lines):
+        if line.startswith(prefix):
+            replaced = True
+            if line != new_line:
+                lines[index] = new_line
+                updated = True
+            break
+    if not replaced:
+        if lines and lines[-1] != "":
+            lines.append("")
+        lines.append(new_line)
+        updated = True
+    if updated:
+        _atomic_write_text(env_path, "\n".join(lines) + "\n", mode=0o600)
+        _chmod_if_exists(env_path, 0o600)
+    return updated
+
+
+def _ensure_runtime_boot_key_file_env(env_path: Path) -> bool:
+    boot_key_file = _resolve_openclaw_home() / "agent-wallet-runtime" / "boot-key"
+    if not boot_key_file.exists():
+        return False
+    return _upsert_env_value(env_path, "AGENT_WALLET_BOOT_KEY_FILE", str(boot_key_file))
+
+
 def _ensure_openclaw_config(config_path: Path) -> bool:
     if config_path.exists():
         return False
@@ -457,6 +491,7 @@ def main() -> None:
             env_example_path = package_root / ".env.example"
 
     env_created = _ensure_env_file(env_path, env_example_path)
+    boot_key_file_env_updated = _ensure_runtime_boot_key_file_env(env_path)
     config_created = _ensure_openclaw_config(config_path)
 
     python_bin = Path(sys.executable)
@@ -516,6 +551,7 @@ def main() -> None:
                 "ok": True,
                 "env_path": str(env_path),
                 "env_created": env_created,
+                "boot_key_file_env_updated": boot_key_file_env_updated,
                 "config_path": str(config_path),
                 "config_created": config_created,
                 "package_root": str(package_root),

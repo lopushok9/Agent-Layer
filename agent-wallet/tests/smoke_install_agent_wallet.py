@@ -19,6 +19,16 @@ def main() -> None:
     config_path = temp_root / "openclaw.json"
     env_path = temp_root / ".env"
     runtime_root = temp_root / "agent-wallet-runtime" / "current"
+    runtime_env = runtime_root / "agent-wallet" / ".env"
+    runtime_env.parent.mkdir(parents=True, exist_ok=True)
+    runtime_env.write_text(
+        "PROVIDER_GATEWAY_URL=https://preserved.example\n"
+        "AGENT_WALLET_BOOT_KEY_FILE=/tmp/preserved-boot-key\n",
+        encoding="utf-8",
+    )
+    boot_key_file = temp_root / "agent-wallet-runtime" / "boot-key"
+    boot_key_file.parent.mkdir(parents=True, exist_ok=True)
+    boot_key_file.write_text("test-boot-key-for-universal-installer\n", encoding="utf-8")
     stale_server = runtime_root / "wdk-evm-wallet" / "src" / "server.js"
     stale_server.parent.mkdir(parents=True, exist_ok=True)
     stale_server.write_text("// stale runtime without lido routes\n", encoding="utf-8")
@@ -52,6 +62,7 @@ def main() -> None:
     payload = json.loads(result.stdout)
     assert payload["ok"] is True
     assert payload["env_created"] is True
+    assert payload["boot_key_file_env_updated"] is True
     assert payload["config_created"] is True
     assert payload["configured"] is False
     assert payload["pending_env"] == []
@@ -61,12 +72,21 @@ def main() -> None:
     assert Path(payload["runtime_root"]).resolve() == runtime_root.resolve()
     assert Path(payload["env_path"]).exists()
     assert Path(payload["config_path"]).exists()
+    assert (
+        "AGENT_WALLET_BOOT_KEY_FILE="
+        + str(boot_key_file)
+        in Path(payload["env_path"]).read_text(encoding="utf-8")
+    )
     synced_server = runtime_root / "wdk-evm-wallet" / "src" / "server.js"
     assert synced_server.exists()
     assert synced_server.read_text(encoding="utf-8") == (
         repo_root / "wdk-evm-wallet" / "src" / "server.js"
     ).read_text(encoding="utf-8")
     assert "/v1/evm/lido/overview/get" in synced_server.read_text(encoding="utf-8")
+    assert runtime_env.read_text(encoding="utf-8") == (
+        "PROVIDER_GATEWAY_URL=https://preserved.example\n"
+        "AGENT_WALLET_BOOT_KEY_FILE=/tmp/preserved-boot-key\n"
+    )
 
     config = json.loads(config_path.read_text(encoding="utf-8"))
     assert config["plugins"]["entries"] == {}
