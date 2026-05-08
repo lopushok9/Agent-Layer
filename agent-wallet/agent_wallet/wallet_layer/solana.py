@@ -893,6 +893,121 @@ class SolanaWalletBackend(AgentWalletBackend):
             "source": "houdini",
         }
 
+    @staticmethod
+    def _pick_houdini_order_value(order: dict[str, Any], *keys: str) -> str:
+        for key in keys:
+            value = order.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
+
+    @staticmethod
+    def _normalize_houdini_token_address(value: str) -> str:
+        normalized = str(value or "").strip()
+        if not normalized:
+            return ""
+        lowered = normalized.lower()
+        if lowered in {"sol", "native", "11111111111111111111111111111111"}:
+            return NATIVE_SOL_MINT.lower()
+        return lowered
+
+    def _validate_houdini_order_against_preview(
+        self,
+        *,
+        order: dict[str, Any],
+        preview: dict[str, Any],
+    ) -> dict[str, Any]:
+        if str(order.get("receiverAddress") or "").strip() != str(preview["destination_address"]):
+            raise WalletBackendError("Houdini order receiverAddress does not match the approved destination.")
+        if not bool(order.get("anonymous")):
+            raise WalletBackendError("Houdini order is not marked anonymous as required.")
+
+        checks: dict[str, Any] = {
+            "receiver_address": str(order.get("receiverAddress") or "").strip(),
+            "anonymous": bool(order.get("anonymous")),
+        }
+        warnings: list[str] = []
+
+        expected_input_id = str(preview.get("input_token_id") or "").strip()
+        order_input_id = self._pick_houdini_order_value(
+            order,
+            "from",
+            "fromId",
+            "inId",
+            "inputTokenId",
+            "fromTokenId",
+        )
+        if expected_input_id and order_input_id and order_input_id != expected_input_id:
+            raise WalletBackendError("Houdini order input token id does not match the approved token.")
+        checks["input_token_id"] = order_input_id or expected_input_id or None
+
+        expected_output_id = str(preview.get("output_token_id") or "").strip()
+        order_output_id = self._pick_houdini_order_value(
+            order,
+            "to",
+            "toId",
+            "outId",
+            "outputTokenId",
+            "toTokenId",
+        )
+        if expected_output_id and order_output_id and order_output_id != expected_output_id:
+            raise WalletBackendError("Houdini order output token id does not match the approved token.")
+        checks["output_token_id"] = order_output_id or expected_output_id or None
+
+        expected_input_address = self._normalize_houdini_token_address(
+            str(preview.get("input_token_address") or "")
+        )
+        order_input_address = self._normalize_houdini_token_address(
+            self._pick_houdini_order_value(
+                order,
+                "fromAddress",
+                "inAddress",
+                "inputTokenAddress",
+                "fromTokenAddress",
+            )
+        )
+        if expected_input_address and order_input_address and order_input_address != expected_input_address:
+            raise WalletBackendError("Houdini order input token address does not match the approved token.")
+        checks["input_token_address"] = order_input_address or expected_input_address or None
+
+        expected_output_address = self._normalize_houdini_token_address(
+            str(preview.get("output_token_address") or "")
+        )
+        order_output_address = self._normalize_houdini_token_address(
+            self._pick_houdini_order_value(
+                order,
+                "toAddress",
+                "outAddress",
+                "outputTokenAddress",
+                "toTokenAddress",
+            )
+        )
+        if expected_output_address and order_output_address and order_output_address != expected_output_address:
+            raise WalletBackendError("Houdini order output token address does not match the approved token.")
+        checks["output_token_address"] = order_output_address or expected_output_address or None
+
+        expected_input_symbol = str(preview.get("input_token_symbol") or "").strip().upper()
+        order_input_symbol = self._pick_houdini_order_value(order, "inSymbol", "fromSymbol").upper()
+        if expected_input_symbol and order_input_symbol and order_input_symbol != expected_input_symbol:
+            warnings.append(
+                "Houdini order input token symbol differs from the approved preview display symbol."
+            )
+        checks["input_token_symbol"] = order_input_symbol or expected_input_symbol or None
+
+        expected_output_symbol = str(preview.get("output_token_symbol") or "").strip().upper()
+        order_output_symbol = self._pick_houdini_order_value(order, "outSymbol", "toSymbol").upper()
+        if expected_output_symbol and order_output_symbol and order_output_symbol != expected_output_symbol:
+            warnings.append(
+                "Houdini order output token symbol differs from the approved preview display symbol."
+            )
+        checks["output_token_symbol"] = order_output_symbol or expected_output_symbol or None
+
+        return {
+            "validated": True,
+            "checks": checks,
+            "warnings": warnings,
+        }
+
     async def execute_solana_private_swap(
         self,
         *,
@@ -961,14 +1076,10 @@ class SolanaWalletBackend(AgentWalletBackend):
             multi_id=multi_id,
             houdini_id=houdini_id,
         )
-        if str(order.get("receiverAddress") or "").strip() != str(preview["destination_address"]):
-            raise WalletBackendError("Houdini order receiverAddress does not match the approved destination.")
-        if not bool(order.get("anonymous")):
-            raise WalletBackendError("Houdini order is not marked anonymous as required.")
-        if str(order.get("inSymbol") or "").strip().upper() != str(preview["input_token_symbol"] or "").strip().upper():
-            raise WalletBackendError("Houdini order input token symbol does not match the approved token.")
-        if str(order.get("outSymbol") or "").strip().upper() != str(preview["output_token_symbol"] or "").strip().upper():
-            raise WalletBackendError("Houdini order output token symbol does not match the approved token.")
+        order_validation = self._validate_houdini_order_against_preview(
+            order=order,
+            preview=preview,
+        )
         expected_output = Decimal(str(preview["estimated_output_amount_ui"]))
         order_output = Decimal(str(order.get("outAmount") or "0"))
         if order_output < expected_output:
@@ -1118,6 +1229,7 @@ class SolanaWalletBackend(AgentWalletBackend):
             "slot": status.get("slot") if status else None,
             "verification": verification,
             "simulation": simulation_safety,
+            "provider_order_validation": order_validation,
             "execute_response": submitted,
             "status_tracking": {
                 "multi_id": multi_id,
