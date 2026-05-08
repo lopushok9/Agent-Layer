@@ -280,12 +280,22 @@ async def resolve_cex_token(*, term: str, chain: str) -> dict[str, Any]:
         raise ProviderError("houdini", "token term is required.")
 
     tokens = await fetch_cex_tokens(chain=chain)
-    ranked = sorted(
-        (_token_match_rank(normalized_term, token), token)
+    candidates = [
+        token
         for token in tokens
         if token.get("enabled", True) and token.get("has_cex", True)
+    ]
+    ranked = sorted(
+        enumerate(candidates),
+        key=lambda pair: (_token_match_rank(normalized_term, pair[1]), pair[0]),
     )
-    if not ranked or ranked[0][0][0] >= 9:
+    if not ranked or ranked[0][1] is None:
+        raise ProviderError(
+            "houdini",
+            f"Houdini does not expose a CEX token match for '{normalized_term}' on {chain}.",
+        )
+    best_rank = _token_match_rank(normalized_term, ranked[0][1])
+    if best_rank[0] >= 9:
         raise ProviderError(
             "houdini",
             f"Houdini does not expose a CEX token match for '{normalized_term}' on {chain}.",

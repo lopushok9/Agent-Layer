@@ -48,6 +48,17 @@ class FakeClient:
                             "minMax": {"private": {"min": 0.01, "max": 50}},
                         },
                         {
+                            "id": "sol-token-id-duplicate",
+                            "symbol": "SOL",
+                            "name": "Solana Duplicate",
+                            "address": "So11111111111111111111111111111111111111112",
+                            "chain": "solana",
+                            "decimals": 9,
+                            "hasCex": True,
+                            "enabled": True,
+                            "minMax": {"private": {"min": 0.01, "max": 50}},
+                        },
+                        {
                             "id": "usdc-token-id",
                             "symbol": "USDC",
                             "name": "USD Coin",
@@ -176,7 +187,7 @@ async def main() -> None:
         houdini.get_client = lambda: fake_client
 
         tokens = await houdini.fetch_cex_tokens(chain="solana")
-        assert len(tokens) == 2
+        assert len(tokens) == 3
         sol = await houdini.resolve_cex_token(term="SOL", chain="solana")
         assert sol["id"] == "sol-token-id"
         usdc = await houdini.resolve_cex_token(
