@@ -23,6 +23,16 @@ OPTIONAL_TOOLS = [
     "set_wallet_backend",
     "get_wallet_portfolio",
     "get_solana_token_prices",
+    "swap_solana_privately",
+    "get_solana_private_swap_status",
+    "get_kamino_lend_markets",
+    "get_kamino_lend_market_reserves",
+    "get_kamino_lend_user_obligations",
+    "get_kamino_lend_user_rewards",
+    "kamino_lend_deposit",
+    "kamino_lend_withdraw",
+    "kamino_lend_borrow",
+    "kamino_lend_repay",
     "sign_wallet_message",
     "transfer_sol",
     "transfer_btc",
@@ -111,7 +121,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config-path", default=str(_default_config_path()))
     parser.add_argument("--plugin-id", default="agent-wallet")
-    parser.add_argument("--user-id", default=_default_user_id())
+    parser.add_argument("--user-id", default="")
     parser.add_argument("--backend", default="solana_local")
     parser.add_argument("--network", default="devnet")
     parser.add_argument("--rpc-url", default="")
@@ -211,8 +221,20 @@ def main() -> None:
 
     entries = plugins.setdefault("entries", {})
     effective_network = _normalize_network(args.backend, args.network)
+    existing_entry = entries.get(args.plugin_id) if isinstance(entries.get(args.plugin_id), dict) else {}
+    existing_config = (
+        dict(existing_entry.get("config"))
+        if isinstance(existing_entry.get("config"), dict)
+        else {}
+    )
+    resolved_user_id = (
+        args.user_id.strip()
+        or str(existing_config.get("userId") or "").strip()
+        or _default_user_id()
+    )
     plugin_config = {
-        "userId": args.user_id,
+        **existing_config,
+        "userId": resolved_user_id,
         "backend": args.backend,
         "network": effective_network,
         "signOnly": args.sign_only,
@@ -270,7 +292,7 @@ def main() -> None:
                 "python_bin": args.python_bin,
                 "package_root": plugin_config["packageRoot"],
                 "plugin_id": args.plugin_id,
-                "user_id": args.user_id,
+                "user_id": resolved_user_id,
                 "sealed_keys_path": sealed_keys_path,
             },
             indent=2,
