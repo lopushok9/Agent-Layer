@@ -5,6 +5,7 @@ Use wallet tools only when the user explicitly asks for wallet information, sign
 Safety rules:
 
 - Prefer read-only tools first.
+- When a wallet tool exists for the task, do not fall back to `exec`, `solana`, `spl-token`, `bitcoin-cli`, `curl`, or any shell-based wallet workflow. If the wallet tool fails, report the tool error and stop.
 - Jupiter Portfolio tools are temporarily disabled. Do not suggest or call them until they are re-enabled.
 - Use Jupiter Earn read tools before Jupiter Earn writes when the user needs lending/yield context.
 - Use Kamino market/reserve reads before Kamino writes when the user needs lending context.

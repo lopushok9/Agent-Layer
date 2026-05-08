@@ -14,6 +14,8 @@ let selectedBtcNetwork = null;
 const PREVIEW_CACHE_TTL_MS = 15 * 60 * 1000;
 const PREVIEW_BOUND_SWAP_TOOLS = new Set(["swap_solana_tokens", "swap_solana_privately"]);
 const approvalPreviewCache = new Map();
+const WALLET_TOOL_ONLY_GUIDANCE =
+  "Use this wallet tool instead of shelling out to solana CLI, spl-token CLI, curl, or exec. If it fails, surface the wallet-tool error and stop rather than falling back to terminal commands.";
 
 function canonicalJsonText(payload) {
   const normalize = (value) => {
@@ -559,7 +561,7 @@ const walletSessionToolDefinitions = [
   },
   {
     name: "get_wallet_balance",
-    description: "Get the active wallet overview. Solana and EVM return native assets, discovered token balances, per-asset USD values when available, and total_value_usd. Use set_wallet_backend first when the user asks to switch wallets.",
+    description: `Get the active wallet overview. Solana and EVM return native assets, discovered token balances, per-asset USD values when available, and total_value_usd. Use set_wallet_backend first when the user asks to switch wallets. ${WALLET_TOOL_ONLY_GUIDANCE}`,
     parameters: {
       type: "object",
       properties: {
@@ -612,7 +614,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "get_wallet_balance",
-    description: "Get the wallet overview: native balance, discovered token balances, per-asset USD values when available, and total_value_usd. Solana token discovery uses RPC; pricing uses Jupiter rather than RPC.",
+    description: `Get the wallet overview: native balance, discovered token balances, per-asset USD values when available, and total_value_usd. Solana token discovery uses RPC; pricing uses Jupiter rather than RPC. ${WALLET_TOOL_ONLY_GUIDANCE}`,
     parameters: {
       type: "object",
       properties: {
@@ -668,7 +670,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "get_wallet_portfolio",
-    description: "Get the Solana wallet portfolio. This is the detailed equivalent of get_wallet_balance and includes native SOL, non-zero SPL token accounts, USD pricing when available, and total_value_usd.",
+    description: `Get the Solana wallet portfolio. This is the detailed equivalent of get_wallet_balance and includes native SOL, non-zero SPL token accounts, USD pricing when available, and total_value_usd. ${WALLET_TOOL_ONLY_GUIDANCE}`,
     parameters: {
       type: "object",
       properties: {
@@ -885,7 +887,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "swap_solana_tokens",
-    description: "Preview, prepare, or execute a Solana token swap via Jupiter. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    description: `Preview, prepare, or execute a Solana token swap via Jupiter. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation. ${WALLET_TOOL_ONLY_GUIDANCE}`,
     optional: true,
     parameters: {
       type: "object",
@@ -905,7 +907,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "swap_solana_privately",
-    description: "Preview, prepare, or execute a Solana private payout through Houdini's anonymous routing. The initial implementation supports same-token private payouts only, such as SOL->SOL or USDC->USDC. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    description: `Preview, prepare, or execute a Solana private payout through Houdini's anonymous routing. The initial implementation supports same-token private payouts only, such as SOL->SOL or USDC->USDC. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation. ${WALLET_TOOL_ONLY_GUIDANCE}`,
     optional: true,
     parameters: {
       type: "object",
