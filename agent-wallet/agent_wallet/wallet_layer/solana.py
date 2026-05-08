@@ -48,6 +48,7 @@ TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
 NATIVE_SOL_MINT = "So11111111111111111111111111111111111111112"
 STAKE_PROGRAM_ID = "Stake11111111111111111111111111111111111111"
+HOUDINI_PRIVATE_OUTPUT_DRIFT_BPS = 100
 
 
 def _load_signing_key():
@@ -1008,6 +1009,43 @@ class SolanaWalletBackend(AgentWalletBackend):
             "warnings": warnings,
         }
 
+    def _validate_houdini_order_output_against_preview(
+        self,
+        *,
+        order: dict[str, Any],
+        preview: dict[str, Any],
+    ) -> dict[str, Any]:
+        expected_output = Decimal(str(preview["estimated_output_amount_ui"]))
+        order_output = Decimal(str(order.get("outAmount") or "0"))
+        tolerance = (
+            expected_output * Decimal(HOUDINI_PRIVATE_OUTPUT_DRIFT_BPS) / Decimal(10_000)
+        )
+        minimum_allowed = expected_output - tolerance
+        if order_output < minimum_allowed:
+            raise WalletBackendError(
+                "Houdini order output fell materially below the approved preview. Generate a new preview and approval before execute.",
+                code="private_swap_quote_changed",
+                details={
+                    "approved_estimated_output_amount_ui": str(expected_output),
+                    "order_output_amount_ui": str(order_output),
+                    "minimum_allowed_output_amount_ui": str(minimum_allowed),
+                    "allowed_drift_bps": HOUDINI_PRIVATE_OUTPUT_DRIFT_BPS,
+                },
+            )
+        warnings: list[str] = []
+        if order_output < expected_output:
+            warnings.append(
+                "Houdini order output drifted slightly below the approved preview but stayed within the allowed tolerance."
+            )
+        return {
+            "validated": True,
+            "approved_estimated_output_amount_ui": str(expected_output),
+            "order_output_amount_ui": str(order_output),
+            "minimum_allowed_output_amount_ui": str(minimum_allowed),
+            "allowed_drift_bps": HOUDINI_PRIVATE_OUTPUT_DRIFT_BPS,
+            "warnings": warnings,
+        }
+
     async def execute_solana_private_swap(
         self,
         *,
@@ -1080,19 +1118,10 @@ class SolanaWalletBackend(AgentWalletBackend):
             order=order,
             preview=preview,
         )
-        expected_output = Decimal(str(preview["estimated_output_amount_ui"]))
-        order_output = Decimal(str(order.get("outAmount") or "0"))
-        if order_output < expected_output:
-            raise WalletBackendError(
-                "Houdini order output fell below the approved preview. Generate a new preview and approval before execute.",
-                code="private_swap_quote_changed",
-                details={
-                    "approved_estimated_output_amount_ui": str(expected_output),
-                    "order_output_amount_ui": str(order_output),
-                    "multi_id": multi_id,
-                    "houdini_id": houdini_id,
-                },
-            )
+        output_validation = self._validate_houdini_order_output_against_preview(
+            order=order,
+            preview=preview,
+        )
         input_decimals = int(preview.get("input_token_decimals") or (9 if bool(preview.get("input_is_native")) else 0))
         input_amount_raw = int(
             (Decimal(str(preview["input_amount_ui"])) * (Decimal(10) ** input_decimals))
@@ -1230,6 +1259,7 @@ class SolanaWalletBackend(AgentWalletBackend):
             "verification": verification,
             "simulation": simulation_safety,
             "provider_order_validation": order_validation,
+            "output_validation": output_validation,
             "execute_response": submitted,
             "status_tracking": {
                 "multi_id": multi_id,

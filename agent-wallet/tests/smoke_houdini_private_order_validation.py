@@ -61,6 +61,35 @@ def main() -> None:
     else:
         raise AssertionError("Expected token id mismatch to be rejected.")
 
+    preview_with_amount = {
+        **preview,
+        "estimated_output_amount_ui": 29.254723,
+    }
+    order_with_small_output_drift = {
+        **order_with_display_symbol_drift,
+        "outAmount": 29.2521,
+    }
+    output_validation = backend._validate_houdini_order_output_against_preview(
+        order=order_with_small_output_drift,
+        preview=preview_with_amount,
+    )
+    assert output_validation["validated"] is True
+    assert output_validation["warnings"]
+
+    order_with_large_output_drift = {
+        **order_with_display_symbol_drift,
+        "outAmount": 28.8,
+    }
+    try:
+        backend._validate_houdini_order_output_against_preview(
+            order=order_with_large_output_drift,
+            preview=preview_with_amount,
+        )
+    except WalletBackendError as exc:
+        assert "fell materially below" in str(exc)
+    else:
+        raise AssertionError("Expected large output drift to be rejected.")
+
     print("smoke_houdini_private_order_validation: ok")
 
 
