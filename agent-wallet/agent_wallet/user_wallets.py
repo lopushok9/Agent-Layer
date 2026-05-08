@@ -17,6 +17,7 @@ from agent_wallet.config import (
     resolve_openclaw_home,
     resolve_runtime_solana_rpc_config,
     resolve_runtime_solana_swap_config,
+    resolve_solana_private_key,
     resolve_wallet_master_key,
     settings,
     use_per_user_key_derivation,
@@ -26,6 +27,7 @@ from agent_wallet.encrypted_storage import (
     decrypt_secret_material,
     encrypt_secret_material,
     is_encrypted_wallet_payload,
+    load_wallet_secret_material,
     write_encrypted_wallet_file,
 )
 from agent_wallet.wallet_layer.base import WalletBackendError
@@ -353,3 +355,84 @@ def create_wallet_backend_for_user(
         swap_provider=str(swap_config["provider"]),
         swap_transport=str(swap_config["transport"]),
     )
+
+
+def create_openclaw_solana_backend(
+    user_id: str,
+    *,
+    sign_only: bool | None = None,
+    network: str | None = None,
+    rpc_url: str | None = None,
+) -> tuple[SolanaWalletBackend, dict[str, str], bool]:
+    """Create a Solana backend for OpenClaw, preferring explicit signer config over per-user wallets."""
+    effective_network = _resolve_effective_network(network)
+    configured_public_key = settings.solana_agent_public_key.strip()
+    configured_keypair_path = settings.solana_agent_keypair_path.strip()
+    configured_secret = resolve_solana_private_key().strip()
+
+    signer: SolanaLocalKeypairSigner | None = None
+    storage_format = ""
+    wallet_path = ""
+    key_scope = ""
+
+    if configured_secret:
+        signer = SolanaLocalKeypairSigner.from_secret_material(configured_secret)
+        storage_format = "sealed_runtime_secret"
+        wallet_path = f"{resolve_openclaw_home() / 'sealed_keys.json'}#private_key"
+        key_scope = "sealed-runtime"
+    elif configured_keypair_path:
+        path = Path(configured_keypair_path).expanduser()
+        if not path.exists():
+            raise WalletBackendError(f"Configured Solana keypair path does not exist: {path}")
+        secret_material, loaded_format = load_wallet_secret_material(path)
+        signer = SolanaLocalKeypairSigner.from_secret_material(secret_material)
+        storage_format = loaded_format
+        wallet_path = str(path)
+        key_scope = "configured-keypair"
+
+    resolved_address = configured_public_key or (signer.address if signer else "")
+    if configured_public_key and signer and configured_public_key != signer.address:
+        raise WalletBackendError(
+            "Configured Solana publicKey does not match the signer derived from keypairPath/runtime secret."
+        )
+
+    rpc_config = resolve_runtime_solana_rpc_config(
+        effective_network,
+        rpc_url or settings.solana_rpc_url,
+        settings.solana_rpc_urls,
+    )
+    swap_config = resolve_runtime_solana_swap_config(effective_network)
+
+    if signer is not None or configured_public_key:
+        backend = SolanaWalletBackend(
+            rpc_url=rpc_config["rpc_urls"],
+            commitment=settings.solana_commitment,
+            network=effective_network,
+            signer=signer,
+            address=resolved_address or None,
+            sign_only=settings.agent_wallet_sign_only if sign_only is None else sign_only,
+            rpc_provider_mode=str(rpc_config["mode"]),
+            rpc_provider=str(rpc_config["provider"]),
+            rpc_transport=str(rpc_config["transport"]),
+            swap_provider=str(swap_config["provider"]),
+            swap_transport=str(swap_config["transport"]),
+        )
+        wallet_info = {
+            "user_id": user_id,
+            "address": resolved_address,
+            "path": wallet_path or "<configured-public-key>",
+            "storage_format": storage_format or "configured_public_key",
+            "key_scope": key_scope or ("configured-public-key" if configured_public_key else "host-managed"),
+        }
+        return backend, wallet_info, False
+
+    wallet_path = resolve_user_wallet_path(user_id, network=effective_network)
+    created_now = not wallet_path.exists()
+    backend = create_wallet_backend_for_user(
+        user_id,
+        sign_only=sign_only,
+        network=effective_network,
+        rpc_url=rpc_url,
+    )
+    wallet_info = ensure_user_solana_wallet(user_id, network=effective_network)
+    return backend, wallet_info, created_now

@@ -12,6 +12,7 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PACKAGE_ROOT))
 
 from _secret_test_utils import install_test_sealed_secrets  # noqa: E402
+from agent_wallet.bootstrap import generate_solana_wallet_material  # noqa: E402
 
 
 def _run(*args: str) -> dict:
@@ -86,6 +87,49 @@ def main() -> None:
     )
     assert result["ok"] is True
     assert result["data"]["configured"] is True
+
+    explicit_material = generate_solana_wallet_material()
+    explicit_path = temp_home / "external-wallet.json"
+    explicit_path.write_text(explicit_material["secret_material"], encoding="utf-8")
+
+    explicit_config = {
+        **config,
+        "network": "mainnet",
+        "keypairPath": str(explicit_path),
+    }
+    seeded = _run(
+        "onboard",
+        "--user-id",
+        "cli-keypair-user@example.com",
+        "--config-json",
+        json.dumps({"backend": "solana_local", "network": "mainnet"}),
+    )
+    assert seeded["session"]["address"] != explicit_material["address"]
+
+    explicit_onboard = _run(
+        "onboard",
+        "--user-id",
+        "cli-keypair-user@example.com",
+        "--config-json",
+        json.dumps(explicit_config),
+    )
+    assert explicit_onboard["session"]["address"] == explicit_material["address"]
+    assert explicit_onboard["session"]["wallet_path"] == str(explicit_path)
+    assert explicit_onboard["session"]["storage_format"] == "plaintext"
+
+    explicit_result = _run(
+        "invoke",
+        "--user-id",
+        "cli-keypair-user@example.com",
+        "--tool",
+        "get_wallet_address",
+        "--arguments-json",
+        "{}",
+        "--config-json",
+        json.dumps(explicit_config),
+    )
+    assert explicit_result["ok"] is True
+    assert explicit_result["data"]["address"] == explicit_material["address"]
 
     print("smoke_openclaw_cli: ok")
 

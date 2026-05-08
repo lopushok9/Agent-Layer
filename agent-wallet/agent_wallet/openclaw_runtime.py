@@ -14,7 +14,7 @@ from agent_wallet.openclaw_adapter import OpenClawWalletAdapter
 from agent_wallet.plugin_bundle import build_openclaw_plugin_bundle
 from agent_wallet.providers.wdk_btc_local import WdkBtcLocalClient
 from agent_wallet.providers.wdk_evm_local import WdkEvmLocalClient
-from agent_wallet.user_wallets import create_wallet_backend_for_user, ensure_user_solana_wallet, resolve_user_wallet_path
+from agent_wallet.user_wallets import create_openclaw_solana_backend
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendError
 from agent_wallet.wallet_layer.wdk_evm import WdkEvmLocalWalletBackend
 from agent_wallet.wallet_layer.wdk_btc import WdkBtcLocalWalletBackend
@@ -251,10 +251,7 @@ def onboard_openclaw_user_wallet(
             plugin_bundle=plugin_bundle,
         )
 
-    wallet_path = resolve_user_wallet_path(user_id, network=network)
-    created_now = not wallet_path.exists()
-    wallet_info = ensure_user_solana_wallet(user_id, network=network)
-    backend = create_wallet_backend_for_user(
+    backend, wallet_info, created_now = create_openclaw_solana_backend(
         user_id,
         sign_only=sign_only,
         network=network,
