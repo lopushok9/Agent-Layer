@@ -1946,7 +1946,7 @@ async def main() -> None:
     )
     assert preview.ok and preview.data["mode"] == "preview"
     assert preview.data["confirmation_summary"]["operation"] == "SOL transfer"
-    assert preview.data["confirmation_requirements"]["execute_requires_approval_token"] is False
+    assert preview.data["confirmation_requirements"]["execute_requires_approval_token"] is True
 
     denied_transfer = await adapter.invoke(
         "transfer_sol",

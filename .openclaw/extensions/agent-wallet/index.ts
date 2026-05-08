@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -10,6 +11,83 @@ let selectedWalletBackend = null;
 let selectedSolanaNetwork = null;
 let selectedEvmNetwork = null;
 let selectedBtcNetwork = null;
+const PREVIEW_CACHE_TTL_MS = 15 * 60 * 1000;
+const PREVIEW_BOUND_SWAP_TOOLS = new Set(["swap_solana_tokens", "swap_solana_privately"]);
+const approvalPreviewCache = new Map();
+
+function canonicalJsonText(payload) {
+  const normalize = (value) => {
+    if (Array.isArray(value)) {
+      return value.map(normalize);
+    }
+    if (value && typeof value === "object") {
+      return Object.fromEntries(
+        Object.keys(value)
+          .sort()
+          .map((key) => [key, normalize(value[key])])
+      );
+    }
+    return value;
+  };
+  return JSON.stringify(normalize(payload));
+}
+
+function previewDigest(preview) {
+  return crypto.createHash("sha256").update(canonicalJsonText(preview), "utf8").digest("hex");
+}
+
+function approvalCacheKey(userId, toolName) {
+  return `${userId}::${toolName}`;
+}
+
+function pruneApprovalPreviewCache() {
+  const now = Date.now();
+  for (const [key, value] of approvalPreviewCache.entries()) {
+    if (!value || typeof value !== "object" || Number(value.expiresAt || 0) <= now) {
+      approvalPreviewCache.delete(key);
+    }
+  }
+}
+
+function cachePreviewForApproval(userId, toolName, payload) {
+  if (!payload || payload.ok !== true || !payload.data || typeof payload.data !== "object") return;
+  const preview = payload.data;
+  if (preview.mode !== "preview") return;
+  if (!preview.confirmation_summary || typeof preview.confirmation_summary !== "object") return;
+  pruneApprovalPreviewCache();
+  const digest = previewDigest(preview);
+  approvalPreviewCache.set(approvalCacheKey(userId, toolName), {
+    digest,
+    expiresAt: Date.now() + PREVIEW_CACHE_TTL_MS,
+    preview,
+    summary: preview.confirmation_summary,
+  });
+}
+
+function latestCachedPreview(userId, toolName) {
+  pruneApprovalPreviewCache();
+  return approvalPreviewCache.get(approvalCacheKey(userId, toolName)) || null;
+}
+
+function approvalTokenPreviewDigest(token) {
+  if (typeof token !== "string" || !token.includes(".")) return "";
+  try {
+    const encoded = token.split(".", 1)[0];
+    const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+    const summary = payload?.binding?.summary;
+    return summary && typeof summary._preview_digest === "string" ? summary._preview_digest : "";
+  } catch {
+    return "";
+  }
+}
+
+function cachedPreviewForToken(userId, toolName, token) {
+  const digest = approvalTokenPreviewDigest(token);
+  if (!digest) return null;
+  const cached = latestCachedPreview(userId, toolName);
+  if (!cached || cached.digest !== digest) return null;
+  return cached.preview && typeof cached.preview === "object" ? cached.preview : null;
+}
 
 function resolvePluginConfig(api) {
   const globalConfig = api?.config ?? {};
@@ -273,6 +351,30 @@ async function callWalletCli(api, command, extraArgs = [], configOverride = null
   return payload;
 }
 
+async function issueApprovalToken(api, config, userId, toolName, previewPayload) {
+  const summary = previewPayload?.confirmation_summary;
+  if (!summary || typeof summary !== "object") {
+    throw new Error(`No confirmation_summary available for ${toolName}.`);
+  }
+  const digest = previewDigest(previewPayload);
+  const summaryForToken = { ...summary, _preview_digest: digest };
+  const extraArgs = [
+    "--tool",
+    toolName,
+    "--summary-json",
+    JSON.stringify(summaryForToken),
+  ];
+  if (previewPayload?.is_mainnet === true) {
+    extraArgs.push("--mainnet-confirmed");
+  }
+  const payload = await callWalletCli(api, "issue-approval", extraArgs, config);
+  const token = String(payload?.approval_token || "").trim();
+  if (!token) {
+    throw new Error(`issue-approval did not return an approval_token for ${toolName}.`);
+  }
+  return token;
+}
+
 function asContent(data) {
   return {
     content: [
@@ -388,6 +490,7 @@ function registerTool(api, definition) {
 
       const effectiveParams = { ...(params ?? {}) };
       const activeBackend = activeBackendForTool(api, definition.name);
+      const userId = resolveUserId(api, resolvePluginConfig(api));
       if (
         activeBackend === "wdk_evm_local" &&
         selectedEvmNetwork &&
@@ -400,12 +503,41 @@ function registerTool(api, definition) {
       if (activeBackend === "wdk_evm_local" && effectiveParams.network !== undefined) {
         configOverride.network = normalizeSelectableEvmNetwork(effectiveParams.network);
       }
+      if (String(effectiveParams.mode || "") === "execute") {
+        if (
+          PREVIEW_BOUND_SWAP_TOOLS.has(definition.name) &&
+          typeof effectiveParams.approval_token === "string" &&
+          effectiveParams.approval_token.trim() &&
+          effectiveParams._approved_preview === undefined
+        ) {
+          const cachedPreview = cachedPreviewForToken(userId, definition.name, effectiveParams.approval_token);
+          if (cachedPreview) {
+            effectiveParams._approved_preview = cachedPreview;
+          }
+        }
+        if (!effectiveParams.approval_token) {
+          const cached = latestCachedPreview(userId, definition.name);
+          if (cached?.preview && cached?.summary) {
+            effectiveParams.approval_token = await issueApprovalToken(
+              api,
+              configOverride,
+              userId,
+              definition.name,
+              cached.preview
+            );
+            if (PREVIEW_BOUND_SWAP_TOOLS.has(definition.name) && effectiveParams._approved_preview === undefined) {
+              effectiveParams._approved_preview = cached.preview;
+            }
+          }
+        }
+      }
       const payload = await callWalletCli(api, "invoke", [
         "--tool",
         definition.name,
         "--arguments-json",
         JSON.stringify(effectiveParams),
       ], configOverride);
+      cachePreviewForApproval(userId, definition.name, payload);
       if (payload?.ok === false) {
         throw new Error(payload?.error || `${definition.name} failed`);
       }

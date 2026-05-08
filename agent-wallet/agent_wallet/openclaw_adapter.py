@@ -665,8 +665,8 @@ class OpenClawWalletAdapter:
         )
         annotated["confirmation_requirements"] = {
             "prepare_requires_user_intent": mode == "prepare",
-            "execute_requires_approval_token": mode == "execute",
-            "execute_requires_mainnet_confirmed_in_token": mode == "execute" and is_mainnet,
+            "execute_requires_approval_token": True,
+            "execute_requires_mainnet_confirmed_in_token": is_mainnet,
         }
         if mode == "preview":
             annotated["approval_hint"] = {

@@ -1,0 +1,176 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+
+const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "..");
+const SOURCE = path.join(ROOT, ".openclaw", "extensions", "agent-wallet", "index.ts");
+
+function fakeApprovalToken(summary) {
+  const payload = {
+    v: 1,
+    binding: {
+      tool: "swap_solana_tokens",
+      network: "mainnet",
+      summary,
+    },
+  };
+  const encoded = Buffer.from(
+    JSON.stringify(payload, Object.keys(payload).sort()),
+    "utf8"
+  ).toString("base64url");
+  return `${encoded}.fake-signature`;
+}
+
+function parseCliArgs(args) {
+  const get = (name) => {
+    const idx = args.indexOf(name);
+    return idx >= 0 ? args[idx + 1] : undefined;
+  };
+  return {
+    command: args[2],
+    userId: get("--user-id"),
+    tool: get("--tool"),
+    config: JSON.parse(get("--config-json") || "{}"),
+    arguments: JSON.parse(get("--arguments-json") || "{}"),
+    summary: JSON.parse(get("--summary-json") || "{}"),
+    mainnetConfirmed: args.includes("--mainnet-confirmed"),
+  };
+}
+
+async function main() {
+  let source = fs.readFileSync(SOURCE, "utf8");
+  source = source.replace(
+    'import { execFile } from "node:child_process";',
+    "const execFile = globalThis.__TEST_EXEC_FILE__;"
+  );
+  source = source.replace(
+    "const execFileAsync = promisify(execFile);",
+    "const execFileAsync = (...args) => globalThis.__TEST_EXEC_FILE_ASYNC__(...args);"
+  );
+
+  const preview = {
+    chain: "solana",
+    network: "mainnet",
+    is_mainnet: true,
+    mode: "preview",
+    asset_type: "swap",
+    input_mint: "So11111111111111111111111111111111111111112",
+    output_mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    input_amount_ui: 0.056,
+    slippage_bps: 100,
+    swap_provider: "jupiter",
+    estimated_output_amount_ui: 4.95,
+    minimum_output_amount_ui: 4.9,
+    price_impact_pct: 0.01,
+    route_plan: [{ market: "test" }],
+    fee_summary: { priority_fee_sol: 0.002 },
+    confirmation_summary: {
+      operation: "Swap",
+      network: "mainnet",
+      swap_provider: "jupiter",
+      estimated_output_amount_ui: 4.95,
+      minimum_output_amount_ui: 4.9,
+      price_impact_pct: 0.01,
+      quote_fingerprint: "preview-fingerprint",
+      input_mint: "So11111111111111111111111111111111111111112",
+      output_mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      input_amount_ui: 0.056,
+      slippage_bps: 100,
+    },
+  };
+
+  const calls = [];
+  globalThis.__TEST_EXEC_FILE_ASYNC__ = async (pythonBin, args, options) => {
+    const parsed = parseCliArgs(args);
+    calls.push({ pythonBin, args, options, parsed });
+    if (parsed.command === "invoke" && parsed.arguments.mode === "preview") {
+      return { stdout: JSON.stringify({ ok: true, data: preview }), stderr: "" };
+    }
+    if (parsed.command === "issue-approval") {
+      assert.equal(parsed.tool, "swap_solana_tokens");
+      assert.equal(parsed.mainnetConfirmed, true);
+      assert.equal(typeof parsed.summary._preview_digest, "string");
+      assert.ok(parsed.summary._preview_digest.length > 10);
+      return {
+        stdout: JSON.stringify({ ok: true, approval_token: fakeApprovalToken(parsed.summary) }),
+        stderr: "",
+      };
+    }
+    if (parsed.command === "invoke" && parsed.arguments.mode === "execute") {
+      assert.equal(parsed.tool, "swap_solana_tokens");
+      assert.equal(typeof parsed.arguments.approval_token, "string");
+      assert.equal(parsed.arguments._approved_preview.input_mint, preview.input_mint);
+      return { stdout: JSON.stringify({ ok: true, data: { executed: true } }), stderr: "" };
+    }
+    throw new Error(`Unexpected command: ${JSON.stringify(parsed)}`);
+  };
+  globalThis.__TEST_EXEC_FILE__ = (pythonBin, args, options, callback) => {
+    globalThis.__TEST_EXEC_FILE_ASYNC__(pythonBin, args, options)
+      .then(({ stdout, stderr }) => callback(null, stdout, stderr))
+      .catch((error) => callback(error));
+  };
+
+  const moduleUrl = `data:text/javascript;charset=utf-8,${encodeURIComponent(source)}`;
+  const mod = await import(moduleUrl);
+  const register = mod.default;
+
+  const tools = [];
+  const api = {
+    config: {
+      plugins: {
+        entries: {
+          "agent-wallet": {
+            config: {
+              userId: "openclaw-test-user",
+              backend: "solana_local",
+              network: "mainnet",
+              packageRoot: path.join(ROOT, "agent-wallet"),
+              pythonBin: "/tmp/fake-python",
+            },
+          },
+        },
+      },
+    },
+    logger: { info() {}, debug() {} },
+    registerTool(definition) {
+      tools.push(definition);
+    },
+  };
+
+  register(api);
+  const swapTool = tools.find((tool) => tool.name === "swap_solana_tokens");
+  assert.ok(swapTool, "swap_solana_tokens tool should be registered");
+
+  await swapTool.execute("1", {
+    input_mint: preview.input_mint,
+    output_mint: preview.output_mint,
+    amount: 0.056,
+    slippage_bps: 100,
+    mode: "preview",
+    purpose: "test preview",
+  });
+
+  const executed = await swapTool.execute("2", {
+    input_mint: preview.input_mint,
+    output_mint: preview.output_mint,
+    amount: 0.056,
+    slippage_bps: 100,
+    mode: "execute",
+    purpose: "test execute",
+  });
+
+  assert.equal(JSON.parse(executed.content[0].text).executed, true);
+  assert.equal(
+    calls.filter((entry) => entry.parsed.command === "issue-approval").length,
+    1
+  );
+
+  delete globalThis.__TEST_EXEC_FILE__;
+  delete globalThis.__TEST_EXEC_FILE_ASYNC__;
+  console.log("smoke_openclaw_extension_auto_approval: ok");
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
