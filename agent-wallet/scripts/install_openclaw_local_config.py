@@ -16,6 +16,13 @@ from agent_wallet.sealed_keys import resolve_sealed_keys_path, seal_keys, unseal
 from security_utils import write_redacted_backup
 
 OPTIONAL_TOOLS = [
+    "get_wallet_capabilities",
+    "get_wallet_address",
+    "get_wallet_balance",
+    "get_active_wallet_backend",
+    "set_wallet_backend",
+    "get_wallet_portfolio",
+    "get_solana_token_prices",
     "sign_wallet_message",
     "transfer_sol",
     "transfer_btc",
