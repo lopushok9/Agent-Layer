@@ -470,7 +470,12 @@ async function callWalletCli(api, command, extraArgs = [], configOverride = null
 
   const payload = JSON.parse(stdout.trim() || "{}");
   if (payload?.ok === false && payload?.error) {
-    throw new Error(payload.error);
+    const wrapped = new Error(payload.error);
+    if (payload?.error_code) wrapped.code = payload.error_code;
+    if (payload?.error_details && typeof payload.error_details === "object") {
+      wrapped.details = payload.error_details;
+    }
+    throw wrapped;
   }
   return payload;
 }
