@@ -1123,12 +1123,14 @@ class SolanaWalletBackend(AgentWalletBackend):
 
         try:
             from solders.hash import Hash
+            from solders.instruction import Instruction
             from solders.keypair import Keypair
             from solders.message import Message
             from solders.pubkey import Pubkey
             from solders.transaction import Transaction
             from spl.token.instructions import (
                 TransferCheckedParams,
+                create_associated_token_account,
                 get_associated_token_address,
                 transfer_checked,
             )
@@ -1154,25 +1156,49 @@ class SolanaWalletBackend(AgentWalletBackend):
         )
         if not sender_token_account_exists:
             raise WalletBackendError("Sender token account does not exist for this mint.")
+        original_deposit_address = recipient_token_account
         recipient_token_account_exists = await solana_rpc.account_exists(
             recipient_token_account,
             rpc_url=self.rpc_urls,
         )
-        if not recipient_token_account_exists:
-            raise WalletBackendError("Houdini deposit token account does not exist on Solana.")
-        recipient_account_info = await solana_rpc.fetch_account_info(
-            recipient_token_account,
-            rpc_url=self.rpc_urls,
-        )
-        recipient_mint = (
-            (recipient_account_info or {})
-            .get("data", {})
-            .get("parsed", {})
-            .get("info", {})
-            .get("mint")
-        )
-        if recipient_mint and str(recipient_mint).strip() != mint:
-            raise WalletBackendError("Houdini deposit token account mint does not match the approved input token.")
+        recipient_token_account_created = False
+        recipient_token_account_exists_before = recipient_token_account_exists
+        recipient_owner_address: str | None = None
+        deposit_address_interpretation = "token_account"
+        if recipient_token_account_exists:
+            recipient_account_info = await solana_rpc.fetch_account_info(
+                recipient_token_account,
+                rpc_url=self.rpc_urls,
+            )
+            recipient_mint = (
+                (recipient_account_info or {})
+                .get("data", {})
+                .get("parsed", {})
+                .get("info", {})
+                .get("mint")
+            )
+            if recipient_mint and str(recipient_mint).strip() != mint:
+                raise WalletBackendError(
+                    "Houdini deposit token account mint does not match the approved input token."
+                )
+        else:
+            # Houdini may return the deposit owner address rather than a pre-created token account.
+            recipient_owner_address = original_deposit_address
+            deposit_address_interpretation = "owner_address"
+            recipient_owner_pubkey = Pubkey.from_string(recipient_owner_address)
+            recipient_token_account = str(
+                get_associated_token_address(
+                    recipient_owner_pubkey,
+                    mint_pubkey,
+                    token_program_id=token_program_pubkey,
+                )
+            )
+            recipient_token_account_exists_before = await solana_rpc.account_exists(
+                recipient_token_account,
+                rpc_url=self.rpc_urls,
+            )
+            recipient_token_account_exists = recipient_token_account_exists_before
+            recipient_token_account_created = not recipient_token_account_exists_before
 
         sender_balance = await solana_rpc.fetch_token_account_balance(
             sender_token_account,
@@ -1188,21 +1214,36 @@ class SolanaWalletBackend(AgentWalletBackend):
         )
         blockhash = Hash.from_string(str(latest_blockhash["blockhash"]))
         keypair = Keypair.from_bytes(self.signer.export_keypair_bytes())
-        message = Message.new_with_blockhash(
-            [
-                transfer_checked(
-                    TransferCheckedParams(
-                        program_id=token_program_pubkey,
-                        source=Pubkey.from_string(sender_token_account),
-                        mint=mint_pubkey,
-                        dest=Pubkey.from_string(recipient_token_account),
-                        owner=sender_pubkey,
-                        amount=amount_raw,
-                        decimals=decimals,
-                        signers=[],
-                    )
+        instructions: list[Instruction] = []
+        if recipient_token_account_created:
+            if not recipient_owner_address:
+                raise WalletBackendError(
+                    "Resolved Houdini deposit owner address is missing while creating the token account."
                 )
-            ],
+            instructions.append(
+                create_associated_token_account(
+                    payer=sender_pubkey,
+                    owner=Pubkey.from_string(recipient_owner_address),
+                    mint=mint_pubkey,
+                    token_program_id=token_program_pubkey,
+                )
+            )
+        instructions.append(
+            transfer_checked(
+                TransferCheckedParams(
+                    program_id=token_program_pubkey,
+                    source=Pubkey.from_string(sender_token_account),
+                    mint=mint_pubkey,
+                    dest=Pubkey.from_string(recipient_token_account),
+                    owner=sender_pubkey,
+                    amount=amount_raw,
+                    decimals=decimals,
+                    signers=[],
+                )
+            )
+        )
+        message = Message.new_with_blockhash(
+            instructions,
             sender_pubkey,
             blockhash,
         )
@@ -1228,12 +1269,15 @@ class SolanaWalletBackend(AgentWalletBackend):
             "asset_type": "spl",
             "from_address": sender,
             "to_address": recipient_token_account,
+            "requested_deposit_address": original_deposit_address,
+            "deposit_owner_address": recipient_owner_address,
+            "deposit_address_interpretation": deposit_address_interpretation,
             "mint": mint,
             "token_program_id": token_program_id,
             "sender_token_account": sender_token_account,
             "recipient_token_account": recipient_token_account,
-            "recipient_token_account_exists_before": True,
-            "recipient_token_account_created": False,
+            "recipient_token_account_exists_before": recipient_token_account_exists_before,
+            "recipient_token_account_created": recipient_token_account_created,
             "amount_ui": float(Decimal(amount_raw) / (Decimal(10) ** decimals)),
             "amount_raw": amount_raw,
             "decimals": decimals,
