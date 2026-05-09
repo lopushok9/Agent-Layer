@@ -696,7 +696,8 @@ function registerTool(api, definition) {
             const errorDetails =
               error?.details && typeof error.details === "object" ? error.details : null;
             if (
-              errorCode === "houdini_deposit_not_ready" &&
+              (errorCode === "houdini_deposit_not_ready" ||
+                errorCode === "houdini_order_initializing_timeout") &&
               approvedPreview &&
               errorDetails &&
               remainingRetries > 0
@@ -707,7 +708,12 @@ function registerTool(api, definition) {
               remainingRetries -= 1;
               continue;
             }
-            if (errorCode === "houdini_deposit_not_ready" && errorDetails) {
+            if (
+              (errorCode === "houdini_deposit_not_ready" ||
+                errorCode === "houdini_order_initializing_timeout") &&
+              errorDetails
+            ) {
+              cachePendingPrivateSwapOrder(userId, definition.name, approvedPreview, errorDetails);
               throw new Error(formatPrivateSwapPendingOrderError(errorDetails));
             }
             if (errorCode === "houdini_exchange_rate_limited" && errorDetails) {

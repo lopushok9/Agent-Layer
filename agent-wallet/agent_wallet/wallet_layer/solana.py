@@ -797,17 +797,30 @@ class SolanaWalletBackend(AgentWalletBackend):
         self,
         *,
         houdini_id: str,
-        timeout_seconds: float = 20.0,
-        poll_interval_seconds: float = 2.0,
+        initial_order: dict[str, Any] | None = None,
+        timeout_seconds: float = 180.0,
+        poll_interval_seconds: float = 5.0,
     ) -> dict[str, Any]:
         deadline = asyncio.get_running_loop().time() + timeout_seconds
+        last_order: dict[str, Any] | None = initial_order if isinstance(initial_order, dict) else None
         while True:
             order = await houdini.fetch_order_status(houdini_id=houdini_id)
+            if isinstance(order, dict) and order:
+                last_order = order
             if str(order.get("statusLabel") or "").strip().upper() != "INITIALIZING":
                 return order
             if asyncio.get_running_loop().time() >= deadline:
+                details = {
+                    "houdini_id": houdini_id,
+                    "multi_id": str((last_order or {}).get("multiId") or "").strip() or None,
+                    "deposit_address": str((last_order or {}).get("depositAddress") or "").strip() or None,
+                    "order_status": str((last_order or {}).get("statusLabel") or "").strip() or "INITIALIZING",
+                    "order": last_order or order,
+                }
                 raise WalletBackendError(
-                    "Houdini order stayed in INITIALIZING too long. Generate a new preview and try again."
+                    "Houdini order stayed in INITIALIZING too long. Keep the created order and retry execute after the deposit account is ready.",
+                    code="houdini_order_initializing_timeout",
+                    details=details,
                 )
             await asyncio.sleep(poll_interval_seconds)
 
@@ -1373,7 +1386,10 @@ class SolanaWalletBackend(AgentWalletBackend):
             if not houdini_id:
                 raise WalletBackendError("Houdini private swap response is missing the order identifier.")
             if str(order.get("statusLabel") or "").strip().upper() == "INITIALIZING":
-                order = await self._wait_for_houdini_single_order_ready(houdini_id=houdini_id)
+                order = await self._wait_for_houdini_single_order_ready(
+                    houdini_id=houdini_id,
+                    initial_order=order,
+                )
 
         order_validation = self._validate_houdini_order_against_preview(
             order=order,
