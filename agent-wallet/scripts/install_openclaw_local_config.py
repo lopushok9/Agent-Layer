@@ -24,6 +24,7 @@ OPTIONAL_TOOLS = [
     "get_wallet_portfolio",
     "get_solana_token_prices",
     "swap_solana_privately",
+    "list_pending_solana_private_swaps",
     "get_solana_private_swap_status",
     "get_kamino_lend_markets",
     "get_kamino_lend_market_reserves",
