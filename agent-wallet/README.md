@@ -118,6 +118,8 @@ Temporarily disabled but kept in the codebase for later re-enable:
 The signing tool still requires explicit `user_confirmed=true`.
 Transfer, native staking, swap, and Aave position-management tools support `preview`, `prepare`, and `execute` modes. The safe operational path is still preview-first. `prepare` now returns an execution plan only and never exposes signed transaction bytes to the agent. `execute` works only when the backend has a signer and `sign_only=false`.
 
+Exception: `swap_solana_privately` is intentionally optimized for `preview -> execute`. Hosts should not insert a separate `prepare` step for Houdini private payouts because it adds no execution value and only burns additional provider quota.
+
 Policy defaults:
 
 - read-only tools are always allowed

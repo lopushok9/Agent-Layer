@@ -907,7 +907,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "swap_solana_privately",
-    description: `Preview, prepare, or execute a Solana private payout through Houdini's anonymous routing. The initial implementation supports same-token private payouts only, such as SOL->SOL or USDC->USDC. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation. ${WALLET_TOOL_ONLY_GUIDANCE}`,
+    description: `Preview or execute a Solana private payout through Houdini's anonymous routing. The initial implementation supports same-token private payouts only, such as SOL->SOL or USDC->USDC. Use preview first, then execute after explicit approval. execute requires a host-issued approval token bound to the previewed operation. ${WALLET_TOOL_ONLY_GUIDANCE}`,
     optional: true,
     parameters: {
       type: "object",
@@ -917,7 +917,7 @@ const solanaToolDefinitions = [
         destination_address: { type: "string" },
         amount: { type: "number" },
         use_xmr: { type: "boolean" },
-        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
+        mode: { type: "string", enum: ["preview", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
         approval_token: { type: "string" },

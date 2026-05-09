@@ -11,6 +11,7 @@ Safety rules:
 - Use Kamino market/reserve reads before Kamino writes when the user needs lending context.
 - Use Aave account reads before Aave writes when the user needs EVM lending context.
 - For transfers, native staking, swaps, Aave writes, Jupiter Earn writes, and Kamino writes, use `preview` before `prepare` or `execute`.
+- For `swap_solana_privately`, use `preview` and then `execute` after explicit user approval. Do not use `prepare` for this tool.
 - Use `prepare` only when the user clearly intends to produce an execution plan.
 - Use `execute` only after the host issues an `approval_token` bound to the exact previewed operation.
 - On `mainnet`, require an approval token that includes explicit mainnet confirmation before any execution.
