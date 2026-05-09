@@ -155,6 +155,23 @@ function formatPrivateSwapPendingOrderError(details) {
   return parts.join(" ");
 }
 
+function formatPrivateSwapRateLimitError(details) {
+  const retryAfter =
+    typeof details?.retry_after === "number"
+      ? details.retry_after
+      : typeof details?.retry_after === "string"
+        ? details.retry_after
+        : "";
+  const quoteId = typeof details?.quote_id === "string" ? details.quote_id.trim() : "";
+  const parts = [
+    "Houdini exchange create is rate-limited right now.",
+  ];
+  if (retryAfter !== "") parts.push(`retry_after=${retryAfter}s`);
+  if (quoteId) parts.push(`quote_id=${quoteId}`);
+  parts.push("Do not generate a new preview yet; wait, then retry execute.");
+  return parts.join(" ");
+}
+
 function listPendingPrivateSwapOrders(userId) {
   const key = approvalCacheKey(userId, "swap_solana_privately");
   const pending = privateSwapOrderCache.get(key);
@@ -692,6 +709,9 @@ function registerTool(api, definition) {
             }
             if (errorCode === "houdini_deposit_not_ready" && errorDetails) {
               throw new Error(formatPrivateSwapPendingOrderError(errorDetails));
+            }
+            if (errorCode === "houdini_exchange_rate_limited" && errorDetails) {
+              throw new Error(formatPrivateSwapRateLimitError(errorDetails));
             }
             throw error;
           }

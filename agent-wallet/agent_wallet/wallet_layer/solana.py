@@ -1335,10 +1335,28 @@ class SolanaWalletBackend(AgentWalletBackend):
             if isinstance(latest_order, dict) and latest_order:
                 order = latest_order
         else:
-            create_payload = await houdini.create_exchange(
-                quote_id=quote_id,
-                destination_address=str(preview["destination_address"]),
-            )
+            try:
+                create_payload = await houdini.create_exchange(
+                    quote_id=quote_id,
+                    destination_address=str(preview["destination_address"]),
+                )
+            except ProviderError as exc:
+                details = dict(exc.details or {})
+                gateway_error = details.get("error") if isinstance(details.get("error"), dict) else None
+                if isinstance(gateway_error, dict) and str(gateway_error.get("code") or "").strip() == "RATE_LIMIT_EXCEEDED":
+                    retry_after = gateway_error.get("retryAfter")
+                    raise WalletBackendError(
+                        "Houdini exchange create is rate-limited right now. Wait and retry execute without generating a new preview.",
+                        code="houdini_exchange_rate_limited",
+                        details={
+                            "retry_after": retry_after,
+                            "quote_id": quote_id,
+                            "destination_address": str(preview["destination_address"]),
+                            "provider": getattr(exc, "provider", "houdini"),
+                            "upstream_error": gateway_error,
+                        },
+                    ) from exc
+                raise
             order = create_payload.get("order") if isinstance(create_payload.get("order"), dict) else create_payload
             if not isinstance(order, dict):
                 raise WalletBackendError("Houdini returned no order object for the private swap.")

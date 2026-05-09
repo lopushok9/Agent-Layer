@@ -158,13 +158,21 @@ def _unwrap_gateway_payload(
 ) -> Any:
     if isinstance(payload, dict) and payload.get("ok") is False:
         message = str(payload.get("error") or f"{operation} failed.")
-        raise ProviderError("houdini-gateway", f"{operation} failed via provider gateway: {message}")
+        raise ProviderError(
+            "houdini-gateway",
+            f"{operation} failed via provider gateway: {message}",
+            details=payload,
+        )
 
     if status_code != 200:
         message = payload
         if isinstance(payload, dict):
             message = payload.get("error") or payload
-        raise ProviderError("houdini-gateway", f"{operation} failed via provider gateway: {message}")
+        raise ProviderError(
+            "houdini-gateway",
+            f"{operation} failed via provider gateway: {message}",
+            details=payload if isinstance(payload, dict) else None,
+        )
 
     return payload
 
