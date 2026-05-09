@@ -133,6 +133,24 @@ function clearPendingPrivateSwapOrder(userId, toolName) {
   privateSwapOrderCache.delete(approvalCacheKey(userId, toolName));
 }
 
+function formatPrivateSwapPendingOrderError(details) {
+  const houdiniId = typeof details?.houdini_id === "string" ? details.houdini_id.trim() : "";
+  const multiId = typeof details?.multi_id === "string" ? details.multi_id.trim() : "";
+  const depositAddress =
+    typeof details?.deposit_address === "string" ? details.deposit_address.trim() : "";
+  const orderStatus =
+    typeof details?.order_status === "string" ? details.order_status.trim() : "";
+  const parts = [
+    "Houdini order was created, but the Solana deposit account is not ready yet.",
+  ];
+  if (houdiniId) parts.push(`houdini_id=${houdiniId}`);
+  if (multiId) parts.push(`multi_id=${multiId}`);
+  if (depositAddress) parts.push(`deposit_address=${depositAddress}`);
+  if (orderStatus) parts.push(`status=${orderStatus}`);
+  parts.push("Retry execute for this existing order instead of generating a new preview.");
+  return parts.join(" ");
+}
+
 function resolvePluginConfig(api) {
   const globalConfig = api?.config ?? {};
   const pluginEntry = globalConfig?.plugins?.entries?.[PLUGIN_ID];
@@ -643,6 +661,9 @@ function registerTool(api, definition) {
                 latestPendingPrivateSwapOrder(userId, definition.name, approvedPreview) || undefined;
               remainingRetries -= 1;
               continue;
+            }
+            if (errorCode === "houdini_deposit_not_ready" && errorDetails) {
+              throw new Error(formatPrivateSwapPendingOrderError(errorDetails));
             }
             throw error;
           }
