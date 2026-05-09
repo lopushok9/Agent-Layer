@@ -4685,6 +4685,9 @@ class OpenClawWalletAdapter:
 
                 approval_summary_copy = dict(approval_summary)
                 approved_preview = args.get("_approved_preview")
+                resume_private_swap_order = args.get("_resume_private_swap_order")
+                if resume_private_swap_order is not None and not isinstance(resume_private_swap_order, dict):
+                    raise WalletBackendError("_resume_private_swap_order must be an object when provided.")
                 execute_preview = None
                 if isinstance(approval_summary_copy.get("_preview_digest"), str):
                     if not isinstance(approved_preview, dict):
@@ -4720,6 +4723,7 @@ class OpenClawWalletAdapter:
                 result = await self.backend.execute_solana_private_swap(
                     **preview_kwargs,
                     approved_preview=execute_preview,
+                    existing_order=resume_private_swap_order,
                 )
                 return AgentToolResult(
                     tool=tool_name,

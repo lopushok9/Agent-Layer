@@ -1283,6 +1283,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         amount_ui: float,
         use_xmr: bool = False,
         approved_preview: dict[str, Any] | None = None,
+        existing_order: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if self.network != "mainnet":
             raise WalletBackendError("Houdini private Solana swaps are only enabled for Solana mainnet.")
@@ -1312,27 +1313,49 @@ class SolanaWalletBackend(AgentWalletBackend):
         if not quote_id:
             raise WalletBackendError("Approved private swap preview is missing quote_id.")
 
-        create_payload = await houdini.create_exchange(
-            quote_id=quote_id,
-            destination_address=str(preview["destination_address"]),
-        )
-        order = create_payload.get("order") if isinstance(create_payload.get("order"), dict) else create_payload
-        if not isinstance(order, dict):
-            raise WalletBackendError("Houdini returned no order object for the private swap.")
-        if isinstance(order.get("error"), dict):
-            error = order["error"]
-            raise WalletBackendError(
-                f"Houdini rejected the private swap request: {error.get('message') or 'unknown error'}.",
-                code=str(error.get("code") or "").strip() or None,
-                details=error,
+        if isinstance(existing_order, dict) and existing_order:
+            create_payload = dict(existing_order)
+            order = (
+                create_payload.get("order")
+                if isinstance(create_payload.get("order"), dict)
+                else create_payload
             )
+            if not isinstance(order, dict):
+                raise WalletBackendError("Stored Houdini private swap order is invalid.")
+            multi_id = str(create_payload.get("multi_id") or create_payload.get("multiId") or order.get("multiId") or "").strip() or None
+            houdini_id = str(
+                create_payload.get("houdini_id")
+                or create_payload.get("houdiniId")
+                or order.get("houdiniId")
+                or ""
+            ).strip()
+            if not houdini_id:
+                raise WalletBackendError("Stored Houdini private swap order is missing houdini_id.")
+            latest_order = await houdini.fetch_order_status(houdini_id=houdini_id)
+            if isinstance(latest_order, dict) and latest_order:
+                order = latest_order
+        else:
+            create_payload = await houdini.create_exchange(
+                quote_id=quote_id,
+                destination_address=str(preview["destination_address"]),
+            )
+            order = create_payload.get("order") if isinstance(create_payload.get("order"), dict) else create_payload
+            if not isinstance(order, dict):
+                raise WalletBackendError("Houdini returned no order object for the private swap.")
+            if isinstance(order.get("error"), dict):
+                error = order["error"]
+                raise WalletBackendError(
+                    f"Houdini rejected the private swap request: {error.get('message') or 'unknown error'}.",
+                    code=str(error.get("code") or "").strip() or None,
+                    details=error,
+                )
 
-        multi_id = str(create_payload.get("multiId") or order.get("multiId") or "").strip() or None
-        houdini_id = str(order.get("houdiniId") or create_payload.get("houdiniId") or "").strip()
-        if not houdini_id:
-            raise WalletBackendError("Houdini private swap response is missing the order identifier.")
-        if str(order.get("statusLabel") or "").strip().upper() == "INITIALIZING":
-            order = await self._wait_for_houdini_single_order_ready(houdini_id=houdini_id)
+            multi_id = str(create_payload.get("multiId") or order.get("multiId") or "").strip() or None
+            houdini_id = str(order.get("houdiniId") or create_payload.get("houdiniId") or "").strip()
+            if not houdini_id:
+                raise WalletBackendError("Houdini private swap response is missing the order identifier.")
+            if str(order.get("statusLabel") or "").strip().upper() == "INITIALIZING":
+                order = await self._wait_for_houdini_single_order_ready(houdini_id=houdini_id)
 
         order_validation = self._validate_houdini_order_against_preview(
             order=order,
@@ -1357,12 +1380,34 @@ class SolanaWalletBackend(AgentWalletBackend):
                 amount_native=float(Decimal(str(preview["input_amount_ui"]))),
             )
         else:
-            funding_result = await self._send_houdini_exact_spl_deposit(
-                recipient_token_account=deposit_address,
-                mint=str(preview.get("input_token_address") or "").strip(),
-                amount_raw=input_amount_raw,
-                decimals=input_decimals,
-            )
+            try:
+                funding_result = await self._send_houdini_exact_spl_deposit(
+                    recipient_token_account=deposit_address,
+                    mint=str(preview.get("input_token_address") or "").strip(),
+                    amount_raw=input_amount_raw,
+                    decimals=input_decimals,
+                )
+            except WalletBackendError as exc:
+                if exc.code == "houdini_deposit_not_ready":
+                    details = dict(exc.details or {})
+                    details.update(
+                        {
+                            "multi_id": multi_id,
+                            "houdini_id": houdini_id,
+                            "deposit_address": deposit_address,
+                            "order_status": order.get("statusLabel"),
+                            "order": order,
+                            "input_token_address": str(preview.get("input_token_address") or "").strip(),
+                            "input_amount_raw": str(input_amount_raw),
+                            "input_decimals": input_decimals,
+                        }
+                    )
+                    raise WalletBackendError(
+                        "Houdini order exists, but its Solana deposit account is not ready yet. Retry execute for the existing order instead of generating a new preview.",
+                        code="houdini_deposit_not_ready",
+                        details=details,
+                    ) from exc
+                raise
 
         signature = str(funding_result.get("signature") or "").strip() or None
         confirmed = bool(funding_result.get("confirmed"))

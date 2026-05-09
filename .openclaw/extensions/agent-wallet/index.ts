@@ -14,6 +14,7 @@ let selectedBtcNetwork = null;
 const PREVIEW_CACHE_TTL_MS = 15 * 60 * 1000;
 const PREVIEW_BOUND_SWAP_TOOLS = new Set(["swap_solana_tokens", "swap_solana_privately"]);
 const approvalPreviewCache = new Map();
+const privateSwapOrderCache = new Map();
 const WALLET_TOOL_ONLY_GUIDANCE =
   "Use this wallet tool instead of shelling out to solana CLI, spl-token CLI, curl, or exec. If it fails, surface the wallet-tool error and stop rather than falling back to terminal commands.";
 
@@ -64,6 +65,9 @@ function cachePreviewForApproval(userId, toolName, payload) {
     preview,
     summary: preview.confirmation_summary,
   });
+  if (toolName === "swap_solana_privately") {
+    privateSwapOrderCache.delete(approvalCacheKey(userId, toolName));
+  }
 }
 
 function latestCachedPreview(userId, toolName) {
@@ -89,6 +93,44 @@ function cachedPreviewForToken(userId, toolName, token) {
   const cached = latestCachedPreview(userId, toolName);
   if (!cached || cached.digest !== digest) return null;
   return cached.preview && typeof cached.preview === "object" ? cached.preview : null;
+}
+
+function cachePendingPrivateSwapOrder(userId, toolName, preview, details) {
+  if (toolName !== "swap_solana_privately") return;
+  if (!preview || typeof preview !== "object") return;
+  if (!details || typeof details !== "object") return;
+  const houdiniId = typeof details.houdini_id === "string" ? details.houdini_id.trim() : "";
+  const depositAddress =
+    typeof details.deposit_address === "string" ? details.deposit_address.trim() : "";
+  if (!houdiniId || !depositAddress) return;
+  privateSwapOrderCache.set(approvalCacheKey(userId, toolName), {
+    digest: previewDigest(preview),
+    expiresAt: Date.now() + PREVIEW_CACHE_TTL_MS,
+    order: {
+      multi_id: typeof details.multi_id === "string" ? details.multi_id.trim() : null,
+      houdini_id: houdiniId,
+      deposit_address: depositAddress,
+      order: details.order && typeof details.order === "object" ? details.order : {},
+    },
+  });
+}
+
+function latestPendingPrivateSwapOrder(userId, toolName, preview) {
+  if (toolName !== "swap_solana_privately") return null;
+  const cached = privateSwapOrderCache.get(approvalCacheKey(userId, toolName));
+  if (!cached || typeof cached !== "object") return null;
+  if (Number(cached.expiresAt || 0) <= Date.now()) {
+    privateSwapOrderCache.delete(approvalCacheKey(userId, toolName));
+    return null;
+  }
+  if (!preview || typeof preview !== "object") return null;
+  if (cached.digest !== previewDigest(preview)) return null;
+  return cached.order && typeof cached.order === "object" ? cached.order : null;
+}
+
+function clearPendingPrivateSwapOrder(userId, toolName) {
+  if (toolName !== "swap_solana_privately") return;
+  privateSwapOrderCache.delete(approvalCacheKey(userId, toolName));
 }
 
 function resolvePluginConfig(api) {
@@ -336,11 +378,37 @@ async function callWalletCli(api, command, extraArgs = [], configOverride = null
     ...extraArgs,
   ];
 
-  const { stdout, stderr } = await execFileAsync(pythonBin, args, {
-    cwd: packageRoot,
-    env: buildCliEnv(packageRoot),
-    maxBuffer: 1024 * 1024 * 8,
-  });
+  let stdout = "";
+  let stderr = "";
+  try {
+    const result = await execFileAsync(pythonBin, args, {
+      cwd: packageRoot,
+      env: buildCliEnv(packageRoot),
+      maxBuffer: 1024 * 1024 * 8,
+    });
+    stdout = result.stdout;
+    stderr = result.stderr;
+  } catch (error) {
+    stdout = typeof error?.stdout === "string" ? error.stdout : "";
+    stderr = typeof error?.stderr === "string" ? error.stderr : "";
+    const stderrText = String(stderr || "").trim();
+    if (stderrText) {
+      try {
+        const payload = JSON.parse(stderrText);
+        const wrapped = new Error(payload?.error || "agent-wallet CLI failed");
+        if (payload?.code) wrapped.code = payload.code;
+        if (payload?.details && typeof payload.details === "object") {
+          wrapped.details = payload.details;
+        }
+        throw wrapped;
+      } catch (parseError) {
+        if (parseError instanceof Error && parseError !== error) {
+          throw parseError;
+        }
+      }
+    }
+    throw error;
+  }
 
   if (stderr && stderr.trim()) {
     api?.logger?.debug?.(`[agent-wallet] stderr: ${stderr.trim()}`);
@@ -533,12 +601,55 @@ function registerTool(api, definition) {
           }
         }
       }
-      const payload = await callWalletCli(api, "invoke", [
-        "--tool",
-        definition.name,
-        "--arguments-json",
-        JSON.stringify(effectiveParams),
-      ], configOverride);
+      const executeWalletTool = async () =>
+        callWalletCli(api, "invoke", [
+          "--tool",
+          definition.name,
+          "--arguments-json",
+          JSON.stringify(effectiveParams),
+        ], configOverride);
+
+      let payload;
+      if (definition.name === "swap_solana_privately" && String(effectiveParams.mode || "") === "execute") {
+        const approvedPreview =
+          effectiveParams._approved_preview && typeof effectiveParams._approved_preview === "object"
+            ? effectiveParams._approved_preview
+            : null;
+        const pendingOrder = approvedPreview
+          ? latestPendingPrivateSwapOrder(userId, definition.name, approvedPreview)
+          : null;
+        if (pendingOrder && effectiveParams._resume_private_swap_order === undefined) {
+          effectiveParams._resume_private_swap_order = pendingOrder;
+        }
+
+        let remainingRetries = 3;
+        while (true) {
+          try {
+            payload = await executeWalletTool();
+            clearPendingPrivateSwapOrder(userId, definition.name);
+            break;
+          } catch (error) {
+            const errorCode = typeof error?.code === "string" ? error.code : "";
+            const errorDetails =
+              error?.details && typeof error.details === "object" ? error.details : null;
+            if (
+              errorCode === "houdini_deposit_not_ready" &&
+              approvedPreview &&
+              errorDetails &&
+              remainingRetries > 0
+            ) {
+              cachePendingPrivateSwapOrder(userId, definition.name, approvedPreview, errorDetails);
+              effectiveParams._resume_private_swap_order =
+                latestPendingPrivateSwapOrder(userId, definition.name, approvedPreview) || undefined;
+              remainingRetries -= 1;
+              continue;
+            }
+            throw error;
+          }
+        }
+      } else {
+        payload = await executeWalletTool();
+      }
       cachePreviewForApproval(userId, definition.name, payload);
       if (payload?.ok === false) {
         throw new Error(payload?.error || `${definition.name} failed`);

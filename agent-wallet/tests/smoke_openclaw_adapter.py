@@ -906,6 +906,7 @@ class FakeBackend(AgentWalletBackend):
         amount_ui: float,
         use_xmr: bool = False,
         approved_preview: dict | None = None,
+        existing_order: dict | None = None,
     ) -> dict:
         preview = approved_preview or await self.preview_solana_private_swap(
             input_token=input_token,

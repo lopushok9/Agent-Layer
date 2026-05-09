@@ -621,7 +621,13 @@ def main() -> int:
                 )
             )
     except Exception as exc:
-        print(json.dumps({"ok": False, "error": str(exc)}), file=sys.stderr)
+        error_payload: dict[str, Any] = {"ok": False, "error": str(exc)}
+        if isinstance(exc, WalletBackendError):
+            if exc.code:
+                error_payload["code"] = exc.code
+            if exc.details is not None:
+                error_payload["details"] = exc.details
+        print(json.dumps(error_payload), file=sys.stderr)
         return 1
 
     print(json.dumps(payload))
