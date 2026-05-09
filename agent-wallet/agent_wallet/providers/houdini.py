@@ -65,6 +65,29 @@ def _normalize_error(payload: Any) -> str:
     return "Houdini request failed."
 
 
+def _response_text(response: Any) -> str:
+    try:
+        text = response.text
+    except Exception:
+        return ""
+    return str(text or "")
+
+
+def _parse_json_response(response: Any, *, provider: str, operation: str) -> Any:
+    body = _response_text(response)
+    if not body.strip():
+        raise ProviderError(provider, f"{operation} returned an empty response body.")
+    try:
+        return response.json()
+    except ValueError as exc:
+        snippet = body.strip().replace("\n", " ")[:200]
+        detail = f": {snippet}" if snippet else ""
+        raise ProviderError(
+            provider,
+            f"{operation} returned invalid JSON{detail}",
+        ) from exc
+
+
 def _require_compliance_headers() -> dict[str, str]:
     api_key = settings.houdini_api_key.strip()
     api_secret = settings.houdini_api_secret.strip()
@@ -158,7 +181,7 @@ async def _gateway_get(
         params=params,
         headers=_gateway_headers(),
     )
-    payload = response.json() if response.content else {}
+    payload = _parse_json_response(response, provider="houdini-gateway", operation=operation)
     if _gateway_route_missing(response.status_code, payload) and _direct_houdini_enabled():
         return None
     return _unwrap_gateway_payload(
@@ -180,7 +203,7 @@ async def _gateway_post(
         json=body,
         headers={**_gateway_headers(), "Content-Type": "application/json"},
     )
-    payload = response.json() if response.content else {}
+    payload = _parse_json_response(response, provider="houdini-gateway", operation=operation)
     if _gateway_route_missing(response.status_code, payload) and _direct_houdini_enabled():
         return None
     return _unwrap_gateway_payload(
@@ -236,7 +259,7 @@ async def _fetch_cex_tokens_uncached(chain: str) -> list[dict[str, Any]]:
                 },
                 headers=_require_compliance_headers(),
             )
-            payload = response.json() if response.content else {}
+            payload = _parse_json_response(response, provider="houdini", operation="Houdini tokens")
             if response.status_code != 200:
                 raise ProviderError("houdini", f"HTTP {response.status_code}: {_normalize_error(payload)}")
         page_tokens = payload.get("tokens")
@@ -338,7 +361,7 @@ async def fetch_private_quotes(
             },
             headers=_require_compliance_headers(),
         )
-        payload = response.json() if response.content else {}
+        payload = _parse_json_response(response, provider="houdini", operation="Houdini private quotes")
         if response.status_code != 200:
             raise ProviderError("houdini", f"HTTP {response.status_code}: {_normalize_error(payload)}")
     quotes = payload.get("quotes")
@@ -389,7 +412,7 @@ async def create_multi_swap(
             json={"orders": orders},
             headers={**_require_compliance_headers(), "Content-Type": "application/json"},
         )
-        payload = response.json() if response.content else {}
+        payload = _parse_json_response(response, provider="houdini", operation="Houdini multi create")
         if response.status_code != 200:
             raise ProviderError("houdini", f"HTTP {response.status_code}: {_normalize_error(payload)}")
     if not isinstance(payload, dict) or not isinstance(payload.get("orders"), list):
@@ -427,10 +450,10 @@ async def create_exchange(
             json=body,
             headers={**_require_compliance_headers(), "Content-Type": "application/json"},
         )
-        payload = response.json() if response.content else {}
+        payload = _parse_json_response(response, provider="houdini", operation="Houdini exchange create")
         if response.status_code != 200:
             raise ProviderError("houdini", f"HTTP {response.status_code}: {_normalize_error(payload)}")
-    if not isinstance(payload, dict):
+    if not isinstance(payload, dict) or not payload:
         raise ProviderError("houdini", "Unexpected exchange response from Houdini.")
     return payload
 
@@ -450,7 +473,7 @@ async def fetch_multi_status(*, multi_id: str) -> dict[str, Any]:
             f"{_base_url()}/exchanges/multi/{normalized_multi_id}",
             headers=_require_compliance_headers(),
         )
-        payload = response.json() if response.content else {}
+        payload = _parse_json_response(response, provider="houdini", operation="Houdini multi status")
         if response.status_code != 200:
             raise ProviderError("houdini", f"HTTP {response.status_code}: {_normalize_error(payload)}")
     if not isinstance(payload, dict) or not isinstance(payload.get("orders"), list):
@@ -475,10 +498,10 @@ async def fetch_order_status(*, houdini_id: str) -> dict[str, Any]:
             f"{_base_url()}/orders/{normalized_houdini_id}",
             headers=_require_compliance_headers(),
         )
-        payload = response.json() if response.content else {}
+        payload = _parse_json_response(response, provider="houdini", operation="Houdini order status")
         if response.status_code != 200:
             raise ProviderError("houdini", f"HTTP {response.status_code}: {_normalize_error(payload)}")
-    if not isinstance(payload, dict):
+    if not isinstance(payload, dict) or not payload:
         raise ProviderError("houdini", "Unexpected order-status response from Houdini.")
     return payload
 
@@ -500,7 +523,7 @@ async def fetch_multi_solana_transactions(*, multi_id: str, sender: str) -> dict
             params={"sender": normalized_sender},
             headers=_require_compliance_headers(),
         )
-        payload = response.json() if response.content else {}
+        payload = _parse_json_response(response, provider="houdini", operation="Houdini multi tx")
         if response.status_code != 200:
             raise ProviderError("houdini", f"HTTP {response.status_code}: {_normalize_error(payload)}")
     if not isinstance(payload, dict) or not isinstance(payload.get("transactions"), list):

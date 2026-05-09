@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 from decimal import Decimal
 from pathlib import Path
@@ -18,7 +19,8 @@ class FakeResponse:
     def __init__(self, status_code: int, payload: dict):
         self.status_code = status_code
         self._payload = payload
-        self.content = b"{}"
+        self.text = json.dumps(payload)
+        self.content = self.text.encode("utf-8")
 
     def json(self) -> dict:
         return self._payload
