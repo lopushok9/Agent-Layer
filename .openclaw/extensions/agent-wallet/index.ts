@@ -12,6 +12,7 @@ let selectedSolanaNetwork = null;
 let selectedEvmNetwork = null;
 let selectedBtcNetwork = null;
 const PREVIEW_CACHE_TTL_MS = 15 * 60 * 1000;
+const PRIVATE_SWAP_CACHE_TTL_MS = 35 * 60 * 1000;
 const PREVIEW_BOUND_SWAP_TOOLS = new Set(["swap_solana_tokens", "swap_solana_privately"]);
 const approvalPreviewCache = new Map();
 const privateSwapOrderCache = new Map();
@@ -61,7 +62,10 @@ function cachePreviewForApproval(userId, toolName, payload) {
   const digest = previewDigest(preview);
   approvalPreviewCache.set(approvalCacheKey(userId, toolName), {
     digest,
-    expiresAt: Date.now() + PREVIEW_CACHE_TTL_MS,
+    expiresAt:
+      toolName === "swap_solana_privately"
+        ? Date.now() + PRIVATE_SWAP_CACHE_TTL_MS
+        : Date.now() + PREVIEW_CACHE_TTL_MS,
     preview,
     summary: preview.confirmation_summary,
   });
@@ -105,7 +109,7 @@ function cachePendingPrivateSwapOrder(userId, toolName, preview, details) {
   if (!houdiniId || !depositAddress) return;
   privateSwapOrderCache.set(approvalCacheKey(userId, toolName), {
     digest: previewDigest(preview),
-    expiresAt: Date.now() + PREVIEW_CACHE_TTL_MS,
+    expiresAt: Date.now() + PRIVATE_SWAP_CACHE_TTL_MS,
     order: {
       multi_id: typeof details.multi_id === "string" ? details.multi_id.trim() : null,
       houdini_id: houdiniId,
@@ -149,6 +153,21 @@ function formatPrivateSwapPendingOrderError(details) {
   if (orderStatus) parts.push(`status=${orderStatus}`);
   parts.push("Retry execute for this existing order instead of generating a new preview.");
   return parts.join(" ");
+}
+
+function listPendingPrivateSwapOrders(userId) {
+  const key = approvalCacheKey(userId, "swap_solana_privately");
+  const pending = privateSwapOrderCache.get(key);
+  if (!pending || typeof pending !== "object" || Number(pending.expiresAt || 0) <= Date.now()) {
+    privateSwapOrderCache.delete(key);
+    return [];
+  }
+  return [
+    {
+      ...(pending.order && typeof pending.order === "object" ? pending.order : {}),
+      expires_at_ms: Number(pending.expiresAt || 0),
+    },
+  ];
 }
 
 function resolvePluginConfig(api) {
@@ -455,6 +474,9 @@ async function issueApprovalToken(api, config, userId, toolName, previewPayload)
   if (previewPayload?.is_mainnet === true) {
     extraArgs.push("--mainnet-confirmed");
   }
+  if (toolName === "swap_solana_privately") {
+    extraArgs.push("--ttl-seconds", "1800");
+  }
   const payload = await callWalletCli(api, "issue-approval", extraArgs, config);
   const token = String(payload?.approval_token || "").trim();
   if (!token) {
@@ -573,6 +595,12 @@ function registerTool(api, definition) {
           usage:
             "Subsequent wallet calls in this OpenClaw plugin session use the EVM wallet on this network by default. You can still override a single EVM call with its network parameter.",
           data: payload?.data ?? {},
+        });
+      }
+
+      if (definition.name === "list_pending_solana_private_swaps") {
+        return asContent({
+          orders: listPendingPrivateSwapOrders(resolveUserId(api, resolvePluginConfig(api))),
         });
       }
 
@@ -734,6 +762,12 @@ const walletSessionToolDefinitions = [
 ];
 
 const solanaToolDefinitions = [
+  {
+    name: "list_pending_solana_private_swaps",
+    description:
+      "List cached pending Houdini private Solana orders from this OpenClaw session, including houdini_id, multi_id, deposit_address, and the last known order payload.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
   {
     name: "get_wallet_capabilities",
     description: "Describe the connected wallet backend, chain, and safety limits.",

@@ -816,8 +816,8 @@ class SolanaWalletBackend(AgentWalletBackend):
         *,
         deposit_address: str,
         mint: str,
-        timeout_seconds: float = 20.0,
-        poll_interval_seconds: float = 2.0,
+        timeout_seconds: float = 180.0,
+        poll_interval_seconds: float = 5.0,
     ) -> dict[str, Any]:
         deadline = asyncio.get_running_loop().time() + timeout_seconds
         while True:

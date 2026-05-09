@@ -35,6 +35,7 @@
       "get_lifi_quote",
       "get_lifi_supported_chains",
       "get_lifi_transfer_status",
+      "list_pending_solana_private_swaps",
       "get_solana_private_swap_status",
       "get_solana_token_prices",
       "get_wallet_address",
