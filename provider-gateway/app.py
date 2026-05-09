@@ -349,6 +349,8 @@ def _status_payload() -> dict[str, Any]:
         "houdini_features": {
             "tokens": True,
             "private_quotes": True,
+            "exchange_create": True,
+            "order_status": True,
             "multi_create": True,
             "multi_status": True,
             "multi_tx": True,
@@ -1173,6 +1175,36 @@ async def houdini_multi_create(request: Request) -> JSONResponse:
     return JSONResponse(payload, status_code=status_code)
 
 
+async def houdini_exchange_create(request: Request) -> JSONResponse:
+    auth_error = _require_bearer(request)
+    if auth_error:
+        return _json_error(auth_error, 401)
+
+    try:
+        body = _require_body_dict(await request.json())
+        quote_id = body.get("quoteId")
+        address_to = body.get("addressTo")
+        if not isinstance(quote_id, str) or not quote_id.strip():
+            return _json_error("Field 'quoteId' is required", 400)
+        if not isinstance(address_to, str) or not address_to.strip():
+            return _json_error("Field 'addressTo' is required", 400)
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except Exception:
+        return _json_error("Invalid JSON body", 400)
+
+    try:
+        status_code, payload = await _http_post(
+            f"{_houdini_base_url()}/exchanges",
+            headers={**_houdini_headers(request), "Content-Type": "application/json"},
+            json_body=body,
+        )
+    except (RuntimeError, httpx.HTTPError) as exc:
+        return _json_error(f"Houdini exchange create error: {exc}", 502)
+
+    return JSONResponse(payload, status_code=status_code)
+
+
 async def houdini_multi_status(request: Request) -> JSONResponse:
     auth_error = _require_bearer(request)
     if auth_error:
@@ -1189,6 +1221,26 @@ async def houdini_multi_status(request: Request) -> JSONResponse:
         )
     except (RuntimeError, httpx.HTTPError) as exc:
         return _json_error(f"Houdini multi status error: {exc}", 502)
+
+    return JSONResponse(payload, status_code=status_code)
+
+
+async def houdini_order_status(request: Request) -> JSONResponse:
+    auth_error = _require_bearer(request)
+    if auth_error:
+        return _json_error(auth_error, 401)
+
+    houdini_id = str(request.path_params.get("houdini_id", "")).strip()
+    if not houdini_id:
+        return _json_error("houdini_id is required", 400)
+
+    try:
+        status_code, payload = await _http_get(
+            f"{_houdini_base_url()}/orders/{houdini_id}",
+            headers=_houdini_headers(request),
+        )
+    except (RuntimeError, httpx.HTTPError) as exc:
+        return _json_error(f"Houdini order status error: {exc}", 502)
 
     return JSONResponse(payload, status_code=status_code)
 
@@ -1242,6 +1294,8 @@ routes = [
     Route("/v1/jupiter/swap/swap", jupiter_swap_swap, methods=["POST"]),
     Route("/v1/houdini/tokens", houdini_tokens, methods=["GET"]),
     Route("/v1/houdini/quotes/private", houdini_private_quotes, methods=["GET"]),
+    Route("/v1/houdini/exchanges", houdini_exchange_create, methods=["POST"]),
+    Route("/v1/houdini/orders/{houdini_id:str}", houdini_order_status, methods=["GET"]),
     Route("/v1/houdini/exchanges/multi", houdini_multi_create, methods=["POST"]),
     Route("/v1/houdini/exchanges/multi/{multi_id:str}", houdini_multi_status, methods=["GET"]),
     Route("/v1/houdini/exchanges/multi/{multi_id:str}/tx", houdini_multi_tx, methods=["GET"]),

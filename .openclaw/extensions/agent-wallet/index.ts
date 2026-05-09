@@ -928,7 +928,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "get_solana_private_swap_status",
-    description: "Check Houdini status for a Solana private payout created by swap_solana_privately.",
+    description: "Check Houdini status for a Solana private payout created by swap_solana_privately. Prefer houdini_id from the execute result; multi_id is only needed for legacy multi-order flows.",
     optional: true,
     parameters: {
       type: "object",
@@ -936,7 +936,7 @@ const solanaToolDefinitions = [
         multi_id: { type: "string" },
         houdini_id: { type: "string" },
       },
-      required: ["multi_id"],
+      anyOf: [{ required: ["multi_id"] }, { required: ["houdini_id"] }],
       additionalProperties: false,
     },
   },

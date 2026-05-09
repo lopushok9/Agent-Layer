@@ -46,6 +46,8 @@ Implemented endpoints:
 - `POST /v1/jupiter/earn/withdraw` — authenticated Jupiter Earn withdraw transaction build
 - `GET /v1/houdini/tokens` — authenticated Houdini token catalog relay
 - `GET /v1/houdini/quotes/private` — authenticated Houdini private quote relay
+- `POST /v1/houdini/exchanges` — authenticated Houdini single-order private exchange creation
+- `GET /v1/houdini/orders/{houdiniId}` — authenticated Houdini single-order status
 - `POST /v1/houdini/exchanges/multi` — authenticated Houdini multi-order creation
 - `GET /v1/houdini/exchanges/multi/{multiId}` — authenticated Houdini multi-order status
 - `GET /v1/houdini/exchanges/multi/{multiId}/tx` — authenticated Houdini Solana prebuilt transaction fetch
@@ -201,7 +203,7 @@ curl "http://localhost:8000/v1/houdini/quotes/private?from=sol-token-id&to=sol-t
 - user friendly: good default shared mode, while future `agent-wallet` integration can switch to direct user RPC when user keys are configured
 - launch flow stays non-custodial: gateway prepares metadata/config/launch tx, user wallet still signs and broadcasts
 - EVM shared RPC remains allowlisted. It is intended for wallet reads, simulation, fee estimation, and raw tx broadcast from the local signer, not as a generic public Ethereum proxy.
-- Houdini private swap routing stays non-custodial: the gateway owns partner secrets and compliance headers, but the local wallet still verifies, signs, and broadcasts the Solana funding transaction.
+- Houdini private swap routing stays non-custodial: the gateway owns partner secrets and compliance headers, but the local wallet still constructs the exact funding transfer locally, signs it, and broadcasts it.
 - Houdini `x-user-ip` is derived at the gateway from ingress headers such as `cf-connecting-ip`, `x-real-ip`, or `x-forwarded-for`; the client does not supply the authoritative IP.
 
 ## Agent-wallet mode

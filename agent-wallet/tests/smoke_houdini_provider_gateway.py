@@ -64,6 +64,21 @@ class FakeClient:
                     ]
                 },
             )
+        if url.endswith("/v1/houdini/orders/houdini_fake_1"):
+            return FakeResponse(
+                200,
+                {
+                    "houdiniId": "houdini_fake_1",
+                    "statusLabel": "WAITING",
+                    "depositAddress": "Deposit11111111111111111111111111111111111",
+                    "receiverAddress": "FakeRecipient1111111111111111111111111111111111",
+                    "anonymous": True,
+                    "from": "sol-token-id",
+                    "to": "sol-token-id",
+                    "inAmount": "0.1",
+                    "outAmount": "0.0985",
+                },
+            )
         if url.endswith("/v1/houdini/exchanges/multi/multi_fake_1/tx"):
             return FakeResponse(
                 200,
@@ -95,6 +110,21 @@ class FakeClient:
 
     async def post(self, url: str, *, json=None, headers=None):
         self.calls.append(("POST", url, None, json, headers or {}))
+        if url.endswith("/v1/houdini/exchanges"):
+            return FakeResponse(
+                200,
+                {
+                    "houdiniId": "houdini_fake_1",
+                    "statusLabel": "NEW",
+                    "depositAddress": "Deposit11111111111111111111111111111111111",
+                    "receiverAddress": "FakeRecipient1111111111111111111111111111111111",
+                    "anonymous": True,
+                    "from": "sol-token-id",
+                    "to": "sol-token-id",
+                    "inAmount": "0.1",
+                    "outAmount": "0.0985",
+                },
+            )
         if url.endswith("/v1/houdini/exchanges/multi"):
             return FakeResponse(
                 200,
@@ -165,6 +195,15 @@ async def main() -> None:
             ]
         )
         assert multi["multiId"] == "multi_fake_1"
+
+        exchange = await houdini.create_exchange(
+            quote_id="private-quote-1",
+            destination_address="FakeRecipient1111111111111111111111111111111111",
+        )
+        assert exchange["houdiniId"] == "houdini_fake_1"
+
+        order = await houdini.fetch_order_status(houdini_id="houdini_fake_1")
+        assert order["statusLabel"] == "WAITING"
 
         status = await houdini.fetch_multi_status(multi_id="multi_fake_1")
         assert status["orders"][0]["statusLabel"] == "WAITING"

@@ -200,7 +200,7 @@ The current MVP intentionally keeps the scope narrow:
 - supported private routes are same-token Solana payouts only
 - `SOL -> SOL`
 - `USDC -> USDC`
-- execution uses Houdini `multi` order creation plus the Solana prebuilt transaction endpoint, so the wallet still signs and verifies a concrete funding transaction locally before broadcast
+- execution binds to the approved Houdini `quoteId`, creates a single private exchange, and sends the exact Solana deposit locally from the wallet
 
 This is a private payout flow expressed in Houdini's swap terminology. Cross-token private swaps can be added later without changing the OpenClaw/Hermes approval model.
 

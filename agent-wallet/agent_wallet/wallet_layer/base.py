@@ -353,7 +353,7 @@ class AgentWalletBackend(ABC):
     async def get_solana_private_swap_status(
         self,
         *,
-        multi_id: str,
+        multi_id: str | None = None,
         houdini_id: str | None = None,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Solana private swap status lookup.")

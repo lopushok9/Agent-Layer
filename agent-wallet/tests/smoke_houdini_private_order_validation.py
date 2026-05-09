@@ -23,6 +23,7 @@ def main() -> None:
         "destination_address": "GkcdCet7HRRCS3PypzwZHgd5uzVT4A9uoKrUvXXj31Rf",
         "input_token_id": "usdc-token-id",
         "output_token_id": "usdc-token-id",
+        "input_amount_ui": 30,
         "input_token_address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
         "output_token_address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
         "input_token_symbol": "USDC",
@@ -36,6 +37,7 @@ def main() -> None:
         "to": "usdc-token-id",
         "fromAddress": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
         "toAddress": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "inAmount": 30,
         "inSymbol": "USDC.e",
         "outSymbol": "USDC.e",
     }

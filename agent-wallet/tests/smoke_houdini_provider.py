@@ -97,6 +97,21 @@ class FakeClient:
                     ]
                 },
             )
+        if "/orders/" in path:
+            return FakeResponse(
+                200,
+                {
+                    "houdiniId": "houdini_fake_1",
+                    "statusLabel": "WAITING",
+                    "depositAddress": "Deposit11111111111111111111111111111111111",
+                    "receiverAddress": "FakeRecipient1111111111111111111111111111111111",
+                    "anonymous": True,
+                    "from": "sol-token-id",
+                    "to": "sol-token-id",
+                    "inAmount": "0.1",
+                    "outAmount": "0.0985",
+                },
+            )
         if "/exchanges/multi/" in path and path.endswith("/tx"):
             parsed = parse_qs(urlparse(url).query)
             sender = (params or {}).get("sender") or parsed.get("sender", [""])[0]
@@ -134,6 +149,21 @@ class FakeClient:
     async def post(self, url: str, *, json=None, headers=None):
         self.calls.append(("POST", url, None, json, headers or {}))
         path = urlparse(url).path
+        if path.endswith("/exchanges"):
+            return FakeResponse(
+                200,
+                {
+                    "houdiniId": "houdini_fake_1",
+                    "statusLabel": "NEW",
+                    "depositAddress": "Deposit11111111111111111111111111111111111",
+                    "receiverAddress": "FakeRecipient1111111111111111111111111111111111",
+                    "anonymous": True,
+                    "from": "sol-token-id",
+                    "to": "sol-token-id",
+                    "inAmount": "0.1",
+                    "outAmount": "0.0985",
+                },
+            )
         if path.endswith("/exchanges/multi"):
             return FakeResponse(
                 200,
@@ -204,6 +234,15 @@ async def main() -> None:
         assert len(quotes) == 1
         best_quote = houdini.select_best_private_quote(quotes)
         assert best_quote["quoteId"] == "private-quote-1"
+
+        exchange = await houdini.create_exchange(
+            quote_id="private-quote-1",
+            destination_address="FakeRecipient1111111111111111111111111111111111",
+        )
+        assert exchange["houdiniId"] == "houdini_fake_1"
+
+        order = await houdini.fetch_order_status(houdini_id="houdini_fake_1")
+        assert order["statusLabel"] == "WAITING"
 
         multi = await houdini.create_multi_swap(
             orders=[

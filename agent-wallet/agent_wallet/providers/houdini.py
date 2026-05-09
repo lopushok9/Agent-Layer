@@ -397,6 +397,44 @@ async def create_multi_swap(
     return payload
 
 
+async def create_exchange(
+    *,
+    quote_id: str,
+    destination_address: str,
+) -> dict[str, Any]:
+    normalized_quote_id = str(quote_id).strip()
+    normalized_destination = str(destination_address).strip()
+    if not normalized_quote_id:
+        raise ProviderError("houdini", "quote_id is required.")
+    if not normalized_destination:
+        raise ProviderError("houdini", "destination_address is required.")
+
+    body = {
+        "quoteId": normalized_quote_id,
+        "addressTo": normalized_destination,
+    }
+    payload = None
+    if _gateway_enabled():
+        payload = await _gateway_post(
+            "/v1/houdini/exchanges",
+            body=body,
+            operation="Houdini exchange create",
+        )
+    if payload is None:
+        client = get_client()
+        response = await client.post(
+            f"{_base_url()}/exchanges",
+            json=body,
+            headers={**_require_compliance_headers(), "Content-Type": "application/json"},
+        )
+        payload = response.json() if response.content else {}
+        if response.status_code != 200:
+            raise ProviderError("houdini", f"HTTP {response.status_code}: {_normalize_error(payload)}")
+    if not isinstance(payload, dict):
+        raise ProviderError("houdini", "Unexpected exchange response from Houdini.")
+    return payload
+
+
 async def fetch_multi_status(*, multi_id: str) -> dict[str, Any]:
     payload = None
     normalized_multi_id = str(multi_id).strip()
@@ -417,6 +455,31 @@ async def fetch_multi_status(*, multi_id: str) -> dict[str, Any]:
             raise ProviderError("houdini", f"HTTP {response.status_code}: {_normalize_error(payload)}")
     if not isinstance(payload, dict) or not isinstance(payload.get("orders"), list):
         raise ProviderError("houdini", "Unexpected multi-status response from Houdini.")
+    return payload
+
+
+async def fetch_order_status(*, houdini_id: str) -> dict[str, Any]:
+    payload = None
+    normalized_houdini_id = str(houdini_id).strip()
+    if not normalized_houdini_id:
+        raise ProviderError("houdini", "houdini_id is required.")
+    if _gateway_enabled():
+        payload = await _gateway_get(
+            f"/v1/houdini/orders/{normalized_houdini_id}",
+            params=None,
+            operation="Houdini order status",
+        )
+    if payload is None:
+        client = get_client()
+        response = await client.get(
+            f"{_base_url()}/orders/{normalized_houdini_id}",
+            headers=_require_compliance_headers(),
+        )
+        payload = response.json() if response.content else {}
+        if response.status_code != 200:
+            raise ProviderError("houdini", f"HTTP {response.status_code}: {_normalize_error(payload)}")
+    if not isinstance(payload, dict):
+        raise ProviderError("houdini", "Unexpected order-status response from Houdini.")
     return payload
 
 

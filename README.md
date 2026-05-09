@@ -203,7 +203,7 @@ Optional private Solana payout routing is also available through Houdini. To ena
 - `HOUDINI_API_SECRET`
 - `HOUDINI_USER_IP`
 
-The first supported flow is intentionally narrow: same-token private Solana payouts (`SOL->SOL` and `USDC->USDC`) through the existing preview/prepare/execute safety model. The runtime creates the Houdini order server-side, fetches the prebuilt Solana funding transaction, verifies it locally, signs it with the local wallet, and then broadcasts it.
+The first supported flow is intentionally narrow: same-token private Solana payouts (`SOL->SOL` and `USDC->USDC`) through the existing preview/prepare/execute safety model. The runtime binds execute to the approved Houdini `quoteId`, creates a single private exchange, and then sends the exact deposit locally from the wallet. That removes the extra Solana batch-tx relay step and keeps signing local.
 
 For production, prefer placing the Houdini partner secrets on `provider-gateway` and exposing only the authenticated Houdini relay endpoints to `agent-wallet`. That keeps `HOUDINI_API_KEY` and `HOUDINI_API_SECRET` out of end-user runtimes while preserving local signing.
 

@@ -2235,7 +2235,7 @@ class OpenClawWalletAdapter:
                     name="get_solana_private_swap_status",
                     description=(
                         "Check Houdini status for a Solana private payout created by swap_solana_privately. "
-                        "Use multi_id from the execute result, and optionally houdini_id to focus one order."
+                        "Use houdini_id from the execute result. multi_id is still accepted for legacy multi-order flows."
                     ),
                     input_schema={
                         "type": "object",
@@ -2243,7 +2243,7 @@ class OpenClawWalletAdapter:
                             "multi_id": {"type": "string"},
                             "houdini_id": {"type": "string"},
                         },
-                        "required": ["multi_id"],
+                        "anyOf": [{"required": ["multi_id"]}, {"required": ["houdini_id"]}],
                         "additionalProperties": False,
                     },
                     read_only=True,
@@ -4733,13 +4733,19 @@ class OpenClawWalletAdapter:
             if tool_name == "get_solana_private_swap_status":
                 multi_id = args.get("multi_id")
                 houdini_id = args.get("houdini_id")
-                if not isinstance(multi_id, str) or not multi_id.strip():
-                    raise WalletBackendError("multi_id is required.")
+                if multi_id is not None and not isinstance(multi_id, str):
+                    raise WalletBackendError("multi_id must be a string when provided.")
                 if houdini_id is not None and not isinstance(houdini_id, str):
                     raise WalletBackendError("houdini_id must be a string when provided.")
+                normalized_multi_id = multi_id.strip() if isinstance(multi_id, str) and multi_id.strip() else None
+                normalized_houdini_id = (
+                    houdini_id.strip() if isinstance(houdini_id, str) and houdini_id.strip() else None
+                )
+                if normalized_multi_id is None and normalized_houdini_id is None:
+                    raise WalletBackendError("multi_id or houdini_id is required.")
                 data = await self.backend.get_solana_private_swap_status(
-                    multi_id=multi_id.strip(),
-                    houdini_id=houdini_id.strip() if isinstance(houdini_id, str) and houdini_id.strip() else None,
+                    multi_id=normalized_multi_id,
+                    houdini_id=normalized_houdini_id,
                 )
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
 

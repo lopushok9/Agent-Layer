@@ -949,7 +949,7 @@ class FakeBackend(AgentWalletBackend):
     async def get_solana_private_swap_status(
         self,
         *,
-        multi_id: str,
+        multi_id: str | None = None,
         houdini_id: str | None = None,
     ) -> dict:
         selected_order = {
@@ -2271,6 +2271,13 @@ async def main() -> None:
     )
     assert private_swap_status.ok
     assert private_swap_status.data["selected_status"] == "ANONYMIZING"
+
+    private_swap_status_by_houdini_id = await mainnet_adapter.invoke(
+        "get_solana_private_swap_status",
+        {"houdini_id": "houdini_private_1"},
+    )
+    assert private_swap_status_by_houdini_id.ok
+    assert private_swap_status_by_houdini_id.data["selected_houdini_id"] == "houdini_private_1"
 
     lifi_cross_chain_preview = await mainnet_adapter.invoke(
         "swap_solana_lifi_cross_chain_tokens",
