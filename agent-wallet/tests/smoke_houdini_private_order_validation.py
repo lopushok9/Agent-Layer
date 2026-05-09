@@ -80,7 +80,7 @@ def main() -> None:
 
     order_with_large_output_drift = {
         **order_with_display_symbol_drift,
-        "outAmount": 28.8,
+        "outAmount": 27.4,
     }
     try:
         backend._validate_houdini_order_output_against_preview(
