@@ -14,6 +14,7 @@ let selectedBtcNetwork = null;
 const PREVIEW_CACHE_TTL_MS = 15 * 60 * 1000;
 const PRIVATE_SWAP_CACHE_TTL_MS = 35 * 60 * 1000;
 const PREVIEW_BOUND_SWAP_TOOLS = new Set(["swap_solana_tokens", "swap_solana_privately"]);
+const PRIVATE_SWAP_APPROVAL_TOOL_NAME = "swap_solana_privately";
 const approvalPreviewCache = new Map();
 const privateSwapOrderCache = new Map();
 const WALLET_TOOL_ONLY_GUIDANCE =
@@ -173,7 +174,7 @@ function formatPrivateSwapRateLimitError(details) {
 }
 
 function listPendingPrivateSwapOrders(userId) {
-  const key = approvalCacheKey(userId, "swap_solana_privately");
+  const key = approvalCacheKey(userId, PRIVATE_SWAP_APPROVAL_TOOL_NAME);
   const pending = privateSwapOrderCache.get(key);
   if (!pending || typeof pending !== "object" || Number(pending.expiresAt || 0) <= Date.now()) {
     privateSwapOrderCache.delete(key);
@@ -669,6 +670,38 @@ function registerTool(api, definition) {
           }
         }
       }
+      if (definition.name === "continue_solana_private_swap") {
+        const cached = latestCachedPreview(userId, PRIVATE_SWAP_APPROVAL_TOOL_NAME);
+        if (cached?.preview && effectiveParams._approved_preview === undefined) {
+          effectiveParams._approved_preview = cached.preview;
+        }
+        if (!effectiveParams.approval_token && cached?.preview && cached?.summary) {
+          effectiveParams.approval_token = await issueApprovalToken(
+            api,
+            configOverride,
+            userId,
+            PRIVATE_SWAP_APPROVAL_TOOL_NAME,
+            cached.preview
+          );
+        }
+        if (effectiveParams._resume_private_swap_order === undefined && cached?.preview) {
+          const pendingOrder = latestPendingPrivateSwapOrder(
+            userId,
+            PRIVATE_SWAP_APPROVAL_TOOL_NAME,
+            cached.preview
+          );
+          if (pendingOrder) {
+            if (
+              effectiveParams.houdini_id &&
+              pendingOrder.houdini_id &&
+              String(effectiveParams.houdini_id).trim() !== String(pendingOrder.houdini_id).trim()
+            ) {
+              throw new Error("The requested houdini_id does not match the cached pending private swap order.");
+            }
+            effectiveParams._resume_private_swap_order = pendingOrder;
+          }
+        }
+      }
       const executeWalletTool = async () =>
         callWalletCli(api, "invoke", [
           "--tool",
@@ -694,7 +727,12 @@ function registerTool(api, definition) {
         while (true) {
           try {
             payload = await executeWalletTool();
-            clearPendingPrivateSwapOrder(userId, definition.name);
+            const executionState = payload?.data?.execution_state;
+            if (executionState === "awaiting_deposit_funding" && approvedPreview) {
+              cachePendingPrivateSwapOrder(userId, definition.name, approvedPreview, payload.data);
+            } else {
+              clearPendingPrivateSwapOrder(userId, definition.name);
+            }
             break;
           } catch (error) {
             const errorCode = typeof error?.code === "string" ? error.code : "";
@@ -726,6 +764,11 @@ function registerTool(api, definition) {
             }
             throw error;
           }
+        }
+      } else if (definition.name === "continue_solana_private_swap") {
+        payload = await executeWalletTool();
+        if (payload?.data?.execution_state === "funding_submitted") {
+          clearPendingPrivateSwapOrder(userId, PRIVATE_SWAP_APPROVAL_TOOL_NAME);
         }
       } else {
         payload = await executeWalletTool();
@@ -1104,7 +1147,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "swap_solana_privately",
-    description: `Preview or execute a Solana private payout through Houdini's anonymous routing. The initial implementation supports same-token private payouts only, such as SOL->SOL or USDC->USDC. Use preview first, then execute after explicit approval. execute requires a host-issued approval token bound to the previewed operation. ${WALLET_TOOL_ONLY_GUIDANCE}`,
+    description: `Preview or create a Solana private payout through Houdini's anonymous routing. The initial implementation supports same-token private payouts only, such as SOL->SOL or USDC->USDC. Use preview first, then execute after explicit approval. The first execute creates the Houdini order and returns its deposit address; use continue_solana_private_swap to submit the funding transfer. ${WALLET_TOOL_ONLY_GUIDANCE}`,
     optional: true,
     parameters: {
       type: "object",
@@ -1120,6 +1163,21 @@ const solanaToolDefinitions = [
         approval_token: { type: "string" },
       },
       required: ["input_token", "output_token", "destination_address", "amount", "mode", "purpose"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "continue_solana_private_swap",
+    description:
+      "Continue a previously created Houdini private Solana payout and submit the funding transfer to the cached deposit address. Use this after swap_solana_privately execute has returned a pending order.",
+    optional: true,
+    parameters: {
+      type: "object",
+      properties: {
+        houdini_id: { type: "string" },
+        approval_token: { type: "string" },
+      },
+      required: ["approval_token"],
       additionalProperties: false,
     },
   },

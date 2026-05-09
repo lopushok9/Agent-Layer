@@ -94,6 +94,7 @@ def main() -> None:
 
     also_allow = config_data["tools"]["alsoAllow"]
     assert "swap_solana_privately" in also_allow
+    assert "continue_solana_private_swap" in also_allow
     assert "list_pending_solana_private_swaps" in also_allow
     assert "get_solana_private_swap_status" in also_allow
     assert "kamino_lend_deposit" in also_allow

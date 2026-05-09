@@ -7,6 +7,7 @@
     "tools": [
       "claim_bags_fees",
       "close_empty_token_accounts",
+      "continue_solana_private_swap",
       "get_active_wallet_backend",
       "get_bags_claimable_positions",
       "get_bags_fee_analytics",
@@ -35,7 +36,6 @@
       "get_lifi_quote",
       "get_lifi_supported_chains",
       "get_lifi_transfer_status",
-      "list_pending_solana_private_swaps",
       "get_solana_private_swap_status",
       "get_solana_token_prices",
       "get_wallet_address",
@@ -49,6 +49,7 @@
       "kamino_lend_repay",
       "kamino_lend_withdraw",
       "launch_bags_token",
+      "list_pending_solana_private_swaps",
       "manage_evm_aave_position",
       "manage_evm_lido_position",
       "manage_evm_lido_withdrawal",

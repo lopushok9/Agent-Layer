@@ -1347,6 +1347,114 @@ class SolanaWalletBackend(AgentWalletBackend):
             latest_order = await houdini.fetch_order_status(houdini_id=houdini_id)
             if isinstance(latest_order, dict) and latest_order:
                 order = latest_order
+
+            order_validation = self._validate_houdini_order_against_preview(
+                order=order,
+                preview=preview,
+            )
+            output_validation = self._validate_houdini_order_output_against_preview(
+                order=order,
+                preview=preview,
+            )
+            input_decimals = int(preview.get("input_token_decimals") or (9 if bool(preview.get("input_is_native")) else 0))
+            input_amount_raw = int(
+                (Decimal(str(preview["input_amount_ui"])) * (Decimal(10) ** input_decimals))
+                .to_integral_value()
+            )
+            deposit_address = str(order.get("depositAddress") or "").strip()
+            if not deposit_address:
+                raise WalletBackendError("Houdini private swap response is missing depositAddress.")
+
+            if bool(preview.get("input_is_native")):
+                funding_result = await self.send_native_transfer(
+                    recipient=deposit_address,
+                    amount_native=float(Decimal(str(preview["input_amount_ui"]))),
+                )
+            else:
+                try:
+                    funding_result = await self._send_houdini_exact_spl_deposit(
+                        recipient_token_account=deposit_address,
+                        mint=str(preview.get("input_token_address") or "").strip(),
+                        amount_raw=input_amount_raw,
+                        decimals=input_decimals,
+                    )
+                except WalletBackendError as exc:
+                    if exc.code == "houdini_deposit_not_ready":
+                        details = dict(exc.details or {})
+                        details.update(
+                            {
+                                "multi_id": multi_id,
+                                "houdini_id": houdini_id,
+                                "deposit_address": deposit_address,
+                                "order_status": order.get("statusLabel"),
+                                "order": order,
+                                "input_token_address": str(preview.get("input_token_address") or "").strip(),
+                                "input_amount_raw": str(input_amount_raw),
+                                "input_decimals": input_decimals,
+                            }
+                        )
+                        raise WalletBackendError(
+                            "Houdini order exists, but its Solana deposit account is not ready yet. Retry continue for the existing order instead of generating a new preview.",
+                            code="houdini_deposit_not_ready",
+                            details=details,
+                        ) from exc
+                    raise
+
+            signature = str(funding_result.get("signature") or "").strip() or None
+            confirmed = bool(funding_result.get("confirmed"))
+
+            return {
+                "chain": "solana",
+                "network": self.network,
+                "mode": "execute",
+                "asset_type": "solana-private-swap",
+                "owner": owner,
+                "destination_address": str(preview["destination_address"]),
+                "input_token_id": preview["input_token_id"],
+                "output_token_id": preview["output_token_id"],
+                "input_token_symbol": preview["input_token_symbol"],
+                "output_token_symbol": preview["output_token_symbol"],
+                "input_token_address": preview["input_token_address"],
+                "output_token_address": preview["output_token_address"],
+                "input_is_native": bool(preview.get("input_is_native")),
+                "input_amount_ui": preview["input_amount_ui"],
+                "estimated_output_amount_ui": preview["estimated_output_amount_ui"],
+                "private_duration_minutes": order.get("eta") or preview.get("private_duration_minutes"),
+                "multi_id": multi_id,
+                "houdini_id": houdini_id,
+                "deposit_address": deposit_address,
+                "order_status": order.get("statusLabel"),
+                "order": order,
+                "signature": signature,
+                "broadcasted": bool(signature),
+                "confirmed": confirmed,
+                "confirmation_status": funding_result.get("confirmation_status"),
+                "slot": funding_result.get("slot"),
+                "verification": {
+                    "verified": True,
+                    "deposit_address": deposit_address,
+                    "amount_raw": str(input_amount_raw),
+                    "is_native_input": bool(preview.get("input_is_native")),
+                    "token_mint": (
+                        None
+                        if bool(preview.get("input_is_native"))
+                        else str(preview.get("input_token_address") or "").strip()
+                    ),
+                    "quote_bound_single_exchange": True,
+                },
+                "simulation": None,
+                "provider_order_validation": order_validation,
+                "output_validation": output_validation,
+                "funding_transfer": funding_result,
+                "execute_response": funding_result.get("execute_response"),
+                "status_tracking": {
+                    "multi_id": multi_id,
+                    "houdini_id": houdini_id,
+                    "poll_status_tool": "get_solana_private_swap_status",
+                },
+                "source": "houdini",
+                "execution_state": "funding_submitted",
+            }
         else:
             try:
                 create_payload = await houdini.create_exchange(
@@ -1385,118 +1493,68 @@ class SolanaWalletBackend(AgentWalletBackend):
             houdini_id = str(order.get("houdiniId") or create_payload.get("houdiniId") or "").strip()
             if not houdini_id:
                 raise WalletBackendError("Houdini private swap response is missing the order identifier.")
-            if str(order.get("statusLabel") or "").strip().upper() == "INITIALIZING":
-                order = await self._wait_for_houdini_single_order_ready(
-                    houdini_id=houdini_id,
-                    initial_order=order,
-                )
+            deposit_address = str(order.get("depositAddress") or "").strip()
+            if not deposit_address:
+                raise WalletBackendError("Houdini private swap response is missing depositAddress.")
 
-        order_validation = self._validate_houdini_order_against_preview(
-            order=order,
-            preview=preview,
-        )
-        output_validation = self._validate_houdini_order_output_against_preview(
-            order=order,
-            preview=preview,
-        )
-        input_decimals = int(preview.get("input_token_decimals") or (9 if bool(preview.get("input_is_native")) else 0))
-        input_amount_raw = int(
-            (Decimal(str(preview["input_amount_ui"])) * (Decimal(10) ** input_decimals))
-            .to_integral_value()
-        )
-        deposit_address = str(order.get("depositAddress") or "").strip()
-        if not deposit_address:
-            raise WalletBackendError("Houdini private swap response is missing depositAddress.")
-
-        if bool(preview.get("input_is_native")):
-            funding_result = await self.send_native_transfer(
-                recipient=deposit_address,
-                amount_native=float(Decimal(str(preview["input_amount_ui"]))),
+            order_validation = self._validate_houdini_order_against_preview(
+                order=order,
+                preview=preview,
             )
-        else:
-            try:
-                funding_result = await self._send_houdini_exact_spl_deposit(
-                    recipient_token_account=deposit_address,
-                    mint=str(preview.get("input_token_address") or "").strip(),
-                    amount_raw=input_amount_raw,
-                    decimals=input_decimals,
-                )
-            except WalletBackendError as exc:
-                if exc.code == "houdini_deposit_not_ready":
-                    details = dict(exc.details or {})
-                    details.update(
-                        {
-                            "multi_id": multi_id,
-                            "houdini_id": houdini_id,
-                            "deposit_address": deposit_address,
-                            "order_status": order.get("statusLabel"),
-                            "order": order,
-                            "input_token_address": str(preview.get("input_token_address") or "").strip(),
-                            "input_amount_raw": str(input_amount_raw),
-                            "input_decimals": input_decimals,
-                        }
-                    )
-                    raise WalletBackendError(
-                        "Houdini order exists, but its Solana deposit account is not ready yet. Retry execute for the existing order instead of generating a new preview.",
-                        code="houdini_deposit_not_ready",
-                        details=details,
-                    ) from exc
-                raise
+            output_validation = self._validate_houdini_order_output_against_preview(
+                order=order,
+                preview=preview,
+            )
 
-        signature = str(funding_result.get("signature") or "").strip() or None
-        confirmed = bool(funding_result.get("confirmed"))
-
-        return {
-            "chain": "solana",
-            "network": self.network,
-            "mode": "execute",
-            "asset_type": "solana-private-swap",
-            "owner": owner,
-            "destination_address": str(preview["destination_address"]),
-            "input_token_id": preview["input_token_id"],
-            "output_token_id": preview["output_token_id"],
-            "input_token_symbol": preview["input_token_symbol"],
-            "output_token_symbol": preview["output_token_symbol"],
-            "input_token_address": preview["input_token_address"],
-            "output_token_address": preview["output_token_address"],
-            "input_is_native": bool(preview.get("input_is_native")),
-            "input_amount_ui": preview["input_amount_ui"],
-            "estimated_output_amount_ui": preview["estimated_output_amount_ui"],
-            "private_duration_minutes": order.get("eta") or preview.get("private_duration_minutes"),
-            "multi_id": multi_id,
-            "houdini_id": houdini_id,
-            "deposit_address": deposit_address,
-            "order_status": order.get("statusLabel"),
-            "order": order,
-            "signature": signature,
-            "broadcasted": bool(signature),
-            "confirmed": confirmed,
-            "confirmation_status": funding_result.get("confirmation_status"),
-            "slot": funding_result.get("slot"),
-            "verification": {
-                "verified": True,
-                "deposit_address": deposit_address,
-                "amount_raw": str(input_amount_raw),
-                "is_native_input": bool(preview.get("input_is_native")),
-                "token_mint": (
-                    None
-                    if bool(preview.get("input_is_native"))
-                    else str(preview.get("input_token_address") or "").strip()
-                ),
-                "quote_bound_single_exchange": True,
-            },
-            "simulation": None,
-            "provider_order_validation": order_validation,
-            "output_validation": output_validation,
-            "funding_transfer": funding_result,
-            "execute_response": funding_result.get("execute_response"),
-            "status_tracking": {
+            return {
+                "chain": "solana",
+                "network": self.network,
+                "mode": "execute",
+                "asset_type": "solana-private-swap",
+                "owner": owner,
+                "destination_address": str(preview["destination_address"]),
+                "input_token_id": preview["input_token_id"],
+                "output_token_id": preview["output_token_id"],
+                "input_token_symbol": preview["input_token_symbol"],
+                "output_token_symbol": preview["output_token_symbol"],
+                "input_token_address": preview["input_token_address"],
+                "output_token_address": preview["output_token_address"],
+                "input_is_native": bool(preview.get("input_is_native")),
+                "input_amount_ui": preview["input_amount_ui"],
+                "estimated_output_amount_ui": preview["estimated_output_amount_ui"],
+                "private_duration_minutes": order.get("eta") or preview.get("private_duration_minutes"),
                 "multi_id": multi_id,
                 "houdini_id": houdini_id,
-                "poll_status_tool": "get_solana_private_swap_status",
-            },
-            "source": "houdini",
-        }
+                "deposit_address": deposit_address,
+                "order_status": order.get("statusLabel"),
+                "order": order,
+                "provider_order_validation": order_validation,
+                "output_validation": output_validation,
+                "status_tracking": {
+                    "multi_id": multi_id,
+                    "houdini_id": houdini_id,
+                    "poll_status_tool": "get_solana_private_swap_status",
+                },
+                "source": "houdini",
+                "execution_state": "awaiting_deposit_funding",
+                "next_step": "Call continue_solana_private_swap with the same approved private swap context to submit the funding transfer.",
+            }
+
+    async def continue_solana_private_swap(
+        self,
+        *,
+        approved_preview: dict[str, Any],
+        existing_order: dict[str, Any],
+    ) -> dict[str, Any]:
+        return await self.execute_solana_private_swap(
+            input_token=str(approved_preview.get("input_token_query") or approved_preview.get("input_token_symbol") or ""),
+            output_token=str(approved_preview.get("output_token_query") or approved_preview.get("output_token_symbol") or ""),
+            destination_address=str(approved_preview.get("destination_address") or ""),
+            amount_ui=float(approved_preview.get("input_amount_ui") or 0),
+            use_xmr=bool(approved_preview.get("use_xmr", False)),
+            approved_preview=approved_preview,
+            existing_order=existing_order,
+        )
 
     async def preview_solana_lifi_cross_chain_swap(
         self,

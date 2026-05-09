@@ -2179,10 +2179,10 @@ class OpenClawWalletAdapter:
                 AgentToolSpec(
                     name="swap_solana_privately",
                     description=(
-                        "Preview or execute a Solana private payout through Houdini's anonymous routing. "
+                        "Preview or create a Solana private payout through Houdini's anonymous routing. "
                         "The initial implementation supports same-token private payouts only, such as SOL->SOL or USDC->USDC. "
                         "Use preview first, then execute after explicit approval. "
-                        "execute requires a host-issued approval token bound to the previewed operation."
+                        "The first execute creates the Houdini order and returns the deposit address; use continue_solana_private_swap to submit the funding transfer."
                     ),
                     input_schema={
                         "type": "object",
@@ -2223,6 +2223,35 @@ class OpenClawWalletAdapter:
                             "mode",
                             "purpose",
                         ],
+                        "additionalProperties": False,
+                    },
+                    read_only=False,
+                    requires_explicit_user_intent=True,
+                    risk_level="high",
+                )
+            )
+
+            tools.append(
+                AgentToolSpec(
+                    name="continue_solana_private_swap",
+                    description=(
+                        "Continue a previously created Houdini Solana private payout and submit the funding transfer "
+                        "to the saved deposit address. Use this only after swap_solana_privately execute has returned "
+                        "a pending order with deposit address details."
+                    ),
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "houdini_id": {
+                                "type": "string",
+                                "description": "Optional Houdini order id for the pending private payout. If omitted, the host may use the latest cached pending order.",
+                            },
+                            "approval_token": {
+                                "type": "string",
+                                "description": "Approval token issued from the original private swap preview.",
+                            },
+                        },
+                        "required": ["approval_token"],
                         "additionalProperties": False,
                     },
                     read_only=False,
@@ -4731,6 +4760,72 @@ class OpenClawWalletAdapter:
                     data=self._annotate_sensitive_payload(
                         result,
                         action_label="Solana private swap",
+                        mode="execute",
+                    ),
+                )
+
+            if tool_name == "continue_solana_private_swap":
+                approval_token = args.get("approval_token")
+                approved_preview = args.get("_approved_preview")
+                resume_private_swap_order = args.get("_resume_private_swap_order")
+                if not isinstance(approved_preview, dict):
+                    raise WalletBackendError(
+                        "Approved private swap preview payload is required. Create the private swap order first."
+                    )
+                if not isinstance(resume_private_swap_order, dict) or not resume_private_swap_order:
+                    raise WalletBackendError(
+                        "A pending Houdini private swap order is required. Create the private swap order first."
+                    )
+
+                approval_payload = inspect_approval_token(
+                    approval_token,
+                    tool_name="swap_solana_privately",
+                    network=str(getattr(self.backend, "network", "unknown")),
+                    require_mainnet_confirmation=self._is_mainnet_for_backend(self.backend),
+                )
+                approval_summary = approval_payload.get("binding", {}).get("summary")
+                if not isinstance(approval_summary, dict):
+                    raise WalletBackendError(
+                        "approval_token does not match the requested private swap. Generate a new approval from the preview first."
+                    )
+
+                approval_summary_copy = dict(approval_summary)
+                if isinstance(approval_summary_copy.get("_preview_digest"), str):
+                    if preview_payload_digest(approved_preview) != approval_summary_copy["_preview_digest"]:
+                        raise WalletBackendError(
+                            "approved preview payload does not match the approval token. Generate a new preview and approval before continue."
+                        )
+                    preview_summary = self._build_confirmation_summary(
+                        action_label="Solana private swap",
+                        payload=approved_preview,
+                    )
+                    summary_without_digest = {
+                        key: value
+                        for key, value in approval_summary_copy.items()
+                        if key != "_preview_digest"
+                    }
+                    if preview_summary != summary_without_digest:
+                        raise WalletBackendError(
+                            "approved preview payload does not match the approval token. Generate a new preview and approval before continue."
+                        )
+
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name="swap_solana_privately",
+                    summary=approval_summary_copy,
+                    action_label="Solana private swap",
+                )
+
+                result = await self.backend.continue_solana_private_swap(
+                    approved_preview=approved_preview,
+                    existing_order=resume_private_swap_order,
+                )
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=self._annotate_sensitive_payload(
+                        result,
+                        action_label="Solana private swap funding",
                         mode="execute",
                     ),
                 )
