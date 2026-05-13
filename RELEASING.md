@@ -38,6 +38,9 @@ agent-wallet/pyproject.toml
 ```
 
 If those versions do not match the tag, the workflow fails before publishing.
+The same `v*` tag can also trigger the ClawHub plugin publish workflow, so keep
+the root installer versions aligned with the ClawHub plugin package versions
+when you want one GitHub release to ship both surfaces together.
 
 ## Stable Release
 
@@ -216,6 +219,30 @@ Users then install them natively through OpenClaw:
 openclaw plugins install clawhub:@agentlayertech/agent-wallet-plugin
 openclaw plugins install clawhub:@agentlayertech/pay-bridge-plugin
 ```
+
+GitHub Actions can publish the same packages automatically from tags and manual
+dispatch through `.github/workflows/clawhub-plugins.yml`.
+
+Required repository secret:
+
+```text
+CLAWHUB_TOKEN
+```
+
+Workflow behavior:
+
+- `pull_request`: packs both plugins and runs ClawHub `--dry-run`
+- `workflow_dispatch`: publishes or dry-runs based on the `dry_run` input
+- `push` on `v*` tags: publishes both plugins automatically
+
+The workflow currently publishes:
+
+- `.openclaw/extensions/agent-wallet` as `bundle-plugin`
+- `.openclaw/extensions/pay-bridge` as `code-plugin`
+
+`agent-wallet` stays on `bundle-plugin` because that package name was first
+published to ClawHub with that family, and ClawHub does not allow family
+changes for an existing package record.
 
 ## Runtime Layout
 

@@ -1,0 +1,108 @@
+name: ClawHub plugins
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/clawhub-plugins.yml"
+      - ".openclaw/extensions/agent-wallet/**"
+      - ".openclaw/extensions/pay-bridge/**"
+      - "scripts/manage_openclaw_plugin_packages.mjs"
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run ClawHub publish in dry-run mode"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - id: agent-wallet
+            dir: .openclaw/extensions/agent-wallet
+            family: bundle-plugin
+            tarball_prefix: agentlayertech-agent-wallet-plugin
+            source_path: .openclaw/extensions/agent-wallet
+          - id: pay-bridge
+            dir: .openclaw/extensions/pay-bridge
+            family: code-plugin
+            tarball_prefix: agentlayertech-pay-bridge-plugin
+            source_path: .openclaw/extensions/pay-bridge
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Build OpenClaw plugin runtime artifacts
+        run: npm run build:openclaw-plugins
+
+      - name: Validate OpenClaw plugin package metadata
+        run: npm run check:openclaw-plugins
+
+      - name: Resolve package version
+        id: version
+        run: |
+          node -e 'const fs=require("fs"); const pkg=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(`version=${pkg.version}\n`);' \
+            "${{ matrix.package.dir }}/package.json" >> "$GITHUB_OUTPUT"
+
+      - name: Pack plugin tarball
+        run: |
+          cd "${{ matrix.package.dir }}"
+          NPM_CONFIG_CACHE=/tmp/npm-cache npm pack
+
+      - name: Install ClawHub CLI
+        run: npm install -g clawhub@0.15.0
+
+      - name: Login to ClawHub
+        if: github.event_name != 'pull_request'
+        run: clawhub login --token "${{ secrets.CLAWHUB_TOKEN }}"
+
+      - name: Dry-run publish on pull requests
+        if: github.event_name == 'pull_request'
+        run: |
+          clawhub package publish \
+            "${{ github.workspace }}/${{ matrix.package.dir }}/${{ matrix.package.tarball_prefix }}-${{ steps.version.outputs.version }}.tgz" \
+            --family "${{ matrix.package.family }}" \
+            --source-repo "${{ github.repository }}" \
+            --source-commit "${{ github.event.pull_request.head.sha }}" \
+            --source-path "${{ matrix.package.source_path }}" \
+            --dry-run
+
+      - name: Publish on tags
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          clawhub package publish \
+            "${{ github.workspace }}/${{ matrix.package.dir }}/${{ matrix.package.tarball_prefix }}-${{ steps.version.outputs.version }}.tgz" \
+            --family "${{ matrix.package.family }}" \
+            --source-repo "${{ github.repository }}" \
+            --source-commit "${{ github.sha }}" \
+            --source-path "${{ matrix.package.source_path }}"
+
+      - name: Publish or dry-run on manual dispatch
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          EXTRA_FLAG=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            EXTRA_FLAG="--dry-run"
+          fi
+          clawhub package publish \
+            "${{ github.workspace }}/${{ matrix.package.dir }}/${{ matrix.package.tarball_prefix }}-${{ steps.version.outputs.version }}.tgz" \
+            --family "${{ matrix.package.family }}" \
+            --source-repo "${{ github.repository }}" \
+            --source-commit "${{ github.sha }}" \
+            --source-path "${{ matrix.package.source_path }}" \
+            $EXTRA_FLAG

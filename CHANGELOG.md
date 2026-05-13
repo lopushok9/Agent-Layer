@@ -17,6 +17,9 @@
 - Documented the dual-install model: keep `npx @agentlayer.tech/wallet install`
   for runtime/bootstrap, and use `openclaw plugins install clawhub:...` for the
   native OpenClaw plugin packages.
+- Added a GitHub Actions workflow at `.github/workflows/clawhub-plugins.yml`
+  that can dry-run ClawHub publishes on pull requests and publish both OpenClaw
+  plugin packages on `v*` tags or manual dispatch.
 
 ## v0.1.14 - 2026-05-13
 
