@@ -1,0 +1,34 @@
+{
+  "id": "pay-bridge",
+  "name": "pay.sh Bridge",
+  "description": "Thin OpenClaw bridge to the local pay.sh CLI for paid API discovery and execution.",
+  "version": "0.1.0",
+  "contracts": {
+    "tools": [
+      "pay_status",
+      "pay_wallet_info",
+      "pay_search_services",
+      "pay_get_service_endpoints",
+      "pay_api_request"
+    ]
+  },
+  "skills": ["skills/pay-operator"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "payBinary": {
+        "type": "string",
+        "description": "Absolute path or executable name for the local pay.sh binary."
+      },
+      "defaultAccount": {
+        "type": "string",
+        "description": "Optional pay account name to use when a tool call does not specify one."
+      },
+      "requireHttps": {
+        "type": "boolean",
+        "description": "If true, pay_api_request refuses non-HTTPS URLs."
+      }
+    }
+  }
+}
