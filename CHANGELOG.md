@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.1.14 - 2026-05-13
+
 - Added a separate `.openclaw/extensions/pay-bridge/` plugin that keeps
   `pay.sh` API payments outside the main AgentLayer execution wallet stack.
 - Added OpenClaw tools for local `pay` discovery and execution:
