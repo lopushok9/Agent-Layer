@@ -34,6 +34,7 @@ def main() -> None:
         json.dumps(
             {
                 "plugins": {
+                    "allow": ["agent-wallet"],
                     "entries": {
                         "agent-wallet": {
                             "enabled": True,
@@ -85,12 +86,17 @@ def main() -> None:
 
     config_data = json.loads(config_path.read_text(encoding="utf-8"))
     plugin_config = config_data["plugins"]["entries"]["agent-wallet"]["config"]
+    pay_bridge_config = config_data["plugins"]["entries"]["pay-bridge"]["config"]
     assert plugin_config["providerGatewayUrl"] == "https://example.gateway"
     assert plugin_config["keypairPath"] == "/tmp/existing-wallet.json"
     assert plugin_config["refuseMainnetWalletRecreation"] is True
     assert plugin_config["userId"] == "existing-user"
     assert plugin_config["backend"] == "solana_local"
     assert plugin_config["network"] == "mainnet"
+    assert "agent-wallet" in config_data["plugins"]["allow"]
+    assert "pay-bridge" in config_data["plugins"]["allow"]
+    assert pay_bridge_config["requireHttps"] is True
+    assert isinstance(pay_bridge_config["payBinary"], str) and pay_bridge_config["payBinary"]
 
     also_allow = config_data["tools"]["alsoAllow"]
     assert "swap_solana_privately" in also_allow
@@ -99,6 +105,8 @@ def main() -> None:
     assert "get_solana_private_swap_status" in also_allow
     assert "kamino_lend_deposit" in also_allow
     assert "kamino_lend_repay" in also_allow
+    assert "pay_status" in also_allow
+    assert "pay_api_request" in also_allow
 
     print("smoke_install_openclaw_local_config_preserves_existing_config: ok")
 

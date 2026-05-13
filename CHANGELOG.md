@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added a separate `.openclaw/extensions/pay-bridge/` plugin that keeps
+  `pay.sh` API payments outside the main AgentLayer execution wallet stack.
+- Added OpenClaw tools for local `pay` discovery and execution:
+  `pay_status`, `pay_wallet_info`, `pay_search_services`,
+  `pay_get_service_endpoints`, and `pay_api_request`.
+- Updated the local OpenClaw installer/runtime config flow to package and
+  enable the `pay-bridge` plugin alongside `agent-wallet`, including its
+  tool allowlist and absolute `pay` binary path when available.
 - Added an optional Hermes Agent bridge plugin under `hermes/plugins/agent_wallet`
   that forwards into the existing Python wallet CLI instead of duplicating
   OpenClaw wallet tools or policy.

@@ -18,13 +18,16 @@ def main() -> None:
 
     runtime_root = temp_root / "agent-wallet-runtime" / "current"
     runtime_extension = runtime_root / ".openclaw" / "extensions" / "agent-wallet"
+    pay_bridge_extension = runtime_root / ".openclaw" / "extensions" / "pay-bridge"
     runtime_package = runtime_root / "agent-wallet"
     runtime_venv_bin = runtime_package / ".runtime-venv" / "bin"
     runtime_extension.mkdir(parents=True, exist_ok=True)
+    pay_bridge_extension.mkdir(parents=True, exist_ok=True)
     runtime_package.mkdir(parents=True, exist_ok=True)
     runtime_venv_bin.mkdir(parents=True, exist_ok=True)
 
     (runtime_extension / "openclaw.plugin.json").write_text('{"id":"agent-wallet"}\n', encoding="utf-8")
+    (pay_bridge_extension / "openclaw.plugin.json").write_text('{"id":"pay-bridge"}\n', encoding="utf-8")
     wrapper = runtime_venv_bin / "openclaw-agent-wallet-python"
     wrapper.write_text('#!/bin/sh\nexec "$(dirname "$0")/python" "$@"\n', encoding="utf-8")
     wrapper.chmod(0o755)
@@ -53,14 +56,24 @@ def main() -> None:
     payload = json.loads(completed.stdout)
     assert payload["ok"] is True
     assert Path(payload["extension_path"]).resolve() == runtime_extension.resolve()
+    assert Path(payload["pay_bridge_extension_path"]).resolve() == pay_bridge_extension.resolve()
     assert Path(payload["package_root"]).resolve() == runtime_package.resolve()
     assert Path(payload["python_bin"]).resolve() == wrapper.resolve()
 
     config_data = json.loads(config_path.read_text(encoding="utf-8"))
     plugin_config = config_data["plugins"]["entries"]["agent-wallet"]["config"]
-    assert config_data["plugins"]["load"]["paths"] == [str(runtime_extension.resolve())]
+    pay_bridge_config = config_data["plugins"]["entries"]["pay-bridge"]["config"]
+    assert config_data["plugins"]["load"]["paths"] == [
+        str(runtime_extension.resolve()),
+        str(pay_bridge_extension.resolve()),
+    ]
+    assert "agent-wallet" in config_data["plugins"]["allow"]
+    assert "pay-bridge" in config_data["plugins"]["allow"]
     assert plugin_config["packageRoot"] == str(runtime_package.resolve())
     assert plugin_config["pythonBin"] == str(wrapper.resolve())
+    assert pay_bridge_config["requireHttps"] is True
+    assert isinstance(pay_bridge_config["payBinary"], str) and pay_bridge_config["payBinary"]
+    assert "pay_status" in config_data["tools"]["alsoAllow"]
 
     print("smoke_install_openclaw_local_config_runtime_defaults: ok")
 

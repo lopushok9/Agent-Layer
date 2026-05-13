@@ -18,7 +18,7 @@ AgentLayer is a beta local-first wallet and finance stack for agents.
 The repository includes:
 
 - `agent-wallet/` - the main wallet backend for AgentLayer
-- `.openclaw/` - the local AgentLayer bridge layer
+- `.openclaw/` - the local AgentLayer bridge layer, including the OpenClaw wallet bridge and the `pay.sh` API-payments bridge
 - `hermes/` - optional Hermes Agent plugin bridge for the same wallet backend
 - `wdk-btc-wallet/` - the local Bitcoin wallet service
 - `wdk-evm-wallet/` - the local EVM wallet service
