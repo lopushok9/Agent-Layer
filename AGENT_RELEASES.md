@@ -101,3 +101,17 @@ OpenClaw secrets
 ## More Detail
 
 Use `RELEASING.md` for the full release process and Trusted Publishing setup.
+
+For the native OpenClaw plugin packages, also run:
+
+```bash
+npm run build:openclaw-plugins
+npm run check:openclaw-plugins
+```
+
+Then publish each plugin package with:
+
+```bash
+clawhub package publish .openclaw/extensions/agent-wallet
+clawhub package publish .openclaw/extensions/pay-bridge
+```

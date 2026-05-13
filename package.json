@@ -14,6 +14,8 @@
   "bin": "./bin/openclaw-agent-wallet.mjs",
   "scripts": {
     "check": "node --check bin/openclaw-agent-wallet.mjs",
+    "build:openclaw-plugins": "node scripts/manage_openclaw_plugin_packages.mjs build",
+    "check:openclaw-plugins": "node scripts/manage_openclaw_plugin_packages.mjs check",
     "check:release-version": "node scripts/check_release_version.mjs",
     "test:npm-installer": "python3 agent-wallet/tests/smoke_npm_installer.py",
     "pack:dry-run": "npm pack --dry-run"

@@ -12,6 +12,10 @@ node_modules/
 **/node_modules/
 dist/
 **/dist/
+!.openclaw/extensions/agent-wallet/dist/
+!.openclaw/extensions/agent-wallet/dist/**
+!.openclaw/extensions/pay-bridge/dist/
+!.openclaw/extensions/pay-bridge/dist/**
 
 # Python cache
 __pycache__/
@@ -36,6 +40,7 @@ agent-a2a-gateway/.env.*
 
 # OS files
 .DS_Store
+*.tgz
 
 # Local private application materials
 

@@ -6,6 +6,10 @@
 **/*.pyc
 **/.DS_Store
 **/dist/
+!.openclaw/extensions/agent-wallet/dist/
+!.openclaw/extensions/agent-wallet/dist/**
+!.openclaw/extensions/pay-bridge/dist/
+!.openclaw/extensions/pay-bridge/dist/**
 graphify-out/
 telegram-mvp-bot/
 mcp-server/

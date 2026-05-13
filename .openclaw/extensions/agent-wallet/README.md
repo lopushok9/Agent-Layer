@@ -2,6 +2,12 @@
 
 Workspace extension for the official OpenClaw agent.
 
+External install path:
+
+```bash
+openclaw plugins install clawhub:@agentlayertech/agent-wallet-plugin
+```
+
 This extension registers wallet tools through the official OpenClaw plugin API and forwards execution to the local Python `agent-wallet` backend.
 
 It is designed so the OpenClaw agent sees a small operational wallet surface instead of raw key management.
@@ -56,6 +62,20 @@ Recommended local installer entrypoint:
 ```bash
 sh ./setup.sh
 ```
+
+For packaged installs, keep the runtime installer path:
+
+```bash
+npx @agentlayer.tech/wallet install --yes
+```
+
+The ClawHub plugin package only installs the native OpenClaw plugin. It expects the authoritative Python runtime to already exist, and by default it now looks for it at:
+
+```bash
+~/.openclaw/agent-wallet-runtime/current/agent-wallet
+```
+
+If that runtime is not present, set `plugins.entries.agent-wallet.config.packageRoot` explicitly.
 
 That installs the Python backend, Node dependencies for the local BTC/EVM runtimes, and patches the OpenClaw plugin config. Wallet creation, unlock, and local service start stay as separate host-side steps.
 

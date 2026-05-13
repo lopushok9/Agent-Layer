@@ -51,6 +51,15 @@ Install through npm:
 npx @agentlayer.tech/wallet install --yes
 ```
 
+Install the native OpenClaw plugins from ClawHub:
+
+```bash
+openclaw plugins install clawhub:@agentlayertech/agent-wallet-plugin
+openclaw plugins install clawhub:@agentlayertech/pay-bridge-plugin
+```
+
+Those ClawHub packages do not replace the npm installer. Keep `npx @agentlayer.tech/wallet install --yes` for laying down the local wallet runtime, Python backend, and helper services. The ClawHub packages only install the OpenClaw plugin surfaces that point at that runtime.
+
 Or install the CLI globally first:
 
 ```bash
@@ -76,6 +85,29 @@ wallet hermes install --yes
 wallet update --yes
 wallet rollback
 ```
+
+## Native OpenClaw plugin installs
+
+Use ClawHub when you want the plugin itself to be installed through OpenClaw:
+
+```bash
+openclaw plugins install clawhub:@agentlayertech/agent-wallet-plugin
+openclaw plugins install clawhub:@agentlayertech/pay-bridge-plugin
+```
+
+Recommended order:
+
+1. Install or update the local runtime with `npx @agentlayer.tech/wallet install --yes`.
+2. Install the plugin package from ClawHub with `openclaw plugins install clawhub:...`.
+3. Restart the OpenClaw gateway and enable/configure the plugin entry in `openclaw.json`.
+
+The `agent-wallet` ClawHub plugin auto-checks the standard runtime path at:
+
+```bash
+~/.openclaw/agent-wallet-runtime/current/agent-wallet
+```
+
+If your runtime lives elsewhere, set `plugins.entries.agent-wallet.config.packageRoot` explicitly.
 
 Install from a local clone:
 

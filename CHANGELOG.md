@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Added ClawHub-publishable OpenClaw plugin package metadata for
+  `.openclaw/extensions/agent-wallet` and `.openclaw/extensions/pay-bridge`,
+  including required `openclaw.compat`, `openclaw.build`, and
+  `runtimeExtensions` fields for native `openclaw plugins install clawhub:...`
+  installs.
+- Added a reproducible OpenClaw plugin package build/check script at
+  `scripts/manage_openclaw_plugin_packages.mjs` to generate published runtime
+  JS artifacts under `.openclaw/extensions/*/dist/`.
+- Updated the `agent-wallet` OpenClaw bridge to auto-check the packaged runtime
+  path at `~/.openclaw/agent-wallet-runtime/current/agent-wallet` before local
+  workspace fallbacks, so a ClawHub-installed plugin can ride on top of the
+  existing npm runtime installer.
+- Documented the dual-install model: keep `npx @agentlayer.tech/wallet install`
+  for runtime/bootstrap, and use `openclaw plugins install clawhub:...` for the
+  native OpenClaw plugin packages.
+
 ## v0.1.14 - 2026-05-13
 
 - Added a separate `.openclaw/extensions/pay-bridge/` plugin that keeps

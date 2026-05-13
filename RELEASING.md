@@ -12,6 +12,13 @@ The public install command is:
 npx @agentlayer.tech/wallet install --yes
 ```
 
+The repo also ships two native OpenClaw plugin packages for ClawHub:
+
+```text
+@agentlayertech/agent-wallet-plugin
+@agentlayertech/pay-bridge-plugin
+```
+
 ## When npm Publishes
 
 Normal commits and pushes do not publish new npm versions. They only run the
@@ -173,6 +180,42 @@ OpenClaw secrets
 ```
 
 The package allowlist lives in `package.json` under `files`.
+
+## ClawHub Plugin Packages
+
+The OpenClaw plugin packages are published separately from the npm installer.
+They are additive and do not replace `@agentlayer.tech/wallet`.
+
+Before publishing either package, build and validate the runtime artifacts:
+
+```bash
+npm run build:openclaw-plugins
+npm run check:openclaw-plugins
+```
+
+Dry-run the package contents from each plugin directory:
+
+```bash
+(cd .openclaw/extensions/agent-wallet && npm pack --dry-run)
+(cd .openclaw/extensions/pay-bridge && npm pack --dry-run)
+```
+
+Publish to ClawHub with the package-specific command documented by OpenClaw:
+
+```bash
+clawhub package publish .openclaw/extensions/agent-wallet --dry-run
+clawhub package publish .openclaw/extensions/agent-wallet
+
+clawhub package publish .openclaw/extensions/pay-bridge --dry-run
+clawhub package publish .openclaw/extensions/pay-bridge
+```
+
+Users then install them natively through OpenClaw:
+
+```bash
+openclaw plugins install clawhub:@agentlayertech/agent-wallet-plugin
+openclaw plugins install clawhub:@agentlayertech/pay-bridge-plugin
+```
 
 ## Runtime Layout
 

@@ -2,6 +2,12 @@
 
 Thin OpenClaw bridge to the locally installed `pay` CLI.
 
+External install path:
+
+```bash
+openclaw plugins install clawhub:@agentlayertech/pay-bridge-plugin
+```
+
 This plugin is intentionally separate from `agent-wallet`:
 
 - `agent-wallet` remains the execution wallet stack for Solana/EVM/BTC

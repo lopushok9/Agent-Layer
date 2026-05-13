@@ -1,11 +1,50 @@
 {
-  "name": "agent-wallet",
-  "version": "0.1.0",
-  "private": true,
+  "name": "@agentlayertech/agent-wallet-plugin",
+  "version": "0.1.15",
+  "description": "OpenClaw plugin bridge for the AgentLayer wallet runtime.",
   "type": "module",
+  "license": "SEE LICENSE IN ../../../LICENSE",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lopushok9/Agent-Layer.git",
+    "directory": ".openclaw/extensions/agent-wallet"
+  },
+  "bugs": {
+    "url": "https://github.com/lopushok9/Agent-Layer/issues"
+  },
+  "homepage": "https://github.com/lopushok9/Agent-Layer/tree/main/.openclaw/extensions/agent-wallet#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "index.ts",
+    "dist/",
+    "openclaw.plugin.json",
+    "README.md",
+    "skills/"
+  ],
   "openclaw": {
     "extensions": [
       "./index.ts"
-    ]
-  }
+    ],
+    "runtimeExtensions": [
+      "./dist/index.js"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.3.24-beta.2",
+      "minGatewayVersion": "2026.3.24-beta.2"
+    },
+    "build": {
+      "openclawVersion": "2026.3.24-beta.2",
+      "pluginSdkVersion": "2026.3.24-beta.2"
+    }
+  },
+  "keywords": [
+    "openclaw",
+    "plugin",
+    "wallet",
+    "solana",
+    "bitcoin",
+    "evm"
+  ]
 }

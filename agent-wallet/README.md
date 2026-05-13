@@ -558,6 +558,20 @@ It forwards tool execution to the Python bridge CLI:
 
 This keeps the official OpenClaw-facing layer in TypeScript while the actual wallet/security logic remains in the Python backend.
 
+If you want OpenClaw to install the plugin through ClawHub instead of a repo-local path, use:
+
+```bash
+openclaw plugins install clawhub:@agentlayertech/agent-wallet-plugin
+```
+
+That native plugin package is additive. Keep the existing runtime installer for the actual wallet backend:
+
+```bash
+npx @agentlayer.tech/wallet install --yes
+```
+
+The ClawHub plugin package auto-checks `~/.openclaw/agent-wallet-runtime/current/agent-wallet` before it falls back to a local workspace checkout.
+
 Public-safe helper scripts are available in `agent-wallet/scripts/`:
 
 - `install_openclaw_local_config.py`
