@@ -535,18 +535,17 @@ Operational notes:
 
 - current agent-facing tools are `get_flash_trade_markets` and `get_flash_trade_positions`
 - these reads are mainnet-only
-- the wallet-side write path for `open/close perps` is not enabled yet; that will be added through the existing `preview -> prepare -> execute` approval model instead of a separate trading wallet flow
+- Flash perpetual opens/closes now follow the existing `preview -> prepare -> execute` approval model instead of a separate trading wallet flow
 - Flash reads expect either hosted/self-hosted gateway routes on `PROVIDER_GATEWAY_URL` or a direct `FLASH_API_BASE_URL`
-- Phase 2 now also adds `flash_trade_open_position` and `flash_trade_close_position` in `preview` / `prepare` mode only
-- those preview/prepare flows are produced by a local bridge command configured via `FLASH_SDK_BRIDGE_COMMAND`
+- Phase 2 now also adds `flash_trade_open_position` and `flash_trade_close_position` in `preview` / `prepare` / `execute`
+- those preview/prepare/execute flows are produced by a local bridge command configured via `FLASH_SDK_BRIDGE_COMMAND`
 - the bridge is expected to return machine JSON on stdout; `agent-wallet/tests/smoke_flash_sdk_bridge.py` documents the minimal contract shape
 - a repo-owned Node bridge now lives at `agent-wallet/scripts/flash-sdk-bridge/bridge.mjs`
 - install its pinned SDK dependencies with `cd agent-wallet/scripts/flash-sdk-bridge && npm install`
 - `FLASH_SDK_BRIDGE_MODE=mock` provides deterministic smoke behavior without SDK dependencies
-- `FLASH_SDK_BRIDGE_MODE=real` now produces real Flash SDK quotes for preview and real versioned transaction builds for prepare
-- the backend locally verifies the provider-built Flash transaction and applies only the wallet signature; tool-level `prepare` still strips signed transaction bytes before returning to the agent
+- `FLASH_SDK_BRIDGE_MODE=real` now produces real Flash SDK quotes for preview and real versioned transaction builds for prepare/execute
+- the backend locally verifies the provider-built Flash transaction, applies only the wallet signature, and requires a host-issued approval token before broadcast; tool-level `prepare` still strips signed transaction bytes before returning to the agent
 - current real-mode constraints are intentionally narrow: mainnet only, same-collateral `market_symbol == collateral_symbol`, and whole-number leverage strings for opens
-- `execute` is still intentionally gated behind the next step, which will wire approval-token controlled broadcast for Flash perps
 
 ## Native staking coverage
 

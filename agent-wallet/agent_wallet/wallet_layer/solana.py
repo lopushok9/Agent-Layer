@@ -2895,6 +2895,84 @@ class SolanaWalletBackend(AgentWalletBackend):
             asset_type="flash-trade-close-position",
         )
 
+    async def _execute_prepared_flash_trade_transaction(
+        self,
+        prepared: dict[str, Any],
+    ) -> dict[str, Any]:
+        result = await self._execute_prepared_provider_transaction(
+            prepared,
+            source="flash-sdk-bridge",
+        )
+        for key in (
+            "pool_name",
+            "market_symbol",
+            "collateral_symbol",
+            "collateral_amount_raw",
+            "leverage",
+            "side",
+            "estimated_size_usd",
+            "estimated_size_amount_raw",
+            "estimated_collateral_usd",
+            "estimated_collateral_amount_raw",
+            "estimated_entry_price",
+            "estimated_liquidation_price",
+            "estimated_entry_fee_usd",
+            "estimated_total_fee_usd",
+            "position_size_usd",
+            "position_size_amount_raw",
+            "close_amount_raw",
+            "estimated_receive_amount_usd",
+            "estimated_mark_price",
+            "estimated_existing_liquidation_price",
+            "estimated_new_liquidation_price",
+            "estimated_profit_usd",
+            "estimated_loss_usd",
+            "estimated_settled_pnl_usd",
+            "estimated_exit_fee_usd",
+            "estimated_total_fees_usd",
+            "position_pubkey",
+            "verification",
+        ):
+            if key in prepared:
+                result[key] = prepared[key]
+        if "build_response" in prepared:
+            result["build_response"] = prepared["build_response"]
+        return result
+
+    async def execute_flash_trade_open_position(
+        self,
+        *,
+        pool_name: str,
+        market_symbol: str,
+        collateral_symbol: str,
+        collateral_amount_raw: str,
+        leverage: str,
+        side: str,
+    ) -> dict[str, Any]:
+        prepared = await self.prepare_flash_trade_open_position(
+            pool_name=pool_name,
+            market_symbol=market_symbol,
+            collateral_symbol=collateral_symbol,
+            collateral_amount_raw=collateral_amount_raw,
+            leverage=leverage,
+            side=side,
+        )
+        return await self._execute_prepared_flash_trade_transaction(prepared)
+
+    async def execute_flash_trade_close_position(
+        self,
+        *,
+        pool_name: str,
+        market_symbol: str,
+        side: str,
+    ) -> dict[str, Any]:
+        prepared = await self.prepare_flash_trade_close_position(
+            pool_name=pool_name,
+            market_symbol=market_symbol,
+            side=side,
+        )
+        return await self._execute_prepared_flash_trade_transaction(prepared)
+
     async def get_kamino_lend_markets(self) -> dict[str, Any]:
         self._require_mainnet_kamino("Kamino lending")
         data = await kamino.fetch_lend_markets()

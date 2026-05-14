@@ -622,6 +622,58 @@ class FakeBackend(AgentWalletBackend):
             "source": "flash-sdk-bridge",
         }
 
+    async def execute_flash_trade_open_position(
+        self,
+        *,
+        pool_name: str,
+        market_symbol: str,
+        collateral_symbol: str,
+        collateral_amount_raw: str,
+        leverage: str,
+        side: str,
+    ) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "execute",
+            "asset_type": "flash-trade-open-position",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "pool_name": pool_name,
+            "market_symbol": market_symbol,
+            "collateral_symbol": collateral_symbol,
+            "collateral_amount_raw": collateral_amount_raw,
+            "leverage": leverage,
+            "side": side,
+            "signature": "FakeFlashOpenSignature1111111111111111111111111111",
+            "broadcasted": True,
+            "confirmed": True,
+            "confirmation_status": "confirmed",
+            "source": "flash-sdk-bridge",
+        }
+
+    async def execute_flash_trade_close_position(
+        self,
+        *,
+        pool_name: str,
+        market_symbol: str,
+        side: str,
+    ) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "execute",
+            "asset_type": "flash-trade-close-position",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "pool_name": pool_name,
+            "market_symbol": market_symbol,
+            "side": side,
+            "signature": "FakeFlashCloseSignature111111111111111111111111111",
+            "broadcasted": True,
+            "confirmed": True,
+            "confirmation_status": "confirmed",
+            "source": "flash-sdk-bridge",
+        }
+
     async def get_kamino_lend_markets(self) -> dict:
         return {
             "chain": "solana",
@@ -2099,6 +2151,27 @@ async def main() -> None:
     )
     assert flash_open_prepare.ok and flash_open_prepare.data["execution_plan_only"] is True
 
+    flash_open_execute = await adapter.invoke(
+        "flash_trade_open_position",
+        {
+            "pool_name": "Crypto.1",
+            "market_symbol": "SOL",
+            "collateral_symbol": "SOL",
+            "collateral_amount_raw": "100000000",
+            "leverage": "5",
+            "side": "long",
+            "mode": "execute",
+            "purpose": "Open a directional SOL perp position",
+            "approval_token": _issue_execute_approval(
+                tool_name="flash_trade_open_position",
+                preview=flash_open_preview.data,
+                network="devnet",
+                mainnet_confirmed=True,
+            ),
+        },
+    )
+    assert flash_open_execute.ok and flash_open_execute.data["broadcasted"] is True
+
     flash_close_preview = await adapter.invoke(
         "flash_trade_close_position",
         {
@@ -2110,6 +2183,24 @@ async def main() -> None:
         },
     )
     assert flash_close_preview.ok and flash_close_preview.data["position_size_usd"] == "1250.00"
+
+    flash_close_execute = await adapter.invoke(
+        "flash_trade_close_position",
+        {
+            "pool_name": "Crypto.1",
+            "market_symbol": "SOL",
+            "side": "long",
+            "mode": "execute",
+            "purpose": "Close the SOL perp position",
+            "approval_token": _issue_execute_approval(
+                tool_name="flash_trade_close_position",
+                preview=flash_close_preview.data,
+                network="devnet",
+                mainnet_confirmed=True,
+            ),
+        },
+    )
+    assert flash_close_execute.ok and flash_close_execute.data["broadcasted"] is True
 
     kamino_markets = await adapter.invoke("get_kamino_lend_markets")
     assert kamino_markets.ok and kamino_markets.data["market_count"] == 1

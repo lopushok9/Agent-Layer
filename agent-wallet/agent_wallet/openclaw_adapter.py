@@ -1956,8 +1956,7 @@ class OpenClawWalletAdapter:
             AgentToolSpec(
                 name="flash_trade_open_position",
                 description=(
-                    "Preview or prepare a Flash Trade same-collateral perpetual open on Solana mainnet. "
-                    "Current Phase 2 support is preview/prepare only; execute is not enabled yet."
+                    "Preview, prepare, or execute a Flash Trade same-collateral perpetual open on Solana mainnet."
                 ),
                 input_schema={
                     "type": "object",
@@ -1989,8 +1988,8 @@ class OpenClawWalletAdapter:
                         },
                         "mode": {
                             "type": "string",
-                            "enum": ["preview", "prepare"],
-                            "description": "preview returns trade details; prepare returns an execution plan without signed bytes.",
+                            "enum": ["preview", "prepare", "execute"],
+                            "description": "preview returns trade details; prepare returns an execution plan; execute broadcasts after host approval.",
                         },
                         "purpose": {
                             "type": "string",
@@ -1999,6 +1998,10 @@ class OpenClawWalletAdapter:
                         "user_intent": {
                             "type": "boolean",
                             "description": "Must be true for prepare mode.",
+                        },
+                        "approval_token": {
+                            "type": "string",
+                            "description": "Host-issued approval token required for execute mode.",
                         },
                     },
                     "required": [
@@ -2020,8 +2023,7 @@ class OpenClawWalletAdapter:
             AgentToolSpec(
                 name="flash_trade_close_position",
                 description=(
-                    "Preview or prepare a Flash Trade same-collateral perpetual close on Solana mainnet. "
-                    "Current Phase 2 support is preview/prepare only; execute is not enabled yet."
+                    "Preview, prepare, or execute a Flash Trade same-collateral perpetual close on Solana mainnet."
                 ),
                 input_schema={
                     "type": "object",
@@ -2041,8 +2043,8 @@ class OpenClawWalletAdapter:
                         },
                         "mode": {
                             "type": "string",
-                            "enum": ["preview", "prepare"],
-                            "description": "preview returns close details; prepare returns an execution plan without signed bytes.",
+                            "enum": ["preview", "prepare", "execute"],
+                            "description": "preview returns close details; prepare returns an execution plan; execute broadcasts after host approval.",
                         },
                         "purpose": {
                             "type": "string",
@@ -2051,6 +2053,10 @@ class OpenClawWalletAdapter:
                         "user_intent": {
                             "type": "boolean",
                             "description": "Must be true for prepare mode.",
+                        },
+                        "approval_token": {
+                            "type": "string",
+                            "description": "Host-issued approval token required for execute mode.",
                         },
                     },
                     "required": [
@@ -4031,6 +4037,7 @@ class OpenClawWalletAdapter:
                 mode = args.get("mode")
                 purpose = args.get("purpose")
                 user_intent = args.get("user_intent", False)
+                approval_token = args.get("approval_token")
 
                 if not isinstance(pool_name, str) or not pool_name.strip():
                     raise WalletBackendError("pool_name is required.")
@@ -4042,8 +4049,8 @@ class OpenClawWalletAdapter:
                     raise WalletBackendError("collateral_amount_raw is required.")
                 if not isinstance(leverage, str) or not leverage.strip():
                     raise WalletBackendError("leverage is required.")
-                if mode not in {"preview", "prepare"}:
-                    raise WalletBackendError("mode must be 'preview' or 'prepare'.")
+                if mode not in {"preview", "prepare", "execute"}:
+                    raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
                 if not isinstance(purpose, str) or not purpose.strip():
                     raise WalletBackendError("purpose is required.")
 
@@ -4066,8 +4073,40 @@ class OpenClawWalletAdapter:
                         ),
                     )
 
-                self._require_prepare_intent(user_intent)
-                prepared = await active_backend.prepare_flash_trade_open_position(
+                if mode == "prepare":
+                    self._require_prepare_intent(user_intent)
+                    prepared = await active_backend.prepare_flash_trade_open_position(
+                        pool_name=pool_name.strip(),
+                        market_symbol=market_symbol.strip(),
+                        collateral_symbol=collateral_symbol.strip(),
+                        collateral_amount_raw=collateral_amount_raw.strip(),
+                        leverage=leverage.strip(),
+                        side=side,
+                    )
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            self._build_prepare_plan(
+                                preview_payload=prepared,
+                                action_label="Flash Trade open position",
+                            ),
+                            action_label="Flash Trade open position",
+                            mode="prepare",
+                        ),
+                    )
+
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=self._build_confirmation_summary(
+                        action_label="Flash Trade open position",
+                        payload=preview,
+                    ),
+                    action_label="Flash Trade open position",
+                    backend=active_backend,
+                )
+                result = await active_backend.execute_flash_trade_open_position(
                     pool_name=pool_name.strip(),
                     market_symbol=market_symbol.strip(),
                     collateral_symbol=collateral_symbol.strip(),
@@ -4079,12 +4118,9 @@ class OpenClawWalletAdapter:
                     tool=tool_name,
                     ok=True,
                     data=self._annotate_sensitive_payload(
-                        self._build_prepare_plan(
-                            preview_payload=prepared,
-                            action_label="Flash Trade open position",
-                        ),
+                        result,
                         action_label="Flash Trade open position",
-                        mode="prepare",
+                        mode="execute",
                     ),
                 )
 
@@ -4095,13 +4131,14 @@ class OpenClawWalletAdapter:
                 mode = args.get("mode")
                 purpose = args.get("purpose")
                 user_intent = args.get("user_intent", False)
+                approval_token = args.get("approval_token")
 
                 if not isinstance(pool_name, str) or not pool_name.strip():
                     raise WalletBackendError("pool_name is required.")
                 if not isinstance(market_symbol, str) or not market_symbol.strip():
                     raise WalletBackendError("market_symbol is required.")
-                if mode not in {"preview", "prepare"}:
-                    raise WalletBackendError("mode must be 'preview' or 'prepare'.")
+                if mode not in {"preview", "prepare", "execute"}:
+                    raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
                 if not isinstance(purpose, str) or not purpose.strip():
                     raise WalletBackendError("purpose is required.")
 
@@ -4121,8 +4158,37 @@ class OpenClawWalletAdapter:
                         ),
                     )
 
-                self._require_prepare_intent(user_intent)
-                prepared = await active_backend.prepare_flash_trade_close_position(
+                if mode == "prepare":
+                    self._require_prepare_intent(user_intent)
+                    prepared = await active_backend.prepare_flash_trade_close_position(
+                        pool_name=pool_name.strip(),
+                        market_symbol=market_symbol.strip(),
+                        side=side,
+                    )
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            self._build_prepare_plan(
+                                preview_payload=prepared,
+                                action_label="Flash Trade close position",
+                            ),
+                            action_label="Flash Trade close position",
+                            mode="prepare",
+                        ),
+                    )
+
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=self._build_confirmation_summary(
+                        action_label="Flash Trade close position",
+                        payload=preview,
+                    ),
+                    action_label="Flash Trade close position",
+                    backend=active_backend,
+                )
+                result = await active_backend.execute_flash_trade_close_position(
                     pool_name=pool_name.strip(),
                     market_symbol=market_symbol.strip(),
                     side=side,
@@ -4131,12 +4197,9 @@ class OpenClawWalletAdapter:
                     tool=tool_name,
                     ok=True,
                     data=self._annotate_sensitive_payload(
-                        self._build_prepare_plan(
-                            preview_payload=prepared,
-                            action_label="Flash Trade close position",
-                        ),
+                        result,
                         action_label="Flash Trade close position",
-                        mode="prepare",
+                        mode="execute",
                     ),
                 )
 
