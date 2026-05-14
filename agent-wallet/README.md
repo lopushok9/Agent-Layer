@@ -540,6 +540,9 @@ Operational notes:
 - Phase 2 now also adds `flash_trade_open_position` and `flash_trade_close_position` in `preview` / `prepare` mode only
 - those preview flows are produced by a local bridge command configured via `FLASH_SDK_BRIDGE_COMMAND`
 - the bridge is expected to return machine JSON on stdout; `agent-wallet/tests/smoke_flash_sdk_bridge.py` documents the minimal contract shape
+- a repo-owned Node bridge now lives at `agent-wallet/scripts/flash-sdk-bridge/bridge.mjs`
+- `FLASH_SDK_BRIDGE_MODE=mock` provides deterministic smoke behavior without SDK dependencies
+- `FLASH_SDK_BRIDGE_MODE=real` validates runtime config and loads `flash-sdk`, but real order builders are still intentionally gated until the transaction-verification step is implemented
 
 ## Native staking coverage
 

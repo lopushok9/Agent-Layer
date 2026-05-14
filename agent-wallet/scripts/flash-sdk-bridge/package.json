@@ -1,0 +1,12 @@
+{
+  "name": "@openclaw/flash-sdk-bridge",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Local CLI bridge between agent-wallet and flash-sdk",
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.32.1",
+    "@solana/web3.js": "1.98.2",
+    "flash-sdk": "^15.16.10"
+  }
+}
