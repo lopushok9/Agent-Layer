@@ -33,6 +33,46 @@ def main() -> int:
         print(json.dumps(response))
         return 0
 
+    if action == "prepare_open_position_same_collateral":
+        response = {
+            "ok": True,
+            "prepared": {
+                "transaction_base64": "AQID",
+                "transaction_encoding": "base64",
+                "transaction_format": "versioned",
+                "last_valid_block_height": 123,
+                "latest_blockhash": "FakeBlockhash111111111111111111111111111111",
+                "market_address": "FakeFlashMarket11111111111111111111111111111",
+                "position_address": "FakeFlashPosition111111111111111111111111111",
+                "target_custody_address": "FakeFlashTargetCustody1111111111111111111111111",
+                "collateral_custody_address": "FakeFlashCollateralCustody1111111111111111111111",
+                "collateral_mint": "So11111111111111111111111111111111111111112",
+                "expected_program_ids": ["FakeFlashProgram111111111111111111111111111111"],
+            },
+        }
+        print(json.dumps(response))
+        return 0
+
+    if action == "prepare_close_position_same_collateral":
+        response = {
+            "ok": True,
+            "prepared": {
+                "transaction_base64": "AQID",
+                "transaction_encoding": "base64",
+                "transaction_format": "versioned",
+                "last_valid_block_height": 123,
+                "latest_blockhash": "FakeBlockhash111111111111111111111111111111",
+                "market_address": "FakeFlashMarket11111111111111111111111111111",
+                "position_address": "FakeFlashPosition111111111111111111111111111",
+                "target_custody_address": "FakeFlashTargetCustody1111111111111111111111111",
+                "collateral_custody_address": "FakeFlashCollateralCustody1111111111111111111111",
+                "collateral_mint": "So11111111111111111111111111111111111111112",
+                "expected_program_ids": ["FakeFlashProgram111111111111111111111111111111"],
+            },
+        }
+        print(json.dumps(response))
+        return 0
+
     print(json.dumps({"ok": False, "error": f"Unsupported action: {action}"}))
     return 1
 

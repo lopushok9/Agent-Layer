@@ -43,6 +43,27 @@ async def _run() -> None:
         )
         assert close_preview["close_amount_raw"] == "700000000"
 
+        open_prepare = await flash_sdk_bridge.prepare_open_position_same_collateral(
+            owner="Fake11111111111111111111111111111111111111111",
+            pool_name="Crypto.1",
+            market_symbol="SOL",
+            collateral_symbol="SOL",
+            collateral_amount_raw="100000000",
+            leverage="5",
+            side="long",
+            network="mainnet",
+        )
+        assert open_prepare["transaction_format"] == "versioned"
+
+        close_prepare = await flash_sdk_bridge.prepare_close_position_same_collateral(
+            owner="Fake11111111111111111111111111111111111111111",
+            pool_name="Crypto.1",
+            market_symbol="SOL",
+            side="long",
+            network="mainnet",
+        )
+        assert close_prepare["position_address"] == "FakeFlashPosition111111111111111111111111111"
+
         print("smoke_flash_sdk_bridge: ok")
     finally:
         for key, value in original_env.items():

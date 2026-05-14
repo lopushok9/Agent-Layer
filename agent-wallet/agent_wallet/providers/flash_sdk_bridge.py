@@ -54,6 +54,9 @@ def _unwrap_bridge_payload(payload: Any, *, operation: str) -> dict[str, Any]:
     data = payload.get("preview")
     if isinstance(data, dict):
         return data
+    data = payload.get("prepared")
+    if isinstance(data, dict):
+        return data
     if isinstance(payload.get("data"), dict):
         return dict(payload["data"])
     return dict(payload)
@@ -150,3 +153,49 @@ async def preview_close_position_same_collateral(
     }
     response = await _call_bridge(payload)
     return _unwrap_bridge_payload(response, operation="Flash close-position preview")
+
+
+async def prepare_open_position_same_collateral(
+    *,
+    owner: str,
+    pool_name: str,
+    market_symbol: str,
+    collateral_symbol: str,
+    collateral_amount_raw: str,
+    leverage: str,
+    side: str,
+    network: str,
+) -> dict[str, Any]:
+    payload = {
+        "action": "prepare_open_position_same_collateral",
+        "owner": owner,
+        "pool_name": pool_name,
+        "market_symbol": market_symbol,
+        "collateral_symbol": collateral_symbol,
+        "collateral_amount_raw": collateral_amount_raw,
+        "leverage": leverage,
+        "side": side,
+        "network": network,
+    }
+    response = await _call_bridge(payload)
+    return _unwrap_bridge_payload(response, operation="Flash open-position prepare")
+
+
+async def prepare_close_position_same_collateral(
+    *,
+    owner: str,
+    pool_name: str,
+    market_symbol: str,
+    side: str,
+    network: str,
+) -> dict[str, Any]:
+    payload = {
+        "action": "prepare_close_position_same_collateral",
+        "owner": owner,
+        "pool_name": pool_name,
+        "market_symbol": market_symbol,
+        "side": side,
+        "network": network,
+    }
+    response = await _call_bridge(payload)
+    return _unwrap_bridge_payload(response, operation="Flash close-position prepare")

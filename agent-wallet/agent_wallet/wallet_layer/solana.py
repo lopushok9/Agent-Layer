@@ -26,6 +26,7 @@ from agent_wallet.solana_tx import (
 )
 from agent_wallet.transaction_policy import (
     verify_provider_bags_transaction,
+    verify_provider_flash_transaction,
     verify_provider_kamino_lend_transaction,
     verify_provider_lend_transaction,
     verify_provider_swap_simulation_result,
@@ -2701,6 +2702,198 @@ class SolanaWalletBackend(AgentWalletBackend):
             "source": "flash-sdk-bridge",
             **bridge_preview,
         }
+
+    async def _prepare_flash_trade_transaction(
+        self,
+        *,
+        preview: dict[str, Any],
+        bridge_prepared: dict[str, Any],
+        action: str,
+        asset_type: str,
+    ) -> dict[str, Any]:
+        if not self.signer:
+            raise WalletBackendError("Solana signer is not configured.")
+        try:
+            from solders.transaction import VersionedTransaction
+        except ImportError as exc:
+            raise WalletBackendError(
+                "solana and solders packages are required for Flash Trade transaction signing."
+            ) from exc
+
+        owner = str(preview.get("owner") or await self.get_address() or "").strip()
+        if not owner:
+            raise WalletBackendError(
+                "No Solana wallet address configured. Set SOLANA_AGENT_PUBLIC_KEY or a signer."
+            )
+        transaction_base64 = str(bridge_prepared.get("transaction_base64") or "").strip()
+        if not transaction_base64:
+            raise WalletBackendError(f"{action} bridge response is missing transaction_base64.")
+
+        unsigned_transaction = VersionedTransaction.from_bytes(base64.b64decode(transaction_base64))
+        loaded_addresses = await self._resolve_versioned_message_lookup_addresses(
+            unsigned_transaction.message
+        )
+        market_address = validate_solana_address(str(bridge_prepared.get("market_address") or ""))
+        target_custody_address = validate_solana_address(
+            str(bridge_prepared.get("target_custody_address") or "")
+        )
+        collateral_custody_address = validate_solana_address(
+            str(bridge_prepared.get("collateral_custody_address") or "")
+        )
+        position_address_raw = str(bridge_prepared.get("position_address") or "").strip() or None
+        collateral_mint_raw = str(bridge_prepared.get("collateral_mint") or "").strip() or None
+        expected_program_ids_raw = bridge_prepared.get("expected_program_ids")
+        if not isinstance(expected_program_ids_raw, list) or not expected_program_ids_raw:
+            raise WalletBackendError(f"{action} bridge response is missing expected_program_ids.")
+        expected_program_ids = [
+            validate_solana_address(str(value))
+            for value in expected_program_ids_raw
+            if str(value).strip()
+        ]
+        verification = verify_provider_flash_transaction(
+            unsigned_transaction.message,
+            wallet_address=owner,
+            market_address=market_address,
+            target_custody_address=target_custody_address,
+            collateral_custody_address=collateral_custody_address,
+            action=action,
+            expected_program_ids=expected_program_ids,
+            position_address=(
+                validate_solana_address(position_address_raw)
+                if position_address_raw is not None
+                else None
+            ),
+            collateral_mint=(
+                validate_solana_mint(collateral_mint_raw)
+                if collateral_mint_raw is not None
+                else None
+            ),
+            loaded_addresses=loaded_addresses,
+        )
+        signed_transaction_base64 = await self._sign_versioned_provider_transaction(
+            transaction_base64=transaction_base64,
+            wallet_signer_index=int(verification.get("wallet_signer_index") or 0),
+        )
+        prepared = {
+            "chain": "solana",
+            "network": self.network,
+            "mode": "prepare",
+            "asset_type": asset_type,
+            "owner": owner,
+            "pool_name": preview.get("pool_name"),
+            "market_symbol": preview.get("market_symbol"),
+            "collateral_symbol": preview.get("collateral_symbol"),
+            "collateral_amount_raw": preview.get("collateral_amount_raw"),
+            "leverage": preview.get("leverage"),
+            "side": preview.get("side"),
+            "transaction_base64": signed_transaction_base64,
+            "transaction_encoding": str(bridge_prepared.get("transaction_encoding") or "base64"),
+            "transaction_format": str(bridge_prepared.get("transaction_format") or "versioned"),
+            "last_valid_block_height": bridge_prepared.get("last_valid_block_height"),
+            "latest_blockhash": bridge_prepared.get("latest_blockhash"),
+            "signed": True,
+            "broadcasted": False,
+            "confirmed": False,
+            "verification": verification,
+            "sign_only": self.sign_only,
+            "source": "flash-sdk-bridge",
+            "build_response": bridge_prepared,
+        }
+        for key in (
+            "estimated_size_usd",
+            "estimated_size_amount_raw",
+            "estimated_collateral_usd",
+            "estimated_collateral_amount_raw",
+            "estimated_entry_price",
+            "estimated_liquidation_price",
+            "estimated_entry_fee_usd",
+            "estimated_total_fee_usd",
+            "estimated_fee_rate_bps",
+            "estimated_available_liquidity_usd",
+            "estimated_borrow_fee_rate",
+            "position_size_usd",
+            "position_size_amount_raw",
+            "close_amount_raw",
+            "estimated_receive_amount_usd",
+            "estimated_mark_price",
+            "estimated_existing_liquidation_price",
+            "estimated_new_liquidation_price",
+            "estimated_profit_usd",
+            "estimated_loss_usd",
+            "estimated_settled_pnl_usd",
+            "estimated_exit_fee_usd",
+            "estimated_total_fees_usd",
+            "estimated_existing_leverage",
+            "estimated_new_leverage",
+            "is_profitable",
+            "is_solvent",
+            "is_partial_close",
+            "position_pubkey",
+        ):
+            if key in preview:
+                prepared[key] = preview[key]
+        return prepared
+
+    async def prepare_flash_trade_open_position(
+        self,
+        *,
+        pool_name: str,
+        market_symbol: str,
+        collateral_symbol: str,
+        collateral_amount_raw: str,
+        leverage: str,
+        side: str,
+    ) -> dict[str, Any]:
+        preview = await self.preview_flash_trade_open_position(
+            pool_name=pool_name,
+            market_symbol=market_symbol,
+            collateral_symbol=collateral_symbol,
+            collateral_amount_raw=collateral_amount_raw,
+            leverage=leverage,
+            side=side,
+        )
+        bridge_prepared = await flash_sdk_bridge.prepare_open_position_same_collateral(
+            owner=str(preview["owner"]),
+            pool_name=str(preview["pool_name"]),
+            market_symbol=str(preview["market_symbol"]),
+            collateral_symbol=str(preview["collateral_symbol"]),
+            collateral_amount_raw=str(preview["collateral_amount_raw"]),
+            leverage=str(preview["leverage"]),
+            side=str(preview["side"]),
+            network=self.network,
+        )
+        return await self._prepare_flash_trade_transaction(
+            preview=preview,
+            bridge_prepared=bridge_prepared,
+            action="Flash Trade open position",
+            asset_type="flash-trade-open-position",
+        )
+
+    async def prepare_flash_trade_close_position(
+        self,
+        *,
+        pool_name: str,
+        market_symbol: str,
+        side: str,
+    ) -> dict[str, Any]:
+        preview = await self.preview_flash_trade_close_position(
+            pool_name=pool_name,
+            market_symbol=market_symbol,
+            side=side,
+        )
+        bridge_prepared = await flash_sdk_bridge.prepare_close_position_same_collateral(
+            owner=str(preview["owner"]),
+            pool_name=str(preview["pool_name"]),
+            market_symbol=str(preview["market_symbol"]),
+            side=str(preview["side"]),
+            network=self.network,
+        )
+        return await self._prepare_flash_trade_transaction(
+            preview=preview,
+            bridge_prepared=bridge_prepared,
+            action="Flash Trade close position",
+            asset_type="flash-trade-close-position",
+        )
 
     async def get_kamino_lend_markets(self) -> dict[str, Any]:
         self._require_mainnet_kamino("Kamino lending")

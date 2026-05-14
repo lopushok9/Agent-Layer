@@ -3,6 +3,7 @@ import process from "node:process";
 const BRIDGE_NAME = "flash-sdk-bridge";
 const USD_DECIMALS = 6;
 const BPS_DECIMALS = 4;
+const DEFAULT_COMPUTE_UNIT_LIMIT = 600_000;
 
 function jsonError(message, extra = {}) {
   return {
@@ -59,7 +60,7 @@ function normalizeActionInput(payload) {
   };
 }
 
-function mockPreview(normalized) {
+function mockResponse(normalized) {
   if (normalized.action === "preview_open_position_same_collateral") {
     return {
       ok: true,
@@ -92,10 +93,63 @@ function mockPreview(normalized) {
     };
   }
 
+  if (normalized.action === "prepare_open_position_same_collateral") {
+    return {
+      ok: true,
+      prepared: {
+        bridge_mode: "mock",
+        pool_name: normalized.poolName,
+        market_symbol: normalized.marketSymbol,
+        collateral_symbol: normalized.collateralSymbol,
+        collateral_amount_raw: normalized.collateralAmountRaw,
+        leverage: normalized.leverage,
+        side: normalized.side,
+        transaction_base64: "AQID",
+        transaction_encoding: "base64",
+        transaction_format: "versioned",
+        latest_blockhash: "MockFlashBlockhash111111111111111111111111111",
+        last_valid_block_height: 123456,
+        market_address: "MockFlashMarket11111111111111111111111111111",
+        position_address: "MockFlashPosition111111111111111111111111111",
+        target_custody_address: "MockFlashTargetCustody1111111111111111111111111",
+        collateral_custody_address: "MockFlashCollateralCustody1111111111111111111111",
+        collateral_mint: "So11111111111111111111111111111111111111112",
+        expected_program_ids: ["MockFlashProgram111111111111111111111111111111"],
+      },
+    };
+  }
+
+  if (normalized.action === "prepare_close_position_same_collateral") {
+    return {
+      ok: true,
+      prepared: {
+        bridge_mode: "mock",
+        pool_name: normalized.poolName,
+        market_symbol: normalized.marketSymbol,
+        collateral_symbol: normalized.collateralSymbol ?? normalized.marketSymbol,
+        side: normalized.side,
+        transaction_base64: "AQID",
+        transaction_encoding: "base64",
+        transaction_format: "versioned",
+        latest_blockhash: "MockFlashBlockhash111111111111111111111111111",
+        last_valid_block_height: 123456,
+        market_address: "MockFlashMarket11111111111111111111111111111",
+        position_address: "MockFlashPosition111111111111111111111111111",
+        target_custody_address: "MockFlashTargetCustody1111111111111111111111111",
+        collateral_custody_address: "MockFlashCollateralCustody1111111111111111111111",
+        collateral_mint: "So11111111111111111111111111111111111111112",
+        expected_program_ids: ["MockFlashProgram111111111111111111111111111111"],
+      },
+    };
+  }
+
   return jsonError(`Unsupported mock action: ${normalized.action}`);
 }
 
 async function loadRealModules() {
+  if (!process.env.NEXT_PUBLIC_API_ENDPOINT && process.env.FLASH_API_ENDPOINT) {
+    process.env.NEXT_PUBLIC_API_ENDPOINT = process.env.FLASH_API_ENDPOINT;
+  }
   const [anchor, web3, flashSdk] = await Promise.all([
     import("@coral-xyz/anchor"),
     import("@solana/web3.js"),
@@ -253,6 +307,40 @@ function getMarketContext(runtime, normalized) {
   return { sideVariant, marketToken, collateralToken, marketConfig };
 }
 
+function getComputeUnitLimit() {
+  const raw = process.env.FLASH_SDK_BRIDGE_COMPUTE_UNIT_LIMIT?.trim();
+  if (!raw) {
+    return DEFAULT_COMPUTE_UNIT_LIMIT;
+  }
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error("FLASH_SDK_BRIDGE_COMPUTE_UNIT_LIMIT must be a positive integer");
+  }
+  return value;
+}
+
+async function buildVersionedTransaction(runtime, instructions, additionalSigners = []) {
+  const [lookupTableState, latestBlockhash] = await Promise.all([
+    runtime.client.getOrLoadAddressLookupTable(runtime.poolConfig),
+    runtime.provider.connection.getLatestBlockhash("finalized"),
+  ]);
+  const message = runtime.web3.MessageV0.compile({
+    payerKey: runtime.provider.wallet.publicKey,
+    instructions,
+    recentBlockhash: latestBlockhash.blockhash,
+    addressLookupTableAccounts: lookupTableState.addressLookupTables,
+  });
+  const versionedTransaction = new runtime.web3.VersionedTransaction(message);
+  if (additionalSigners.length > 0) {
+    versionedTransaction.sign(additionalSigners);
+  }
+  return {
+    transactionBase64: Buffer.from(versionedTransaction.serialize()).toString("base64"),
+    latestBlockhash: latestBlockhash.blockhash,
+    lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+  };
+}
+
 async function getOpenPositionPreview(runtime, normalized) {
   if (!normalized.collateralSymbol || !normalized.collateralAmountRaw || !normalized.leverage) {
     throw new Error(
@@ -407,13 +495,208 @@ async function getClosePositionPreview(runtime, normalized) {
   };
 }
 
-async function realPreview(normalized) {
+async function prepareOpenPosition(runtime, normalized) {
+  if (!normalized.collateralSymbol || !normalized.collateralAmountRaw || !normalized.leverage) {
+    throw new Error(
+      "collateral_symbol, collateral_amount_raw, and leverage are required for open prepare",
+    );
+  }
+  if (normalized.collateralSymbol !== normalized.marketSymbol) {
+    throw new Error(
+      "Current bridge MVP supports only same-collateral opens where collateral_symbol matches market_symbol",
+    );
+  }
+
+  const { BN } = runtime.anchor;
+  const privilege = runtime.flashSdk.Privilege.None;
+  const ownerPublicKey = runtime.provider.wallet.publicKey;
+  const { marketConfig, collateralToken } = getMarketContext(runtime, normalized);
+  const leverage = requireWholeNumberString(normalized.leverage, "leverage");
+  const quote = await runtime.client.getOpenPositionQuote(
+    new BN(normalized.collateralAmountRaw),
+    new BN(leverage),
+    marketConfig,
+    runtime.poolConfig,
+    privilege,
+    undefined,
+    undefined,
+    null,
+    null,
+    ownerPublicKey,
+  );
+  const backupOracleInstructions = await runtime.flashSdk.createBackupOracleInstruction(
+    runtime.poolConfig.poolAddress.toBase58(),
+  );
+  const computeBudgetIx = runtime.web3.ComputeBudgetProgram.setComputeUnitLimit({
+    units: getComputeUnitLimit(),
+  });
+  const { instructions, additionalSigners } = await runtime.client.openPosition(
+    normalized.marketSymbol,
+    normalized.collateralSymbol,
+    quote.entryPrice,
+    new BN(normalized.collateralAmountRaw),
+    quote.sizeAmount,
+    getSideVariant(runtime.flashSdk, normalized.side),
+    runtime.poolConfig,
+    privilege,
+  );
+  const fullInstructions = [computeBudgetIx, ...backupOracleInstructions, ...instructions];
+  const builtTransaction = await buildVersionedTransaction(
+    runtime,
+    fullInstructions,
+    additionalSigners,
+  );
+  return {
+    ok: true,
+    prepared: {
+      bridge_mode: "real",
+      pool_name: normalized.poolName,
+      market_symbol: normalized.marketSymbol,
+      collateral_symbol: normalized.collateralSymbol,
+      collateral_amount_raw: normalized.collateralAmountRaw,
+      leverage,
+      side: normalized.side,
+      estimated_size_usd: integerExponentToDecimal(quote.sizeUsd.toString(10), -USD_DECIMALS),
+      estimated_size_amount_raw: quote.sizeAmount.toString(10),
+      estimated_entry_price: serializeOraclePrice(quote.entryPrice)?.ui_price ?? null,
+      estimated_liquidation_price: serializeOraclePrice(quote.liquidationPrice)?.ui_price ?? null,
+      transaction_base64: builtTransaction.transactionBase64,
+      transaction_encoding: "base64",
+      transaction_format: "versioned",
+      latest_blockhash: builtTransaction.latestBlockhash,
+      last_valid_block_height: builtTransaction.lastValidBlockHeight,
+      market_address: marketConfig.marketAccount.toBase58(),
+      position_address: runtime.poolConfig
+        .getPositionFromMarketPk(ownerPublicKey, marketConfig.marketAccount)
+        .toBase58(),
+      target_custody_address: marketConfig.targetCustody.toBase58(),
+      collateral_custody_address: marketConfig.collateralCustody.toBase58(),
+      collateral_mint: collateralToken.mintKey.toBase58(),
+      expected_program_ids: Array.from(
+        new Set([
+          runtime.poolConfig.programId.toBase58(),
+          runtime.poolConfig.perpComposibilityProgramId.toBase58(),
+          ...fullInstructions.map((instruction) => instruction.programId.toBase58()),
+        ]),
+      ),
+      quote: serializeForJson(quote),
+      instruction_count: fullInstructions.length,
+      additional_signer_count: additionalSigners.length,
+    },
+  };
+}
+
+async function prepareClosePosition(runtime, normalized) {
+  const { BN } = runtime.anchor;
+  const privilege = runtime.flashSdk.Privilege.None;
+  const ownerPublicKey = runtime.provider.wallet.publicKey;
+  const sameCollateralNormalized = {
+    ...normalized,
+    collateralSymbol: normalized.collateralSymbol ?? normalized.marketSymbol,
+  };
+  const { marketConfig, collateralToken } = getMarketContext(runtime, sameCollateralNormalized);
+  const positionPk = runtime.poolConfig.getPositionFromCustodyPk(
+    ownerPublicKey,
+    marketConfig.targetCustody,
+    marketConfig.collateralCustody,
+    getSideVariant(runtime.flashSdk, normalized.side),
+  );
+  const positionAccount = await runtime.client.getPosition(positionPk);
+  if (!positionAccount?.isActive) {
+    throw new Error(
+      `No active Flash position found for ${normalized.marketSymbol}/${normalized.side} in pool ${normalized.poolName}`,
+    );
+  }
+  const quote = await runtime.client.getClosePositionQuote(
+    positionPk,
+    positionAccount,
+    runtime.poolConfig,
+    new BN(0),
+    privilege,
+    undefined,
+    null,
+    null,
+    ownerPublicKey,
+  );
+  const backupOracleInstructions = await runtime.flashSdk.createBackupOracleInstruction(
+    runtime.poolConfig.poolAddress.toBase58(),
+  );
+  const computeBudgetIx = runtime.web3.ComputeBudgetProgram.setComputeUnitLimit({
+    units: getComputeUnitLimit(),
+  });
+  const { instructions, additionalSigners } = await runtime.client.closePosition(
+    normalized.marketSymbol,
+    sameCollateralNormalized.collateralSymbol,
+    quote.markPrice,
+    getSideVariant(runtime.flashSdk, normalized.side),
+    runtime.poolConfig,
+    privilege,
+  );
+  const fullInstructions = [computeBudgetIx, ...backupOracleInstructions, ...instructions];
+  const builtTransaction = await buildVersionedTransaction(
+    runtime,
+    fullInstructions,
+    additionalSigners,
+  );
+  return {
+    ok: true,
+    prepared: {
+      bridge_mode: "real",
+      pool_name: normalized.poolName,
+      market_symbol: normalized.marketSymbol,
+      collateral_symbol: sameCollateralNormalized.collateralSymbol,
+      side: normalized.side,
+      position_pubkey: positionPk.toBase58(),
+      position_size_usd: integerExponentToDecimal(
+        positionAccount.sizeUsd.toString(10),
+        -USD_DECIMALS,
+      ),
+      close_amount_raw: quote.receiveTokenAmount.toString(10),
+      estimated_receive_amount_usd: integerExponentToDecimal(
+        quote.receiveTokenAmountUsd.toString(10),
+        -USD_DECIMALS,
+      ),
+      estimated_mark_price: serializeOraclePrice(quote.markPrice)?.ui_price ?? null,
+      estimated_existing_liquidation_price:
+        serializeOraclePrice(quote.existingLiquidationPrice)?.ui_price ?? null,
+      transaction_base64: builtTransaction.transactionBase64,
+      transaction_encoding: "base64",
+      transaction_format: "versioned",
+      latest_blockhash: builtTransaction.latestBlockhash,
+      last_valid_block_height: builtTransaction.lastValidBlockHeight,
+      market_address: marketConfig.marketAccount.toBase58(),
+      position_address: positionPk.toBase58(),
+      target_custody_address: marketConfig.targetCustody.toBase58(),
+      collateral_custody_address: marketConfig.collateralCustody.toBase58(),
+      collateral_mint: collateralToken.mintKey.toBase58(),
+      expected_program_ids: Array.from(
+        new Set([
+          runtime.poolConfig.programId.toBase58(),
+          runtime.poolConfig.perpComposibilityProgramId.toBase58(),
+          ...fullInstructions.map((instruction) => instruction.programId.toBase58()),
+        ]),
+      ),
+      quote: serializeForJson(quote),
+      position: serializeForJson(positionAccount),
+      instruction_count: fullInstructions.length,
+      additional_signer_count: additionalSigners.length,
+    },
+  };
+}
+
+async function realResponse(normalized) {
   const runtime = await buildRuntimeContext(normalized);
   if (normalized.action === "preview_open_position_same_collateral") {
     return getOpenPositionPreview(runtime, normalized);
   }
   if (normalized.action === "preview_close_position_same_collateral") {
     return getClosePositionPreview(runtime, normalized);
+  }
+  if (normalized.action === "prepare_open_position_same_collateral") {
+    return prepareOpenPosition(runtime, normalized);
+  }
+  if (normalized.action === "prepare_close_position_same_collateral") {
+    return prepareClosePosition(runtime, normalized);
   }
   return jsonError(`Unsupported real action: ${normalized.action}`, {
     detail: {
@@ -450,9 +733,9 @@ async function main() {
 
     let response;
     if (mode === "mock") {
-      response = mockPreview(normalized);
+      response = mockResponse(normalized);
     } else if (mode === "real") {
-      response = await realPreview(normalized);
+      response = await realResponse(normalized);
     } else {
       response = jsonError(`Unsupported FLASH_SDK_BRIDGE_MODE: ${mode}`);
     }

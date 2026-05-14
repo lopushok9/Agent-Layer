@@ -767,3 +767,82 @@ def verify_provider_kamino_lend_transaction(
         "action": action,
         "verified": True,
     }
+
+
+def verify_provider_flash_transaction(
+    message: Any,
+    *,
+    wallet_address: str,
+    market_address: str,
+    target_custody_address: str,
+    collateral_custody_address: str,
+    action: str,
+    expected_program_ids: list[str],
+    position_address: str | None = None,
+    collateral_mint: str | None = None,
+    loaded_addresses: list[str] | None = None,
+) -> dict[str, Any]:
+    binding = _assert_basic_wallet_binding(
+        message,
+        wallet_address=wallet_address,
+        loaded_addresses=loaded_addresses,
+    )
+    keys = binding["account_keys"]
+    if market_address not in keys:
+        raise WalletBackendError(
+            f"{action} transaction does not reference the expected Flash market account."
+        )
+    if target_custody_address not in keys:
+        raise WalletBackendError(
+            f"{action} transaction does not reference the expected Flash target custody."
+        )
+    if collateral_custody_address not in keys:
+        raise WalletBackendError(
+            f"{action} transaction does not reference the expected Flash collateral custody."
+        )
+    if position_address and position_address not in keys:
+        raise WalletBackendError(
+            f"{action} transaction does not reference the expected Flash position account."
+        )
+    if collateral_mint and collateral_mint not in keys:
+        raise WalletBackendError(
+            f"{action} transaction does not reference the expected Flash collateral mint."
+        )
+
+    allowed_programs = CORE_PROGRAM_IDS | {pid for pid in expected_program_ids if pid}
+    program_ids = _program_ids(message, loaded_addresses)
+    unknown_program_ids = _assert_program_allowlist(
+        program_ids,
+        allowed_programs=allowed_programs,
+        label=action,
+        reject_unknown=False,
+    )
+    recognized_flash_program_ids = [
+        pid for pid in program_ids if pid in expected_program_ids
+    ]
+    if not recognized_flash_program_ids:
+        raise WalletBackendError(
+            f"{action} transaction does not include the expected Flash program."
+        )
+    return {
+        "wallet_address": wallet_address,
+        "fee_payer": binding["fee_payer"],
+        "required_signer_keys": binding["required_signer_keys"],
+        "required_signature_count": binding["required_signature_count"],
+        "wallet_signer_index": binding["wallet_signer_index"],
+        "sponsored_fee_payer": binding["sponsored_fee_payer"],
+        "program_ids": program_ids,
+        "unknown_program_ids": unknown_program_ids,
+        "recognized_flash_program_ids": recognized_flash_program_ids,
+        "has_recognized_flash_program": True,
+        "non_core_program_ids": [pid for pid in program_ids if pid not in CORE_PROGRAM_IDS],
+        "account_key_count": len(keys),
+        "instruction_count": len(_compiled_instructions(message)),
+        "market_address": market_address,
+        "target_custody_address": target_custody_address,
+        "collateral_custody_address": collateral_custody_address,
+        "position_address": position_address,
+        "collateral_mint": collateral_mint,
+        "action": action,
+        "verified": True,
+    }

@@ -538,14 +538,15 @@ Operational notes:
 - the wallet-side write path for `open/close perps` is not enabled yet; that will be added through the existing `preview -> prepare -> execute` approval model instead of a separate trading wallet flow
 - Flash reads expect either hosted/self-hosted gateway routes on `PROVIDER_GATEWAY_URL` or a direct `FLASH_API_BASE_URL`
 - Phase 2 now also adds `flash_trade_open_position` and `flash_trade_close_position` in `preview` / `prepare` mode only
-- those preview flows are produced by a local bridge command configured via `FLASH_SDK_BRIDGE_COMMAND`
+- those preview/prepare flows are produced by a local bridge command configured via `FLASH_SDK_BRIDGE_COMMAND`
 - the bridge is expected to return machine JSON on stdout; `agent-wallet/tests/smoke_flash_sdk_bridge.py` documents the minimal contract shape
 - a repo-owned Node bridge now lives at `agent-wallet/scripts/flash-sdk-bridge/bridge.mjs`
 - install its pinned SDK dependencies with `cd agent-wallet/scripts/flash-sdk-bridge && npm install`
 - `FLASH_SDK_BRIDGE_MODE=mock` provides deterministic smoke behavior without SDK dependencies
-- `FLASH_SDK_BRIDGE_MODE=real` now produces real Flash SDK quotes for `preview_open_position_same_collateral` and `preview_close_position_same_collateral`
+- `FLASH_SDK_BRIDGE_MODE=real` now produces real Flash SDK quotes for preview and real versioned transaction builds for prepare
+- the backend locally verifies the provider-built Flash transaction and applies only the wallet signature; tool-level `prepare` still strips signed transaction bytes before returning to the agent
 - current real-mode constraints are intentionally narrow: mainnet only, same-collateral `market_symbol == collateral_symbol`, and whole-number leverage strings for opens
-- real order builders are still intentionally gated until the transaction-verification step is implemented
+- `execute` is still intentionally gated behind the next step, which will wire approval-token controlled broadcast for Flash perps
 
 ## Native staking coverage
 

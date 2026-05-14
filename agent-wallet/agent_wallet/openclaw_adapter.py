@@ -4067,12 +4067,20 @@ class OpenClawWalletAdapter:
                     )
 
                 self._require_prepare_intent(user_intent)
+                prepared = await active_backend.prepare_flash_trade_open_position(
+                    pool_name=pool_name.strip(),
+                    market_symbol=market_symbol.strip(),
+                    collateral_symbol=collateral_symbol.strip(),
+                    collateral_amount_raw=collateral_amount_raw.strip(),
+                    leverage=leverage.strip(),
+                    side=side,
+                )
                 return AgentToolResult(
                     tool=tool_name,
                     ok=True,
                     data=self._annotate_sensitive_payload(
                         self._build_prepare_plan(
-                            preview_payload=preview,
+                            preview_payload=prepared,
                             action_label="Flash Trade open position",
                         ),
                         action_label="Flash Trade open position",
@@ -4114,12 +4122,17 @@ class OpenClawWalletAdapter:
                     )
 
                 self._require_prepare_intent(user_intent)
+                prepared = await active_backend.prepare_flash_trade_close_position(
+                    pool_name=pool_name.strip(),
+                    market_symbol=market_symbol.strip(),
+                    side=side,
+                )
                 return AgentToolResult(
                     tool=tool_name,
                     ok=True,
                     data=self._annotate_sensitive_payload(
                         self._build_prepare_plan(
-                            preview_payload=preview,
+                            preview_payload=prepared,
                             action_label="Flash Trade close position",
                         ),
                         action_label="Flash Trade close position",

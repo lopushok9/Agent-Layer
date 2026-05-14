@@ -566,6 +566,62 @@ class FakeBackend(AgentWalletBackend):
             "source": "flash-sdk-bridge",
         }
 
+    async def prepare_flash_trade_open_position(
+        self,
+        *,
+        pool_name: str,
+        market_symbol: str,
+        collateral_symbol: str,
+        collateral_amount_raw: str,
+        leverage: str,
+        side: str,
+    ) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "prepare",
+            "asset_type": "flash-trade-open-position",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "pool_name": pool_name,
+            "market_symbol": market_symbol,
+            "collateral_symbol": collateral_symbol,
+            "collateral_amount_raw": collateral_amount_raw,
+            "leverage": leverage,
+            "side": side,
+            "estimated_size_usd": "1250.00",
+            "transaction_base64": "AQID",
+            "transaction_encoding": "base64",
+            "transaction_format": "versioned",
+            "signed": True,
+            "verification": {"verified": True, "wallet_signer_index": 0},
+            "source": "flash-sdk-bridge",
+        }
+
+    async def prepare_flash_trade_close_position(
+        self,
+        *,
+        pool_name: str,
+        market_symbol: str,
+        side: str,
+    ) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "prepare",
+            "asset_type": "flash-trade-close-position",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "pool_name": pool_name,
+            "market_symbol": market_symbol,
+            "side": side,
+            "position_size_usd": "1250.00",
+            "transaction_base64": "AQID",
+            "transaction_encoding": "base64",
+            "transaction_format": "versioned",
+            "signed": True,
+            "verification": {"verified": True, "wallet_signer_index": 0},
+            "source": "flash-sdk-bridge",
+        }
+
     async def get_kamino_lend_markets(self) -> dict:
         return {
             "chain": "solana",

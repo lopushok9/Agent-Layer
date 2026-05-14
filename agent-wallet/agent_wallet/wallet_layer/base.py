@@ -459,6 +459,27 @@ class AgentWalletBackend(ABC):
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Flash Trade position-close previews.")
 
+    async def prepare_flash_trade_open_position(
+        self,
+        *,
+        pool_name: str,
+        market_symbol: str,
+        collateral_symbol: str,
+        collateral_amount_raw: str,
+        leverage: str,
+        side: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Flash Trade position-open prepare.")
+
+    async def prepare_flash_trade_close_position(
+        self,
+        *,
+        pool_name: str,
+        market_symbol: str,
+        side: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Flash Trade position-close prepare.")
+
     async def get_kamino_lend_markets(self) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Kamino market lookup.")
 
