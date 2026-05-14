@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     houdini_user_ip: str = ""
     houdini_user_agent: str = "AgentLayer/0.1.12"
     houdini_user_timezone: str = "UTC"
+    flash_api_base_url: str = ""
+    flash_sdk_bridge_command: str = ""
+    flash_sdk_bridge_timeout_seconds: float = 20.0
     kamino_api_base_url: str = "https://api.kamino.finance"
     kamino_program_id: str = "KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD"
     alchemy_api_key: str = ""

@@ -144,6 +144,14 @@ def _jupiter_headers() -> dict[str, str]:
     return {"x-api-key": api_key}
 
 
+def _flash_base_url() -> str:
+    return _trim(os.getenv("FLASH_API_BASE_URL"))
+
+
+def _flash_configured() -> bool:
+    return bool(_flash_base_url())
+
+
 def _houdini_base_url() -> str:
     return _trim(os.getenv("HOUDINI_API_BASE_URL")) or "https://api-partner.houdiniswap.com/v2"
 
@@ -344,6 +352,11 @@ def _status_payload() -> dict[str, Any]:
             "earn_earnings": True,
             "earn_deposit": True,
             "earn_withdraw": True,
+        },
+        "flash_configured": _flash_configured(),
+        "flash_features": {
+            "perps_markets": True,
+            "perps_positions": True,
         },
         "houdini_configured": _houdini_configured(),
         "houdini_features": {
@@ -1034,6 +1047,52 @@ async def jupiter_earn_withdraw(request: Request) -> JSONResponse:
     return JSONResponse(payload, status_code=status_code)
 
 
+async def flash_perps_markets(request: Request) -> JSONResponse:
+    auth_error = _require_bearer(request)
+    if auth_error:
+        return _json_error(auth_error, 401)
+
+    if not _flash_configured():
+        return _json_error("Flash Trade is not configured", 503)
+
+    params = _copy_optional_query(request, ["pool_name"])
+
+    try:
+        status_code, payload = await _http_get(
+            f"{_flash_base_url()}/markets",
+            params=params or None,
+        )
+    except httpx.HTTPError as exc:
+        return _json_error(f"Flash Trade markets error: {exc}", 502)
+
+    return JSONResponse(payload, status_code=status_code)
+
+
+async def flash_perps_positions(request: Request) -> JSONResponse:
+    auth_error = _require_bearer(request)
+    if auth_error:
+        return _json_error(auth_error, 401)
+
+    if not _flash_configured():
+        return _json_error("Flash Trade is not configured", 503)
+
+    try:
+        params = {"owner": _require_query(request, "owner")}
+        params.update(_copy_optional_query(request, ["pool_name"]))
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+
+    try:
+        status_code, payload = await _http_get(
+            f"{_flash_base_url()}/positions",
+            params=params,
+        )
+    except httpx.HTTPError as exc:
+        return _json_error(f"Flash Trade positions error: {exc}", 502)
+
+    return JSONResponse(payload, status_code=status_code)
+
+
 async def jupiter_swap_quote(request: Request) -> JSONResponse:
     """Proxy Jupiter swap quote with API key."""
     auth_error = _require_bearer(request)
@@ -1290,6 +1349,8 @@ routes = [
     Route("/v1/jupiter/earn/earnings", jupiter_earn_earnings, methods=["GET"]),
     Route("/v1/jupiter/earn/deposit", jupiter_earn_deposit, methods=["POST"]),
     Route("/v1/jupiter/earn/withdraw", jupiter_earn_withdraw, methods=["POST"]),
+    Route("/v1/flash/perps/markets", flash_perps_markets, methods=["GET"]),
+    Route("/v1/flash/perps/positions", flash_perps_positions, methods=["GET"]),
     Route("/v1/jupiter/swap/quote", jupiter_swap_quote, methods=["GET"]),
     Route("/v1/jupiter/swap/swap", jupiter_swap_swap, methods=["POST"]),
     Route("/v1/houdini/tokens", houdini_tokens, methods=["GET"]),

@@ -483,6 +483,45 @@ class OpenClawWalletAdapter:
                 "claim_fingerprint": claim_fingerprint,
             }
 
+        if asset_type in {"flash-trade-open-position", "flash-trade-close-position"}:
+            flash_binding = {
+                "pool_name": payload.get("pool_name"),
+                "market_symbol": payload.get("market_symbol"),
+                "collateral_symbol": payload.get("collateral_symbol"),
+                "collateral_amount_raw": payload.get("collateral_amount_raw"),
+                "leverage": payload.get("leverage"),
+                "side": payload.get("side"),
+                "estimated_size_usd": payload.get("estimated_size_usd"),
+                "estimated_entry_price": payload.get("estimated_entry_price"),
+                "estimated_liquidation_price": payload.get("estimated_liquidation_price"),
+                "position_size_usd": payload.get("position_size_usd"),
+                "close_amount_raw": payload.get("close_amount_raw"),
+            }
+            flash_fingerprint = hashlib.sha256(
+                json.dumps(
+                    flash_binding,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()
+            return {
+                "operation": action_label,
+                "network": str(payload.get("network") or getattr(self.backend, "network", "unknown")),
+                "owner": payload.get("owner"),
+                "pool_name": payload.get("pool_name"),
+                "market_symbol": payload.get("market_symbol"),
+                "collateral_symbol": payload.get("collateral_symbol"),
+                "collateral_amount_raw": payload.get("collateral_amount_raw"),
+                "leverage": payload.get("leverage"),
+                "side": payload.get("side"),
+                "estimated_size_usd": payload.get("estimated_size_usd"),
+                "estimated_entry_price": payload.get("estimated_entry_price"),
+                "estimated_liquidation_price": payload.get("estimated_liquidation_price"),
+                "position_size_usd": payload.get("position_size_usd"),
+                "close_amount_raw": payload.get("close_amount_raw"),
+                "flash_preview_fingerprint": flash_fingerprint,
+            }
+
         if asset_type == "btc-transfer":
             btc_binding = {
                 "recipient": payload.get("recipient"),
@@ -1877,6 +1916,155 @@ class OpenClawWalletAdapter:
                 },
                 read_only=True,
                 risk_level="low",
+            ),
+            AgentToolSpec(
+                name="get_flash_trade_markets",
+                description="List Flash Trade perpetual markets currently available on Solana mainnet.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "pool_name": {
+                            "type": "string",
+                            "description": "Optional Flash pool identifier such as Crypto.1.",
+                        }
+                    },
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+            AgentToolSpec(
+                name="get_flash_trade_positions",
+                description="Get Flash Trade perpetual positions for a Solana wallet on mainnet.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "owner": {
+                            "type": "string",
+                            "description": "Optional Solana wallet address override. If omitted, use the configured wallet.",
+                        },
+                        "pool_name": {
+                            "type": "string",
+                            "description": "Optional Flash pool identifier such as Crypto.1.",
+                        },
+                    },
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+            AgentToolSpec(
+                name="flash_trade_open_position",
+                description=(
+                    "Preview or prepare a Flash Trade same-collateral perpetual open on Solana mainnet. "
+                    "Current Phase 2 support is preview/prepare only; execute is not enabled yet."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "pool_name": {
+                            "type": "string",
+                            "description": "Flash pool identifier such as Crypto.1.",
+                        },
+                        "market_symbol": {
+                            "type": "string",
+                            "description": "Flash market symbol such as SOL or BTC.",
+                        },
+                        "collateral_symbol": {
+                            "type": "string",
+                            "description": "Collateral symbol. Phase 2 requires the same symbol as market_symbol.",
+                        },
+                        "collateral_amount_raw": {
+                            "type": "string",
+                            "description": "Collateral amount in raw token units.",
+                        },
+                        "leverage": {
+                            "type": "string",
+                            "description": "Requested leverage as a decimal string such as 5 or 7.5.",
+                        },
+                        "side": {
+                            "type": "string",
+                            "enum": ["long", "short"],
+                            "description": "Position direction.",
+                        },
+                        "mode": {
+                            "type": "string",
+                            "enum": ["preview", "prepare"],
+                            "description": "preview returns trade details; prepare returns an execution plan without signed bytes.",
+                        },
+                        "purpose": {
+                            "type": "string",
+                            "description": "Short explanation of why the position should be opened.",
+                        },
+                        "user_intent": {
+                            "type": "boolean",
+                            "description": "Must be true for prepare mode.",
+                        },
+                    },
+                    "required": [
+                        "pool_name",
+                        "market_symbol",
+                        "collateral_symbol",
+                        "collateral_amount_raw",
+                        "leverage",
+                        "side",
+                        "mode",
+                        "purpose",
+                    ],
+                    "additionalProperties": False,
+                },
+                read_only=False,
+                requires_explicit_user_intent=True,
+                risk_level="high",
+            ),
+            AgentToolSpec(
+                name="flash_trade_close_position",
+                description=(
+                    "Preview or prepare a Flash Trade same-collateral perpetual close on Solana mainnet. "
+                    "Current Phase 2 support is preview/prepare only; execute is not enabled yet."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "pool_name": {
+                            "type": "string",
+                            "description": "Flash pool identifier such as Crypto.1.",
+                        },
+                        "market_symbol": {
+                            "type": "string",
+                            "description": "Flash market symbol such as SOL or BTC.",
+                        },
+                        "side": {
+                            "type": "string",
+                            "enum": ["long", "short"],
+                            "description": "Position direction to close.",
+                        },
+                        "mode": {
+                            "type": "string",
+                            "enum": ["preview", "prepare"],
+                            "description": "preview returns close details; prepare returns an execution plan without signed bytes.",
+                        },
+                        "purpose": {
+                            "type": "string",
+                            "description": "Short explanation of why the position should be closed.",
+                        },
+                        "user_intent": {
+                            "type": "boolean",
+                            "description": "Must be true for prepare mode.",
+                        },
+                    },
+                    "required": [
+                        "pool_name",
+                        "market_symbol",
+                        "side",
+                        "mode",
+                        "purpose",
+                    ],
+                    "additionalProperties": False,
+                },
+                read_only=False,
+                requires_explicit_user_intent=True,
+                risk_level="high",
             ),
             AgentToolSpec(
                 name="get_kamino_lend_markets",
@@ -3812,6 +4000,132 @@ class OpenClawWalletAdapter:
                     positions=positions,
                 )
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_flash_trade_markets":
+                pool_name = args.get("pool_name")
+                if pool_name is not None and not isinstance(pool_name, str):
+                    raise WalletBackendError("pool_name must be a string when provided.")
+                data = await active_backend.get_flash_trade_markets(pool_name=pool_name)
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_flash_trade_positions":
+                owner = args.get("owner")
+                pool_name = args.get("pool_name")
+                if owner is not None and not isinstance(owner, str):
+                    raise WalletBackendError("owner must be a string when provided.")
+                if pool_name is not None and not isinstance(pool_name, str):
+                    raise WalletBackendError("pool_name must be a string when provided.")
+                data = await active_backend.get_flash_trade_positions(
+                    owner=owner,
+                    pool_name=pool_name,
+                )
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "flash_trade_open_position":
+                pool_name = args.get("pool_name")
+                market_symbol = args.get("market_symbol")
+                collateral_symbol = args.get("collateral_symbol")
+                collateral_amount_raw = args.get("collateral_amount_raw")
+                leverage = args.get("leverage")
+                side = args.get("side")
+                mode = args.get("mode")
+                purpose = args.get("purpose")
+                user_intent = args.get("user_intent", False)
+
+                if not isinstance(pool_name, str) or not pool_name.strip():
+                    raise WalletBackendError("pool_name is required.")
+                if not isinstance(market_symbol, str) or not market_symbol.strip():
+                    raise WalletBackendError("market_symbol is required.")
+                if not isinstance(collateral_symbol, str) or not collateral_symbol.strip():
+                    raise WalletBackendError("collateral_symbol is required.")
+                if not isinstance(collateral_amount_raw, str) or not collateral_amount_raw.strip():
+                    raise WalletBackendError("collateral_amount_raw is required.")
+                if not isinstance(leverage, str) or not leverage.strip():
+                    raise WalletBackendError("leverage is required.")
+                if mode not in {"preview", "prepare"}:
+                    raise WalletBackendError("mode must be 'preview' or 'prepare'.")
+                if not isinstance(purpose, str) or not purpose.strip():
+                    raise WalletBackendError("purpose is required.")
+
+                preview = await active_backend.preview_flash_trade_open_position(
+                    pool_name=pool_name.strip(),
+                    market_symbol=market_symbol.strip(),
+                    collateral_symbol=collateral_symbol.strip(),
+                    collateral_amount_raw=collateral_amount_raw.strip(),
+                    leverage=leverage.strip(),
+                    side=side,
+                )
+                if mode == "preview":
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            preview,
+                            action_label="Flash Trade open position",
+                            mode="preview",
+                        ),
+                    )
+
+                self._require_prepare_intent(user_intent)
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=self._annotate_sensitive_payload(
+                        self._build_prepare_plan(
+                            preview_payload=preview,
+                            action_label="Flash Trade open position",
+                        ),
+                        action_label="Flash Trade open position",
+                        mode="prepare",
+                    ),
+                )
+
+            if tool_name == "flash_trade_close_position":
+                pool_name = args.get("pool_name")
+                market_symbol = args.get("market_symbol")
+                side = args.get("side")
+                mode = args.get("mode")
+                purpose = args.get("purpose")
+                user_intent = args.get("user_intent", False)
+
+                if not isinstance(pool_name, str) or not pool_name.strip():
+                    raise WalletBackendError("pool_name is required.")
+                if not isinstance(market_symbol, str) or not market_symbol.strip():
+                    raise WalletBackendError("market_symbol is required.")
+                if mode not in {"preview", "prepare"}:
+                    raise WalletBackendError("mode must be 'preview' or 'prepare'.")
+                if not isinstance(purpose, str) or not purpose.strip():
+                    raise WalletBackendError("purpose is required.")
+
+                preview = await active_backend.preview_flash_trade_close_position(
+                    pool_name=pool_name.strip(),
+                    market_symbol=market_symbol.strip(),
+                    side=side,
+                )
+                if mode == "preview":
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            preview,
+                            action_label="Flash Trade close position",
+                            mode="preview",
+                        ),
+                    )
+
+                self._require_prepare_intent(user_intent)
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=self._annotate_sensitive_payload(
+                        self._build_prepare_plan(
+                            preview_payload=preview,
+                            action_label="Flash Trade close position",
+                        ),
+                        action_label="Flash Trade close position",
+                        mode="prepare",
+                    ),
+                )
 
             if tool_name == "get_kamino_lend_markets":
                 data = await self.backend.get_kamino_lend_markets()

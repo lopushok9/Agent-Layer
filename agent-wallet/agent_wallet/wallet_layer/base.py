@@ -425,6 +425,40 @@ class AgentWalletBackend(ABC):
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Jupiter Earn earnings.")
 
+    async def get_flash_trade_markets(
+        self,
+        pool_name: str | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Flash Trade market lookup.")
+
+    async def get_flash_trade_positions(
+        self,
+        owner: str | None = None,
+        pool_name: str | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Flash Trade position lookup.")
+
+    async def preview_flash_trade_open_position(
+        self,
+        *,
+        pool_name: str,
+        market_symbol: str,
+        collateral_symbol: str,
+        collateral_amount_raw: str,
+        leverage: str,
+        side: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Flash Trade position-open previews.")
+
+    async def preview_flash_trade_close_position(
+        self,
+        *,
+        pool_name: str,
+        market_symbol: str,
+        side: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Flash Trade position-close previews.")
+
     async def get_kamino_lend_markets(self) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Kamino market lookup.")
 

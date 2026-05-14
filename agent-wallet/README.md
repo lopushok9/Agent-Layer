@@ -524,6 +524,23 @@ Operational notes:
 - Jupiter `Portfolio` implementation remains in the backend, but the agent-facing tools are temporarily disabled.
 - The Jupiter config fields and provider code are intentionally kept so these surfaces can be restored later without rebuilding the integration from scratch.
 
+## Flash Trade coverage
+
+Current Flash Trade integration is intentionally phase-scoped:
+
+- read-only `markets` and `positions` hooks are now wired through the Solana backend and OpenClaw adapter
+- the transport is provider-driven, so Flash can be added through `provider-gateway` without introducing a new wallet runtime
+
+Operational notes:
+
+- current agent-facing tools are `get_flash_trade_markets` and `get_flash_trade_positions`
+- these reads are mainnet-only
+- the wallet-side write path for `open/close perps` is not enabled yet; that will be added through the existing `preview -> prepare -> execute` approval model instead of a separate trading wallet flow
+- Flash reads expect either hosted/self-hosted gateway routes on `PROVIDER_GATEWAY_URL` or a direct `FLASH_API_BASE_URL`
+- Phase 2 now also adds `flash_trade_open_position` and `flash_trade_close_position` in `preview` / `prepare` mode only
+- those preview flows are produced by a local bridge command configured via `FLASH_SDK_BRIDGE_COMMAND`
+- the bridge is expected to return machine JSON on stdout; `agent-wallet/tests/smoke_flash_sdk_bridge.py` documents the minimal contract shape
+
 ## Native staking coverage
 
 Current native Solana staking integration now includes:

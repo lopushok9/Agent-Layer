@@ -11,7 +11,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from agent_wallet.models import AgentWalletCapabilities, SolanaWalletState
-from agent_wallet.providers import bags, houdini, jupiter, kamino, lifi, solana_rpc
+from agent_wallet.providers import bags, flash, flash_sdk_bridge, houdini, jupiter, kamino, lifi, solana_rpc
 from agent_wallet.solana_stake import (
     STAKE_STATE_V2_SIZE,
     deactivate_stake as build_deactivate_stake_instruction,
@@ -153,6 +153,21 @@ def _require_positive_decimal_string(value: Any, *, field_name: str) -> str:
     if "." in normalized:
         normalized = normalized.rstrip("0").rstrip(".")
     return normalized or "0"
+
+
+def _normalize_flash_symbol(value: Any, *, field_name: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise WalletBackendError(f"{field_name} must be a non-empty string.")
+    return value.strip().upper()
+
+
+def _normalize_flash_side(value: Any) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise WalletBackendError("side must be a non-empty string.")
+    normalized = value.strip().lower()
+    if normalized not in {"long", "short"}:
+        raise WalletBackendError("side must be 'long' or 'short'.")
+    return normalized
 
 
 def _coerce_positive_int_from_any(value: Any) -> int | None:
@@ -2338,6 +2353,10 @@ class SolanaWalletBackend(AgentWalletBackend):
         if self.network != "mainnet":
             raise WalletBackendError(f"{feature} is only enabled for Solana mainnet.")
 
+    def _require_mainnet_flash(self, feature: str) -> None:
+        if self.network != "mainnet":
+            raise WalletBackendError(f"{feature} is only enabled for Solana mainnet.")
+
     def _require_mainnet_kamino(self, feature: str) -> None:
         if self.network != "mainnet":
             raise WalletBackendError(f"{feature} is only enabled for Solana mainnet.")
@@ -2479,6 +2498,208 @@ class SolanaWalletBackend(AgentWalletBackend):
             "earnings": earnings,
             "raw": data,
             "source": "jupiter-lend",
+        }
+
+    async def get_flash_trade_markets(
+        self,
+        pool_name: str | None = None,
+    ) -> dict[str, Any]:
+        self._require_mainnet_flash("Flash Trade")
+        normalized_pool_name: str | None = None
+        if pool_name is not None:
+            if not isinstance(pool_name, str) or not pool_name.strip():
+                raise WalletBackendError("pool_name must be a non-empty string when provided.")
+            normalized_pool_name = pool_name.strip()
+        data = await flash.fetch_markets(pool_name=normalized_pool_name)
+        markets = data.get("markets")
+        if not isinstance(markets, list):
+            markets = []
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "pool_name": normalized_pool_name,
+            "market_count": len(markets),
+            "markets": markets,
+            "raw": data,
+            "source": "flash-trade",
+        }
+
+    async def get_flash_trade_positions(
+        self,
+        owner: str | None = None,
+        pool_name: str | None = None,
+    ) -> dict[str, Any]:
+        self._require_mainnet_flash("Flash Trade")
+        wallet_address = owner or self.address
+        if not wallet_address:
+            raise WalletBackendError(
+                "A wallet address is required for Flash Trade position lookup."
+            )
+        wallet_address = validate_solana_address(wallet_address)
+        normalized_pool_name: str | None = None
+        if pool_name is not None:
+            if not isinstance(pool_name, str) or not pool_name.strip():
+                raise WalletBackendError("pool_name must be a non-empty string when provided.")
+            normalized_pool_name = pool_name.strip()
+        data = await flash.fetch_positions(
+            owner=wallet_address,
+            pool_name=normalized_pool_name,
+        )
+        positions = data.get("positions")
+        if not isinstance(positions, list):
+            positions = []
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "owner": wallet_address,
+            "pool_name": normalized_pool_name,
+            "position_count": len(positions),
+            "positions": positions,
+            "raw": data,
+            "source": "flash-trade",
+        }
+
+    async def preview_flash_trade_open_position(
+        self,
+        *,
+        pool_name: str,
+        market_symbol: str,
+        collateral_symbol: str,
+        collateral_amount_raw: str,
+        leverage: str,
+        side: str,
+    ) -> dict[str, Any]:
+        self._require_mainnet_flash("Flash Trade")
+        owner = await self.get_address()
+        if not owner:
+            raise WalletBackendError(
+                "No Solana wallet address configured. Set SOLANA_AGENT_PUBLIC_KEY or a signer."
+            )
+        normalized_pool_name = str(pool_name).strip()
+        if not normalized_pool_name:
+            raise WalletBackendError("pool_name is required.")
+        normalized_market_symbol = _normalize_flash_symbol(
+            market_symbol,
+            field_name="market_symbol",
+        )
+        normalized_collateral_symbol = _normalize_flash_symbol(
+            collateral_symbol,
+            field_name="collateral_symbol",
+        )
+        if normalized_collateral_symbol != normalized_market_symbol:
+            raise WalletBackendError(
+                "Phase 2 Flash preview currently supports only same-collateral opens where collateral_symbol matches market_symbol."
+            )
+        normalized_collateral_amount_raw = _require_positive_integer_string(
+            collateral_amount_raw,
+            field_name="collateral_amount_raw",
+        )
+        normalized_leverage = _require_positive_decimal_string(leverage, field_name="leverage")
+        normalized_side = _normalize_flash_side(side)
+        market_snapshot = await self.get_flash_trade_markets(pool_name=normalized_pool_name)
+        matching_market = next(
+            (
+                item
+                for item in market_snapshot["markets"]
+                if isinstance(item, dict)
+                and str(item.get("symbol") or "").strip().upper() == normalized_market_symbol
+            ),
+            None,
+        )
+        if matching_market is None:
+            raise WalletBackendError(
+                "Requested Flash market is not available in the selected pool."
+            )
+        bridge_preview = await flash_sdk_bridge.preview_open_position_same_collateral(
+            owner=owner,
+            pool_name=normalized_pool_name,
+            market_symbol=normalized_market_symbol,
+            collateral_symbol=normalized_collateral_symbol,
+            collateral_amount_raw=normalized_collateral_amount_raw,
+            leverage=normalized_leverage,
+            side=normalized_side,
+            network=self.network,
+        )
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "mode": "preview",
+            "asset_type": "flash-trade-open-position",
+            "owner": owner,
+            "pool_name": normalized_pool_name,
+            "market_symbol": normalized_market_symbol,
+            "collateral_symbol": normalized_collateral_symbol,
+            "collateral_amount_raw": normalized_collateral_amount_raw,
+            "leverage": normalized_leverage,
+            "side": normalized_side,
+            "market": matching_market,
+            "sign_only": self.sign_only,
+            "can_send": self.get_capabilities().can_send_transaction,
+            "source": "flash-sdk-bridge",
+            **bridge_preview,
+        }
+
+    async def preview_flash_trade_close_position(
+        self,
+        *,
+        pool_name: str,
+        market_symbol: str,
+        side: str,
+    ) -> dict[str, Any]:
+        self._require_mainnet_flash("Flash Trade")
+        owner = await self.get_address()
+        if not owner:
+            raise WalletBackendError(
+                "No Solana wallet address configured. Set SOLANA_AGENT_PUBLIC_KEY or a signer."
+            )
+        normalized_pool_name = str(pool_name).strip()
+        if not normalized_pool_name:
+            raise WalletBackendError("pool_name is required.")
+        normalized_market_symbol = _normalize_flash_symbol(
+            market_symbol,
+            field_name="market_symbol",
+        )
+        normalized_side = _normalize_flash_side(side)
+        positions_snapshot = await self.get_flash_trade_positions(
+            owner=owner,
+            pool_name=normalized_pool_name,
+        )
+        matching_position = next(
+            (
+                item
+                for item in positions_snapshot["positions"]
+                if isinstance(item, dict)
+                and str(item.get("symbol") or item.get("marketSymbol") or "").strip().upper()
+                == normalized_market_symbol
+                and str(item.get("side") or "").strip().lower() == normalized_side
+            ),
+            None,
+        )
+        if matching_position is None:
+            raise WalletBackendError(
+                "No matching Flash position was found for the selected market, side, and pool."
+            )
+        bridge_preview = await flash_sdk_bridge.preview_close_position_same_collateral(
+            owner=owner,
+            pool_name=normalized_pool_name,
+            market_symbol=normalized_market_symbol,
+            side=normalized_side,
+            network=self.network,
+        )
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "mode": "preview",
+            "asset_type": "flash-trade-close-position",
+            "owner": owner,
+            "pool_name": normalized_pool_name,
+            "market_symbol": normalized_market_symbol,
+            "side": normalized_side,
+            "position": matching_position,
+            "sign_only": self.sign_only,
+            "can_send": self.get_capabilities().can_send_transaction,
+            "source": "flash-sdk-bridge",
+            **bridge_preview,
         }
 
     async def get_kamino_lend_markets(self) -> dict[str, Any]:
