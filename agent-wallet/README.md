@@ -541,8 +541,11 @@ Operational notes:
 - those preview flows are produced by a local bridge command configured via `FLASH_SDK_BRIDGE_COMMAND`
 - the bridge is expected to return machine JSON on stdout; `agent-wallet/tests/smoke_flash_sdk_bridge.py` documents the minimal contract shape
 - a repo-owned Node bridge now lives at `agent-wallet/scripts/flash-sdk-bridge/bridge.mjs`
+- install its pinned SDK dependencies with `cd agent-wallet/scripts/flash-sdk-bridge && npm install`
 - `FLASH_SDK_BRIDGE_MODE=mock` provides deterministic smoke behavior without SDK dependencies
-- `FLASH_SDK_BRIDGE_MODE=real` validates runtime config and loads `flash-sdk`, but real order builders are still intentionally gated until the transaction-verification step is implemented
+- `FLASH_SDK_BRIDGE_MODE=real` now produces real Flash SDK quotes for `preview_open_position_same_collateral` and `preview_close_position_same_collateral`
+- current real-mode constraints are intentionally narrow: mainnet only, same-collateral `market_symbol == collateral_symbol`, and whole-number leverage strings for opens
+- real order builders are still intentionally gated until the transaction-verification step is implemented
 
 ## Native staking coverage
 
