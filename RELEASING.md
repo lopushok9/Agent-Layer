@@ -284,3 +284,100 @@ https://github.com/lopushok9/Agent-Layer.git
 
 Do not use `NPM_TOKEN` unless Trusted Publishing is unavailable. Token-based
 publishes can fail with `EOTP` when npm requires two-factor authentication.
+
+## ClawHub Release Workflow
+
+This repo also includes a separate GitHub Actions workflow for the OpenClaw
+plugin packages:
+
+```text
+.github/workflows/clawhub-plugins.yml
+```
+
+It publishes these ClawHub packages:
+
+```text
+@agentlayertech/agent-wallet-plugin
+@agentlayertech/pay-bridge-plugin
+```
+
+### Triggers
+
+- `pull_request`
+  - runs ClawHub publish in `--dry-run` mode for both plugin packages
+- `workflow_dispatch`
+  - supports manual runs with a `dry_run` boolean input
+- `push` on git tags matching `v*`
+  - publishes both plugin packages to ClawHub
+
+### Required secret
+
+The workflow requires this repository Actions secret:
+
+```text
+CLAWHUB_TOKEN
+```
+
+That token is created in the ClawHub web UI and must belong to an account with
+publisher access to:
+
+```text
+@agentlayertech
+```
+
+### Family mapping
+
+The workflow currently publishes:
+
+- `.openclaw/extensions/agent-wallet` as `bundle-plugin`
+- `.openclaw/extensions/pay-bridge` as `code-plugin`
+
+`agent-wallet` remains on `bundle-plugin` because the package
+`@agentlayertech/agent-wallet-plugin` was first created in ClawHub with that
+family, and ClawHub does not allow family changes for an existing package name.
+
+### Release flow with tags
+
+If you want one git tag to publish both npm and ClawHub surfaces together:
+
+1. Keep these versions aligned:
+
+```text
+package.json
+agent-wallet/pyproject.toml
+.openclaw/extensions/agent-wallet/package.json
+.openclaw/extensions/pay-bridge/package.json
+```
+
+2. Commit the release version bump.
+
+3. Push `main`.
+
+4. Create and push the tag:
+
+```bash
+git tag -a v0.1.16 -m "v0.1.16"
+git push origin v0.1.16
+```
+
+That tag will trigger:
+
+- `.github/workflows/npm-installer.yml`
+- `.github/workflows/clawhub-plugins.yml`
+
+### Manual verification without publishing
+
+To verify the ClawHub workflow and token without creating a new release:
+
+1. Open GitHub Actions
+2. Select `ClawHub plugins`
+3. Click `Run workflow`
+4. Choose branch `main`
+5. Set `dry_run=true`
+6. Run it
+
+Expected result:
+
+- both matrix jobs succeed
+- ClawHub login succeeds
+- both package publishes resolve in dry-run mode without uploading
