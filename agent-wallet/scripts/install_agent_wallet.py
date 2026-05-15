@@ -518,7 +518,10 @@ def main() -> None:
 
     python_bin = Path(sys.executable)
     venv_created = False
-    if not args.skip_python_setup:
+    existing_wrapper = _venv_python_wrapper(venv_path)
+    if args.skip_python_setup and args.install_from_runtime and existing_wrapper.exists():
+        python_bin = existing_wrapper
+    elif not args.skip_python_setup:
         if not args.dry_run:
             python_bin, venv_created = _ensure_python_runtime(venv_path, package_root)
         else:

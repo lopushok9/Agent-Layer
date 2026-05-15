@@ -32,6 +32,10 @@ def main() -> None:
     stale_server = runtime_root / "wdk-evm-wallet" / "src" / "server.js"
     stale_server.parent.mkdir(parents=True, exist_ok=True)
     stale_server.write_text("// stale runtime without lido routes\n", encoding="utf-8")
+    runtime_wrapper = runtime_root / "agent-wallet" / ".runtime-venv" / "bin" / "openclaw-agent-wallet-python"
+    runtime_wrapper.parent.mkdir(parents=True, exist_ok=True)
+    runtime_wrapper.write_text('#!/bin/sh\nexec "$(dirname "$0")/python" "$@"\n', encoding="utf-8")
+    runtime_wrapper.chmod(0o755)
 
     script = Path(__file__).resolve().parents[1] / "scripts" / "install_agent_wallet.py"
     repo_root = Path(__file__).resolve().parents[2]
@@ -151,6 +155,30 @@ def main() -> None:
         "AGENT_WALLET_MASTER_KEY",
         "AGENT_WALLET_APPROVAL_SECRET",
     ]
+
+    runtime_install = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--config-path",
+            str(temp_root / "runtime-openclaw.json"),
+            "--env-path",
+            str(runtime_env),
+            "--venv-path",
+            str(runtime_root / "agent-wallet" / ".runtime-venv"),
+            "--backend",
+            "none",
+            "--skip-python-setup",
+            "--skip-node-setup",
+            "--install-from-runtime",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=env,
+    )
+    runtime_payload = json.loads(runtime_install.stdout)
+    assert runtime_payload["python_bin"] == str(runtime_wrapper)
 
     print("smoke_install_agent_wallet: ok")
 
