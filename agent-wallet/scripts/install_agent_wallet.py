@@ -304,6 +304,27 @@ def _ensure_runtime_boot_key_file_env(env_path: Path) -> bool:
     return _upsert_env_value(env_path, "AGENT_WALLET_BOOT_KEY_FILE", str(boot_key_file))
 
 
+def _ensure_flash_bridge_env(env_path: Path, package_root: Path) -> dict[str, bool]:
+    bridge_path = package_root / "scripts" / "flash-sdk-bridge" / "bridge.mjs"
+    results = {
+        "command_updated": False,
+        "mode_updated": False,
+    }
+    if not bridge_path.exists():
+        return results
+    results["command_updated"] = _upsert_env_value(
+        env_path,
+        "FLASH_SDK_BRIDGE_COMMAND",
+        f"node {bridge_path}",
+    )
+    results["mode_updated"] = _upsert_env_value(
+        env_path,
+        "FLASH_SDK_BRIDGE_MODE",
+        "real",
+    )
+    return results
+
+
 def _ensure_openclaw_config(config_path: Path) -> bool:
     if config_path.exists():
         return False
@@ -492,6 +513,7 @@ def main() -> None:
 
     env_created = _ensure_env_file(env_path, env_example_path)
     boot_key_file_env_updated = _ensure_runtime_boot_key_file_env(env_path)
+    flash_bridge_env = _ensure_flash_bridge_env(env_path, package_root)
     config_created = _ensure_openclaw_config(config_path)
 
     python_bin = Path(sys.executable)
@@ -507,22 +529,27 @@ def main() -> None:
         "npm_bin": args.npm_bin,
         "projects": [],
     }
+    node_projects = [wdk_btc_root, wdk_evm_root]
+    flash_bridge_root = package_root / "scripts" / "flash-sdk-bridge"
+    if (flash_bridge_root / "package.json").exists():
+        node_projects.append(flash_bridge_root)
+
     if not args.skip_node_setup:
         if args.dry_run:
             node_runtime["projects"] = [
                 {
-                    "project_root": str(wdk_btc_root),
-                    "command": [args.npm_bin, "ci" if (wdk_btc_root / "package-lock.json").exists() else "install"],
-                },
-                {
-                    "project_root": str(wdk_evm_root),
-                    "command": [args.npm_bin, "ci" if (wdk_evm_root / "package-lock.json").exists() else "install"],
-                },
+                    "project_root": str(project_root),
+                    "command": [
+                        args.npm_bin,
+                        "ci" if (project_root / "package-lock.json").exists() else "install",
+                    ],
+                }
+                for project_root in node_projects
             ]
         else:
             node_runtime["projects"] = [
-                _ensure_node_runtime(args.npm_bin, wdk_btc_root),
-                _ensure_node_runtime(args.npm_bin, wdk_evm_root),
+                _ensure_node_runtime(args.npm_bin, project_root)
+                for project_root in node_projects
             ]
 
     backend_enabled = args.backend.strip().lower() not in {"", "none"}
@@ -552,6 +579,7 @@ def main() -> None:
                 "env_path": str(env_path),
                 "env_created": env_created,
                 "boot_key_file_env_updated": boot_key_file_env_updated,
+                "flash_bridge_env": flash_bridge_env,
                 "config_path": str(config_path),
                 "config_created": config_created,
                 "package_root": str(package_root),

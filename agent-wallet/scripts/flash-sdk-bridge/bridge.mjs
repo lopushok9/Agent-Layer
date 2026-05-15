@@ -175,8 +175,21 @@ function resolveClusterName(network) {
   return network === "mainnet" ? "mainnet-beta" : network;
 }
 
+function defaultRpcUrlForNetwork(network) {
+  if (network === "mainnet") {
+    return "https://api.mainnet-beta.solana.com";
+  }
+  if (network === "devnet") {
+    return "https://api.devnet.solana.com";
+  }
+  return "";
+}
+
 async function buildRuntimeContext(normalized) {
-  const rpcUrl = process.env.RPC_URL?.trim() || process.env.SOLANA_RPC_URL?.trim();
+  const rpcUrl =
+    process.env.RPC_URL?.trim() ||
+    process.env.SOLANA_RPC_URL?.trim() ||
+    defaultRpcUrlForNetwork(normalized.network);
   if (!rpcUrl) {
     throw new Error("RPC_URL or SOLANA_RPC_URL is required in FLASH_SDK_BRIDGE_MODE=real");
   }
