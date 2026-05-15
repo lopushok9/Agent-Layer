@@ -2724,6 +2724,68 @@ class SolanaWalletBackend(AgentWalletBackend):
         action: str,
         asset_type: str,
     ) -> dict[str, Any]:
+        bridge_mode = str(bridge_prepared.get("bridge_mode") or "").strip().lower()
+        if bridge_mode == "mock":
+            prepared = {
+                "chain": "solana",
+                "network": self.network,
+                "mode": "prepare",
+                "asset_type": asset_type,
+                "owner": preview.get("owner"),
+                "pool_name": preview.get("pool_name"),
+                "market_symbol": preview.get("market_symbol"),
+                "collateral_symbol": preview.get("collateral_symbol"),
+                "collateral_amount_raw": preview.get("collateral_amount_raw"),
+                "leverage": preview.get("leverage"),
+                "side": preview.get("side"),
+                "signed": False,
+                "broadcasted": False,
+                "confirmed": False,
+                "sign_only": self.sign_only,
+                "source": "flash-sdk-bridge",
+                "bridge_mode": "mock",
+                "mock_prepare_only": True,
+                "mock_warning": (
+                    f"{action} is running in FLASH_SDK_BRIDGE_MODE=mock. "
+                    "Prepare returns a dry-run execution plan only; execute is disabled until the bridge runs in real mode."
+                ),
+                "build_response": bridge_prepared,
+            }
+            for key in (
+                "estimated_size_usd",
+                "estimated_size_amount_raw",
+                "estimated_collateral_usd",
+                "estimated_collateral_amount_raw",
+                "estimated_entry_price",
+                "estimated_liquidation_price",
+                "estimated_entry_fee_usd",
+                "estimated_total_fee_usd",
+                "estimated_fee_rate_bps",
+                "estimated_available_liquidity_usd",
+                "estimated_borrow_fee_rate",
+                "position_size_usd",
+                "position_size_amount_raw",
+                "close_amount_raw",
+                "estimated_receive_amount_usd",
+                "estimated_mark_price",
+                "estimated_existing_liquidation_price",
+                "estimated_new_liquidation_price",
+                "estimated_profit_usd",
+                "estimated_loss_usd",
+                "estimated_settled_pnl_usd",
+                "estimated_exit_fee_usd",
+                "estimated_total_fees_usd",
+                "estimated_existing_leverage",
+                "estimated_new_leverage",
+                "is_profitable",
+                "is_solvent",
+                "is_partial_close",
+                "position_pubkey",
+            ):
+                if key in preview:
+                    prepared[key] = preview[key]
+            return prepared
+
         if not self.signer:
             raise WalletBackendError("Solana signer is not configured.")
         try:
@@ -2912,6 +2974,10 @@ class SolanaWalletBackend(AgentWalletBackend):
         self,
         prepared: dict[str, Any],
     ) -> dict[str, Any]:
+        if str(prepared.get("bridge_mode") or "").strip().lower() == "mock":
+            raise WalletBackendError(
+                "Flash Trade execute is unavailable while FLASH_SDK_BRIDGE_MODE=mock. Switch the Flash SDK bridge to real mode first."
+            )
         result = await self._execute_prepared_provider_transaction(
             prepared,
             source="flash-sdk-bridge",

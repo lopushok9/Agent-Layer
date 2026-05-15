@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
+import httpx
+
 from agent_wallet.config import settings
 from agent_wallet.exceptions import ProviderError
 from agent_wallet.http_client import get_client
@@ -60,7 +62,13 @@ async def _request_json(
     headers: dict[str, str],
 ) -> tuple[int, Any]:
     client = get_client()
-    response = await client.get(url, params=params, headers=headers)
+    try:
+        response = await client.get(url, params=params, headers=headers)
+    except httpx.HTTPError as exc:
+        raise ProviderError(
+            PROVIDER_NAME,
+            f"HTTP request failed: {exc}",
+        ) from exc
     if not response.content:
         return response.status_code, {}
     try:
