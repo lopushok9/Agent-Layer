@@ -43,6 +43,10 @@ OPTIONAL_TOOLS = [
     "swap_solana_tokens",
     "close_empty_token_accounts",
     "request_devnet_airdrop",
+    "get_flash_trade_markets",
+    "get_flash_trade_positions",
+    "flash_trade_open_position",
+    "flash_trade_close_position",
 ]
 
 PAY_BRIDGE_PLUGIN_ID = "pay-bridge"
