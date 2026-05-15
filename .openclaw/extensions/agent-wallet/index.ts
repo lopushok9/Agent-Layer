@@ -1027,6 +1027,38 @@ const solanaToolDefinitions = [
     },
   },
   {
+    name: "get_flash_trade_markets",
+    description: "List Flash Trade perpetual markets currently available on Solana mainnet.",
+    parameters: {
+      type: "object",
+      properties: {
+        pool_name: {
+          type: "string",
+          description: "Optional Flash pool identifier such as Crypto.1.",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_flash_trade_positions",
+    description: "Get Flash Trade perpetual positions for a Solana wallet on mainnet.",
+    parameters: {
+      type: "object",
+      properties: {
+        owner: {
+          type: "string",
+          description: "Optional Solana wallet address override. If omitted, use the configured wallet.",
+        },
+        pool_name: {
+          type: "string",
+          description: "Optional Flash pool identifier such as Crypto.1.",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_kamino_lend_markets",
     description: "List Kamino lending markets currently available on Solana mainnet.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
@@ -1406,6 +1438,85 @@ const solanaToolDefinitions = [
         approval_token: { type: "string" },
       },
       required: ["market", "reserve", "amount_ui", "mode", "purpose"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "flash_trade_open_position",
+    description: "Preview, prepare, or execute a Flash Trade same-collateral perpetual open on Solana mainnet.",
+    optional: true,
+    parameters: {
+      type: "object",
+      properties: {
+        pool_name: {
+          type: "string",
+          description: "Flash pool identifier such as Crypto.1.",
+        },
+        market_symbol: {
+          type: "string",
+          description: "Flash market symbol such as SOL or BTC.",
+        },
+        collateral_symbol: {
+          type: "string",
+          description: "Collateral symbol. Current integration requires the same symbol as market_symbol.",
+        },
+        collateral_amount_raw: {
+          type: "string",
+          description: "Collateral amount in raw token units.",
+        },
+        leverage: {
+          type: "string",
+          description: "Requested leverage as a decimal string such as 5 or 7.5.",
+        },
+        side: {
+          type: "string",
+          enum: ["long", "short"],
+          description: "Position direction.",
+        },
+        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
+        purpose: { type: "string" },
+        user_intent: { type: "boolean" },
+        approval_token: { type: "string" },
+      },
+      required: [
+        "pool_name",
+        "market_symbol",
+        "collateral_symbol",
+        "collateral_amount_raw",
+        "leverage",
+        "side",
+        "mode",
+        "purpose",
+      ],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "flash_trade_close_position",
+    description: "Preview, prepare, or execute a Flash Trade same-collateral perpetual close on Solana mainnet.",
+    optional: true,
+    parameters: {
+      type: "object",
+      properties: {
+        pool_name: {
+          type: "string",
+          description: "Flash pool identifier such as Crypto.1.",
+        },
+        market_symbol: {
+          type: "string",
+          description: "Flash market symbol such as SOL or BTC.",
+        },
+        side: {
+          type: "string",
+          enum: ["long", "short"],
+          description: "Position direction to close.",
+        },
+        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
+        purpose: { type: "string" },
+        user_intent: { type: "boolean" },
+        approval_token: { type: "string" },
+      },
+      required: ["pool_name", "market_symbol", "side", "mode", "purpose"],
       additionalProperties: false,
     },
   },
