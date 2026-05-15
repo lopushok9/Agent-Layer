@@ -197,8 +197,12 @@ def _infer_source_root(
 
 
 def _ignore_runtime_entries(_directory: str, names: list[str]) -> set[str]:
+    directory = Path(_directory)
+    keep_dist = ".openclaw" in directory.parts and "extensions" in directory.parts
     ignored: set[str] = set()
     for name in names:
+        if name == "dist" and keep_dist:
+            continue
         if name in EXCLUDED_RUNTIME_DIR_NAMES:
             ignored.add(name)
             continue
