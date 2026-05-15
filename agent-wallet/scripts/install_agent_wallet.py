@@ -510,7 +510,7 @@ def main() -> None:
         if env_path.resolve() == default_source_env_path.resolve():
             env_path = package_root / ".env"
         if venv_path.resolve() == default_source_venv_path.resolve():
-            venv_path = package_root / ".venv"
+            venv_path = package_root / ".runtime-venv"
         source_env_example_path = source_package_root / ".env.example"
         if env_example_path.resolve() == source_env_example_path.resolve():
             env_example_path = package_root / ".env.example"
