@@ -135,6 +135,38 @@ async def preview_open_position_same_collateral(
     return _unwrap_bridge_payload(response, operation="Flash open-position preview")
 
 
+async def get_markets(
+    *,
+    pool_name: str | None,
+    network: str,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "action": "get_markets",
+        "network": network,
+    }
+    if pool_name:
+        payload["pool_name"] = pool_name
+    response = await _call_bridge(payload)
+    return _unwrap_bridge_payload(response, operation="Flash market lookup")
+
+
+async def get_positions(
+    *,
+    owner: str,
+    pool_name: str | None,
+    network: str,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "action": "get_positions",
+        "owner": owner,
+        "network": network,
+    }
+    if pool_name:
+        payload["pool_name"] = pool_name
+    response = await _call_bridge(payload)
+    return _unwrap_bridge_payload(response, operation="Flash position lookup")
+
+
 async def preview_close_position_same_collateral(
     *,
     owner: str,

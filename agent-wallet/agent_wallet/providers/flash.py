@@ -104,12 +104,25 @@ async def _get_with_fallback(
             return _unwrap_response(status_code, payload, operation=operation)
 
     if _direct_enabled():
-        status_code, payload = await _request_json(
-            f"{_direct_base_url()}{path}",
-            params=params,
-            headers=_headers(),
-        )
-        return _unwrap_response(status_code, payload, operation=operation)
+        direct_variants = [path]
+        if path == "/v1/flash/perps/markets":
+            direct_variants.append("/markets")
+        elif path == "/v1/flash/perps/positions":
+            direct_variants.append("/positions")
+        last_status = 404
+        last_payload: Any = {"error": "not found"}
+        for direct_path in direct_variants:
+            status_code, payload = await _request_json(
+                f"{_direct_base_url()}{direct_path}",
+                params=params,
+                headers=_headers(),
+            )
+            last_status = status_code
+            last_payload = payload
+            if _route_missing(status_code, payload) and direct_path != direct_variants[-1]:
+                continue
+            return _unwrap_response(status_code, payload, operation=operation)
+        return _unwrap_response(last_status, last_payload, operation=operation)
 
     raise ProviderError(
         PROVIDER_NAME,

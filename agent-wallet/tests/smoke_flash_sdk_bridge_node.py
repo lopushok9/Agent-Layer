@@ -46,6 +46,47 @@ def main() -> None:
     assert response["preview"]["bridge_mode"] == "mock"
     assert response["preview"]["estimated_size_usd"] == "1250.00"
 
+    markets = subprocess.run(
+        ["node", str(bridge_path)],
+        input=json.dumps(
+            {
+                "action": "get_markets",
+                "pool_name": "Crypto.1",
+                "network": "mainnet",
+            }
+        ).encode("utf-8"),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+        check=False,
+    )
+    if markets.returncode != 0:
+        raise AssertionError(markets.stderr.decode("utf-8", errors="replace"))
+    markets_response = json.loads(markets.stdout.decode("utf-8"))
+    assert markets_response["ok"] is True
+    assert markets_response["data"]["market_count"] == 2
+
+    positions = subprocess.run(
+        ["node", str(bridge_path)],
+        input=json.dumps(
+            {
+                "action": "get_positions",
+                "owner": "Fake11111111111111111111111111111111111111111",
+                "pool_name": "Crypto.1",
+                "network": "mainnet",
+            }
+        ).encode("utf-8"),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+        check=False,
+    )
+    if positions.returncode != 0:
+        raise AssertionError(positions.stderr.decode("utf-8", errors="replace"))
+    positions_response = json.loads(positions.stdout.decode("utf-8"))
+    assert positions_response["ok"] is True
+    assert positions_response["data"]["position_count"] == 1
+
     prepare_payload = {
         "action": "prepare_open_position_same_collateral",
         "owner": "Fake11111111111111111111111111111111111111111",

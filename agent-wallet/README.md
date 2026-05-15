@@ -537,6 +537,7 @@ Operational notes:
 - these reads are mainnet-only
 - Flash perpetual opens/closes now follow the existing `preview -> prepare -> execute` approval model instead of a separate trading wallet flow
 - Flash reads expect either hosted/self-hosted gateway routes on `PROVIDER_GATEWAY_URL` or a direct `FLASH_API_BASE_URL`
+- if those HTTP routes are unavailable, the Solana backend now falls back to the local `flash-sdk-bridge` for market discovery and user-position discovery
 - Phase 2 now also adds `flash_trade_open_position` and `flash_trade_close_position` in `preview` / `prepare` / `execute`
 - those preview/prepare/execute flows are produced by a local bridge command configured via `FLASH_SDK_BRIDGE_COMMAND`
 - the bridge is expected to return machine JSON on stdout; `agent-wallet/tests/smoke_flash_sdk_bridge.py` documents the minimal contract shape

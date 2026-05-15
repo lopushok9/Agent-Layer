@@ -1,9 +1,11 @@
 import process from "node:process";
+import { createRequire } from "node:module";
 
 const BRIDGE_NAME = "flash-sdk-bridge";
 const USD_DECIMALS = 6;
 const BPS_DECIMALS = 4;
 const DEFAULT_COMPUTE_UNIT_LIMIT = 600_000;
+const require = createRequire(import.meta.url);
 
 function jsonError(message, extra = {}) {
   return {
@@ -31,10 +33,17 @@ function normalizeSide(value) {
 
 function normalizeActionInput(payload) {
   const action = requireString(payload.action, "action");
-  const owner = requireString(payload.owner, "owner");
-  const poolName = requireString(payload.pool_name, "pool_name");
-  const marketSymbol = requireString(payload.market_symbol, "market_symbol").toUpperCase();
-  const side = normalizeSide(payload.side);
+  const owner =
+    typeof payload.owner === "string" && payload.owner.trim() ? payload.owner.trim() : undefined;
+  const poolName =
+    typeof payload.pool_name === "string" && payload.pool_name.trim()
+      ? payload.pool_name.trim()
+      : undefined;
+  const marketSymbol =
+    typeof payload.market_symbol === "string" && payload.market_symbol.trim()
+      ? payload.market_symbol.trim().toUpperCase()
+      : undefined;
+  const side = typeof payload.side === "string" && payload.side.trim() ? normalizeSide(payload.side) : undefined;
   return {
     action,
     owner,
@@ -61,6 +70,63 @@ function normalizeActionInput(payload) {
 }
 
 function mockResponse(normalized) {
+  if (normalized.action === "get_markets") {
+    return {
+      ok: true,
+      data: {
+        bridge_mode: "mock",
+        pool_name: normalized.poolName ?? null,
+        pool_count: 1,
+        market_count: 2,
+        source: "flash-sdk-bridge",
+        markets: [
+          {
+            pool_name: normalized.poolName ?? "Crypto.1",
+            symbol: "SOL",
+            market_symbol: "SOL",
+            collateral_symbol: "SOL",
+            side: "long",
+            market_address: "MockFlashMarketLong11111111111111111111111111",
+          },
+          {
+            pool_name: normalized.poolName ?? "Crypto.1",
+            symbol: "SOL",
+            market_symbol: "SOL",
+            collateral_symbol: "SOL",
+            side: "short",
+            market_address: "MockFlashMarketShort1111111111111111111111111",
+          },
+        ],
+      },
+    };
+  }
+
+  if (normalized.action === "get_positions") {
+    return {
+      ok: true,
+      data: {
+        bridge_mode: "mock",
+        owner: normalized.owner,
+        pool_name: normalized.poolName ?? null,
+        pool_count: 1,
+        position_count: 1,
+        source: "flash-sdk-bridge",
+        positions: [
+          {
+            pool_name: normalized.poolName ?? "Crypto.1",
+            symbol: "SOL",
+            market_symbol: "SOL",
+            collateral_symbol: "SOL",
+            side: "long",
+            is_active: true,
+            position_address: "MockFlashPosition111111111111111111111111111",
+            market_address: "MockFlashMarketLong11111111111111111111111111",
+          },
+        ],
+      },
+    };
+  }
+
   if (normalized.action === "preview_open_position_same_collateral") {
     return {
       ok: true,
@@ -150,12 +216,14 @@ async function loadRealModules() {
   if (!process.env.NEXT_PUBLIC_API_ENDPOINT && process.env.FLASH_API_ENDPOINT) {
     process.env.NEXT_PUBLIC_API_ENDPOINT = process.env.FLASH_API_ENDPOINT;
   }
-  const [anchor, web3, flashSdk] = await Promise.all([
+  const poolConfigCatalog = require("flash-sdk/dist/PoolConfig.json");
+  const [anchor, web3, flashSdk, bnModule] = await Promise.all([
     import("@coral-xyz/anchor"),
     import("@solana/web3.js"),
     import("flash-sdk"),
+    import("bn.js"),
   ]);
-  return { anchor, web3, flashSdk };
+  return { anchor, web3, flashSdk, poolConfigCatalog, BN: bnModule.default };
 }
 
 function createReadOnlyWallet(web3, owner) {
@@ -185,7 +253,7 @@ function defaultRpcUrlForNetwork(network) {
   return "";
 }
 
-async function buildRuntimeContext(normalized) {
+async function buildRuntimeContext(normalized, poolConfigOverride = null) {
   const rpcUrl =
     process.env.RPC_URL?.trim() ||
     process.env.SOLANA_RPC_URL?.trim() ||
@@ -194,7 +262,7 @@ async function buildRuntimeContext(normalized) {
     throw new Error("RPC_URL or SOLANA_RPC_URL is required in FLASH_SDK_BRIDGE_MODE=real");
   }
 
-  const { anchor, web3, flashSdk } = await loadRealModules();
+  const { anchor, web3, flashSdk, BN } = await loadRealModules();
   const wallet = createReadOnlyWallet(web3, normalized.owner);
   const connection = new web3.Connection(rpcUrl, {
     commitment: "confirmed",
@@ -204,10 +272,15 @@ async function buildRuntimeContext(normalized) {
     preflightCommitment: "confirmed",
     skipPreflight: true,
   });
-  const poolConfig = flashSdk.PoolConfig.fromIdsByName(
-    normalized.poolName,
-    resolveClusterName(normalized.network),
-  );
+  if (!normalized.owner) {
+    throw new Error("owner is required");
+  }
+  if (!normalized.poolName) {
+    throw new Error("pool_name is required");
+  }
+  const poolConfig =
+    poolConfigOverride ||
+    flashSdk.PoolConfig.fromIdsByName(normalized.poolName, resolveClusterName(normalized.network));
   const client = new flashSdk.PerpetualsClient(
     provider,
     poolConfig.programId,
@@ -218,7 +291,94 @@ async function buildRuntimeContext(normalized) {
       prioritizationFee: 0,
     },
   );
-  return { anchor, web3, flashSdk, provider, poolConfig, client, rpcUrl };
+  return { anchor, web3, flashSdk, BN, provider, poolConfig, client, rpcUrl };
+}
+
+function listPoolConfigs(flashSdk, poolConfigCatalog, network, poolName) {
+  const cluster = resolveClusterName(network);
+  const pools = Array.isArray(poolConfigCatalog?.pools) ? poolConfigCatalog.pools : [];
+  const matching = pools.filter(
+    (pool) =>
+      pool?.cluster === cluster &&
+      (!poolName || String(pool.poolName || "").trim() === poolName),
+  );
+  if (matching.length === 0) {
+    if (poolName) {
+      throw new Error(`Pool ${poolName} is not available on ${network}`);
+    }
+    throw new Error(`No Flash pools are configured for ${network}`);
+  }
+  return matching.map((pool) => flashSdk.PoolConfig.buildPoolconfigFromJson(pool));
+}
+
+function variantToSide(sideVariant) {
+  if (sideVariant && typeof sideVariant === "object") {
+    if ("long" in sideVariant) {
+      return "long";
+    }
+    if ("short" in sideVariant) {
+      return "short";
+    }
+    if ("none" in sideVariant) {
+      return "none";
+    }
+  }
+  return String(sideVariant ?? "");
+}
+
+function buildMarketSnapshot(poolConfig, marketConfig, deprecated = false) {
+  const targetToken = poolConfig.getTokenFromMintPk(marketConfig.targetMint);
+  const collateralToken = poolConfig.getTokenFromMintPk(marketConfig.collateralMint);
+  return {
+    pool_name: poolConfig.poolName,
+    symbol: targetToken.symbol,
+    market_symbol: targetToken.symbol,
+    collateral_symbol: collateralToken.symbol,
+    side: variantToSide(marketConfig.side),
+    market_id: marketConfig.marketId,
+    market_address: marketConfig.marketAccount.toBase58(),
+    target_custody_address: marketConfig.targetCustody.toBase58(),
+    collateral_custody_address: marketConfig.collateralCustody.toBase58(),
+    target_mint: marketConfig.targetMint.toBase58(),
+    collateral_mint: marketConfig.collateralMint.toBase58(),
+    max_leverage: marketConfig.maxLev,
+    degen_min_leverage: marketConfig.degenMinLev,
+    degen_max_leverage: marketConfig.degenMaxLev,
+    deprecated,
+  };
+}
+
+function buildPositionSnapshot(poolConfig, positionAccount) {
+  const marketConfig = poolConfig.getMarketConfigByPk(positionAccount.market);
+  const targetToken = poolConfig.getTokenFromMintPk(marketConfig.targetMint);
+  const collateralToken = poolConfig.getTokenFromMintPk(marketConfig.collateralMint);
+  return {
+    pool_name: poolConfig.poolName,
+    symbol: targetToken.symbol,
+    market_symbol: targetToken.symbol,
+    collateral_symbol: collateralToken.symbol,
+    side: variantToSide(marketConfig.side),
+    is_active: Boolean(positionAccount.isActive),
+    position_address: positionAccount.pubkey.toBase58(),
+    market_address: positionAccount.market.toBase58(),
+    entry_price: serializeOraclePrice(positionAccount.entryPrice)?.ui_price ?? null,
+    reference_price: serializeOraclePrice(positionAccount.referencePrice)?.ui_price ?? null,
+    size_amount_raw: positionAccount.sizeAmount.toString(10),
+    size_usd: integerExponentToDecimal(positionAccount.sizeUsd.toString(10), -USD_DECIMALS),
+    collateral_usd: integerExponentToDecimal(
+      positionAccount.collateralUsd.toString(10),
+      -USD_DECIMALS,
+    ),
+    unsettled_value_usd: integerExponentToDecimal(
+      positionAccount.unsettledValueUsd.toString(10),
+      -USD_DECIMALS,
+    ),
+    unsettled_fees_usd: integerExponentToDecimal(
+      positionAccount.unsettledFeesUsd.toString(10),
+      -USD_DECIMALS,
+    ),
+    raw: serializeForJson(positionAccount),
+  };
 }
 
 function integerExponentToDecimal(value, exponent) {
@@ -303,13 +463,29 @@ function getSideVariant(flashSdk, side) {
   return side === "long" ? flashSdk.Side.Long : flashSdk.Side.Short;
 }
 
+function getCustodyConfigBySymbol(poolConfig, symbol) {
+  const allCustodies = [...(poolConfig.custodies || []), ...(poolConfig.custodiesDeprecated || [])];
+  const custodyConfig = allCustodies.find(
+    (custody) => String(custody.symbol || "").trim().toUpperCase() === symbol,
+  );
+  if (!custodyConfig) {
+    throw new Error(`Custody ${symbol} is not available in pool ${poolConfig.poolName}`);
+  }
+  return custodyConfig;
+}
+
 function getMarketContext(runtime, normalized) {
   const sideVariant = getSideVariant(runtime.flashSdk, normalized.side);
   const marketToken = runtime.poolConfig.getTokenFromSymbol(normalized.marketSymbol);
   const collateralToken = runtime.poolConfig.getTokenFromSymbol(normalized.collateralSymbol);
+  const targetCustodyConfig = getCustodyConfigBySymbol(runtime.poolConfig, normalized.marketSymbol);
+  const collateralCustodyConfig = getCustodyConfigBySymbol(
+    runtime.poolConfig,
+    normalized.collateralSymbol,
+  );
   const marketConfig = runtime.poolConfig.getMarketConfig(
-    marketToken.mintKey,
-    collateralToken.mintKey,
+    targetCustodyConfig.custodyAccount,
+    collateralCustodyConfig.custodyAccount,
     sideVariant,
   );
   if (!marketConfig) {
@@ -355,6 +531,18 @@ async function buildVersionedTransaction(runtime, instructions, additionalSigner
 }
 
 async function getOpenPositionPreview(runtime, normalized) {
+  if (!normalized.owner) {
+    throw new Error("owner is required");
+  }
+  if (!normalized.poolName) {
+    throw new Error("pool_name is required");
+  }
+  if (!normalized.marketSymbol) {
+    throw new Error("market_symbol is required");
+  }
+  if (!normalized.side) {
+    throw new Error("side is required");
+  }
   if (!normalized.collateralSymbol || !normalized.collateralAmountRaw || !normalized.leverage) {
     throw new Error(
       "collateral_symbol, collateral_amount_raw, and leverage are required for open preview",
@@ -366,7 +554,7 @@ async function getOpenPositionPreview(runtime, normalized) {
     );
   }
 
-  const { BN } = runtime.anchor;
+  const { BN } = runtime;
   const privilege = runtime.flashSdk.Privilege.None;
   const ownerPublicKey = runtime.provider.wallet.publicKey;
   const { marketConfig } = getMarketContext(runtime, normalized);
@@ -423,7 +611,19 @@ async function getOpenPositionPreview(runtime, normalized) {
 }
 
 async function getClosePositionPreview(runtime, normalized) {
-  const { BN } = runtime.anchor;
+  if (!normalized.owner) {
+    throw new Error("owner is required");
+  }
+  if (!normalized.poolName) {
+    throw new Error("pool_name is required");
+  }
+  if (!normalized.marketSymbol) {
+    throw new Error("market_symbol is required");
+  }
+  if (!normalized.side) {
+    throw new Error("side is required");
+  }
+  const { BN } = runtime;
   const privilege = runtime.flashSdk.Privilege.None;
   const ownerPublicKey = runtime.provider.wallet.publicKey;
   const sameCollateralNormalized = {
@@ -509,6 +709,18 @@ async function getClosePositionPreview(runtime, normalized) {
 }
 
 async function prepareOpenPosition(runtime, normalized) {
+  if (!normalized.owner) {
+    throw new Error("owner is required");
+  }
+  if (!normalized.poolName) {
+    throw new Error("pool_name is required");
+  }
+  if (!normalized.marketSymbol) {
+    throw new Error("market_symbol is required");
+  }
+  if (!normalized.side) {
+    throw new Error("side is required");
+  }
   if (!normalized.collateralSymbol || !normalized.collateralAmountRaw || !normalized.leverage) {
     throw new Error(
       "collateral_symbol, collateral_amount_raw, and leverage are required for open prepare",
@@ -520,7 +732,7 @@ async function prepareOpenPosition(runtime, normalized) {
     );
   }
 
-  const { BN } = runtime.anchor;
+  const { BN } = runtime;
   const privilege = runtime.flashSdk.Privilege.None;
   const ownerPublicKey = runtime.provider.wallet.publicKey;
   const { marketConfig, collateralToken } = getMarketContext(runtime, normalized);
@@ -600,7 +812,19 @@ async function prepareOpenPosition(runtime, normalized) {
 }
 
 async function prepareClosePosition(runtime, normalized) {
-  const { BN } = runtime.anchor;
+  if (!normalized.owner) {
+    throw new Error("owner is required");
+  }
+  if (!normalized.poolName) {
+    throw new Error("pool_name is required");
+  }
+  if (!normalized.marketSymbol) {
+    throw new Error("market_symbol is required");
+  }
+  if (!normalized.side) {
+    throw new Error("side is required");
+  }
+  const { BN } = runtime;
   const privilege = runtime.flashSdk.Privilege.None;
   const ownerPublicKey = runtime.provider.wallet.publicKey;
   const sameCollateralNormalized = {
@@ -697,7 +921,89 @@ async function prepareClosePosition(runtime, normalized) {
   };
 }
 
+async function getMarketsReal(normalized) {
+  const { flashSdk, poolConfigCatalog } = await loadRealModules();
+  const poolConfigs = listPoolConfigs(
+    flashSdk,
+    poolConfigCatalog,
+    normalized.network,
+    normalized.poolName,
+  );
+  const markets = [];
+  for (const poolConfig of poolConfigs) {
+    for (const marketConfig of poolConfig.markets || []) {
+      markets.push(buildMarketSnapshot(poolConfig, marketConfig, false));
+    }
+    for (const marketConfig of poolConfig.marketsDeprecated || []) {
+      markets.push(buildMarketSnapshot(poolConfig, marketConfig, true));
+    }
+  }
+  return {
+    ok: true,
+    data: {
+      bridge_mode: "real",
+      pool_name: normalized.poolName ?? null,
+      pool_count: poolConfigs.length,
+      market_count: markets.length,
+      source: "flash-sdk-bridge",
+      markets,
+    },
+  };
+}
+
+async function getPositionsReal(normalized) {
+  if (!normalized.owner) {
+    throw new Error("owner is required");
+  }
+  const modules = await loadRealModules();
+  const poolConfigs = listPoolConfigs(
+    modules.flashSdk,
+    modules.poolConfigCatalog,
+    normalized.network,
+    normalized.poolName,
+  );
+  const positions = [];
+  for (const poolConfig of poolConfigs) {
+    const runtime = await buildRuntimeContext(
+      {
+        ...normalized,
+        owner: normalized.owner,
+        poolName: poolConfig.poolName,
+      },
+      poolConfig,
+    );
+    const poolPositions = await runtime.client.getUserPositions(
+      runtime.provider.wallet.publicKey,
+      poolConfig,
+    );
+    for (const positionAccount of poolPositions || []) {
+      if (!positionAccount?.isActive) {
+        continue;
+      }
+      positions.push(buildPositionSnapshot(poolConfig, positionAccount));
+    }
+  }
+  return {
+    ok: true,
+    data: {
+      bridge_mode: "real",
+      owner: normalized.owner,
+      pool_name: normalized.poolName ?? null,
+      pool_count: poolConfigs.length,
+      position_count: positions.length,
+      source: "flash-sdk-bridge",
+      positions,
+    },
+  };
+}
+
 async function realResponse(normalized) {
+  if (normalized.action === "get_markets") {
+    return getMarketsReal(normalized);
+  }
+  if (normalized.action === "get_positions") {
+    return getPositionsReal(normalized);
+  }
   const runtime = await buildRuntimeContext(normalized);
   if (normalized.action === "preview_open_position_same_collateral") {
     return getOpenPositionPreview(runtime, normalized);

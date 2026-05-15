@@ -2511,7 +2511,13 @@ class SolanaWalletBackend(AgentWalletBackend):
             if not isinstance(pool_name, str) or not pool_name.strip():
                 raise WalletBackendError("pool_name must be a non-empty string when provided.")
             normalized_pool_name = pool_name.strip()
-        data = await flash.fetch_markets(pool_name=normalized_pool_name)
+        try:
+            data = await flash.fetch_markets(pool_name=normalized_pool_name)
+        except ProviderError:
+            data = await flash_sdk_bridge.get_markets(
+                pool_name=normalized_pool_name,
+                network=self.network,
+            )
         markets = data.get("markets")
         if not isinstance(markets, list):
             markets = []
@@ -2522,7 +2528,7 @@ class SolanaWalletBackend(AgentWalletBackend):
             "market_count": len(markets),
             "markets": markets,
             "raw": data,
-            "source": "flash-trade",
+            "source": str(data.get("source") or "flash-trade"),
         }
 
     async def get_flash_trade_positions(
@@ -2542,10 +2548,17 @@ class SolanaWalletBackend(AgentWalletBackend):
             if not isinstance(pool_name, str) or not pool_name.strip():
                 raise WalletBackendError("pool_name must be a non-empty string when provided.")
             normalized_pool_name = pool_name.strip()
-        data = await flash.fetch_positions(
-            owner=wallet_address,
-            pool_name=normalized_pool_name,
-        )
+        try:
+            data = await flash.fetch_positions(
+                owner=wallet_address,
+                pool_name=normalized_pool_name,
+            )
+        except ProviderError:
+            data = await flash_sdk_bridge.get_positions(
+                owner=wallet_address,
+                pool_name=normalized_pool_name,
+                network=self.network,
+            )
         positions = data.get("positions")
         if not isinstance(positions, list):
             positions = []
@@ -2557,7 +2570,7 @@ class SolanaWalletBackend(AgentWalletBackend):
             "position_count": len(positions),
             "positions": positions,
             "raw": data,
-            "source": "flash-trade",
+            "source": str(data.get("source") or "flash-trade"),
         }
 
     async def preview_flash_trade_open_position(

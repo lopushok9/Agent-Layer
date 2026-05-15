@@ -13,7 +13,7 @@ Current goals:
 - `FLASH_SDK_BRIDGE_MODE=mock`
   Returns deterministic payloads for local smoke checks without installing SDK dependencies.
 - `FLASH_SDK_BRIDGE_MODE=real`
-  Loads `flash-sdk` and validates runtime config. The action handlers are intentionally conservative and currently return a structured "not implemented yet" error until the repo-owned transaction builders are finalized.
+  Loads `flash-sdk` and validates runtime config. This mode now supports market discovery, user-position discovery, open/close previews, and unsigned transaction preparation for the current same-collateral Flash perps MVP.
 
 ## Command
 
