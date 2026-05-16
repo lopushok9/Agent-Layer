@@ -6,6 +6,9 @@ const BRIDGE_NAME = "flash-sdk-bridge";
 const USD_DECIMALS = 6;
 const BPS_DECIMALS = 4;
 const DEFAULT_COMPUTE_UNIT_LIMIT = 600_000;
+// Flash docs use slippageBps = 800 with a 0.8% comment.
+// The SDK uses BPS_DECIMALS=4, so 0.8% maps to raw 80.
+const DEFAULT_SLIPPAGE_BPS_RAW = "80";
 const require = createRequire(import.meta.url);
 
 const forwardConsoleToStderr = (method) => {
@@ -466,12 +469,54 @@ function serializeOraclePrice(oraclePrice) {
   };
 }
 
+function toSdkOraclePrice(runtime, oraclePriceLike) {
+  if (!oraclePriceLike || typeof oraclePriceLike !== "object") {
+    throw new Error("oracle price is required");
+  }
+  if (oraclePriceLike.exponent && typeof oraclePriceLike.exponent.toNumber === "function") {
+    return oraclePriceLike;
+  }
+  const { BN } = runtime;
+  return runtime.flashSdk.OraclePrice.from({
+    price: new BN(oraclePriceLike.price?.toString?.(10) ?? String(oraclePriceLike.price ?? 0)),
+    exponent: new BN(String(oraclePriceLike.exponent ?? 0)),
+    confidence: new BN(String(oraclePriceLike.confidence ?? 0)),
+    timestamp: new BN(String(oraclePriceLike.timestamp ?? 0)),
+  });
+}
+
 function requireWholeNumberString(value, fieldName) {
   const normalized = requireString(value, fieldName);
   if (!/^\d+$/.test(normalized)) {
     throw new Error(`${fieldName} must be a whole-number string for the current Flash bridge MVP`);
   }
   return normalized;
+}
+
+function requirePositiveDecimalString(value, fieldName) {
+  const normalized = requireString(value, fieldName);
+  if (!/^\d+(\.\d+)?$/.test(normalized)) {
+    throw new Error(`${fieldName} must be a positive decimal string`);
+  }
+  if (Number.parseFloat(normalized) <= 0) {
+    throw new Error(`${fieldName} must be greater than zero`);
+  }
+  return normalized;
+}
+
+function decimalToScaledIntegerString(value, decimals, fieldName) {
+  const normalized = requirePositiveDecimalString(value, fieldName);
+  const [integerPart, fractionalPart = ""] = normalized.split(".");
+  const paddedFraction = `${fractionalPart}${"0".repeat(decimals)}`.slice(0, decimals);
+  const combined = `${integerPart}${paddedFraction}`.replace(/^0+(?=\d)/, "");
+  if (!/^\d+$/.test(combined)) {
+    throw new Error(`${fieldName} could not be converted to scaled integer form`);
+  }
+  return combined || "0";
+}
+
+function slippageTolerancePercent(slippageBpsRaw) {
+  return integerExponentToDecimal(String(slippageBpsRaw), -BPS_DECIMALS + 2);
 }
 
 function getSideVariant(flashSdk, side) {
@@ -572,11 +617,14 @@ async function getOpenPositionPreview(runtime, normalized) {
   const { BN } = runtime;
   const privilege = runtime.flashSdk.Privilege.None;
   const ownerPublicKey = runtime.provider.wallet.publicKey;
-  const { marketConfig } = getMarketContext(runtime, normalized);
-  const leverage = requireWholeNumberString(normalized.leverage, "leverage");
+  const { marketConfig, sideVariant } = getMarketContext(runtime, normalized);
+  const leverage = requirePositiveDecimalString(normalized.leverage, "leverage");
+  const leverageRaw = decimalToScaledIntegerString(leverage, BPS_DECIMALS, "leverage");
+  const slippageBpsRaw = DEFAULT_SLIPPAGE_BPS_RAW;
+  const slippageBps = new BN(slippageBpsRaw);
   const quote = await runtime.client.getOpenPositionQuote(
     new BN(normalized.collateralAmountRaw),
-    new BN(leverage),
+    new BN(leverageRaw),
     marketConfig,
     runtime.poolConfig,
     privilege,
@@ -586,17 +634,26 @@ async function getOpenPositionPreview(runtime, normalized) {
     null,
     ownerPublicKey,
   );
+  const priceAfterSlippage = runtime.client.getPriceAfterSlippage(
+    true,
+    slippageBps,
+    toSdkOraclePrice(runtime, quote.entryPrice),
+    sideVariant,
+  );
 
   return {
     ok: true,
     preview: {
       bridge_mode: "real",
       requested_leverage: leverage,
+      requested_leverage_raw: leverageRaw,
       pool_name: normalized.poolName,
       market_symbol: normalized.marketSymbol,
       collateral_symbol: normalized.collateralSymbol,
       collateral_amount_raw: normalized.collateralAmountRaw,
       side: normalized.side,
+      slippage_bps_raw: slippageBpsRaw,
+      slippage_tolerance_percent: slippageTolerancePercent(slippageBpsRaw),
       estimated_size_usd: integerExponentToDecimal(quote.sizeUsd.toString(10), -USD_DECIMALS),
       estimated_size_amount_raw: quote.sizeAmount.toString(10),
       estimated_collateral_usd: integerExponentToDecimal(
@@ -614,6 +671,7 @@ async function getOpenPositionPreview(runtime, normalized) {
         quote.totalFeeUsd.toString(10),
         -USD_DECIMALS,
       ),
+      estimated_entry_price_with_slippage: serializeOraclePrice(priceAfterSlippage)?.ui_price ?? null,
       estimated_fee_rate_bps: quote.feeRate.toString(10),
       estimated_available_liquidity_usd: integerExponentToDecimal(
         quote.availableLiquidityUsd.toString(10),
@@ -645,12 +703,14 @@ async function getClosePositionPreview(runtime, normalized) {
     ...normalized,
     collateralSymbol: normalized.collateralSymbol ?? normalized.marketSymbol,
   };
-  const { marketConfig } = getMarketContext(runtime, sameCollateralNormalized);
+  const { marketConfig, sideVariant } = getMarketContext(runtime, sameCollateralNormalized);
+  const slippageBpsRaw = DEFAULT_SLIPPAGE_BPS_RAW;
+  const slippageBps = new BN(slippageBpsRaw);
   const positionPk = runtime.poolConfig.getPositionFromCustodyPk(
     ownerPublicKey,
     marketConfig.targetCustody,
     marketConfig.collateralCustody,
-    getSideVariant(runtime.flashSdk, normalized.side),
+    sideVariant,
   );
   const positionAccount = await runtime.client.getPosition(positionPk);
   if (!positionAccount?.isActive) {
@@ -669,6 +729,12 @@ async function getClosePositionPreview(runtime, normalized) {
     null,
     ownerPublicKey,
   );
+  const priceAfterSlippage = runtime.client.getPriceAfterSlippage(
+    false,
+    slippageBps,
+    toSdkOraclePrice(runtime, quote.markPrice),
+    sideVariant,
+  );
 
   return {
     ok: true,
@@ -678,6 +744,8 @@ async function getClosePositionPreview(runtime, normalized) {
       market_symbol: normalized.marketSymbol,
       collateral_symbol: sameCollateralNormalized.collateralSymbol,
       side: normalized.side,
+      slippage_bps_raw: slippageBpsRaw,
+      slippage_tolerance_percent: slippageTolerancePercent(slippageBpsRaw),
       position_pubkey: positionPk.toBase58(),
       position_size_usd: integerExponentToDecimal(
         positionAccount.sizeUsd.toString(10),
@@ -701,6 +769,7 @@ async function getClosePositionPreview(runtime, normalized) {
         quote.settledPnlUsd.toString(10),
         -USD_DECIMALS,
       ),
+      estimated_exit_price_with_slippage: serializeOraclePrice(priceAfterSlippage)?.ui_price ?? null,
       estimated_exit_fee_usd: integerExponentToDecimal(
         quote.exitFeeUsd.toString(10),
         -USD_DECIMALS,
@@ -750,11 +819,14 @@ async function prepareOpenPosition(runtime, normalized) {
   const { BN } = runtime;
   const privilege = runtime.flashSdk.Privilege.None;
   const ownerPublicKey = runtime.provider.wallet.publicKey;
-  const { marketConfig, collateralToken } = getMarketContext(runtime, normalized);
-  const leverage = requireWholeNumberString(normalized.leverage, "leverage");
+  const { marketConfig, collateralToken, sideVariant } = getMarketContext(runtime, normalized);
+  const leverage = requirePositiveDecimalString(normalized.leverage, "leverage");
+  const leverageRaw = decimalToScaledIntegerString(leverage, BPS_DECIMALS, "leverage");
+  const slippageBpsRaw = DEFAULT_SLIPPAGE_BPS_RAW;
+  const slippageBps = new BN(slippageBpsRaw);
   const quote = await runtime.client.getOpenPositionQuote(
     new BN(normalized.collateralAmountRaw),
-    new BN(leverage),
+    new BN(leverageRaw),
     marketConfig,
     runtime.poolConfig,
     privilege,
@@ -763,6 +835,12 @@ async function prepareOpenPosition(runtime, normalized) {
     null,
     null,
     ownerPublicKey,
+  );
+  const priceAfterSlippage = runtime.client.getPriceAfterSlippage(
+    true,
+    slippageBps,
+    toSdkOraclePrice(runtime, quote.entryPrice),
+    sideVariant,
   );
   const backupOracleInstructions = await runtime.flashSdk.createBackupOracleInstruction(
     runtime.poolConfig.poolAddress.toBase58(),
@@ -773,10 +851,10 @@ async function prepareOpenPosition(runtime, normalized) {
   const { instructions, additionalSigners } = await runtime.client.openPosition(
     normalized.marketSymbol,
     normalized.collateralSymbol,
-    quote.entryPrice,
+    priceAfterSlippage,
     new BN(normalized.collateralAmountRaw),
     quote.sizeAmount,
-    getSideVariant(runtime.flashSdk, normalized.side),
+    sideVariant,
     runtime.poolConfig,
     privilege,
   );
@@ -795,11 +873,15 @@ async function prepareOpenPosition(runtime, normalized) {
       collateral_symbol: normalized.collateralSymbol,
       collateral_amount_raw: normalized.collateralAmountRaw,
       leverage,
+      leverage_raw: leverageRaw,
       side: normalized.side,
+      slippage_bps_raw: slippageBpsRaw,
+      slippage_tolerance_percent: slippageTolerancePercent(slippageBpsRaw),
       estimated_size_usd: integerExponentToDecimal(quote.sizeUsd.toString(10), -USD_DECIMALS),
       estimated_size_amount_raw: quote.sizeAmount.toString(10),
       estimated_entry_price: serializeOraclePrice(quote.entryPrice)?.ui_price ?? null,
       estimated_liquidation_price: serializeOraclePrice(quote.liquidationPrice)?.ui_price ?? null,
+      estimated_entry_price_with_slippage: serializeOraclePrice(priceAfterSlippage)?.ui_price ?? null,
       transaction_base64: builtTransaction.transactionBase64,
       transaction_encoding: "base64",
       transaction_format: "versioned",
@@ -846,12 +928,14 @@ async function prepareClosePosition(runtime, normalized) {
     ...normalized,
     collateralSymbol: normalized.collateralSymbol ?? normalized.marketSymbol,
   };
-  const { marketConfig, collateralToken } = getMarketContext(runtime, sameCollateralNormalized);
+  const { marketConfig, collateralToken, sideVariant } = getMarketContext(runtime, sameCollateralNormalized);
+  const slippageBpsRaw = DEFAULT_SLIPPAGE_BPS_RAW;
+  const slippageBps = new BN(slippageBpsRaw);
   const positionPk = runtime.poolConfig.getPositionFromCustodyPk(
     ownerPublicKey,
     marketConfig.targetCustody,
     marketConfig.collateralCustody,
-    getSideVariant(runtime.flashSdk, normalized.side),
+    sideVariant,
   );
   const positionAccount = await runtime.client.getPosition(positionPk);
   if (!positionAccount?.isActive) {
@@ -870,6 +954,12 @@ async function prepareClosePosition(runtime, normalized) {
     null,
     ownerPublicKey,
   );
+  const priceAfterSlippage = runtime.client.getPriceAfterSlippage(
+    false,
+    slippageBps,
+    toSdkOraclePrice(runtime, quote.markPrice),
+    sideVariant,
+  );
   const backupOracleInstructions = await runtime.flashSdk.createBackupOracleInstruction(
     runtime.poolConfig.poolAddress.toBase58(),
   );
@@ -879,8 +969,8 @@ async function prepareClosePosition(runtime, normalized) {
   const { instructions, additionalSigners } = await runtime.client.closePosition(
     normalized.marketSymbol,
     sameCollateralNormalized.collateralSymbol,
-    quote.markPrice,
-    getSideVariant(runtime.flashSdk, normalized.side),
+    priceAfterSlippage,
+    sideVariant,
     runtime.poolConfig,
     privilege,
   );
@@ -898,6 +988,8 @@ async function prepareClosePosition(runtime, normalized) {
       market_symbol: normalized.marketSymbol,
       collateral_symbol: sameCollateralNormalized.collateralSymbol,
       side: normalized.side,
+      slippage_bps_raw: slippageBpsRaw,
+      slippage_tolerance_percent: slippageTolerancePercent(slippageBpsRaw),
       position_pubkey: positionPk.toBase58(),
       position_size_usd: integerExponentToDecimal(
         positionAccount.sizeUsd.toString(10),
@@ -909,6 +1001,7 @@ async function prepareClosePosition(runtime, normalized) {
         -USD_DECIMALS,
       ),
       estimated_mark_price: serializeOraclePrice(quote.markPrice)?.ui_price ?? null,
+      estimated_exit_price_with_slippage: serializeOraclePrice(priceAfterSlippage)?.ui_price ?? null,
       estimated_existing_liquidation_price:
         serializeOraclePrice(quote.existingLiquidationPrice)?.ui_price ?? null,
       transaction_base64: builtTransaction.transactionBase64,
