@@ -1,6 +1,6 @@
 {
   "name": "@agentlayer.tech/wallet",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "description": "NPM installer for the OpenClaw Agent Wallet local runtime.",
   "type": "module",
   "repository": {
@@ -61,6 +61,7 @@
     "!agent-wallet/.pytest_cache/**",
     "!agent-wallet/.runtime-venv/**",
     "!**/node_modules/**",
+    "!**/*.tgz",
     "!**/.DS_Store"
   ],
   "keywords": [

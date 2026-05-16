@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## v0.1.16 - 2026-05-16
+
+- Added Flash Trade perpetuals support to the Solana wallet flow, including
+  market discovery, position lookup, preview, prepare, open, and close tools.
+- Kept Flash perps wallet-native inside the existing Solana backend instead of
+  introducing a separate custodial trading account flow.
+- Added a repo-owned Flash SDK bridge for real quote, prepare, and execution
+  planning against Flash Trade from the local runtime.
+- Fixed OpenClaw runtime packaging and plugin contract sync so Flash Trade
+  tools are exposed correctly from the installed runtime.
+- Bound Flash execute approvals to the exact approved preview payload, so
+  host-issued approvals remain valid across small quote drift between preview
+  and execution.
+
 - Added ClawHub-publishable OpenClaw plugin package metadata for
   `.openclaw/extensions/agent-wallet` and `.openclaw/extensions/pay-bridge`,
   including required `openclaw.compat`, `openclaw.build`, and
