@@ -1,11 +1,26 @@
 import process from "node:process";
 import { createRequire } from "node:module";
+import util from "node:util";
 
 const BRIDGE_NAME = "flash-sdk-bridge";
 const USD_DECIMALS = 6;
 const BPS_DECIMALS = 4;
 const DEFAULT_COMPUTE_UNIT_LIMIT = 600_000;
 const require = createRequire(import.meta.url);
+
+const forwardConsoleToStderr = (method) => {
+  console[method] = (...args) => {
+    const rendered = args
+      .map((value) => (typeof value === "string" ? value : util.inspect(value, { depth: 5 })))
+      .join(" ");
+    process.stderr.write(`${rendered}\n`);
+  };
+};
+
+forwardConsoleToStderr("log");
+forwardConsoleToStderr("info");
+forwardConsoleToStderr("warn");
+forwardConsoleToStderr("debug");
 
 function jsonError(message, extra = {}) {
   return {

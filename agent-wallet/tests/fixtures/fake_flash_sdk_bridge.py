@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 
 
@@ -68,6 +69,18 @@ def main() -> int:
                 "collateral_custody_address": "FakeFlashCollateralCustody1111111111111111111111",
                 "collateral_mint": "So11111111111111111111111111111111111111112",
                 "expected_program_ids": ["FakeFlashProgram111111111111111111111111111111"],
+            },
+        }
+        print(json.dumps(response))
+        return 0
+
+    if action == "inspect_env":
+        response = {
+            "ok": True,
+            "data": {
+                "flash_sdk_bridge_mode": os.environ.get("FLASH_SDK_BRIDGE_MODE"),
+                "solana_rpc_url": os.environ.get("SOLANA_RPC_URL"),
+                "rpc_url": os.environ.get("RPC_URL"),
             },
         }
         print(json.dumps(response))

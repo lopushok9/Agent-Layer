@@ -8,7 +8,7 @@ import os
 import shlex
 from typing import Any
 
-from agent_wallet.config import settings
+from agent_wallet.config import resolve_solana_rpc_url, settings
 from agent_wallet.exceptions import ProviderError
 
 PROVIDER_NAME = "flash-sdk-bridge"
@@ -45,6 +45,22 @@ def _bridge_timeout_seconds() -> float:
     return max(timeout, 1.0)
 
 
+def _bridge_env(payload: dict[str, Any]) -> dict[str, str]:
+    env = os.environ.copy()
+
+    bridge_mode = env.get("FLASH_SDK_BRIDGE_MODE", "").strip() or settings.flash_sdk_bridge_mode.strip()
+    if bridge_mode:
+        env["FLASH_SDK_BRIDGE_MODE"] = bridge_mode
+
+    if not env.get("SOLANA_RPC_URL", "").strip() and not env.get("RPC_URL", "").strip():
+        network = str(payload.get("network") or settings.solana_network or "mainnet").strip()
+        resolved_rpc_url = resolve_solana_rpc_url(network, settings.solana_rpc_url)
+        if resolved_rpc_url:
+            env["SOLANA_RPC_URL"] = resolved_rpc_url
+
+    return env
+
+
 def _unwrap_bridge_payload(payload: Any, *, operation: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ProviderError(PROVIDER_NAME, f"{operation} returned a non-object response.")
@@ -64,12 +80,14 @@ def _unwrap_bridge_payload(payload: Any, *, operation: str) -> dict[str, Any]:
 
 async def _call_bridge(payload: dict[str, Any]) -> dict[str, Any]:
     command = _bridge_command()
+    env = _bridge_env(payload)
     try:
         process = await asyncio.create_subprocess_exec(
             *command,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=env,
         )
     except OSError as exc:
         raise ProviderError(PROVIDER_NAME, f"Could not start Flash SDK bridge: {exc}") from exc
