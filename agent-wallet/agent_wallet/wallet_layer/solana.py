@@ -2944,6 +2944,27 @@ class SolanaWalletBackend(AgentWalletBackend):
             asset_type="flash-trade-open-position",
         )
 
+    async def _prepare_flash_trade_open_position_from_preview(
+        self,
+        preview: dict[str, Any],
+    ) -> dict[str, Any]:
+        bridge_prepared = await flash_sdk_bridge.prepare_open_position_same_collateral(
+            owner=str(preview["owner"]),
+            pool_name=str(preview["pool_name"]),
+            market_symbol=str(preview["market_symbol"]),
+            collateral_symbol=str(preview["collateral_symbol"]),
+            collateral_amount_raw=str(preview["collateral_amount_raw"]),
+            leverage=str(preview["leverage"]),
+            side=str(preview["side"]),
+            network=self.network,
+        )
+        return await self._prepare_flash_trade_transaction(
+            preview=preview,
+            bridge_prepared=bridge_prepared,
+            action="Flash Trade open position",
+            asset_type="flash-trade-open-position",
+        )
+
     async def prepare_flash_trade_close_position(
         self,
         *,
@@ -2956,6 +2977,24 @@ class SolanaWalletBackend(AgentWalletBackend):
             market_symbol=market_symbol,
             side=side,
         )
+        bridge_prepared = await flash_sdk_bridge.prepare_close_position_same_collateral(
+            owner=str(preview["owner"]),
+            pool_name=str(preview["pool_name"]),
+            market_symbol=str(preview["market_symbol"]),
+            side=str(preview["side"]),
+            network=self.network,
+        )
+        return await self._prepare_flash_trade_transaction(
+            preview=preview,
+            bridge_prepared=bridge_prepared,
+            action="Flash Trade close position",
+            asset_type="flash-trade-close-position",
+        )
+
+    async def _prepare_flash_trade_close_position_from_preview(
+        self,
+        preview: dict[str, Any],
+    ) -> dict[str, Any]:
         bridge_prepared = await flash_sdk_bridge.prepare_close_position_same_collateral(
             owner=str(preview["owner"]),
             pool_name=str(preview["pool_name"]),
@@ -3027,15 +3066,21 @@ class SolanaWalletBackend(AgentWalletBackend):
         collateral_amount_raw: str,
         leverage: str,
         side: str,
+        approved_preview: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        prepared = await self.prepare_flash_trade_open_position(
-            pool_name=pool_name,
-            market_symbol=market_symbol,
-            collateral_symbol=collateral_symbol,
-            collateral_amount_raw=collateral_amount_raw,
-            leverage=leverage,
-            side=side,
+        preview = (
+            dict(approved_preview)
+            if isinstance(approved_preview, dict)
+            else await self.preview_flash_trade_open_position(
+                pool_name=pool_name,
+                market_symbol=market_symbol,
+                collateral_symbol=collateral_symbol,
+                collateral_amount_raw=collateral_amount_raw,
+                leverage=leverage,
+                side=side,
+            )
         )
+        prepared = await self._prepare_flash_trade_open_position_from_preview(preview)
         return await self._execute_prepared_flash_trade_transaction(prepared)
 
     async def execute_flash_trade_close_position(
@@ -3044,12 +3089,18 @@ class SolanaWalletBackend(AgentWalletBackend):
         pool_name: str,
         market_symbol: str,
         side: str,
+        approved_preview: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        prepared = await self.prepare_flash_trade_close_position(
-            pool_name=pool_name,
-            market_symbol=market_symbol,
-            side=side,
+        preview = (
+            dict(approved_preview)
+            if isinstance(approved_preview, dict)
+            else await self.preview_flash_trade_close_position(
+                pool_name=pool_name,
+                market_symbol=market_symbol,
+                side=side,
+            )
         )
+        prepared = await self._prepare_flash_trade_close_position_from_preview(preview)
         return await self._execute_prepared_flash_trade_transaction(prepared)
 
     async def get_kamino_lend_markets(self) -> dict[str, Any]:

@@ -489,6 +489,7 @@ class AgentWalletBackend(ABC):
         collateral_amount_raw: str,
         leverage: str,
         side: str,
+        approved_preview: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Flash Trade position-open execute.")
 
@@ -498,6 +499,7 @@ class AgentWalletBackend(ABC):
         pool_name: str,
         market_symbol: str,
         side: str,
+        approved_preview: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Flash Trade position-close execute.")
 

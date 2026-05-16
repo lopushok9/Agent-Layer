@@ -631,6 +631,7 @@ class FakeBackend(AgentWalletBackend):
         collateral_amount_raw: str,
         leverage: str,
         side: str,
+        approved_preview: dict | None = None,
     ) -> dict:
         return {
             "chain": "solana",
@@ -657,6 +658,7 @@ class FakeBackend(AgentWalletBackend):
         pool_name: str,
         market_symbol: str,
         side: str,
+        approved_preview: dict | None = None,
     ) -> dict:
         return {
             "chain": "solana",
@@ -1972,6 +1974,33 @@ class NoRepreviewSwapBackend(FakeBackend):
         )
 
 
+class NoRepreviewFlashBackend(FakeBackend):
+    def __init__(self) -> None:
+        self._flash_open_preview_calls = 0
+
+    async def preview_flash_trade_open_position(
+        self,
+        *,
+        pool_name: str,
+        market_symbol: str,
+        collateral_symbol: str,
+        collateral_amount_raw: str,
+        leverage: str,
+        side: str,
+    ) -> dict:
+        self._flash_open_preview_calls += 1
+        if self._flash_open_preview_calls > 1:
+            raise WalletBackendError("execute should use the approved Flash preview payload")
+        return await super().preview_flash_trade_open_position(
+            pool_name=pool_name,
+            market_symbol=market_symbol,
+            collateral_symbol=collateral_symbol,
+            collateral_amount_raw=collateral_amount_raw,
+            leverage=leverage,
+            side=side,
+        )
+
+
 class MainnetFakeBackend(FakeBackend):
     network = "mainnet"
 
@@ -2815,6 +2844,45 @@ async def main() -> None:
     )
     assert no_repreview_execute.ok is True
     assert no_repreview_backend._swap_preview_calls == 1
+
+    no_repreview_flash_backend = NoRepreviewFlashBackend()
+    no_repreview_flash_adapter = OpenClawWalletAdapter(no_repreview_flash_backend)
+    no_repreview_flash_preview = await no_repreview_flash_adapter.invoke(
+        "flash_trade_open_position",
+        {
+            "pool_name": "Crypto.1",
+            "market_symbol": "SOL",
+            "collateral_symbol": "SOL",
+            "collateral_amount_raw": "100000000",
+            "leverage": "1",
+            "side": "long",
+            "mode": "preview",
+            "purpose": "test no-repreview flash execute",
+        },
+    )
+    assert no_repreview_flash_preview.ok is True
+    no_repreview_flash_execute = await no_repreview_flash_adapter.invoke(
+        "flash_trade_open_position",
+        {
+            "pool_name": "Crypto.1",
+            "market_symbol": "SOL",
+            "collateral_symbol": "SOL",
+            "collateral_amount_raw": "100000000",
+            "leverage": "1",
+            "side": "long",
+            "mode": "execute",
+            "purpose": "test no-repreview flash execute",
+            "approval_token": _issue_execute_approval(
+                tool_name="flash_trade_open_position",
+                preview=no_repreview_flash_preview.data,
+                network="devnet",
+                bind_preview_digest=True,
+            ),
+            "_approved_preview": no_repreview_flash_preview.data,
+        },
+    )
+    assert no_repreview_flash_execute.ok is True
+    assert no_repreview_flash_backend._flash_open_preview_calls == 1
 
     drifting_swap_adapter = OpenClawWalletAdapter(DriftingSwapBackend())
     drifting_swap_preview = await drifting_swap_adapter.invoke(

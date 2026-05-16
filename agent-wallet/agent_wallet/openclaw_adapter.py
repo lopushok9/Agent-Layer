@@ -4054,15 +4054,15 @@ class OpenClawWalletAdapter:
                 if not isinstance(purpose, str) or not purpose.strip():
                     raise WalletBackendError("purpose is required.")
 
-                preview = await active_backend.preview_flash_trade_open_position(
-                    pool_name=pool_name.strip(),
-                    market_symbol=market_symbol.strip(),
-                    collateral_symbol=collateral_symbol.strip(),
-                    collateral_amount_raw=collateral_amount_raw.strip(),
-                    leverage=leverage.strip(),
-                    side=side,
-                )
                 if mode == "preview":
+                    preview = await active_backend.preview_flash_trade_open_position(
+                        pool_name=pool_name.strip(),
+                        market_symbol=market_symbol.strip(),
+                        collateral_symbol=collateral_symbol.strip(),
+                        collateral_amount_raw=collateral_amount_raw.strip(),
+                        leverage=leverage.strip(),
+                        side=side,
+                    )
                     return AgentToolResult(
                         tool=tool_name,
                         ok=True,
@@ -4096,13 +4096,72 @@ class OpenClawWalletAdapter:
                         ),
                     )
 
+                approval_payload = inspect_approval_token(
+                    approval_token,
+                    tool_name=tool_name,
+                    network=str(getattr(active_backend, "network", "unknown")),
+                    require_mainnet_confirmation=self._is_mainnet_for_backend(active_backend),
+                )
+                approval_summary = approval_payload.get("binding", {}).get("summary")
+                if not isinstance(approval_summary, dict):
+                    raise WalletBackendError(
+                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                    )
+                expected_summary = {
+                    "operation": "Flash Trade open position",
+                    "pool_name": pool_name.strip(),
+                    "market_symbol": market_symbol.strip(),
+                    "collateral_symbol": collateral_symbol.strip(),
+                    "collateral_amount_raw": collateral_amount_raw.strip(),
+                    "leverage": leverage.strip(),
+                    "side": side,
+                }
+                for key, expected_value in expected_summary.items():
+                    if approval_summary.get(key) != expected_value:
+                        raise WalletBackendError(
+                            "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                        )
+
+                approval_summary_copy = dict(approval_summary)
+                approved_preview = args.get("_approved_preview")
+                execute_preview = None
+                if isinstance(approval_summary_copy.get("_preview_digest"), str):
+                    if not isinstance(approved_preview, dict):
+                        raise WalletBackendError(
+                            "Approved Flash Trade preview payload is required for execute mode. Generate a new preview and approval before execute."
+                        )
+                    if preview_payload_digest(approved_preview) != approval_summary_copy["_preview_digest"]:
+                        raise WalletBackendError(
+                            "approved preview payload does not match the approval token. Generate a new preview and approval before execute."
+                        )
+                    preview_summary = self._build_confirmation_summary(
+                        action_label="Flash Trade open position",
+                        payload=approved_preview,
+                    )
+                    summary_without_digest = {
+                        key: value
+                        for key, value in approval_summary_copy.items()
+                        if key != "_preview_digest"
+                    }
+                    if preview_summary != summary_without_digest:
+                        raise WalletBackendError(
+                            "approved preview payload does not match the approval token. Generate a new preview and approval before execute."
+                        )
+                    execute_preview = dict(approved_preview)
+                else:
+                    execute_preview = await active_backend.preview_flash_trade_open_position(
+                        pool_name=pool_name.strip(),
+                        market_symbol=market_symbol.strip(),
+                        collateral_symbol=collateral_symbol.strip(),
+                        collateral_amount_raw=collateral_amount_raw.strip(),
+                        leverage=leverage.strip(),
+                        side=side,
+                    )
+
                 self._require_execute_approval(
                     approval_token=approval_token,
                     tool_name=tool_name,
-                    summary=self._build_confirmation_summary(
-                        action_label="Flash Trade open position",
-                        payload=preview,
-                    ),
+                    summary=approval_summary_copy,
                     action_label="Flash Trade open position",
                     backend=active_backend,
                 )
@@ -4113,6 +4172,7 @@ class OpenClawWalletAdapter:
                     collateral_amount_raw=collateral_amount_raw.strip(),
                     leverage=leverage.strip(),
                     side=side,
+                    approved_preview=execute_preview,
                 )
                 return AgentToolResult(
                     tool=tool_name,
@@ -4142,12 +4202,12 @@ class OpenClawWalletAdapter:
                 if not isinstance(purpose, str) or not purpose.strip():
                     raise WalletBackendError("purpose is required.")
 
-                preview = await active_backend.preview_flash_trade_close_position(
-                    pool_name=pool_name.strip(),
-                    market_symbol=market_symbol.strip(),
-                    side=side,
-                )
                 if mode == "preview":
+                    preview = await active_backend.preview_flash_trade_close_position(
+                        pool_name=pool_name.strip(),
+                        market_symbol=market_symbol.strip(),
+                        side=side,
+                    )
                     return AgentToolResult(
                         tool=tool_name,
                         ok=True,
@@ -4178,13 +4238,66 @@ class OpenClawWalletAdapter:
                         ),
                     )
 
+                approval_payload = inspect_approval_token(
+                    approval_token,
+                    tool_name=tool_name,
+                    network=str(getattr(active_backend, "network", "unknown")),
+                    require_mainnet_confirmation=self._is_mainnet_for_backend(active_backend),
+                )
+                approval_summary = approval_payload.get("binding", {}).get("summary")
+                if not isinstance(approval_summary, dict):
+                    raise WalletBackendError(
+                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                    )
+                expected_summary = {
+                    "operation": "Flash Trade close position",
+                    "pool_name": pool_name.strip(),
+                    "market_symbol": market_symbol.strip(),
+                    "side": side,
+                }
+                for key, expected_value in expected_summary.items():
+                    if approval_summary.get(key) != expected_value:
+                        raise WalletBackendError(
+                            "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                        )
+
+                approval_summary_copy = dict(approval_summary)
+                approved_preview = args.get("_approved_preview")
+                execute_preview = None
+                if isinstance(approval_summary_copy.get("_preview_digest"), str):
+                    if not isinstance(approved_preview, dict):
+                        raise WalletBackendError(
+                            "Approved Flash Trade preview payload is required for execute mode. Generate a new preview and approval before execute."
+                        )
+                    if preview_payload_digest(approved_preview) != approval_summary_copy["_preview_digest"]:
+                        raise WalletBackendError(
+                            "approved preview payload does not match the approval token. Generate a new preview and approval before execute."
+                        )
+                    preview_summary = self._build_confirmation_summary(
+                        action_label="Flash Trade close position",
+                        payload=approved_preview,
+                    )
+                    summary_without_digest = {
+                        key: value
+                        for key, value in approval_summary_copy.items()
+                        if key != "_preview_digest"
+                    }
+                    if preview_summary != summary_without_digest:
+                        raise WalletBackendError(
+                            "approved preview payload does not match the approval token. Generate a new preview and approval before execute."
+                        )
+                    execute_preview = dict(approved_preview)
+                else:
+                    execute_preview = await active_backend.preview_flash_trade_close_position(
+                        pool_name=pool_name.strip(),
+                        market_symbol=market_symbol.strip(),
+                        side=side,
+                    )
+
                 self._require_execute_approval(
                     approval_token=approval_token,
                     tool_name=tool_name,
-                    summary=self._build_confirmation_summary(
-                        action_label="Flash Trade close position",
-                        payload=preview,
-                    ),
+                    summary=approval_summary_copy,
                     action_label="Flash Trade close position",
                     backend=active_backend,
                 )
@@ -4192,6 +4305,7 @@ class OpenClawWalletAdapter:
                     pool_name=pool_name.strip(),
                     market_symbol=market_symbol.strip(),
                     side=side,
+                    approved_preview=execute_preview,
                 )
                 return AgentToolResult(
                     tool=tool_name,

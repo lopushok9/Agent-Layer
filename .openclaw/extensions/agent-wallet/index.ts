@@ -14,7 +14,12 @@ let selectedEvmNetwork = null;
 let selectedBtcNetwork = null;
 const PREVIEW_CACHE_TTL_MS = 15 * 60 * 1000;
 const PRIVATE_SWAP_CACHE_TTL_MS = 35 * 60 * 1000;
-const PREVIEW_BOUND_SWAP_TOOLS = new Set(["swap_solana_tokens", "swap_solana_privately"]);
+const PREVIEW_BOUND_SWAP_TOOLS = new Set([
+  "swap_solana_tokens",
+  "swap_solana_privately",
+  "flash_trade_open_position",
+  "flash_trade_close_position",
+]);
 const PRIVATE_SWAP_APPROVAL_TOOL_NAME = "swap_solana_privately";
 const approvalPreviewCache = new Map();
 const privateSwapOrderCache = new Map();
