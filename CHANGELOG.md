@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## v0.1.17 - 2026-05-17
+
+- Added Flash Trade collateral-aware perp opens so the Solana wallet flow can
+  use the collateral supported by the selected Flash market instead of forcing
+  `collateral_symbol == market_symbol`.
+- Unblocked docs-aligned short-position previews, prepares, and execution for
+  markets such as `SOL short / USDC collateral`.
+- Tightened Flash market selection to match on `market_symbol + side +
+  collateral_symbol`, preventing incorrect market resolution when the same
+  asset has multiple collateral paths.
+- Updated the OpenClaw tool descriptions and Flash SDK bridge docs to reflect
+  supported Flash collateral paths instead of the earlier same-symbol-only
+  limitation.
+
 ## v0.1.16 - 2026-05-16
 
 - Added Flash Trade perpetuals support to the Solana wallet flow, including
