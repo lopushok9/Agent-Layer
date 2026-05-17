@@ -11,7 +11,7 @@ def main() -> int:
     payload = json.loads(sys.stdin.read() or "{}")
     action = payload.get("action")
 
-    if action == "preview_open_position_same_collateral":
+    if action in {"preview_open_position", "preview_open_position_same_collateral"}:
         response = {
             "ok": True,
             "preview": {
@@ -34,7 +34,7 @@ def main() -> int:
         print(json.dumps(response))
         return 0
 
-    if action == "prepare_open_position_same_collateral":
+    if action in {"prepare_open_position", "prepare_open_position_same_collateral"}:
         response = {
             "ok": True,
             "prepared": {

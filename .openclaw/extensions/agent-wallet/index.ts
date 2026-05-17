@@ -1448,7 +1448,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "flash_trade_open_position",
-    description: "Preview, prepare, or execute a Flash Trade same-collateral perpetual open on Solana mainnet.",
+    description: "Preview, prepare, or execute a Flash Trade perpetual open on Solana mainnet using a supported Flash collateral.",
     optional: true,
     parameters: {
       type: "object",
@@ -1463,7 +1463,7 @@ const solanaToolDefinitions = [
         },
         collateral_symbol: {
           type: "string",
-          description: "Collateral symbol. Current integration requires the same symbol as market_symbol.",
+          description: "Flash collateral symbol, for example SOL for SOL longs or USDC for SOL shorts.",
         },
         collateral_amount_raw: {
           type: "string",
@@ -1498,7 +1498,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "flash_trade_close_position",
-    description: "Preview, prepare, or execute a Flash Trade same-collateral perpetual close on Solana mainnet.",
+    description: "Preview, prepare, or execute a Flash Trade perpetual close on Solana mainnet.",
     optional: true,
     parameters: {
       type: "object",

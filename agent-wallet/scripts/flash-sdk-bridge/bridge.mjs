@@ -110,7 +110,7 @@ function mockResponse(normalized) {
             pool_name: normalized.poolName ?? "Crypto.1",
             symbol: "SOL",
             market_symbol: "SOL",
-            collateral_symbol: "SOL",
+            collateral_symbol: "USDC",
             side: "short",
             market_address: "MockFlashMarketShort1111111111111111111111111",
           },
@@ -145,7 +145,10 @@ function mockResponse(normalized) {
     };
   }
 
-  if (normalized.action === "preview_open_position_same_collateral") {
+  if (
+    normalized.action === "preview_open_position" ||
+    normalized.action === "preview_open_position_same_collateral"
+  ) {
     return {
       ok: true,
       preview: {
@@ -177,7 +180,10 @@ function mockResponse(normalized) {
     };
   }
 
-  if (normalized.action === "prepare_open_position_same_collateral") {
+  if (
+    normalized.action === "prepare_open_position" ||
+    normalized.action === "prepare_open_position_same_collateral"
+  ) {
     return {
       ok: true,
       prepared: {
@@ -608,12 +614,6 @@ async function getOpenPositionPreview(runtime, normalized) {
       "collateral_symbol, collateral_amount_raw, and leverage are required for open preview",
     );
   }
-  if (normalized.collateralSymbol !== normalized.marketSymbol) {
-    throw new Error(
-      "Current bridge MVP supports only same-collateral opens where collateral_symbol matches market_symbol",
-    );
-  }
-
   const { BN } = runtime;
   const privilege = runtime.flashSdk.Privilege.None;
   const ownerPublicKey = runtime.provider.wallet.publicKey;
@@ -810,12 +810,6 @@ async function prepareOpenPosition(runtime, normalized) {
       "collateral_symbol, collateral_amount_raw, and leverage are required for open prepare",
     );
   }
-  if (normalized.collateralSymbol !== normalized.marketSymbol) {
-    throw new Error(
-      "Current bridge MVP supports only same-collateral opens where collateral_symbol matches market_symbol",
-    );
-  }
-
   const { BN } = runtime;
   const privilege = runtime.flashSdk.Privilege.None;
   const ownerPublicKey = runtime.provider.wallet.publicKey;
@@ -1113,13 +1107,19 @@ async function realResponse(normalized) {
     return getPositionsReal(normalized);
   }
   const runtime = await buildRuntimeContext(normalized);
-  if (normalized.action === "preview_open_position_same_collateral") {
+  if (
+    normalized.action === "preview_open_position" ||
+    normalized.action === "preview_open_position_same_collateral"
+  ) {
     return getOpenPositionPreview(runtime, normalized);
   }
   if (normalized.action === "preview_close_position_same_collateral") {
     return getClosePositionPreview(runtime, normalized);
   }
-  if (normalized.action === "prepare_open_position_same_collateral") {
+  if (
+    normalized.action === "prepare_open_position" ||
+    normalized.action === "prepare_open_position_same_collateral"
+  ) {
     return prepareOpenPosition(runtime, normalized);
   }
   if (normalized.action === "prepare_close_position_same_collateral") {

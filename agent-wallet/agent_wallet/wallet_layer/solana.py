@@ -2600,10 +2600,6 @@ class SolanaWalletBackend(AgentWalletBackend):
             collateral_symbol,
             field_name="collateral_symbol",
         )
-        if normalized_collateral_symbol != normalized_market_symbol:
-            raise WalletBackendError(
-                "Phase 2 Flash preview currently supports only same-collateral opens where collateral_symbol matches market_symbol."
-            )
         normalized_collateral_amount_raw = _require_positive_integer_string(
             collateral_amount_raw,
             field_name="collateral_amount_raw",
@@ -2616,15 +2612,19 @@ class SolanaWalletBackend(AgentWalletBackend):
                 item
                 for item in market_snapshot["markets"]
                 if isinstance(item, dict)
-                and str(item.get("symbol") or "").strip().upper() == normalized_market_symbol
+                and str(item.get("market_symbol") or item.get("symbol") or "").strip().upper()
+                == normalized_market_symbol
+                and str(item.get("side") or "").strip().lower() == normalized_side
+                and str(item.get("collateral_symbol") or "").strip().upper()
+                == normalized_collateral_symbol
             ),
             None,
         )
         if matching_market is None:
             raise WalletBackendError(
-                "Requested Flash market is not available in the selected pool."
+                "Requested Flash market is not available in the selected pool for the requested collateral and side."
             )
-        bridge_preview = await flash_sdk_bridge.preview_open_position_same_collateral(
+        bridge_preview = await flash_sdk_bridge.preview_open_position(
             owner=owner,
             pool_name=normalized_pool_name,
             market_symbol=normalized_market_symbol,
@@ -2927,7 +2927,7 @@ class SolanaWalletBackend(AgentWalletBackend):
             leverage=leverage,
             side=side,
         )
-        bridge_prepared = await flash_sdk_bridge.prepare_open_position_same_collateral(
+        bridge_prepared = await flash_sdk_bridge.prepare_open_position(
             owner=str(preview["owner"]),
             pool_name=str(preview["pool_name"]),
             market_symbol=str(preview["market_symbol"]),
@@ -2948,7 +2948,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         self,
         preview: dict[str, Any],
     ) -> dict[str, Any]:
-        bridge_prepared = await flash_sdk_bridge.prepare_open_position_same_collateral(
+        bridge_prepared = await flash_sdk_bridge.prepare_open_position(
             owner=str(preview["owner"]),
             pool_name=str(preview["pool_name"]),
             market_symbol=str(preview["market_symbol"]),

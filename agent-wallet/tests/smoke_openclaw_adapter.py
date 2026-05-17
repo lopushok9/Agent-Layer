@@ -476,15 +476,26 @@ class FakeBackend(AgentWalletBackend):
             "chain": "solana",
             "network": "mainnet",
             "pool_name": pool_name,
-            "market_count": 1,
+            "market_count": 2,
             "markets": [
                 {
-                    "poolName": pool_name or "Crypto.1",
-                    "symbol": "SOL-PERP",
+                    "pool_name": pool_name or "Crypto.1",
+                    "symbol": "SOL",
+                    "market_symbol": "SOL",
+                    "collateral_symbol": "SOL",
+                    "side": "long",
                     "maxLeverage": 100,
-                }
+                },
+                {
+                    "pool_name": pool_name or "Crypto.1",
+                    "symbol": "SOL",
+                    "market_symbol": "SOL",
+                    "collateral_symbol": "USDC",
+                    "side": "short",
+                    "maxLeverage": 100,
+                },
             ],
-            "raw": {"markets": [{"symbol": "SOL-PERP"}]},
+            "raw": {"markets": [{"symbol": "SOL"}]},
             "source": "flash-trade",
         }
 
@@ -2140,7 +2151,8 @@ async def main() -> None:
     assert bags_analytics.data["claim_events"]["events"][0]["mode"] == "time"
 
     flash_markets = await adapter.invoke("get_flash_trade_markets")
-    assert flash_markets.ok and flash_markets.data["market_count"] == 1
+    assert flash_markets.ok and flash_markets.data["market_count"] == 2
+    assert flash_markets.data["markets"][1]["collateral_symbol"] == "USDC"
 
     flash_positions = await adapter.invoke(
         "get_flash_trade_positions",
@@ -2163,6 +2175,21 @@ async def main() -> None:
         },
     )
     assert flash_open_preview.ok and flash_open_preview.data["estimated_size_usd"] == "1250.00"
+
+    flash_open_short_preview = await adapter.invoke(
+        "flash_trade_open_position",
+        {
+            "pool_name": "Crypto.1",
+            "market_symbol": "SOL",
+            "collateral_symbol": "USDC",
+            "collateral_amount_raw": "5000000",
+            "leverage": "2",
+            "side": "short",
+            "mode": "preview",
+            "purpose": "Open a SOL short using USDC collateral",
+        },
+    )
+    assert flash_open_short_preview.ok and flash_open_short_preview.data["collateral_symbol"] == "USDC"
 
     flash_open_prepare = await adapter.invoke(
         "flash_trade_open_position",

@@ -41,14 +41,14 @@ async def _run() -> None:
         assert env_probe["data"]["flash_sdk_bridge_mode"] == "real"
         assert env_probe["data"]["solana_rpc_url"] == "https://api.mainnet-beta.solana.com"
 
-        open_preview = await flash_sdk_bridge.preview_open_position_same_collateral(
+        open_preview = await flash_sdk_bridge.preview_open_position(
             owner="Fake11111111111111111111111111111111111111111",
             pool_name="Crypto.1",
             market_symbol="SOL",
-            collateral_symbol="SOL",
-            collateral_amount_raw="100000000",
-            leverage="5",
-            side="long",
+            collateral_symbol="USDC",
+            collateral_amount_raw="5000000",
+            leverage="2",
+            side="short",
             network="mainnet",
         )
         assert open_preview["estimated_size_usd"] == "1250.00"
@@ -62,14 +62,14 @@ async def _run() -> None:
         )
         assert close_preview["close_amount_raw"] == "700000000"
 
-        open_prepare = await flash_sdk_bridge.prepare_open_position_same_collateral(
+        open_prepare = await flash_sdk_bridge.prepare_open_position(
             owner="Fake11111111111111111111111111111111111111111",
             pool_name="Crypto.1",
             market_symbol="SOL",
-            collateral_symbol="SOL",
-            collateral_amount_raw="100000000",
-            leverage="5",
-            side="long",
+            collateral_symbol="USDC",
+            collateral_amount_raw="5000000",
+            leverage="2",
+            side="short",
             network="mainnet",
         )
         assert open_prepare["transaction_format"] == "versioned"

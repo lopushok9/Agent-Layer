@@ -20,14 +20,14 @@ def main() -> None:
     env["FLASH_SDK_BRIDGE_MODE"] = "mock"
 
     payload = {
-        "action": "preview_open_position_same_collateral",
+        "action": "preview_open_position",
         "owner": "Fake11111111111111111111111111111111111111111",
         "pool_name": "Crypto.1",
         "market_symbol": "SOL",
-        "collateral_symbol": "SOL",
-        "collateral_amount_raw": "100000000",
-        "leverage": "5",
-        "side": "long",
+        "collateral_symbol": "USDC",
+        "collateral_amount_raw": "5000000",
+        "leverage": "2",
+        "side": "short",
         "network": "mainnet",
     }
 
@@ -65,6 +65,7 @@ def main() -> None:
     markets_response = json.loads(markets.stdout.decode("utf-8"))
     assert markets_response["ok"] is True
     assert markets_response["data"]["market_count"] == 2
+    assert markets_response["data"]["markets"][1]["collateral_symbol"] == "USDC"
 
     positions = subprocess.run(
         ["node", str(bridge_path)],
@@ -88,14 +89,14 @@ def main() -> None:
     assert positions_response["data"]["position_count"] == 1
 
     prepare_payload = {
-        "action": "prepare_open_position_same_collateral",
+        "action": "prepare_open_position",
         "owner": "Fake11111111111111111111111111111111111111111",
         "pool_name": "Crypto.1",
         "market_symbol": "SOL",
-        "collateral_symbol": "SOL",
-        "collateral_amount_raw": "100000000",
-        "leverage": "5",
-        "side": "long",
+        "collateral_symbol": "USDC",
+        "collateral_amount_raw": "5000000",
+        "leverage": "2",
+        "side": "short",
         "network": "mainnet",
     }
     prepared = subprocess.run(

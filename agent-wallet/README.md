@@ -546,7 +546,7 @@ Operational notes:
 - `FLASH_SDK_BRIDGE_MODE=mock` provides deterministic smoke behavior without SDK dependencies
 - `FLASH_SDK_BRIDGE_MODE=real` now produces real Flash SDK quotes for preview and real versioned transaction builds for prepare/execute
 - the backend locally verifies the provider-built Flash transaction, applies only the wallet signature, and requires a host-issued approval token before broadcast; tool-level `prepare` still strips signed transaction bytes before returning to the agent
-- current real-mode constraints are intentionally narrow: mainnet only, same-collateral `market_symbol == collateral_symbol`, and whole-number leverage strings for opens
+- current real-mode constraints are intentionally narrow: mainnet only, Flash-supported market collateral only, and whole-number raw collateral strings for opens
 
 ## Native staking coverage
 
