@@ -107,6 +107,8 @@ def main() -> None:
     assert "kamino_lend_repay" in also_allow
     assert "pay_status" in also_allow
     assert "pay_api_request" in also_allow
+    assert "x402_search_services" in also_allow
+    assert "x402_pay_request" in also_allow
 
     print("smoke_install_openclaw_local_config_preserves_existing_config: ok")
 

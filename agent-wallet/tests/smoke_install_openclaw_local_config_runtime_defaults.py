@@ -74,6 +74,8 @@ def main() -> None:
     assert pay_bridge_config["requireHttps"] is True
     assert isinstance(pay_bridge_config["payBinary"], str) and pay_bridge_config["payBinary"]
     assert "pay_status" in config_data["tools"]["alsoAllow"]
+    assert "x402_search_services" in config_data["tools"]["alsoAllow"]
+    assert "x402_pay_request" in config_data["tools"]["alsoAllow"]
     assert "get_flash_trade_markets" in config_data["tools"]["alsoAllow"]
     assert "get_flash_trade_positions" in config_data["tools"]["alsoAllow"]
     assert "flash_trade_open_position" in config_data["tools"]["alsoAllow"]

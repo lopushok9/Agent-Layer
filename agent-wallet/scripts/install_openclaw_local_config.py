@@ -58,6 +58,13 @@ PAY_BRIDGE_TOOLS = [
     "pay_api_request",
 ]
 
+X402_TOOLS = [
+    "x402_search_services",
+    "x402_get_service_details",
+    "x402_preview_request",
+    "x402_pay_request",
+]
+
 
 def _default_config_path() -> Path:
     return Path(os.path.expanduser("~/.openclaw/openclaw.json"))
@@ -329,7 +336,7 @@ def main() -> None:
 
     tools = data.setdefault("tools", {})
     also_allow = tools.setdefault("alsoAllow", [])
-    for tool_name in OPTIONAL_TOOLS + PAY_BRIDGE_TOOLS:
+    for tool_name in OPTIONAL_TOOLS + PAY_BRIDGE_TOOLS + X402_TOOLS:
         if tool_name not in also_allow:
             also_allow.append(tool_name)
 
