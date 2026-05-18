@@ -820,6 +820,62 @@ const walletSessionToolDefinitions = [
     },
   },
   {
+    name: "x402_search_services",
+    description:
+      "Search x402-paid services through CDP Bazaar or Agentic Market. This is read-only discovery and does not spend funds.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        discovery_provider: {
+          type: "string",
+          enum: ["auto", "cdp_bazaar", "agentic_market"],
+        },
+        network: { type: "string" },
+        asset: { type: "string" },
+        scheme: { type: "string" },
+        max_usd_price: { type: "string" },
+        limit: { type: "integer" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "x402_get_service_details",
+    description:
+      "Resolve one x402 service or resource into a normalized details payload. Use a resource URL for CDP Bazaar or a domain/service id for Agentic Market.",
+    parameters: {
+      type: "object",
+      properties: {
+        reference: { type: "string" },
+        discovery_provider: {
+          type: "string",
+          enum: ["auto", "cdp_bazaar", "agentic_market"],
+        },
+      },
+      required: ["reference"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "x402_preview_request",
+    description:
+      "Make an unpaid HTTP request to an x402 endpoint, detect HTTP 402, parse PAYMENT-REQUIRED, and summarize the payment options. This does not pay or execute.",
+    parameters: {
+      type: "object",
+      properties: {
+        url: { type: "string" },
+        method: { type: "string" },
+        headers: { type: "object", additionalProperties: { type: "string" } },
+        query: { type: "object", additionalProperties: true },
+        json_body: {},
+        text_body: { type: "string" },
+      },
+      required: ["url"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_active_wallet_backend",
     description: "Show which wallet backend is active in this OpenClaw plugin session and whether it differs from the startup plugin config.",
     parameters: { type: "object", properties: {}, additionalProperties: false },

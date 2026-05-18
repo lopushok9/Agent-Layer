@@ -70,7 +70,10 @@
       "transfer_evm_native",
       "transfer_evm_token",
       "transfer_sol",
-      "transfer_spl_token"
+      "transfer_spl_token",
+      "x402_get_service_details",
+      "x402_preview_request",
+      "x402_search_services"
     ]
   },
   "skills": ["skills/wallet-operator"],

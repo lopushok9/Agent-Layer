@@ -108,6 +108,9 @@ Current safe tools:
 - `deactivate_solana_stake`
 - `withdraw_solana_stake`
 - `request_devnet_airdrop`
+- `x402_search_services`
+- `x402_get_service_details`
+- `x402_preview_request`
 
 Temporarily disabled but kept in the codebase for later re-enable:
 

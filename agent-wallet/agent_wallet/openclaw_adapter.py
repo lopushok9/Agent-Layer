@@ -8,6 +8,7 @@ from typing import Any
 
 from agent_wallet.approval import inspect_approval_token, verify_approval_token
 from agent_wallet.models import AgentToolResult, AgentToolSpec
+from agent_wallet.providers import x402
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendError
 
 
@@ -167,6 +168,78 @@ class OpenClawWalletAdapter:
             raise WalletBackendError(
                 "Prepare mode requires explicit user intent confirmation."
             )
+
+    def _x402_tool_specs(self) -> list[AgentToolSpec]:
+        return [
+            AgentToolSpec(
+                name="x402_search_services",
+                description=(
+                    "Search x402-paid services through CDP Bazaar or Agentic Market. "
+                    "This is read-only discovery and does not spend funds."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "discovery_provider": {
+                            "type": "string",
+                            "enum": ["auto", "cdp_bazaar", "agentic_market"],
+                        },
+                        "network": {"type": "string"},
+                        "asset": {"type": "string"},
+                        "scheme": {"type": "string"},
+                        "max_usd_price": {"type": "string"},
+                        "limit": {"type": "integer"},
+                    },
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+            AgentToolSpec(
+                name="x402_get_service_details",
+                description=(
+                    "Resolve one x402 service or resource into a normalized details payload. "
+                    "Use a resource URL for CDP Bazaar or a domain/service id for Agentic Market."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "reference": {"type": "string"},
+                        "discovery_provider": {
+                            "type": "string",
+                            "enum": ["auto", "cdp_bazaar", "agentic_market"],
+                        },
+                    },
+                    "required": ["reference"],
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+            AgentToolSpec(
+                name="x402_preview_request",
+                description=(
+                    "Make an unpaid HTTP request to an x402 endpoint, detect HTTP 402, parse "
+                    "PAYMENT-REQUIRED, and summarize the payment options. This does not pay or execute."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string"},
+                        "method": {"type": "string"},
+                        "headers": {"type": "object", "additionalProperties": {"type": "string"}},
+                        "query": {"type": "object", "additionalProperties": True},
+                        "json_body": {},
+                        "text_body": {"type": "string"},
+                    },
+                    "required": ["url"],
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+        ]
 
     def _require_execute_approval(
         self,
@@ -3038,6 +3111,7 @@ class OpenClawWalletAdapter:
                 )
             )
 
+        tools.extend(self._x402_tool_specs())
         return [tool for tool in tools if tool.name not in TEMPORARILY_DISABLED_TOOLS]
 
     def get_runtime_instructions(self) -> str:
@@ -3053,6 +3127,78 @@ class OpenClawWalletAdapter:
                 raise WalletBackendError(
                     f"{tool_name} is temporarily disabled. The implementation remains in the repo but this tool is currently turned off."
                 )
+
+            if tool_name == "x402_search_services":
+                query = args.get("query")
+                discovery_provider = args.get("discovery_provider", "auto")
+                network = args.get("network")
+                asset = args.get("asset")
+                scheme = args.get("scheme")
+                max_usd_price = args.get("max_usd_price")
+                limit = args.get("limit", 10)
+                for field_name, value in (
+                    ("query", query),
+                    ("discovery_provider", discovery_provider),
+                    ("network", network),
+                    ("asset", asset),
+                    ("scheme", scheme),
+                    ("max_usd_price", max_usd_price),
+                ):
+                    if value is not None and not isinstance(value, str):
+                        raise WalletBackendError(f"{field_name} must be a string when provided.")
+                if not isinstance(limit, int) or limit <= 0:
+                    raise WalletBackendError("limit must be a positive integer.")
+                data = await x402.search_services(
+                    query=query,
+                    discovery_provider=discovery_provider,
+                    network=network,
+                    asset=asset,
+                    scheme=scheme,
+                    max_usd_price=max_usd_price,
+                    limit=limit,
+                )
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "x402_get_service_details":
+                reference = args.get("reference")
+                discovery_provider = args.get("discovery_provider", "auto")
+                if not isinstance(reference, str) or not reference.strip():
+                    raise WalletBackendError("reference is required.")
+                if discovery_provider is not None and not isinstance(discovery_provider, str):
+                    raise WalletBackendError("discovery_provider must be a string when provided.")
+                data = await x402.get_service_details(
+                    reference=reference.strip(),
+                    discovery_provider=discovery_provider,
+                )
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "x402_preview_request":
+                url = args.get("url")
+                method = args.get("method", "GET")
+                headers = args.get("headers")
+                query = args.get("query")
+                json_body = args.get("json_body")
+                text_body = args.get("text_body")
+                if not isinstance(url, str) or not url.strip():
+                    raise WalletBackendError("url is required.")
+                if method is not None and not isinstance(method, str):
+                    raise WalletBackendError("method must be a string when provided.")
+                if headers is not None and not isinstance(headers, dict):
+                    raise WalletBackendError("headers must be an object when provided.")
+                if query is not None and not isinstance(query, dict):
+                    raise WalletBackendError("query must be an object when provided.")
+                if text_body is not None and not isinstance(text_body, str):
+                    raise WalletBackendError("text_body must be a string when provided.")
+                data = await x402.preview_request(
+                    backend=active_backend,
+                    url=url.strip(),
+                    method=method,
+                    headers=headers,
+                    query=query,
+                    json_body=json_body,
+                    text_body=text_body,
+                )
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
 
             if tool_name == "get_wallet_capabilities":
                 data = active_backend.get_capabilities().to_dict()

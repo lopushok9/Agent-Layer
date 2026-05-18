@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Started the native x402 buyer integration inside `agent-wallet` instead of
+  the separate `pay-bridge` wallet path.
+- Added read-only x402 discovery helpers for `CDP Bazaar` and
+  `Agentic Market`, including normalized service/resource search results.
+- Added `x402_preview_request`, which performs an unpaid request, parses
+  `PAYMENT-REQUIRED`, and summarizes accepted payment options without spending
+  funds.
+
 ## v0.1.17 - 2026-05-17
 
 - Added Flash Trade collateral-aware perp opens so the Solana wallet flow can

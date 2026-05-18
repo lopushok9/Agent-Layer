@@ -2049,13 +2049,16 @@ async def main() -> None:
     tool_names = {tool.name for tool in adapter.list_tools()}
     bundle_tool_names = {tool["name"] for tool in bundle["tools"]}
 
-    assert len(tool_names) == 44
+    assert len(tool_names) == 47
     assert bundle["manifest"]["id"] == "agent-wallet"
-    assert len(bundle_tool_names) == 44
+    assert len(bundle_tool_names) == 47
     assert "Wallet Operator" in bundle["instructions"]
     assert "get_lifi_supported_chains" in tool_names
     assert "get_lifi_quote" in tool_names
     assert "get_lifi_transfer_status" in tool_names
+    assert "x402_search_services" in tool_names
+    assert "x402_get_service_details" in tool_names
+    assert "x402_preview_request" in tool_names
     assert "swap_solana_lifi_cross_chain_tokens" in tool_names
     assert "swap_solana_privately" in tool_names
     assert "continue_solana_private_swap" in tool_names
