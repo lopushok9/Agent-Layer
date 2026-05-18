@@ -327,6 +327,22 @@ def _solana_exact_execution_supported(backend: AgentWalletBackend) -> bool:
     )
 
 
+def _evm_exact_execution_supported(backend: AgentWalletBackend) -> bool:
+    return (
+        _backend_chain(backend) == "evm"
+        and _backend_network(backend) in {"base", "base-sepolia"}
+        and callable(getattr(backend, "sign_x402_evm_exact_typed_data", None))
+    )
+
+
+def _evm_payment_requirement_supported(requirement: dict[str, Any]) -> bool:
+    if _trim(requirement.get("scheme")).lower() != "exact":
+        return False
+    extra = _extract_requirement_extra(requirement)
+    transfer_method = _trim(extra.get("assetTransferMethod")).lower()
+    return transfer_method in {"", "eip3009", "transferwithauthorization"}
+
+
 def _wallet_x402_support_summary(backend: AgentWalletBackend) -> dict[str, Any]:
     chain = _backend_chain(backend)
     network = _backend_network(backend)
@@ -340,6 +356,8 @@ def _wallet_x402_support_summary(backend: AgentWalletBackend) -> dict[str, Any]:
     execution_modes: list[str] = []
     if _solana_exact_execution_supported(backend):
         execution_modes.append("solana_exact")
+    if _evm_exact_execution_supported(backend):
+        execution_modes.append("evm_exact")
     return {
         "chain": chain,
         "network": network,
@@ -356,16 +374,37 @@ def _requirement_compatibility(requirement: dict[str, Any], backend: AgentWallet
     network = _trim(requirement.get("network"))
     scheme = _trim(requirement.get("scheme")).lower()
     wallet_network_matches = network in wallet_summary["supported_caip_networks"]
-    planned_execution_supported = (
-        scheme == "exact" and network in set(wallet_summary["planned_execution_networks"])
-    )
-    currently_executable = (
-        planned_execution_supported
-        and wallet_network_matches
-        and _solana_exact_execution_supported(backend)
-    )
+    chain = _backend_chain(backend)
+    planned_execution_supported = False
+    currently_executable = False
+    if chain == "solana":
+        planned_execution_supported = scheme == "exact" and network in set(
+            wallet_summary["planned_execution_networks"]
+        )
+        currently_executable = (
+            planned_execution_supported
+            and wallet_network_matches
+            and _solana_exact_execution_supported(backend)
+        )
+    elif chain == "evm":
+        planned_execution_supported = (
+            scheme == "exact"
+            and network in set(wallet_summary["planned_execution_networks"])
+            and _evm_payment_requirement_supported(requirement)
+        )
+        currently_executable = (
+            planned_execution_supported
+            and wallet_network_matches
+            and _evm_exact_execution_supported(backend)
+        )
     if currently_executable:
-        reason = "Executable now through the local Solana exact buyer flow."
+        reason = (
+            "Executable now through the local Solana exact buyer flow."
+            if chain == "solana"
+            else "Executable now through the local EVM exact buyer flow."
+        )
+    elif chain == "evm" and scheme == "exact" and not _evm_payment_requirement_supported(requirement):
+        reason = "This EVM exact payment requires a transfer method that is not enabled in the current wallet runtime."
     elif planned_execution_supported and wallet_network_matches:
         reason = "Wallet network matches, but this backend does not yet expose a supported x402 signer path."
     elif planned_execution_supported:
@@ -603,24 +642,62 @@ def _require_executable_payment(
     return selected
 
 
-def _load_x402_sdk() -> dict[str, Any]:
+def _load_x402_common_sdk() -> dict[str, Any]:
     try:
         from x402 import x402Client
         from x402.http.x402_http_client_base import x402HTTPClientBase
         from x402.http.utils import decode_payment_required_header
-        from x402.mechanisms.svm.exact import register_exact_svm_client
     except ImportError as exc:
         raise ProviderError(
             "x402-sdk",
-            "x402 execution requires the x402 Python package with SVM support.",
-            details={"hint": 'Install dependencies so `x402[httpx,svm]` is available in the wallet runtime.'},
+            "x402 execution requires the x402 Python package with HTTP client support.",
+            details={"hint": 'Install dependencies so `x402[httpx]` is available in the wallet runtime.'},
         ) from exc
     return {
         "x402Client": x402Client,
         "x402HTTPClientBase": x402HTTPClientBase,
         "decode_payment_required_header": decode_payment_required_header,
-        "register_exact_svm_client": register_exact_svm_client,
     }
+
+
+def _load_x402_solana_sdk() -> dict[str, Any]:
+    sdk = _load_x402_common_sdk()
+    try:
+        from x402.mechanisms.svm.exact import register_exact_svm_client
+    except ImportError as exc:
+        raise ProviderError(
+            "x402-sdk",
+            "x402 Solana execution requires SVM support.",
+            details={"hint": 'Install dependencies so `x402[httpx,svm]` is available in the wallet runtime.'},
+        ) from exc
+    sdk.update(
+        {
+            "register_exact_svm_client": register_exact_svm_client,
+        }
+    )
+    return sdk
+
+
+def _load_x402_evm_sdk() -> dict[str, Any]:
+    sdk = _load_x402_common_sdk()
+    try:
+        from x402.mechanisms.evm.exact import register_exact_evm_client
+    except ImportError as exc:
+        raise ProviderError(
+            "x402-sdk",
+            "x402 EVM execution requires EVM support.",
+            details={"hint": 'Install dependencies so `x402[httpx,evm]` is available in the wallet runtime.'},
+        ) from exc
+    sdk.update(
+        {
+            "register_exact_evm_client": register_exact_evm_client,
+        }
+    )
+    return sdk
+
+
+def _load_x402_sdk() -> dict[str, Any]:
+    return _load_x402_common_sdk()
 
 
 def _build_solana_sdk_signer(backend: AgentWalletBackend) -> Any:
@@ -658,33 +735,101 @@ def _build_solana_sdk_signer(backend: AgentWalletBackend) -> Any:
     return _OpenClawSolanaX402Signer(signer)
 
 
+def _build_evm_sdk_signer(backend: AgentWalletBackend, address: str) -> Any:
+    sign_typed_data = getattr(backend, "sign_x402_evm_exact_typed_data", None)
+    if not callable(sign_typed_data):
+        raise ProviderError(
+            "x402-evm",
+            "The active EVM backend does not expose an x402 exact typed-data signer.",
+        )
+
+    class _OpenClawEvmX402Signer:
+        def __init__(self, wallet_backend: AgentWalletBackend, wallet_address: str):
+            self._wallet_backend = wallet_backend
+            self._address = wallet_address
+
+        @property
+        def address(self) -> str:
+            return self._address
+
+        def sign_typed_data(
+            self,
+            domain: Any,
+            types: dict[str, list[Any]],
+            primary_type: str,
+            message: dict[str, Any],
+        ) -> bytes:
+            normalized_types: dict[str, list[dict[str, str]]] = {}
+            for type_name, fields in types.items():
+                normalized_types[type_name] = [
+                    {
+                        "name": _trim(getattr(field, "name", "")),
+                        "type": _trim(getattr(field, "type", "")),
+                    }
+                    for field in fields
+                ]
+            domain_payload = {
+                "name": getattr(domain, "name", None),
+                "version": getattr(domain, "version", None),
+                "chainId": getattr(domain, "chain_id", None),
+                "verifyingContract": getattr(domain, "verifying_contract", None),
+            }
+            return self._wallet_backend.sign_x402_evm_exact_typed_data(
+                domain=domain_payload,
+                types=normalized_types,
+                primary_type=primary_type,
+                message=message,
+            )
+
+    return _OpenClawEvmX402Signer(backend, address)
+
+
 async def _create_payment_headers(
     *,
     backend: AgentWalletBackend,
     payment_required_header: str,
     selected_payment: dict[str, Any],
 ) -> dict[str, str]:
-    sdk = _load_x402_sdk()
-    if _backend_chain(backend) != "solana":
-        raise ProviderError(
-            "x402-http",
-            "Only the Solana exact buyer flow is executable in this milestone.",
-            details={"chain": _backend_chain(backend)},
+    chain = _backend_chain(backend)
+    if chain == "solana":
+        sdk = _load_x402_solana_sdk()
+        payment_required = sdk["decode_payment_required_header"](payment_required_header)
+        selected_payload = payment_required.model_copy(
+            update={"accepts": [selected_payment["raw"]]},
         )
+        client = sdk["x402Client"]()
+        sdk["register_exact_svm_client"](
+            client,
+            _build_solana_sdk_signer(backend),
+            networks=str(selected_payment["network"]),
+            rpc_url=getattr(backend, "rpc_url", None),
+        )
+        payment_payload = await client.create_payment_payload(selected_payload)
+        return sdk["x402HTTPClientBase"]().encode_payment_signature_header(payment_payload)
 
-    payment_required = sdk["decode_payment_required_header"](payment_required_header)
-    selected_payload = payment_required.model_copy(
-        update={"accepts": [selected_payment["raw"]]},
+    if chain == "evm":
+        sdk = _load_x402_evm_sdk()
+        payment_required = sdk["decode_payment_required_header"](payment_required_header)
+        selected_payload = payment_required.model_copy(
+            update={"accepts": [selected_payment["raw"]]},
+        )
+        client = sdk["x402Client"]()
+        address = await backend.get_address()
+        if not isinstance(address, str) or not address.strip():
+            raise ProviderError("x402-evm", "The active EVM backend did not resolve a payer address.")
+        sdk["register_exact_evm_client"](
+            client,
+            _build_evm_sdk_signer(backend, address.strip()),
+            networks=str(selected_payment["network"]),
+        )
+        payment_payload = await client.create_payment_payload(selected_payload)
+        return sdk["x402HTTPClientBase"]().encode_payment_signature_header(payment_payload)
+
+    raise ProviderError(
+        "x402-http",
+        "Only Solana and EVM buyer flows are executable in this milestone.",
+        details={"chain": chain},
     )
-    client = sdk["x402Client"]()
-    sdk["register_exact_svm_client"](
-        client,
-        _build_solana_sdk_signer(backend),
-        networks=str(selected_payment["network"]),
-        rpc_url=getattr(backend, "rpc_url", None),
-    )
-    payment_payload = await client.create_payment_payload(selected_payload)
-    return sdk["x402HTTPClientBase"]().encode_payment_signature_header(payment_payload)
 
 
 def _extract_settlement_header(response: Any) -> dict[str, Any] | None:

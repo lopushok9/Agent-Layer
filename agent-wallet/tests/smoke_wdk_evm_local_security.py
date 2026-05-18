@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from _wdk_evm_test_server import FakeWdkEvmWalletServer  # noqa: E402
 from agent_wallet.providers.wdk_evm_local import WdkEvmLocalClient, _timeout_for_path  # noqa: E402
 from agent_wallet.wallet_layer.base import WalletBackendError  # noqa: E402
+from agent_wallet.wallet_layer.wdk_evm import WdkEvmLocalWalletBackend  # noqa: E402
 
 
 def main() -> None:
@@ -72,6 +73,44 @@ def main() -> None:
             },
         )
         assert sent["protocol"] == "velora"
+
+    with FakeWdkEvmWalletServer(network="base-sepolia", auth_token="correct-token") as server:
+        os.environ["WDK_EVM_LOCAL_TOKEN"] = "correct-token"
+        backend = WdkEvmLocalWalletBackend(
+            service_url=server.base_url,
+            wallet_id=server.wallet_id,
+            network="base-sepolia",
+        )
+        signature = backend.sign_x402_evm_exact_typed_data(
+            domain={
+                "name": "USD Coin",
+                "version": "2",
+                "chainId": 84532,
+                "verifyingContract": server.token,
+            },
+            types={
+                "TransferWithAuthorization": [
+                    {"name": "from", "type": "address"},
+                    {"name": "to", "type": "address"},
+                    {"name": "value", "type": "uint256"},
+                    {"name": "validAfter", "type": "uint256"},
+                    {"name": "validBefore", "type": "uint256"},
+                    {"name": "nonce", "type": "bytes32"},
+                ]
+            },
+            primary_type="TransferWithAuthorization",
+            message={
+                "from": server.address,
+                "to": "0x3333333333333333333333333333333333333333",
+                "value": "1000000",
+                "validAfter": "0",
+                "validBefore": "9999999999",
+                "nonce": "0x" + ("22" * 32),
+            },
+        )
+        assert isinstance(signature, bytes)
+        assert len(signature) == 65
+        assert server.sent_payloads[-1]["path"] == "/v1/evm/x402/exact/sign"
 
     assert _timeout_for_path("/v1/evm/swap/send") >= 120.0
     assert _timeout_for_path("/v1/evm/transfer/send") >= 120.0

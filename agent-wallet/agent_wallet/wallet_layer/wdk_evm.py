@@ -440,6 +440,36 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
         self.address = address
         return address
 
+    def sign_x402_evm_exact_typed_data(
+        self,
+        *,
+        domain: dict[str, Any],
+        types: dict[str, Any],
+        primary_type: str,
+        message: dict[str, Any],
+    ) -> bytes:
+        data = self.client.post_sync(
+            "/v1/evm/x402/exact/sign",
+            {
+                "walletId": self.wallet_id,
+                "accountIndex": self.account_index,
+                "network": self.network,
+                "domain": domain,
+                "types": types,
+                "primaryType": primary_type,
+                "message": message,
+            },
+        )
+        signature = str(data.get("signature") or "").strip()
+        if not signature:
+            raise WalletBackendError("wdk-evm-wallet did not return an x402 EVM signature.")
+        if signature.startswith("0x"):
+            signature = signature[2:]
+        try:
+            return bytes.fromhex(signature)
+        except ValueError as exc:
+            raise WalletBackendError("wdk-evm-wallet returned an invalid x402 EVM signature.") from exc
+
     async def get_balance(self, address: str | None = None) -> dict[str, Any]:
         resolved_address = await self.get_address()
         if address is not None and address.strip() and address.strip() != resolved_address:

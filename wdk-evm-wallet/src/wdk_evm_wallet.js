@@ -149,6 +149,14 @@ function assertPositiveBigIntString(value, fieldName) {
   return parsed;
 }
 
+function assertNonNegativeBigIntString(value, fieldName) {
+  const normalized = String(value ?? "").trim();
+  if (!/^[0-9]+$/.test(normalized)) {
+    throw new Error(`${fieldName} must be a non-negative base-10 integer string.`);
+  }
+  return normalized;
+}
+
 function normalizeAddress(value, fieldName) {
   const address = assertNonEmptyString(value, fieldName);
   if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
@@ -303,6 +311,71 @@ function mergeBridgeLists(...values) {
     }
   }
   return items.length > 0 ? items.join(",") : null;
+}
+
+function assertPlainObject(value, fieldName) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${fieldName} must be an object.`);
+  }
+  return value;
+}
+
+function normalizeX402ExactTypedData({ domain, types, primaryType, message }, runtimeConfig) {
+  const normalizedPrimaryType = assertNonEmptyString(primaryType, "primaryType");
+  if (normalizedPrimaryType !== "TransferWithAuthorization") {
+    throw new Error("primaryType must be TransferWithAuthorization for x402 exact EVM payments.");
+  }
+
+  const domainObject = assertPlainObject(domain, "domain");
+  const domainChainId = assertNonNegativeInteger(domainObject.chainId, "domain.chainId");
+  if (domainChainId !== runtimeConfig.chainId) {
+    throw new Error("domain.chainId must match the active network chain id.");
+  }
+  const normalizedDomain = {
+    name: assertNonEmptyString(domainObject.name, "domain.name"),
+    version: assertNonEmptyString(domainObject.version, "domain.version"),
+    chainId: domainChainId,
+    verifyingContract: normalizeAddress(domainObject.verifyingContract, "domain.verifyingContract"),
+  };
+
+  const typesObject = assertPlainObject(types, "types");
+  const primaryFields = typesObject[normalizedPrimaryType];
+  if (!Array.isArray(primaryFields) || primaryFields.length === 0) {
+    throw new Error(`types.${normalizedPrimaryType} must be a non-empty array.`);
+  }
+  const normalizedTypes = {};
+  for (const [typeName, fields] of Object.entries(typesObject)) {
+    if (!Array.isArray(fields) || fields.length === 0) {
+      throw new Error(`types.${typeName} must be a non-empty array.`);
+    }
+    normalizedTypes[typeName] = fields.map((field, index) => {
+      const normalizedField = assertPlainObject(field, `types.${typeName}[${index}]`);
+      return {
+        name: assertNonEmptyString(normalizedField.name, `types.${typeName}[${index}].name`),
+        type: assertNonEmptyString(normalizedField.type, `types.${typeName}[${index}].type`),
+      };
+    });
+  }
+
+  const messageObject = assertPlainObject(message, "message");
+  const normalizedMessage = {
+    from: normalizeAddress(messageObject.from, "message.from"),
+    to: normalizeAddress(messageObject.to, "message.to"),
+    value: assertPositiveBigIntString(messageObject.value, "message.value").toString(),
+    validAfter: assertNonNegativeBigIntString(messageObject.validAfter, "message.validAfter"),
+    validBefore: assertPositiveBigIntString(messageObject.validBefore, "message.validBefore").toString(),
+    nonce: assertNonEmptyString(messageObject.nonce, "message.nonce"),
+  };
+  if (!/^0x[a-fA-F0-9]{64}$/.test(normalizedMessage.nonce)) {
+    throw new Error("message.nonce must be a 32-byte hex string.");
+  }
+
+  return {
+    domain: normalizedDomain,
+    types: normalizedTypes,
+    primaryType: normalizedPrimaryType,
+    message: normalizedMessage,
+  };
 }
 
 function buildSwapRequest({ tokenIn, tokenOut, tokenInAmount }) {
@@ -2330,6 +2403,41 @@ export class WdkEvmWalletService {
         tokenMetadata,
         amountFormatted: formatUnits(transfer.amount, tokenMetadata.decimals),
         result,
+        source: "wdk-wallet-evm",
+      };
+    });
+  }
+
+  async signX402ExactTypedData({
+    seedPhrase,
+    accountIndex = 0,
+    network,
+    domain,
+    types,
+    primaryType,
+    message,
+  }) {
+    return this.#withAccount({ seedPhrase, accountIndex, network }, async (account, runtimeConfig) => {
+      const typedData = normalizeX402ExactTypedData(
+        { domain, types, primaryType, message },
+        runtimeConfig
+      );
+      const signerAddress = normalizeAddress(await account.getAddress(), "accountAddress");
+      if (typedData.message.from.toLowerCase() !== signerAddress.toLowerCase()) {
+        throw new Error("message.from must match the active wallet account address.");
+      }
+      const signature = await account.signTypedData({
+        domain: typedData.domain,
+        types: typedData.types,
+        message: typedData.message,
+      });
+      return {
+        network: runtimeConfig.network,
+        chainId: runtimeConfig.chainId,
+        accountIndex,
+        address: signerAddress,
+        primaryType: typedData.primaryType,
+        signature,
         source: "wdk-wallet-evm",
       };
     });
