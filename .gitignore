@@ -25,6 +25,7 @@ __pycache__/
 **/.venv/
 .runtime-venv/
 **/.runtime-venv/
+agent-wallet/requirements.txt
 
 # Local environment files
 .env
