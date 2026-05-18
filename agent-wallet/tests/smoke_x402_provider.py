@@ -74,6 +74,23 @@ class FakeEvmBackend(AgentWalletBackend):
         )
 
 
+class MainnetFakeEvmBackend(FakeEvmBackend):
+    network = "base"
+
+    def sign_x402_evm_exact_typed_data(
+        self,
+        *,
+        domain: dict[str, object],
+        types: dict[str, object],
+        primary_type: str,
+        message: dict[str, object],
+    ) -> bytes:
+        assert domain["chainId"] == 8453
+        assert primary_type == "TransferWithAuthorization"
+        assert message["from"] == "0x1111111111111111111111111111111111111111"
+        return bytes.fromhex("44" * 65)
+
+
 class FakeResponse:
     def __init__(self, status_code: int, payload: dict | list | str, headers: dict[str, str] | None = None):
         self.status_code = status_code
@@ -242,6 +259,36 @@ class FakeClient:
                 ).encode("utf-8")
             ).decode("ascii")
             return FakeResponse(402, {"error": "payment required"}, headers={"PAYMENT-REQUIRED": encoded})
+        if url == "https://paid-base-mainnet.example.com/report?topic=base":
+            if headers and headers.get("PAYMENT-SIGNATURE") == "signed-evm-mainnet-payload":
+                return FakeResponse(
+                    200,
+                    {"ok": True, "result": "paid-evm-mainnet"},
+                    headers={"PAYMENT-RESPONSE": "settled-evm-mainnet"},
+                )
+            encoded = base64.b64encode(
+                json_module.dumps(
+                    {
+                        "x402Version": 2,
+                        "accepts": [
+                            {
+                                "scheme": "exact",
+                                "network": "eip155:8453",
+                                "asset": "0x833589fCD6EDb6E08f4c7C32D4f71b54bdA02913",
+                                "amount": "250000",
+                                "payTo": "0x9999999999999999999999999999999999999999",
+                                "maxTimeoutSeconds": 60,
+                                "extra": {
+                                    "name": "USD Coin",
+                                    "version": "2",
+                                    "assetTransferMethod": "eip3009",
+                                },
+                            }
+                        ],
+                    }
+                ).encode("utf-8")
+            ).decode("ascii")
+            return FakeResponse(402, {"error": "payment required"}, headers={"PAYMENT-REQUIRED": encoded})
         return FakeResponse(200, {"ok": True, "result": "free"})
 
 
@@ -259,28 +306,41 @@ async def main() -> None:
             assert payment_required_header
             assert selected_payment["scheme"] == "exact"
             if getattr(backend, "chain", "") == "evm":
+                if getattr(backend, "network", "") == "base":
+                    assert selected_payment["network"] == "eip155:8453"
+                    return {"PAYMENT-SIGNATURE": "signed-evm-mainnet-payload"}
                 assert selected_payment["network"] == "eip155:84532"
                 return {"PAYMENT-SIGNATURE": "signed-evm-payload"}
             return {"PAYMENT-SIGNATURE": "signed-payload"}
 
         x402._create_payment_headers = fake_create_payment_headers
-        x402._extract_settlement_header = lambda response: (
-            {
-                "success": True,
-                "transaction": "evm-payment-tx",
-                "network": "eip155:84532",
-                "payer": "0x1111111111111111111111111111111111111111",
-                "amount": "100000",
-            }
-            if response.headers.get("PAYMENT-RESPONSE") == "settled-evm"
-            else {
+        def fake_extract_settlement_header(response):
+            marker = response.headers.get("PAYMENT-RESPONSE")
+            if marker == "settled-evm-mainnet":
+                return {
+                    "success": True,
+                    "transaction": "evm-mainnet-payment-tx",
+                    "network": "eip155:8453",
+                    "payer": "0x1111111111111111111111111111111111111111",
+                    "amount": "250000",
+                }
+            if marker == "settled-evm":
+                return {
+                    "success": True,
+                    "transaction": "evm-payment-tx",
+                    "network": "eip155:84532",
+                    "payer": "0x1111111111111111111111111111111111111111",
+                    "amount": "100000",
+                }
+            return {
                 "success": True,
                 "transaction": "solana-payment-tx",
                 "network": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
                 "payer": "Fake11111111111111111111111111111111111111111",
                 "amount": "100000",
             }
-        )
+
+        x402._extract_settlement_header = fake_extract_settlement_header
 
         cdp = await x402.search_services(query="premium report", discovery_provider="cdp_bazaar")
         assert cdp["count"] == 1
@@ -370,6 +430,30 @@ async def main() -> None:
         assert evm_executed["confirmed"] is True
         assert evm_executed["payment_settlement"]["transaction"] == "evm-payment-tx"
         assert evm_executed["response_preview"]["result"] == "paid-evm"
+
+        evm_mainnet_preview = await x402.preview_request(
+            backend=MainnetFakeEvmBackend(),
+            url="https://paid-base-mainnet.example.com/report",
+            method="POST",
+            query={"topic": "base"},
+            json_body={"depth": "full"},
+        )
+        assert evm_mainnet_preview["payment_required"] is True
+        assert evm_mainnet_preview["selected_payment"]["network"] == "eip155:8453"
+        assert evm_mainnet_preview["accepted_payments"][0]["compatibility"]["currently_executable"] is True
+        assert evm_mainnet_preview["wallet"]["execution_modes"] == ["evm_exact"]
+
+        evm_mainnet_executed = await x402.execute_request(
+            backend=MainnetFakeEvmBackend(),
+            url="https://paid-base-mainnet.example.com/report",
+            method="POST",
+            query={"topic": "base"},
+            json_body={"depth": "full"},
+        )
+        assert evm_mainnet_executed["paid"] is True
+        assert evm_mainnet_executed["confirmed"] is True
+        assert evm_mainnet_executed["payment_settlement"]["transaction"] == "evm-mainnet-payment-tx"
+        assert evm_mainnet_executed["response_preview"]["result"] == "paid-evm-mainnet"
 
         free_preview = await x402.preview_request(
             backend=FakeBackend(),

@@ -2047,34 +2047,77 @@ async def main() -> None:
     original_prepare_request = x402.prepare_request
     original_execute_request = x402.execute_request
     async def fake_x402_prepare_request(*, backend, url, method="GET", headers=None, query=None, json_body=None, text_body=None):
+        is_evm = str(getattr(backend, "chain", "")).strip().lower() == "evm"
+        backend_network = str(getattr(backend, "network", "")).strip().lower()
+        is_mainnet = backend_network in {"mainnet", "base"}
         return {
             "asset_type": "x402-request",
-            "network": "devnet",
-            "x402_network": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+            "network": backend_network or "devnet",
+            "x402_network": (
+                "eip155:8453"
+                if is_evm and is_mainnet
+                else "eip155:84532"
+                if is_evm
+                else "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
+                if is_mainnet
+                else "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"
+            ),
             "x402_scheme": "exact",
-            "x402_asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-            "x402_amount": "100000",
-            "x402_amount_display": "0.1",
-            "x402_pay_to": "Merchant11111111111111111111111111111111111",
+            "x402_asset": (
+                "0x833589fCD6EDb6E08f4c7C32D4f71b54bdA02913"
+                if is_evm and is_mainnet
+                else "0x036CbD53842c5426634e7929541ec2318f3dCf7e"
+                if is_evm
+                else "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+            ),
+            "x402_amount": "250000" if is_mainnet else "100000",
+            "x402_amount_display": "0.25" if is_mainnet else "0.1",
+            "x402_pay_to": (
+                "0x9999999999999999999999999999999999999999"
+                if is_evm
+                else "Merchant11111111111111111111111111111111111"
+            ),
             "request_url": url,
             "method": method,
             "request_fingerprint": "x402-request-fingerprint",
             "body_hash": None,
             "content_type": None,
             "wallet": {
-                "chain": "solana",
-                "network": "devnet",
+                "chain": "evm" if is_evm else "solana",
+                "network": backend_network or "devnet",
                 "wallet_type_supported": True,
                 "execution_available": True,
-                "address": "Fake11111111111111111111111111111111111111111",
+                "address": (
+                    "0x1111111111111111111111111111111111111111"
+                    if is_evm
+                    else "Fake11111111111111111111111111111111111111111"
+                ),
             },
             "selected_payment": {
                 "scheme": "exact",
-                "network": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
-                "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-                "amount": "100000",
-                "amount_display": "0.1",
-                "pay_to": "Merchant11111111111111111111111111111111111",
+                "network": (
+                    "eip155:8453"
+                    if is_evm and is_mainnet
+                    else "eip155:84532"
+                    if is_evm
+                    else "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
+                    if is_mainnet
+                    else "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"
+                ),
+                "asset": (
+                    "0x833589fCD6EDb6E08f4c7C32D4f71b54bdA02913"
+                    if is_evm and is_mainnet
+                    else "0x036CbD53842c5426634e7929541ec2318f3dCf7e"
+                    if is_evm
+                    else "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+                ),
+                "amount": "250000" if is_mainnet else "100000",
+                "amount_display": "0.25" if is_mainnet else "0.1",
+                "pay_to": (
+                    "0x9999999999999999999999999999999999999999"
+                    if is_evm
+                    else "Merchant11111111111111111111111111111111111"
+                ),
             },
             "payment_required": True,
             "execute_available": True,
@@ -2099,10 +2142,14 @@ async def main() -> None:
                 "confirmed": True,
                 "payment_settlement": {
                     "success": True,
-                    "transaction": "solana-payment-tx",
-                    "network": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
-                    "payer": "Fake11111111111111111111111111111111111111111",
-                    "amount": "100000",
+                    "transaction": (
+                        "evm-payment-tx"
+                        if str(getattr(backend, "chain", "")).strip().lower() == "evm"
+                        else "solana-payment-tx"
+                    ),
+                    "network": prepared["x402_network"],
+                    "payer": prepared["wallet"]["address"],
+                    "amount": prepared["x402_amount"],
                 },
                 "status_code": 200,
                 "response_preview": {"ok": True, "result": "paid"},
@@ -3307,6 +3354,57 @@ async def main() -> None:
     assert x402_executed.ok is True
     assert x402_executed.data["paid"] is True
     assert x402_executed.data["payment_settlement"]["transaction"] == "solana-payment-tx"
+
+    mainnet_x402_prepared = await mainnet_adapter.invoke(
+        "x402_pay_request",
+        {
+            "url": "https://paid.example.com/report",
+            "mode": "prepare",
+            "purpose": "buy paid report on mainnet",
+            "user_intent": True,
+        },
+    )
+    assert mainnet_x402_prepared.ok is True
+    assert "mainnet_warning" in mainnet_x402_prepared.data
+    assert mainnet_x402_prepared.data["confirmation_summary"]["x402_amount"] == "250000"
+    assert mainnet_x402_prepared.data["confirmation_summary"]["network"] == "mainnet"
+
+    denied_mainnet_x402 = await mainnet_adapter.invoke(
+        "x402_pay_request",
+        {
+            "url": "https://paid.example.com/report",
+            "mode": "execute",
+            "purpose": "buy paid report on mainnet",
+            "approval_token": _issue_execute_approval(
+                tool_name="x402_pay_request",
+                preview=mainnet_x402_prepared.data,
+                network="mainnet",
+                mainnet_confirmed=False,
+            ),
+        },
+    )
+    assert denied_mainnet_x402.ok is False
+
+    allowed_mainnet_x402 = await mainnet_adapter.invoke(
+        "x402_pay_request",
+        {
+            "url": "https://paid.example.com/report",
+            "mode": "execute",
+            "purpose": "buy paid report on mainnet",
+            "approval_token": _issue_execute_approval(
+                tool_name="x402_pay_request",
+                preview=mainnet_x402_prepared.data,
+                network="mainnet",
+                mainnet_confirmed=True,
+            ),
+        },
+    )
+    assert allowed_mainnet_x402.ok is True
+    assert allowed_mainnet_x402.data["paid"] is True
+    assert (
+        allowed_mainnet_x402.data["confirmation_requirements"]["execute_requires_mainnet_confirmed_in_token"]
+        is True
+    )
 
     x402.prepare_request = original_prepare_request
     x402.execute_request = original_execute_request

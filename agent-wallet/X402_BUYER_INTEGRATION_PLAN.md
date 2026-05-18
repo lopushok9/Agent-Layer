@@ -91,10 +91,13 @@ policy до его создания.
 `provider-gateway/` может хранить remote integration secrets, если они нужны
 для удобства или production-hardening, например:
 
-- CDP API credentials, если мы решим использовать facilitator-authenticated
-  endpoints
 - optional marketplace/provider credentials, которые не должны лежать в user env
 - allowlisted discovery и relay configuration
+
+Для buyer-side x402 flow это не требуется по умолчанию. Buyer-кошелек не
+должен напрямую вызывать facilitator: он только строит и подписывает payment
+payload, а seller-side сервер сам делает `verify/settle` локально или через
+facilitator.
 
 Но `provider-gateway` должен оставаться non-custodial:
 
@@ -455,9 +458,8 @@ Read-only / relay endpoints:
 - `GET /v1/x402/agentic-market/search`
 - `GET /v1/x402/agentic-market/services`
 
-Optional authenticated helper endpoints:
+Optional helper endpoints:
 
-- `GET /v1/x402/facilitator/capabilities`
 - `GET /v1/x402/policies`
 
 Я бы избегал generic `POST /v1/x402/pay` в v1, потому что он слишком легко
@@ -467,7 +469,6 @@ Optional authenticated helper endpoints:
 
 Env-backed secrets добавлять только если реально нужно:
 
-- CDP API credentials для facilitator-authenticated operations
 - optional marketplace API credentials
 - internal allowlist / routing config
 
@@ -533,7 +534,6 @@ User-specific spend policy и approval data должны оставаться л
 - `x402_max_payment_usdc`
 - `x402_discovery_provider`
 - `x402_agentic_market_base_url`
-- `x402_cdp_facilitator_url`
 
 Только facilitator или marketplace credentials, которые действительно должны
 оставаться секретными, должны жить в `provider-gateway` env, а не в локальном
