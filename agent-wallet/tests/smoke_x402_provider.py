@@ -18,6 +18,7 @@ class FakeBackend(AgentWalletBackend):
     name = "fake_wallet"
     chain = "solana"
     network = "devnet"
+    signer = object()
 
     async def get_address(self) -> str | None:
         return "Fake11111111111111111111111111111111111111111"
@@ -150,6 +151,12 @@ class FakeClient:
     async def request(self, method: str, url: str, *, headers=None, json=None, content=None):
         self.calls.append((method, url, None))
         if url == "https://paid.example.com/report?topic=solana":
+            if headers and headers.get("PAYMENT-SIGNATURE") == "signed-payload":
+                return FakeResponse(
+                    200,
+                    {"ok": True, "result": "paid"},
+                    headers={"PAYMENT-RESPONSE": "settled"},
+                )
             encoded = base64.b64encode(
                 json_module.dumps(
                     {
@@ -177,9 +184,24 @@ json_module = json
 
 async def main() -> None:
     original_get_client = x402.get_client
+    original_create_payment_headers = x402._create_payment_headers
+    original_extract_settlement_header = x402._extract_settlement_header
     fake_client = FakeClient()
     try:
         x402.get_client = lambda: fake_client
+        async def fake_create_payment_headers(*, backend, payment_required_header, selected_payment):
+            assert payment_required_header
+            assert selected_payment["scheme"] == "exact"
+            return {"PAYMENT-SIGNATURE": "signed-payload"}
+
+        x402._create_payment_headers = fake_create_payment_headers
+        x402._extract_settlement_header = lambda response: {
+            "success": True,
+            "transaction": "solana-payment-tx",
+            "network": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+            "payer": "Fake11111111111111111111111111111111111111111",
+            "amount": "100000",
+        }
 
         cdp = await x402.search_services(query="premium report", discovery_provider="cdp_bazaar")
         assert cdp["count"] == 1
@@ -208,8 +230,32 @@ async def main() -> None:
         assert preview["selected_payment"]["network"] == "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"
         assert preview["wallet"]["wallet_type_supported"] is True
         assert preview["accepted_payments"][0]["compatibility"]["wallet_network_matches"] is True
+        assert preview["accepted_payments"][0]["compatibility"]["currently_executable"] is True
+        assert preview["execute_available"] is True
         assert preview["request"]["body_hash"]
         assert preview["request"]["request_fingerprint"]
+
+        prepared = await x402.prepare_request(
+            backend=FakeBackend(),
+            url="https://paid.example.com/report",
+            method="POST",
+            query={"topic": "solana"},
+            json_body={"depth": "full"},
+        )
+        assert prepared["prepared"] is True
+        assert prepared["payment_payload_withheld"] is True
+
+        executed = await x402.execute_request(
+            backend=FakeBackend(),
+            url="https://paid.example.com/report",
+            method="POST",
+            query={"topic": "solana"},
+            json_body={"depth": "full"},
+        )
+        assert executed["paid"] is True
+        assert executed["confirmed"] is True
+        assert executed["payment_settlement"]["transaction"] == "solana-payment-tx"
+        assert executed["response_preview"]["result"] == "paid"
 
         free_preview = await x402.preview_request(
             backend=FakeBackend(),
@@ -220,6 +266,8 @@ async def main() -> None:
         assert free_preview["response_preview"]["ok"] is True
     finally:
         x402.get_client = original_get_client
+        x402._create_payment_headers = original_create_payment_headers
+        x402._extract_settlement_header = original_extract_settlement_header
 
     print("smoke_x402_provider: ok")
 

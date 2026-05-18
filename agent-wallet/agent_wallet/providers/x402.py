@@ -1,4 +1,4 @@
-"""x402 discovery and preview helpers."""
+"""x402 discovery, preview, and buyer execution helpers."""
 
 from __future__ import annotations
 
@@ -31,6 +31,21 @@ _USDC_IDENTIFIERS = {
     "0x036cbd53842c5426634e7929541ec2318f3dcf7e",
     "epjfwdd5aufqssqem2qn1xzybapc8g4wegkgkzwytdt1v",
 }
+
+
+def _backend_chain(backend: AgentWalletBackend) -> str:
+    chain = _trim(getattr(backend, "chain", "")).lower()
+    if chain:
+        return chain
+    try:
+        capabilities = backend.get_capabilities()
+    except Exception:
+        return ""
+    return _trim(getattr(capabilities, "chain", "")).lower()
+
+
+def _backend_network(backend: AgentWalletBackend) -> str:
+    return _trim(getattr(backend, "network", "")).lower()
 
 
 def _trim(value: Any) -> str:
@@ -293,8 +308,8 @@ def _normalize_agentic_service(service: dict[str, Any]) -> dict[str, Any]:
 
 
 def _wallet_caip_networks(backend: AgentWalletBackend) -> list[str]:
-    chain = _trim(getattr(backend, "chain", "")).lower()
-    network = _trim(getattr(backend, "network", "")).lower()
+    chain = _backend_chain(backend)
+    network = _backend_network(backend)
     if chain == "evm":
         caip = EVM_CAIP_BY_NETWORK.get(network)
         return [caip] if caip else []
@@ -304,9 +319,17 @@ def _wallet_caip_networks(backend: AgentWalletBackend) -> list[str]:
     return []
 
 
+def _solana_exact_execution_supported(backend: AgentWalletBackend) -> bool:
+    return (
+        _backend_chain(backend) == "solana"
+        and _backend_network(backend) in {"mainnet", "devnet"}
+        and getattr(backend, "signer", None) is not None
+    )
+
+
 def _wallet_x402_support_summary(backend: AgentWalletBackend) -> dict[str, Any]:
-    chain = _trim(getattr(backend, "chain", "")).lower()
-    network = _trim(getattr(backend, "network", "")).lower()
+    chain = _backend_chain(backend)
+    network = _backend_network(backend)
     supported_networks = _wallet_caip_networks(backend)
     planned_execution_networks = {
         "eip155:8453",
@@ -314,12 +337,16 @@ def _wallet_x402_support_summary(backend: AgentWalletBackend) -> dict[str, Any]:
         "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
         "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
     }
+    execution_modes: list[str] = []
+    if _solana_exact_execution_supported(backend):
+        execution_modes.append("solana_exact")
     return {
         "chain": chain,
         "network": network,
         "supported_caip_networks": supported_networks,
         "wallet_type_supported": chain in {"evm", "solana"},
-        "execution_available": False,
+        "execution_available": bool(execution_modes),
+        "execution_modes": execution_modes,
         "planned_execution_networks": sorted(planned_execution_networks),
     }
 
@@ -332,16 +359,25 @@ def _requirement_compatibility(requirement: dict[str, Any], backend: AgentWallet
     planned_execution_supported = (
         scheme == "exact" and network in set(wallet_summary["planned_execution_networks"])
     )
+    currently_executable = (
+        planned_execution_supported
+        and wallet_network_matches
+        and _solana_exact_execution_supported(backend)
+    )
+    if currently_executable:
+        reason = "Executable now through the local Solana exact buyer flow."
+    elif planned_execution_supported and wallet_network_matches:
+        reason = "Wallet network matches, but this backend does not yet expose a supported x402 signer path."
+    elif planned_execution_supported:
+        reason = "Planned execution path exists, but the requirement targets a different network than the active wallet."
+    else:
+        reason = "Unsupported scheme or network for the planned execution path."
     return {
         "wallet_type_supported": wallet_summary["wallet_type_supported"],
         "wallet_network_matches": wallet_network_matches,
         "planned_execution_supported": planned_execution_supported,
-        "currently_executable": False,
-        "reason": (
-            "Execution path is not wired yet in this milestone."
-            if planned_execution_supported
-            else "Unsupported scheme or network for the planned execution path."
-        ),
+        "currently_executable": currently_executable,
+        "reason": reason,
     }
 
 
@@ -368,6 +404,298 @@ def _select_preferred_requirement(
         return (0 if amount.isdigit() else 1, amount)
 
     return sorted(candidates, key=sort_key)[0]
+
+
+def _build_request_metadata(
+    *,
+    url: str,
+    method: str = "GET",
+    headers: dict[str, Any] | None = None,
+    query: dict[str, Any] | None = None,
+    json_body: Any | None = None,
+    text_body: str | None = None,
+) -> dict[str, Any]:
+    request_url = _trim(url)
+    if not request_url:
+        raise ProviderError("x402-http", "url is required.")
+    http_method = _normalize_http_method(method)
+    normalized_headers = _normalize_headers(headers)
+    normalized_query = _normalize_query_params(query)
+    if json_body is not None and text_body is not None:
+        raise ProviderError("x402-http", "Provide either json_body or text_body, not both.")
+    final_url = _append_query(request_url, normalized_query)
+    body_hash = None
+    content_type = None
+    if json_body is not None:
+        body_hash = _hash_text(_canonical_json_text(json_body))
+        content_type = normalized_headers.get("Content-Type") or normalized_headers.get("content-type")
+        if not content_type:
+            normalized_headers["Content-Type"] = "application/json"
+    elif text_body is not None:
+        body_hash = _hash_text(text_body)
+        content_type = normalized_headers.get("Content-Type") or normalized_headers.get("content-type")
+    request_fingerprint = _hash_text(
+        _canonical_json_text(
+            {
+                "method": http_method,
+                "url": final_url,
+                "body_hash": body_hash,
+            }
+        )
+    )
+    return {
+        "url": final_url,
+        "method": http_method,
+        "headers": normalized_headers,
+        "query": normalized_query,
+        "json_body": json_body,
+        "text_body": text_body,
+        "body_hash": body_hash,
+        "content_type": content_type,
+        "request_fingerprint": request_fingerprint,
+    }
+
+
+async def _send_request(
+    *,
+    client: Any,
+    request: dict[str, Any],
+    extra_headers: dict[str, str] | None = None,
+) -> Any:
+    headers = dict(request["headers"])
+    if extra_headers:
+        headers.update(extra_headers)
+    return await client.request(
+        request["method"],
+        request["url"],
+        headers=headers,
+        json=request["json_body"] if request["json_body"] is not None else None,
+        content=request["text_body"] if request["text_body"] is not None else None,
+    )
+
+
+def _build_x402_action_payload(
+    *,
+    backend: AgentWalletBackend,
+    request: dict[str, Any],
+    wallet_summary: dict[str, Any],
+    address: str | None,
+    status_code: int,
+    selected_payment: dict[str, Any] | None,
+    accepted_payments: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    return {
+        "asset_type": "x402-request",
+        "source": "x402-http",
+        "chain": _backend_chain(backend),
+        "network": _backend_network(backend),
+        "x402_network": selected_payment.get("network") if isinstance(selected_payment, dict) else None,
+        "x402_scheme": selected_payment.get("scheme") if isinstance(selected_payment, dict) else None,
+        "x402_asset": selected_payment.get("asset") if isinstance(selected_payment, dict) else None,
+        "x402_amount": selected_payment.get("amount") if isinstance(selected_payment, dict) else None,
+        "x402_amount_display": selected_payment.get("amount_display")
+        if isinstance(selected_payment, dict)
+        else None,
+        "x402_pay_to": selected_payment.get("pay_to") if isinstance(selected_payment, dict) else None,
+        "request_url": request["url"],
+        "method": request["method"],
+        "request_fingerprint": request["request_fingerprint"],
+        "body_hash": request["body_hash"],
+        "content_type": request["content_type"],
+        "wallet": {
+            **wallet_summary,
+            "address": address,
+        },
+        "status_code": status_code,
+        "selected_payment": selected_payment,
+        "accepted_payments": accepted_payments,
+        "payment_required": selected_payment is not None,
+    }
+
+
+def _response_preview(response: Any) -> Any:
+    try:
+        return response.json()
+    except Exception:
+        return _response_text(response)[:2000]
+
+
+def _parse_payment_required_response(
+    response: Any,
+    *,
+    backend: AgentWalletBackend,
+    request: dict[str, Any],
+    address: str | None,
+    wallet_summary: dict[str, Any],
+) -> dict[str, Any]:
+    payment_required = response.headers.get("PAYMENT-REQUIRED")
+    if not payment_required:
+        raise ProviderError(
+            "x402-http",
+            "Server returned HTTP 402 without a PAYMENT-REQUIRED header.",
+            details={"status_code": response.status_code, "url": request["url"]},
+        )
+
+    decoded = _decode_payment_required(payment_required)
+    normalized_accepts = [
+        normalize_payment_requirement(requirement, source="payment_required", resource_url=request["url"])
+        for requirement in decoded["accepts"]
+        if isinstance(requirement, dict)
+    ]
+    compatibility = [
+        {
+            **requirement,
+            "compatibility": _requirement_compatibility(requirement, backend),
+        }
+        for requirement in normalized_accepts
+    ]
+    selected = _select_preferred_requirement(normalized_accepts, backend)
+    preview = _build_x402_action_payload(
+        backend=backend,
+        request=request,
+        wallet_summary=wallet_summary,
+        address=address,
+        status_code=response.status_code,
+        selected_payment=selected,
+        accepted_payments=compatibility,
+    )
+    preview.update(
+        {
+            "execute_available": bool(
+                isinstance(selected, dict)
+                and _requirement_compatibility(selected, backend)["currently_executable"]
+            ),
+            "x402_version": decoded["x402_version"],
+            "response_headers": {
+                "payment-required": decoded["encoded"],
+                "content-type": response.headers.get("content-type"),
+            },
+        }
+    )
+    return preview
+
+
+def _require_executable_payment(
+    *,
+    preview: dict[str, Any],
+    backend: AgentWalletBackend,
+) -> dict[str, Any]:
+    selected = preview.get("selected_payment")
+    if not isinstance(selected, dict):
+        raise ProviderError(
+            "x402-http",
+            "No compatible x402 payment requirement was selected for this wallet.",
+            details={
+                "request_url": preview.get("request_url"),
+                "accepted_payments": preview.get("accepted_payments"),
+            },
+        )
+    compatibility = _requirement_compatibility(selected, backend)
+    if not compatibility["currently_executable"]:
+        raise ProviderError(
+            "x402-http",
+            str(compatibility["reason"]),
+            details={
+                "selected_payment": selected,
+                "compatibility": compatibility,
+            },
+        )
+    return selected
+
+
+def _load_x402_sdk() -> dict[str, Any]:
+    try:
+        from x402 import x402Client
+        from x402.http.x402_http_client_base import x402HTTPClientBase
+        from x402.http.utils import decode_payment_required_header
+        from x402.mechanisms.svm.exact import register_exact_svm_client
+    except ImportError as exc:
+        raise ProviderError(
+            "x402-sdk",
+            "x402 execution requires the x402 Python package with SVM support.",
+            details={"hint": 'Install dependencies so `x402[httpx,svm]` is available in the wallet runtime.'},
+        ) from exc
+    return {
+        "x402Client": x402Client,
+        "x402HTTPClientBase": x402HTTPClientBase,
+        "decode_payment_required_header": decode_payment_required_header,
+        "register_exact_svm_client": register_exact_svm_client,
+    }
+
+
+def _build_solana_sdk_signer(backend: AgentWalletBackend) -> Any:
+    signer = getattr(backend, "signer", None)
+    if signer is None or not hasattr(signer, "export_keypair_bytes"):
+        raise ProviderError(
+            "x402-solana",
+            "The active Solana backend does not expose a local signer for x402 payments.",
+        )
+    try:
+        from solders.keypair import Keypair
+    except ImportError as exc:
+        raise ProviderError(
+            "x402-solana",
+            "Solders is required for Solana x402 signing.",
+        ) from exc
+
+    class _OpenClawSolanaX402Signer:
+        def __init__(self, wallet_signer: Any):
+            self._wallet_signer = wallet_signer
+            self._keypair = Keypair.from_bytes(wallet_signer.export_keypair_bytes())
+
+        @property
+        def address(self) -> str:
+            return str(self._wallet_signer.address)
+
+        @property
+        def keypair(self) -> Any:
+            return self._keypair
+
+        def sign_transaction(self, tx: Any) -> Any:
+            tx.sign([self._keypair])
+            return tx
+
+    return _OpenClawSolanaX402Signer(signer)
+
+
+async def _create_payment_headers(
+    *,
+    backend: AgentWalletBackend,
+    payment_required_header: str,
+    selected_payment: dict[str, Any],
+) -> dict[str, str]:
+    sdk = _load_x402_sdk()
+    if _backend_chain(backend) != "solana":
+        raise ProviderError(
+            "x402-http",
+            "Only the Solana exact buyer flow is executable in this milestone.",
+            details={"chain": _backend_chain(backend)},
+        )
+
+    payment_required = sdk["decode_payment_required_header"](payment_required_header)
+    selected_payload = payment_required.model_copy(
+        update={"accepts": [selected_payment["raw"]]},
+    )
+    client = sdk["x402Client"]()
+    sdk["register_exact_svm_client"](
+        client,
+        _build_solana_sdk_signer(backend),
+        networks=str(selected_payment["network"]),
+        rpc_url=getattr(backend, "rpc_url", None),
+    )
+    payment_payload = await client.create_payment_payload(selected_payload)
+    return sdk["x402HTTPClientBase"]().encode_payment_signature_header(payment_payload)
+
+
+def _extract_settlement_header(response: Any) -> dict[str, Any] | None:
+    sdk = _load_x402_sdk()
+    try:
+        settle = sdk["x402HTTPClientBase"]().get_payment_settle_response(
+            lambda name: response.headers.get(name)
+        )
+    except Exception:
+        return None
+    return settle.model_dump(by_alias=True, exclude_none=True)
 
 
 async def search_services(
@@ -545,72 +873,44 @@ async def preview_request(
     json_body: Any | None = None,
     text_body: str | None = None,
 ) -> dict[str, Any]:
-    request_url = _trim(url)
-    if not request_url:
-        raise ProviderError("x402-http", "url is required.")
-    http_method = _normalize_http_method(method)
-    normalized_headers = _normalize_headers(headers)
-    normalized_query = _normalize_query_params(query)
-    if json_body is not None and text_body is not None:
-        raise ProviderError("x402-http", "Provide either json_body or text_body, not both.")
-    final_url = _append_query(request_url, normalized_query)
-    body_hash = None
-    content_type = None
-    if json_body is not None:
-        body_hash = _hash_text(_canonical_json_text(json_body))
-        content_type = normalized_headers.get("Content-Type") or normalized_headers.get("content-type")
-        if not content_type:
-            normalized_headers["Content-Type"] = "application/json"
-    elif text_body is not None:
-        body_hash = _hash_text(text_body)
-        content_type = normalized_headers.get("Content-Type") or normalized_headers.get("content-type")
-    request_fingerprint = _hash_text(
-        _canonical_json_text(
-            {
-                "method": http_method,
-                "url": final_url,
-                "body_hash": body_hash,
-            }
-        )
+    request = _build_request_metadata(
+        url=url,
+        method=method,
+        headers=headers,
+        query=query,
+        json_body=json_body,
+        text_body=text_body,
     )
-
     client = get_client()
-    response = await client.request(
-        http_method,
-        final_url,
-        headers=normalized_headers,
-        json=json_body if json_body is not None else None,
-        content=text_body if text_body is not None else None,
-    )
+    response = await _send_request(client=client, request=request)
     wallet_summary = _wallet_x402_support_summary(backend)
+    address = await backend.get_address()
     preview: dict[str, Any] = {
         "mode": "preview",
+        **_build_x402_action_payload(
+            backend=backend,
+            request=request,
+            wallet_summary=wallet_summary,
+            address=address,
+            status_code=response.status_code,
+            selected_payment=None,
+        ),
         "execute_available": False,
         "request": {
-            "url": final_url,
-            "method": http_method,
-            "request_fingerprint": request_fingerprint,
-            "query": normalized_query,
-            "body_hash": body_hash,
-            "content_type": content_type,
+            "url": request["url"],
+            "method": request["method"],
+            "request_fingerprint": request["request_fingerprint"],
+            "query": request["query"],
+            "body_hash": request["body_hash"],
+            "content_type": request["content_type"],
         },
-        "wallet": {
-            **wallet_summary,
-            "address": await backend.get_address(),
-        },
-        "status_code": response.status_code,
     }
 
     if response.status_code != 402:
-        body_preview: Any
-        try:
-            body_preview = response.json()
-        except Exception:
-            body_preview = _response_text(response)[:1000]
         preview.update(
             {
                 "payment_required": False,
-                "response_preview": body_preview,
+                "response_preview": _response_preview(response),
                 "response_headers": {
                     "content-type": response.headers.get("content-type"),
                 },
@@ -618,49 +918,153 @@ async def preview_request(
         )
         return preview
 
-    payment_required = response.headers.get("PAYMENT-REQUIRED")
-    if not payment_required:
-        raise ProviderError(
-            "x402-http",
-            "Server returned HTTP 402 without a PAYMENT-REQUIRED header.",
-            details={"status_code": response.status_code, "url": final_url},
-        )
+    payment_preview = _parse_payment_required_response(
+        response,
+        backend=backend,
+        request=request,
+        address=address,
+        wallet_summary=wallet_summary,
+    )
+    payment_preview["mode"] = "preview"
+    payment_preview["request"] = {
+        "url": request["url"],
+        "method": request["method"],
+        "request_fingerprint": request["request_fingerprint"],
+        "query": request["query"],
+        "body_hash": request["body_hash"],
+        "content_type": request["content_type"],
+    }
+    return payment_preview
 
-    decoded = _decode_payment_required(payment_required)
-    normalized_accepts = [
-        normalize_payment_requirement(requirement, source="payment_required", resource_url=final_url)
-        for requirement in decoded["accepts"]
-        if isinstance(requirement, dict)
-    ]
-    compatibility = [
+
+async def prepare_request(
+    *,
+    backend: AgentWalletBackend,
+    url: str,
+    method: str = "GET",
+    headers: dict[str, Any] | None = None,
+    query: dict[str, Any] | None = None,
+    json_body: Any | None = None,
+    text_body: str | None = None,
+) -> dict[str, Any]:
+    preview = await preview_request(
+        backend=backend,
+        url=url,
+        method=method,
+        headers=headers,
+        query=query,
+        json_body=json_body,
+        text_body=text_body,
+    )
+    if not preview.get("payment_required"):
+        prepared = dict(preview)
+        prepared["mode"] = "prepare"
+        prepared["prepared"] = False
+        prepared["prepare_note"] = "The endpoint did not require x402 payment for this request."
+        return prepared
+
+    selected_payment = _require_executable_payment(preview=preview, backend=backend)
+    payment_required_header = (
+        dict(preview.get("response_headers") or {}).get("payment-required")
+    )
+    if not isinstance(payment_required_header, str) or not payment_required_header.strip():
+        raise ProviderError("x402-http", "Missing PAYMENT-REQUIRED header in preview state.")
+    # Create the payload once during prepare to validate that the active wallet can sign it.
+    await _create_payment_headers(
+        backend=backend,
+        payment_required_header=payment_required_header,
+        selected_payment=selected_payment,
+    )
+    prepared = dict(preview)
+    prepared["mode"] = "prepare"
+    prepared["prepared"] = True
+    prepared["signed"] = False
+    prepared["broadcasted"] = False
+    prepared["confirmed"] = False
+    prepared["payment_payload_withheld"] = True
+    prepared["prepare_note"] = (
+        "x402 payment authorization was validated locally, but the PAYMENT-SIGNATURE header is withheld until execute."
+    )
+    return prepared
+
+
+async def execute_request(
+    *,
+    backend: AgentWalletBackend,
+    url: str,
+    method: str = "GET",
+    headers: dict[str, Any] | None = None,
+    query: dict[str, Any] | None = None,
+    json_body: Any | None = None,
+    text_body: str | None = None,
+) -> dict[str, Any]:
+    preview = await preview_request(
+        backend=backend,
+        url=url,
+        method=method,
+        headers=headers,
+        query=query,
+        json_body=json_body,
+        text_body=text_body,
+    )
+    if not preview.get("payment_required"):
+        executed = dict(preview)
+        executed["mode"] = "execute"
+        executed["paid"] = False
+        executed["broadcasted"] = False
+        executed["confirmed"] = False
+        return executed
+
+    selected_payment = _require_executable_payment(preview=preview, backend=backend)
+    payment_required_header = (
+        dict(preview.get("response_headers") or {}).get("payment-required")
+    )
+    if not isinstance(payment_required_header, str) or not payment_required_header.strip():
+        raise ProviderError("x402-http", "Missing PAYMENT-REQUIRED header in preview state.")
+
+    request = _build_request_metadata(
+        url=url,
+        method=method,
+        headers=headers,
+        query=query,
+        json_body=json_body,
+        text_body=text_body,
+    )
+    payment_headers = await _create_payment_headers(
+        backend=backend,
+        payment_required_header=payment_required_header,
+        selected_payment=selected_payment,
+    )
+    payment_headers["Access-Control-Expose-Headers"] = "PAYMENT-RESPONSE,X-PAYMENT-RESPONSE"
+    client = get_client()
+    response = await _send_request(client=client, request=request, extra_headers=payment_headers)
+    settlement = _extract_settlement_header(response)
+
+    executed = dict(preview)
+    executed.update(
         {
-            **requirement,
-            "compatibility": _requirement_compatibility(requirement, backend),
-        }
-        for requirement in normalized_accepts
-    ]
-    selected = _select_preferred_requirement(normalized_accepts, backend)
-    preview.update(
-        {
-            "payment_required": True,
-            "x402_version": decoded["x402_version"],
-            "accepted_payments": compatibility,
-            "selected_payment": selected,
-            "confirmation_summary": {
-                "operation": "x402 paid request preview",
-                "request_url": final_url,
-                "method": http_method,
-                "request_fingerprint": request_fingerprint,
-                "selected_network": selected.get("network") if isinstance(selected, dict) else None,
-                "selected_asset": selected.get("asset") if isinstance(selected, dict) else None,
-                "selected_amount": selected.get("amount") if isinstance(selected, dict) else None,
-                "selected_amount_display": selected.get("amount_display") if isinstance(selected, dict) else None,
-                "selected_pay_to": selected.get("pay_to") if isinstance(selected, dict) else None,
-            },
+            "mode": "execute",
+            "paid": True,
+            "broadcasted": bool(settlement and settlement.get("transaction")),
+            "confirmed": bool(settlement and settlement.get("success")),
+            "payment_settlement": settlement,
+            "status_code": response.status_code,
+            "response_preview": _response_preview(response),
             "response_headers": {
-                "payment-required": decoded["encoded"],
                 "content-type": response.headers.get("content-type"),
+                "payment-response": response.headers.get("PAYMENT-RESPONSE")
+                or response.headers.get("X-PAYMENT-RESPONSE"),
             },
         }
     )
-    return preview
+    if response.status_code == 402:
+        raise ProviderError(
+            "x402-http",
+            "The paid x402 retry still returned HTTP 402.",
+            details={
+                "request_url": request["url"],
+                "selected_payment": selected_payment,
+                "response_preview": executed["response_preview"],
+            },
+        )
+    return executed

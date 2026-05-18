@@ -13,6 +13,7 @@ from _secret_test_utils import install_test_sealed_secrets
 from agent_wallet.approval import issue_approval_token
 from agent_wallet.openclaw_adapter import OpenClawWalletAdapter, preview_payload_digest
 from agent_wallet.plugin_bundle import build_openclaw_plugin_bundle
+from agent_wallet.providers import x402
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletCapabilities
 
 
@@ -2043,15 +2044,83 @@ async def main() -> None:
         boot_key="test-boot-key-for-openclaw-adapter-smoke",
         approval_secret="smoke-approval-secret",
     )
+    original_prepare_request = x402.prepare_request
+    original_execute_request = x402.execute_request
+    async def fake_x402_prepare_request(*, backend, url, method="GET", headers=None, query=None, json_body=None, text_body=None):
+        return {
+            "asset_type": "x402-request",
+            "network": "devnet",
+            "x402_network": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+            "x402_scheme": "exact",
+            "x402_asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "x402_amount": "100000",
+            "x402_amount_display": "0.1",
+            "x402_pay_to": "Merchant11111111111111111111111111111111111",
+            "request_url": url,
+            "method": method,
+            "request_fingerprint": "x402-request-fingerprint",
+            "body_hash": None,
+            "content_type": None,
+            "wallet": {
+                "chain": "solana",
+                "network": "devnet",
+                "wallet_type_supported": True,
+                "execution_available": True,
+                "address": "Fake11111111111111111111111111111111111111111",
+            },
+            "selected_payment": {
+                "scheme": "exact",
+                "network": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+                "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+                "amount": "100000",
+                "amount_display": "0.1",
+                "pay_to": "Merchant11111111111111111111111111111111111",
+            },
+            "payment_required": True,
+            "execute_available": True,
+            "prepared": True,
+        }
+
+    async def fake_x402_execute_request(*, backend, url, method="GET", headers=None, query=None, json_body=None, text_body=None):
+        prepared = await fake_x402_prepare_request(
+            backend=backend,
+            url=url,
+            method=method,
+            headers=headers,
+            query=query,
+            json_body=json_body,
+            text_body=text_body,
+        )
+        prepared.update(
+            {
+                "mode": "execute",
+                "paid": True,
+                "broadcasted": True,
+                "confirmed": True,
+                "payment_settlement": {
+                    "success": True,
+                    "transaction": "solana-payment-tx",
+                    "network": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+                    "payer": "Fake11111111111111111111111111111111111111111",
+                    "amount": "100000",
+                },
+                "status_code": 200,
+                "response_preview": {"ok": True, "result": "paid"},
+            }
+        )
+        return prepared
+
+    x402.prepare_request = fake_x402_prepare_request
+    x402.execute_request = fake_x402_execute_request
     adapter = OpenClawWalletAdapter(FakeBackend())
     mainnet_adapter = OpenClawWalletAdapter(MainnetFakeBackend())
     bundle = build_openclaw_plugin_bundle(FakeBackend())
     tool_names = {tool.name for tool in adapter.list_tools()}
     bundle_tool_names = {tool["name"] for tool in bundle["tools"]}
 
-    assert len(tool_names) == 47
+    assert len(tool_names) == 48
     assert bundle["manifest"]["id"] == "agent-wallet"
-    assert len(bundle_tool_names) == 47
+    assert len(bundle_tool_names) == 48
     assert "Wallet Operator" in bundle["instructions"]
     assert "get_lifi_supported_chains" in tool_names
     assert "get_lifi_quote" in tool_names
@@ -2059,6 +2128,7 @@ async def main() -> None:
     assert "x402_search_services" in tool_names
     assert "x402_get_service_details" in tool_names
     assert "x402_preview_request" in tool_names
+    assert "x402_pay_request" in tool_names
     assert "swap_solana_lifi_cross_chain_tokens" in tool_names
     assert "swap_solana_privately" in tool_names
     assert "continue_solana_private_swap" in tool_names
@@ -3207,6 +3277,39 @@ async def main() -> None:
 
     allowed_mainnet_balance = await mainnet_adapter.invoke("get_wallet_balance")
     assert allowed_mainnet_balance.ok is True
+
+    x402_prepared = await adapter.invoke(
+        "x402_pay_request",
+        {
+            "url": "https://paid.example.com/report",
+            "mode": "prepare",
+            "purpose": "buy paid report",
+            "user_intent": True,
+        },
+    )
+    assert x402_prepared.ok is True
+    assert x402_prepared.data["prepared"] is True
+
+    x402_executed = await adapter.invoke(
+        "x402_pay_request",
+        {
+            "url": "https://paid.example.com/report",
+            "mode": "execute",
+            "purpose": "buy paid report",
+            "approval_token": _issue_execute_approval(
+                tool_name="x402_pay_request",
+                preview=x402_prepared.data,
+                network="devnet",
+                mainnet_confirmed=False,
+            ),
+        },
+    )
+    assert x402_executed.ok is True
+    assert x402_executed.data["paid"] is True
+    assert x402_executed.data["payment_settlement"]["transaction"] == "solana-payment-tx"
+
+    x402.prepare_request = original_prepare_request
+    x402.execute_request = original_execute_request
 
 
 if __name__ == "__main__":

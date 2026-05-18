@@ -72,6 +72,7 @@
       "transfer_sol",
       "transfer_spl_token",
       "x402_get_service_details",
+      "x402_pay_request",
       "x402_preview_request",
       "x402_search_services"
     ]

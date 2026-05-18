@@ -19,6 +19,7 @@ class FakeBackend(AgentWalletBackend):
     name = "fake_wallet"
     chain = "solana"
     network = "devnet"
+    signer = object()
 
     async def get_address(self) -> str | None:
         return "Fake11111111111111111111111111111111111111111"
@@ -98,13 +99,52 @@ json_module = json
 
 async def main() -> None:
     original_get_client = x402.get_client
+    original_prepare_request = x402.prepare_request
     try:
         x402.get_client = lambda: FakeClient()
+        async def fake_prepare_request(*, backend, url, method="GET", headers=None, query=None, json_body=None, text_body=None):
+            return {
+                "asset_type": "x402-request",
+                "network": "devnet",
+                "x402_network": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+                "x402_scheme": "exact",
+                "x402_asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+                "x402_amount": "100000",
+                "x402_amount_display": "0.1",
+                "x402_pay_to": "Merchant11111111111111111111111111111111111",
+                "request_url": url,
+                "method": method,
+                "request_fingerprint": "fingerprint",
+                "body_hash": None,
+                "content_type": None,
+                "wallet": {
+                    "chain": "solana",
+                    "network": "devnet",
+                    "wallet_type_supported": True,
+                    "execution_available": True,
+                    "address": "Fake11111111111111111111111111111111111111111",
+                },
+                "status_code": 402,
+                "selected_payment": {
+                    "scheme": "exact",
+                    "network": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+                    "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+                    "amount": "100000",
+                    "amount_display": "0.1",
+                    "pay_to": "Merchant11111111111111111111111111111111111",
+                },
+                "payment_required": True,
+                "execute_available": True,
+                "prepared": True,
+            }
+
+        x402.prepare_request = fake_prepare_request
         adapter = OpenClawWalletAdapter(FakeBackend())
         tool_names = {tool.name for tool in adapter.list_tools()}
         assert "x402_search_services" in tool_names
         assert "x402_get_service_details" in tool_names
         assert "x402_preview_request" in tool_names
+        assert "x402_pay_request" in tool_names
 
         search = await adapter.invoke(
             "x402_search_services",
@@ -120,8 +160,23 @@ async def main() -> None:
         assert preview.ok is True
         assert preview.data["payment_required"] is True
         assert preview.data["selected_payment"]["amount_display"] == "0.1"
+        assert preview.data["approval_hint"]["tool_name"] == "x402_pay_request"
+
+        prepared = await adapter.invoke(
+            "x402_pay_request",
+            {
+                "url": "https://paid.example.com/report",
+                "mode": "prepare",
+                "purpose": "buy a paid report",
+                "user_intent": True,
+            },
+        )
+        assert prepared.ok is True
+        assert prepared.data["prepared"] is True
+        assert prepared.data["confirmation_summary"]["x402_amount"] == "100000"
     finally:
         x402.get_client = original_get_client
+        x402.prepare_request = original_prepare_request
 
     print("smoke_x402_adapter: ok")
 

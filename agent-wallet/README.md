@@ -111,6 +111,7 @@ Current safe tools:
 - `x402_search_services`
 - `x402_get_service_details`
 - `x402_preview_request`
+- `x402_pay_request`
 
 Temporarily disabled but kept in the codebase for later re-enable:
 

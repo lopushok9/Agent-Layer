@@ -76,7 +76,9 @@ class OpenClawWalletAdapter:
         if chain == "bitcoin":
             return normalized == "bitcoin"
         if chain == "evm":
-            return normalized in {"ethereum", "base"}
+            return normalized in {"ethereum", "base", "eip155:1", "eip155:8453"}
+        if chain == "solana":
+            return normalized in {"mainnet", "solana:5eykt4usfv8p8njdtrepy1vzkqzkvdp"}
         return normalized == "mainnet"
 
     def _is_mainnet(self) -> bool:
@@ -238,6 +240,43 @@ class OpenClawWalletAdapter:
                 },
                 read_only=True,
                 risk_level="low",
+            ),
+            AgentToolSpec(
+                name="x402_pay_request",
+                description=(
+                    "Prepare or execute an x402 paid request using the active wallet backend. "
+                    "This milestone executes the Solana exact buyer flow and keeps EVM as prepare-only."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string"},
+                        "method": {"type": "string"},
+                        "headers": {"type": "object", "additionalProperties": {"type": "string"}},
+                        "query": {"type": "object", "additionalProperties": True},
+                        "json_body": {},
+                        "text_body": {"type": "string"},
+                        "mode": {
+                            "type": "string",
+                            "enum": ["prepare", "execute"],
+                            "description": "prepare validates the payment plan; execute sends the paid retry.",
+                        },
+                        "purpose": {"type": "string"},
+                        "user_intent": {
+                            "type": "boolean",
+                            "description": "Must be true for prepare mode.",
+                        },
+                        "approval_token": {
+                            "type": "string",
+                            "description": "Required for execute mode and must be issued against the exact x402 payment summary.",
+                        },
+                    },
+                    "required": ["url", "mode", "purpose"],
+                    "additionalProperties": False,
+                },
+                read_only=False,
+                requires_explicit_user_intent=True,
+                risk_level="high",
             ),
         ]
 
@@ -621,6 +660,23 @@ class OpenClawWalletAdapter:
                 "fee_rate": payload.get("fee_rate"),
                 "confirmation_target": payload.get("confirmation_target"),
                 "btc_transfer_fingerprint": btc_fingerprint,
+            }
+
+        if asset_type == "x402-request":
+            return {
+                "operation": action_label,
+                "network": str(payload.get("network") or getattr(self.backend, "network", "unknown")),
+                "wallet": payload.get("wallet"),
+                "request_url": payload.get("request_url"),
+                "method": payload.get("method"),
+                "request_fingerprint": payload.get("request_fingerprint"),
+                "body_hash": payload.get("body_hash"),
+                "x402_network": payload.get("x402_network"),
+                "x402_scheme": payload.get("x402_scheme"),
+                "x402_asset": payload.get("x402_asset"),
+                "x402_amount": payload.get("x402_amount"),
+                "x402_amount_display": payload.get("x402_amount_display"),
+                "x402_pay_to": payload.get("x402_pay_to"),
             }
 
         if asset_type == "evm-native-transfer":
@@ -3197,6 +3253,97 @@ class OpenClawWalletAdapter:
                     query=query,
                     json_body=json_body,
                     text_body=text_body,
+                )
+                if data.get("payment_required"):
+                    data = self._annotate_sensitive_payload(
+                        data,
+                        action_label="x402 paid request",
+                        mode="preview",
+                    )
+                    approval_hint = dict(data.get("approval_hint") or {})
+                    approval_hint["tool_name"] = "x402_pay_request"
+                    data["approval_hint"] = approval_hint
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "x402_pay_request":
+                url = args.get("url")
+                method = args.get("method", "GET")
+                headers = args.get("headers")
+                query = args.get("query")
+                json_body = args.get("json_body")
+                text_body = args.get("text_body")
+                mode = str(args.get("mode") or "").strip().lower()
+                purpose = args.get("purpose")
+                user_intent = args.get("user_intent")
+                approval_token = args.get("approval_token")
+                if not isinstance(url, str) or not url.strip():
+                    raise WalletBackendError("url is required.")
+                if method is not None and not isinstance(method, str):
+                    raise WalletBackendError("method must be a string when provided.")
+                if headers is not None and not isinstance(headers, dict):
+                    raise WalletBackendError("headers must be an object when provided.")
+                if query is not None and not isinstance(query, dict):
+                    raise WalletBackendError("query must be an object when provided.")
+                if text_body is not None and not isinstance(text_body, str):
+                    raise WalletBackendError("text_body must be a string when provided.")
+                if mode not in {"prepare", "execute"}:
+                    raise WalletBackendError("mode must be 'prepare' or 'execute'.")
+                if not isinstance(purpose, str) or not purpose.strip():
+                    raise WalletBackendError("purpose is required.")
+                if mode == "prepare":
+                    self._require_prepare_intent(user_intent)
+                    data = await x402.prepare_request(
+                        backend=active_backend,
+                        url=url.strip(),
+                        method=method,
+                        headers=headers,
+                        query=query,
+                        json_body=json_body,
+                        text_body=text_body,
+                    )
+                    data["purpose"] = purpose.strip()
+                    data = self._annotate_sensitive_payload(
+                        data,
+                        action_label="x402 paid request",
+                        mode="prepare",
+                    )
+                    return AgentToolResult(tool=tool_name, ok=True, data=data)
+                preview = await x402.prepare_request(
+                    backend=active_backend,
+                    url=url.strip(),
+                    method=method,
+                    headers=headers,
+                    query=query,
+                    json_body=json_body,
+                    text_body=text_body,
+                )
+                preview["purpose"] = purpose.strip()
+                preview = self._annotate_sensitive_payload(
+                    preview,
+                    action_label="x402 paid request",
+                    mode="execute",
+                )
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=preview["confirmation_summary"],
+                    action_label="x402 paid request",
+                    backend=active_backend,
+                )
+                data = await x402.execute_request(
+                    backend=active_backend,
+                    url=url.strip(),
+                    method=method,
+                    headers=headers,
+                    query=query,
+                    json_body=json_body,
+                    text_body=text_body,
+                )
+                data["purpose"] = purpose.strip()
+                data = self._annotate_sensitive_payload(
+                    data,
+                    action_label="x402 paid request",
+                    mode="execute",
                 )
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
 

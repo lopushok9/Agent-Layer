@@ -9,6 +9,8 @@
 - Added `x402_preview_request`, which performs an unpaid request, parses
   `PAYMENT-REQUIRED`, and summarizes accepted payment options without spending
   funds.
+- Added `x402_pay_request` with `prepare` and `execute` flow for the Solana
+  exact buyer path, keeping approval-token enforcement inside `agent-wallet`.
 
 ## v0.1.17 - 2026-05-17
 
