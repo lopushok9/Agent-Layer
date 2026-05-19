@@ -182,6 +182,19 @@ def _extract_requirement_extra(requirement: dict[str, Any]) -> dict[str, Any]:
     return dict(extra) if isinstance(extra, dict) else {}
 
 
+def _requirement_field(requirement: Any, field_name: str) -> Any:
+    if isinstance(requirement, dict):
+        aliases = {
+            "pay_to": ("pay_to", "payTo"),
+            "max_timeout_seconds": ("max_timeout_seconds", "maxTimeoutSeconds"),
+        }
+        for candidate in aliases.get(field_name, (field_name,)):
+            if candidate in requirement:
+                return requirement.get(candidate)
+        return None
+    return getattr(requirement, field_name, None)
+
+
 def _looks_like_usdc(requirement: dict[str, Any]) -> bool:
     asset = _trim(requirement.get("asset")).lower()
     if asset in _USDC_IDENTIFIERS:
@@ -642,6 +655,64 @@ def _require_executable_payment(
     return selected
 
 
+def _select_sdk_payment_requirement(
+    payment_required: Any,
+    *,
+    selected_payment: dict[str, Any],
+) -> Any:
+    accepts = getattr(payment_required, "accepts", None)
+    if not isinstance(accepts, list) or not accepts:
+        raise ProviderError("x402-http", "Decoded x402 payment payload does not contain accepts[].")
+
+    selected_raw = selected_payment.get("raw") if isinstance(selected_payment, dict) else None
+    if isinstance(selected_raw, dict):
+        for requirement in accepts:
+            model_dump = getattr(requirement, "model_dump", None)
+            if callable(model_dump):
+                dumped = model_dump(by_alias=True, exclude_none=True)
+                if dumped == selected_raw:
+                    return requirement
+
+    for requirement in accepts:
+        if (
+            _trim(_requirement_field(requirement, "scheme")).lower()
+            == _trim(selected_payment.get("scheme")).lower()
+            and _trim(_requirement_field(requirement, "network"))
+            == _trim(selected_payment.get("network"))
+            and _trim(_requirement_field(requirement, "asset"))
+            == _trim(selected_payment.get("asset"))
+            and _trim(_requirement_field(requirement, "amount"))
+            == _trim(selected_payment.get("amount"))
+            and _trim(_requirement_field(requirement, "pay_to"))
+            == _trim(selected_payment.get("pay_to"))
+        ):
+            return requirement
+
+    if len(accepts) == 1:
+        return accepts[0]
+
+    raise ProviderError(
+        "x402-http",
+        "Could not match the selected x402 payment back to the decoded PAYMENT-REQUIRED payload.",
+        details={
+            "selected_payment": selected_payment,
+            "accepts_count": len(accepts),
+        },
+    )
+
+
+def _build_selected_payment_required_payload(
+    payment_required: Any,
+    *,
+    selected_payment: dict[str, Any],
+) -> Any:
+    selected_requirement = _select_sdk_payment_requirement(
+        payment_required,
+        selected_payment=selected_payment,
+    )
+    return payment_required.model_copy(update={"accepts": [selected_requirement]})
+
+
 def _load_x402_common_sdk() -> dict[str, Any]:
     try:
         from x402 import x402Client
@@ -794,8 +865,9 @@ async def _create_payment_headers(
     if chain == "solana":
         sdk = _load_x402_solana_sdk()
         payment_required = sdk["decode_payment_required_header"](payment_required_header)
-        selected_payload = payment_required.model_copy(
-            update={"accepts": [selected_payment["raw"]]},
+        selected_payload = _build_selected_payment_required_payload(
+            payment_required,
+            selected_payment=selected_payment,
         )
         client = sdk["x402Client"]()
         sdk["register_exact_svm_client"](
@@ -810,8 +882,9 @@ async def _create_payment_headers(
     if chain == "evm":
         sdk = _load_x402_evm_sdk()
         payment_required = sdk["decode_payment_required_header"](payment_required_header)
-        selected_payload = payment_required.model_copy(
-            update={"accepts": [selected_payment["raw"]]},
+        selected_payload = _build_selected_payment_required_payload(
+            payment_required,
+            selected_payment=selected_payment,
         )
         client = sdk["x402Client"]()
         address = await backend.get_address()

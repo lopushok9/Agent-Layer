@@ -108,6 +108,43 @@ class FakeResponse:
         return self._payload
 
 
+class FakeSdkPaymentRequirement:
+    def __init__(self, raw: dict[str, object]):
+        self.scheme = str(raw["scheme"])
+        self.network = str(raw["network"])
+        self.asset = str(raw["asset"])
+        self.amount = str(raw["amount"])
+        self.pay_to = str(raw["payTo"])
+        self.max_timeout_seconds = int(raw["maxTimeoutSeconds"])
+        self.extra = dict(raw.get("extra") or {})
+        self._raw = dict(raw)
+
+    def model_dump(self, *, by_alias: bool = False, exclude_none: bool = False):
+        if by_alias:
+            return dict(self._raw)
+        return {
+            "scheme": self.scheme,
+            "network": self.network,
+            "asset": self.asset,
+            "amount": self.amount,
+            "pay_to": self.pay_to,
+            "max_timeout_seconds": self.max_timeout_seconds,
+            "extra": dict(self.extra),
+        }
+
+
+class FakeSdkPaymentRequired:
+    def __init__(self, requirement: FakeSdkPaymentRequirement):
+        self.x402_version = 2
+        self.accepts = [requirement]
+
+    def model_copy(self, *, update=None, deep: bool = False):
+        copied = FakeSdkPaymentRequired(self.accepts[0])
+        if isinstance(update, dict) and "accepts" in update:
+            copied.accepts = list(update["accepts"])
+        return copied
+
+
 class FakeClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, dict | None]] = []
@@ -299,8 +336,60 @@ async def main() -> None:
     original_get_client = x402.get_client
     original_create_payment_headers = x402._create_payment_headers
     original_extract_settlement_header = x402._extract_settlement_header
+    original_load_x402_solana_sdk = x402._load_x402_solana_sdk
+    original_build_solana_sdk_signer = x402._build_solana_sdk_signer
     fake_client = FakeClient()
     try:
+        raw_requirement = {
+            "scheme": "exact",
+            "network": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+            "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "amount": "100000",
+            "payTo": "Merchant11111111111111111111111111111111111",
+            "maxTimeoutSeconds": 60,
+            "extra": {"name": "USDC"},
+        }
+
+        class FakeSdkClient:
+            async def create_payment_payload(self, payment_required, resource=None, extensions=None):
+                assert payment_required.accepts[0].network == raw_requirement["network"]
+                return {"payload": "signed"}
+
+        class FakeSdkHttpBase:
+            def encode_payment_signature_header(self, payment_payload):
+                assert payment_payload == {"payload": "signed"}
+                return {"PAYMENT-SIGNATURE": "signed-sdk-payload"}
+
+        def fake_decode_payment_required_header(_header_value: str):
+            return FakeSdkPaymentRequired(FakeSdkPaymentRequirement(raw_requirement))
+
+        def fake_register_exact_svm_client(client, signer, networks, rpc_url=None):
+            assert networks == raw_requirement["network"]
+            assert signer is not None
+
+        x402._load_x402_solana_sdk = lambda: {
+            "decode_payment_required_header": fake_decode_payment_required_header,
+            "x402Client": FakeSdkClient,
+            "x402HTTPClientBase": FakeSdkHttpBase,
+            "register_exact_svm_client": fake_register_exact_svm_client,
+        }
+        x402._build_solana_sdk_signer = lambda backend: object()
+        headers = await x402._create_payment_headers(
+            backend=FakeBackend(),
+            payment_required_header="dummy-header",
+            selected_payment={
+                "scheme": "exact",
+                "network": raw_requirement["network"],
+                "asset": raw_requirement["asset"],
+                "amount": raw_requirement["amount"],
+                "pay_to": raw_requirement["payTo"],
+                "raw": dict(raw_requirement),
+            },
+        )
+        assert headers["PAYMENT-SIGNATURE"] == "signed-sdk-payload"
+
+        x402._load_x402_solana_sdk = original_load_x402_solana_sdk
+        x402._build_solana_sdk_signer = original_build_solana_sdk_signer
         x402.get_client = lambda: fake_client
         async def fake_create_payment_headers(*, backend, payment_required_header, selected_payment):
             assert payment_required_header
@@ -466,6 +555,8 @@ async def main() -> None:
         x402.get_client = original_get_client
         x402._create_payment_headers = original_create_payment_headers
         x402._extract_settlement_header = original_extract_settlement_header
+        x402._load_x402_solana_sdk = original_load_x402_solana_sdk
+        x402._build_solana_sdk_signer = original_build_solana_sdk_signer
 
     print("smoke_x402_provider: ok")
 
