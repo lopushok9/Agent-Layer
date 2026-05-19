@@ -1,6 +1,6 @@
 {
   "name": "@agentlayertech/pay-bridge-plugin",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "description": "OpenClaw plugin bridge for the local pay.sh CLI.",
   "type": "module",
   "license": "SEE LICENSE IN ../../../LICENSE",

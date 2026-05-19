@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.1.18 - 2026-05-19
+
 - Started the native x402 buyer integration inside `agent-wallet` instead of
   the separate `pay-bridge` wallet path.
 - Added read-only x402 discovery helpers for `CDP Bazaar` and
@@ -9,8 +11,20 @@
 - Added `x402_preview_request`, which performs an unpaid request, parses
   `PAYMENT-REQUIRED`, and summarizes accepted payment options without spending
   funds.
-- Added `x402_pay_request` with `prepare` and `execute` flow for the Solana
-  exact buyer path, keeping approval-token enforcement inside `agent-wallet`.
+- Added `x402_pay_request` with `prepare` and `execute` flow for exact buyer
+  payments from the native wallet on Solana, Base, and Base Sepolia.
+- Added buyer-side x402 signing support to the local EVM runtime so Base
+  payments execute without requiring a separate wallet product.
+- Fixed x402 Solana execution against hosted RPC routing by deriving an
+  SDK-compatible direct Solana RPC URL for the x402 SVM client.
+- Fixed x402 payment requirement selection so SDK model objects survive through
+  prepare and execute without crashing on plain dict access.
+- Added automatic host approval-token issuance for `x402_pay_request` from the
+  cached `x402_preview_request` summary in the OpenClaw bridge.
+- Fixed x402 approval-token binding so execute validates against the exact
+  `confirmation_summary` used by the Python wallet policy gate.
+- Synced the OpenClaw coding profile allowlist and runtime bundle so the new
+  x402 tools are exposed correctly in packaged installs.
 
 ## v0.1.17 - 2026-05-17
 
