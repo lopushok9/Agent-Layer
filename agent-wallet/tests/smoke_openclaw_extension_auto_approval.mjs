@@ -5,11 +5,11 @@ import path from "node:path";
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "..");
 const SOURCE = path.join(ROOT, ".openclaw", "extensions", "agent-wallet", "index.ts");
 
-function fakeApprovalToken(summary) {
+function fakeApprovalToken(toolName, summary) {
   const payload = {
     v: 1,
     binding: {
-      tool: "swap_solana_tokens",
+      tool: toolName,
       network: "mainnet",
       summary,
     },
@@ -78,29 +78,57 @@ async function main() {
       slippage_bps: 100,
     },
   };
+  const x402Preview = {
+    mode: "preview",
+    network: "solana:mainnet",
+    is_mainnet: true,
+    response_status: 402,
+    response_headers: { "content-type": "application/json" },
+    confirmation_summary: {
+      operation: "x402 Paid Request",
+      network: "solana:mainnet",
+      amount_usdc: 0.001,
+      amount_raw: "1000",
+      asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      pay_to: "6KsbSAzhFe5YzqBK9ngeZzdU5xauZsni9osQeB8rSy5R",
+      method: "POST",
+      url: "https://x402.alchemy.com/solana-mainnet/v2",
+    },
+  };
 
   const calls = [];
   globalThis.__TEST_EXEC_FILE_ASYNC__ = async (pythonBin, args, options) => {
     const parsed = parseCliArgs(args);
     calls.push({ pythonBin, args, options, parsed });
-    if (parsed.command === "invoke" && parsed.arguments.mode === "preview") {
+    if (parsed.command === "invoke" && parsed.tool === "swap_solana_tokens" && parsed.arguments.mode === "preview") {
       return { stdout: JSON.stringify({ ok: true, data: preview }), stderr: "" };
     }
+    if (
+      parsed.command === "invoke" &&
+      parsed.tool === "x402_preview_request" &&
+      parsed.arguments.url === x402Preview.confirmation_summary.url
+    ) {
+      return { stdout: JSON.stringify({ ok: true, data: x402Preview }), stderr: "" };
+    }
     if (parsed.command === "issue-approval") {
-      assert.equal(parsed.tool, "swap_solana_tokens");
+      assert.ok(["swap_solana_tokens", "x402_pay_request"].includes(parsed.tool));
       assert.equal(parsed.mainnetConfirmed, true);
       assert.equal(typeof parsed.summary._preview_digest, "string");
       assert.ok(parsed.summary._preview_digest.length > 10);
       return {
-        stdout: JSON.stringify({ ok: true, approval_token: fakeApprovalToken(parsed.summary) }),
+        stdout: JSON.stringify({ ok: true, approval_token: fakeApprovalToken(parsed.tool, parsed.summary) }),
         stderr: "",
       };
     }
-    if (parsed.command === "invoke" && parsed.arguments.mode === "execute") {
+    if (parsed.command === "invoke" && parsed.tool === "swap_solana_tokens" && parsed.arguments.mode === "execute") {
       assert.equal(parsed.tool, "swap_solana_tokens");
       assert.equal(typeof parsed.arguments.approval_token, "string");
       assert.equal(parsed.arguments._approved_preview.input_mint, preview.input_mint);
       return { stdout: JSON.stringify({ ok: true, data: { executed: true } }), stderr: "" };
+    }
+    if (parsed.command === "invoke" && parsed.tool === "x402_pay_request" && parsed.arguments.mode === "execute") {
+      assert.equal(typeof parsed.arguments.approval_token, "string");
+      return { stdout: JSON.stringify({ ok: true, data: { paid: true } }), stderr: "" };
     }
     throw new Error(`Unexpected command: ${JSON.stringify(parsed)}`);
   };
@@ -140,6 +168,10 @@ async function main() {
   register(api);
   const swapTool = tools.find((tool) => tool.name === "swap_solana_tokens");
   assert.ok(swapTool, "swap_solana_tokens tool should be registered");
+  const x402PreviewTool = tools.find((tool) => tool.name === "x402_preview_request");
+  assert.ok(x402PreviewTool, "x402_preview_request tool should be registered");
+  const x402PayTool = tools.find((tool) => tool.name === "x402_pay_request");
+  assert.ok(x402PayTool, "x402_pay_request tool should be registered");
 
   await swapTool.execute("1", {
     input_mint: preview.input_mint,
@@ -160,9 +192,25 @@ async function main() {
   });
 
   assert.equal(JSON.parse(executed.content[0].text).executed, true);
+  const x402Previewed = await x402PreviewTool.execute("3", {
+    url: x402Preview.confirmation_summary.url,
+    method: "POST",
+    json_body: { jsonrpc: "2.0", id: 1, method: "getBalance", params: ["test"] },
+  });
+  assert.equal(JSON.parse(x402Previewed.content[0].text).mode, "preview");
+
+  const x402Executed = await x402PayTool.execute("4", {
+    url: x402Preview.confirmation_summary.url,
+    method: "POST",
+    json_body: { jsonrpc: "2.0", id: 1, method: "getBalance", params: ["test"] },
+    mode: "execute",
+    purpose: "test x402 execute",
+  });
+
+  assert.equal(JSON.parse(x402Executed.content[0].text).paid, true);
   assert.equal(
     calls.filter((entry) => entry.parsed.command === "issue-approval").length,
-    1
+    2
   );
 
   delete globalThis.__TEST_EXEC_FILE__;

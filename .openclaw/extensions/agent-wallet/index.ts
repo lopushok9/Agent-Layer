@@ -25,6 +25,9 @@ const approvalPreviewCache = new Map();
 const privateSwapOrderCache = new Map();
 const WALLET_TOOL_ONLY_GUIDANCE =
   "Use this wallet tool instead of shelling out to solana CLI, spl-token CLI, curl, or exec. If it fails, surface the wallet-tool error and stop rather than falling back to terminal commands.";
+const APPROVAL_PREVIEW_TOOL_ALIASES = new Map([
+  ["x402_pay_request", "x402_preview_request"],
+]);
 
 function canonicalJsonText(payload) {
   const normalize = (value) => {
@@ -51,6 +54,11 @@ function approvalCacheKey(userId, toolName) {
   return `${userId}::${toolName}`;
 }
 
+function approvalPreviewToolName(toolName) {
+  const normalized = typeof toolName === "string" ? toolName.trim() : "";
+  return APPROVAL_PREVIEW_TOOL_ALIASES.get(normalized) || normalized;
+}
+
 function pruneApprovalPreviewCache() {
   const now = Date.now();
   for (const [key, value] of approvalPreviewCache.entries()) {
@@ -61,29 +69,30 @@ function pruneApprovalPreviewCache() {
 }
 
 function cachePreviewForApproval(userId, toolName, payload) {
+  const cacheToolName = approvalPreviewToolName(toolName);
   if (!payload || payload.ok !== true || !payload.data || typeof payload.data !== "object") return;
   const preview = payload.data;
   if (preview.mode !== "preview") return;
   if (!preview.confirmation_summary || typeof preview.confirmation_summary !== "object") return;
   pruneApprovalPreviewCache();
   const digest = previewDigest(preview);
-  approvalPreviewCache.set(approvalCacheKey(userId, toolName), {
+  approvalPreviewCache.set(approvalCacheKey(userId, cacheToolName), {
     digest,
     expiresAt:
-      toolName === "swap_solana_privately"
+      cacheToolName === "swap_solana_privately"
         ? Date.now() + PRIVATE_SWAP_CACHE_TTL_MS
         : Date.now() + PREVIEW_CACHE_TTL_MS,
     preview,
     summary: preview.confirmation_summary,
   });
-  if (toolName === "swap_solana_privately") {
-    privateSwapOrderCache.delete(approvalCacheKey(userId, toolName));
+  if (cacheToolName === "swap_solana_privately") {
+    privateSwapOrderCache.delete(approvalCacheKey(userId, cacheToolName));
   }
 }
 
 function latestCachedPreview(userId, toolName) {
   pruneApprovalPreviewCache();
-  return approvalPreviewCache.get(approvalCacheKey(userId, toolName)) || null;
+  return approvalPreviewCache.get(approvalCacheKey(userId, approvalPreviewToolName(toolName))) || null;
 }
 
 function approvalTokenPreviewDigest(token) {
