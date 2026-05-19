@@ -7,6 +7,7 @@ import json
 from typing import Any
 
 from agent_wallet.approval import inspect_approval_token, verify_approval_token
+from agent_wallet.exceptions import ProviderError
 from agent_wallet.models import AgentToolResult, AgentToolSpec
 from agent_wallet.providers import x402
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendError
@@ -6344,6 +6345,14 @@ class OpenClawWalletAdapter:
                     ok=False,
                     error=str(exc),
                     error_code=exc.code,
+                    error_details=exc.details,
+                )
+            if isinstance(exc, ProviderError):
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=False,
+                    error=str(exc),
+                    error_code=exc.provider,
                     error_details=exc.details,
                 )
             return AgentToolResult(tool=tool_name, ok=False, error=str(exc))

@@ -19,6 +19,8 @@ class FakeBackend(AgentWalletBackend):
     chain = "solana"
     network = "devnet"
     signer = object()
+    rpc_url = "gateway::auto::devnet::https://agent-layer.example.com/v1/rpc"
+    rpc_urls = [rpc_url]
 
     async def get_address(self) -> str | None:
         return "Fake11111111111111111111111111111111111111111"
@@ -366,6 +368,7 @@ async def main() -> None:
         def fake_register_exact_svm_client(client, signer, networks, rpc_url=None):
             assert networks == raw_requirement["network"]
             assert signer is not None
+            assert rpc_url == "https://api.devnet.solana.com"
 
         x402._load_x402_solana_sdk = lambda: {
             "decode_payment_required_header": fake_decode_payment_required_header,

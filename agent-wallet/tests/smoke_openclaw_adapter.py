@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from _secret_test_utils import install_test_sealed_secrets
 from agent_wallet.approval import issue_approval_token
+from agent_wallet.exceptions import ProviderError
 from agent_wallet.openclaw_adapter import OpenClawWalletAdapter, preview_payload_digest
 from agent_wallet.plugin_bundle import build_openclaw_plugin_bundle
 from agent_wallet.providers import x402
@@ -3336,6 +3337,28 @@ async def main() -> None:
     )
     assert x402_prepared.ok is True
     assert x402_prepared.data["prepared"] is True
+
+    async def failing_x402_prepare_request(*, backend, url, method="GET", headers=None, query=None, json_body=None, text_body=None):
+        raise ProviderError(
+            "x402-solana",
+            "Failed to build the Solana x402 payment payload.",
+            details={"sdk_rpc_url": "https://api.mainnet-beta.solana.com", "error_type": "SolanaRpcException"},
+        )
+
+    x402.prepare_request = failing_x402_prepare_request
+    provider_failure = await adapter.invoke(
+        "x402_pay_request",
+        {
+            "url": "https://paid.example.com/report",
+            "mode": "prepare",
+            "purpose": "buy paid report",
+            "user_intent": True,
+        },
+    )
+    assert provider_failure.ok is False
+    assert provider_failure.error_code == "x402-solana"
+    assert provider_failure.error_details["error_type"] == "SolanaRpcException"
+    x402.prepare_request = fake_x402_prepare_request
 
     x402_executed = await adapter.invoke(
         "x402_pay_request",

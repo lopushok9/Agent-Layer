@@ -8,6 +8,7 @@ import json
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from agent_wallet.config import resolve_solana_rpc_url
 from agent_wallet.exceptions import ProviderError
 from agent_wallet.http_client import get_client
 from agent_wallet.wallet_layer.base import AgentWalletBackend
@@ -46,6 +47,21 @@ def _backend_chain(backend: AgentWalletBackend) -> str:
 
 def _backend_network(backend: AgentWalletBackend) -> str:
     return _trim(getattr(backend, "network", "")).lower()
+
+
+def _backend_solana_sdk_rpc_url(backend: AgentWalletBackend) -> str | None:
+    candidates = getattr(backend, "rpc_urls", None)
+    if isinstance(candidates, list):
+        for candidate in candidates:
+            text = _trim(candidate)
+            if text.startswith(("http://", "https://")):
+                return text
+    primary = _trim(getattr(backend, "rpc_url", None))
+    if primary.startswith(("http://", "https://")):
+        return primary
+    network = _backend_network(backend)
+    fallback = resolve_solana_rpc_url(network or "mainnet", "")
+    return _trim(fallback) or None
 
 
 def _trim(value: Any) -> str:
@@ -870,13 +886,32 @@ async def _create_payment_headers(
             selected_payment=selected_payment,
         )
         client = sdk["x402Client"]()
+        sdk_rpc_url = _backend_solana_sdk_rpc_url(backend)
+        if not sdk_rpc_url:
+            raise ProviderError(
+                "x402-solana",
+                "No direct Solana RPC URL is available for the x402 SDK signer path.",
+                details={"network": _backend_network(backend)},
+            )
         sdk["register_exact_svm_client"](
             client,
             _build_solana_sdk_signer(backend),
             networks=str(selected_payment["network"]),
-            rpc_url=getattr(backend, "rpc_url", None),
+            rpc_url=sdk_rpc_url,
         )
-        payment_payload = await client.create_payment_payload(selected_payload)
+        try:
+            payment_payload = await client.create_payment_payload(selected_payload)
+        except Exception as exc:
+            raise ProviderError(
+                "x402-solana",
+                "Failed to build the Solana x402 payment payload.",
+                details={
+                    "network": _backend_network(backend),
+                    "sdk_rpc_url": sdk_rpc_url,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc) or None,
+                },
+            ) from exc
         return sdk["x402HTTPClientBase"]().encode_payment_signature_header(payment_payload)
 
     if chain == "evm":
