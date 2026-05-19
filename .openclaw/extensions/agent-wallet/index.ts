@@ -507,8 +507,9 @@ async function issueApprovalToken(api, config, userId, toolName, previewPayload)
   if (!summary || typeof summary !== "object") {
     throw new Error(`No confirmation_summary available for ${toolName}.`);
   }
-  const digest = previewDigest(previewPayload);
-  const summaryForToken = { ...summary, _preview_digest: digest };
+  const summaryForToken = PREVIEW_BOUND_SWAP_TOOLS.has(toolName)
+    ? { ...summary, _preview_digest: previewDigest(previewPayload) }
+    : { ...summary };
   const extraArgs = [
     "--tool",
     toolName,

@@ -113,8 +113,12 @@ async function main() {
     if (parsed.command === "issue-approval") {
       assert.ok(["swap_solana_tokens", "x402_pay_request"].includes(parsed.tool));
       assert.equal(parsed.mainnetConfirmed, true);
-      assert.equal(typeof parsed.summary._preview_digest, "string");
-      assert.ok(parsed.summary._preview_digest.length > 10);
+      if (parsed.tool === "swap_solana_tokens") {
+        assert.equal(typeof parsed.summary._preview_digest, "string");
+        assert.ok(parsed.summary._preview_digest.length > 10);
+      } else {
+        assert.equal(parsed.summary._preview_digest, undefined);
+      }
       return {
         stdout: JSON.stringify({ ok: true, approval_token: fakeApprovalToken(parsed.tool, parsed.summary) }),
         stderr: "",
