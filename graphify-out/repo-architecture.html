@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>graphify - /Users/yuriytsygankov/Documents/openclaw_skill/graphify-out/repo-architecture.html</title>
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f0f1a; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: flex; height: 100vh; overflow: hidden; }
+  #graph { flex: 1; }
+  #sidebar { width: 280px; background: #1a1a2e; border-left: 1px solid #2a2a4e; display: flex; flex-direction: column; overflow: hidden; }
+  #search-wrap { padding: 12px; border-bottom: 1px solid #2a2a4e; }
+  #search { width: 100%; background: #0f0f1a; border: 1px solid #3a3a5e; color: #e0e0e0; padding: 7px 10px; border-radius: 6px; font-size: 13px; outline: none; }
+  #search:focus { border-color: #4E79A7; }
+  #search-results { max-height: 140px; overflow-y: auto; padding: 4px 12px; border-bottom: 1px solid #2a2a4e; display: none; }
+  .search-item { padding: 4px 6px; cursor: pointer; border-radius: 4px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .search-item:hover { background: #2a2a4e; }
+  #info-panel { padding: 14px; border-bottom: 1px solid #2a2a4e; min-height: 140px; }
+  #info-panel h3 { font-size: 13px; color: #aaa; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+  #info-content { font-size: 13px; color: #ccc; line-height: 1.6; }
+  #info-content .field { margin-bottom: 5px; }
+  #info-content .field b { color: #e0e0e0; }
+  #info-content .empty { color: #555; font-style: italic; }
+  .neighbor-link { display: block; padding: 2px 6px; margin: 2px 0; border-radius: 3px; cursor: pointer; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 3px solid #333; }
+  .neighbor-link:hover { background: #2a2a4e; }
+  #neighbors-list { max-height: 160px; overflow-y: auto; margin-top: 4px; }
+  #legend-wrap { flex: 1; overflow-y: auto; padding: 12px; }
+  #legend-wrap h3 { font-size: 13px; color: #aaa; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .legend-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; border-radius: 4px; font-size: 12px; }
+  .legend-item:hover { background: #2a2a4e; padding-left: 4px; }
+  .legend-item.dimmed { opacity: 0.35; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+  .legend-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .legend-count { color: #666; font-size: 11px; }
+  #stats { padding: 10px 14px; border-top: 1px solid #2a2a4e; font-size: 11px; color: #555; }
+</style>
+</head>
+<body>
+<div id="graph"></div>
+<div id="sidebar">
+  <div id="search-wrap">
+    <input id="search" type="text" placeholder="Search nodes..." autocomplete="off">
+    <div id="search-results"></div>
+  </div>
+  <div id="info-panel">
+    <h3>Node Info</h3>
+    <div id="info-content"><span class="empty">Click a node to inspect it</span></div>
+  </div>
+  <div id="legend-wrap">
+    <h3>Communities</h3>
+    <div id="legend"></div>
+  </div>
+  <div id="stats">29 nodes &middot; 41 edges &middot; 5 communities</div>
+</div>
+<script>
+const RAW_NODES = [{"id": "repo", "label": "OpenClaw Finance Stack", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 37.3, "font": {"size": 12, "color": "#ffffff"}, "title": "OpenClaw Finance Stack", "community": 0, "community_name": "Wallet Policy And Solana Flows", "source_file": "architecture-corpus/00_repo_map.md", "file_type": "doc", "degree": 10}, {"id": "agent_wallet", "label": "agent-wallet", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 40.0, "font": {"size": 12, "color": "#ffffff"}, "title": "agent-wallet", "community": 0, "community_name": "Wallet Policy And Solana Flows", "source_file": "architecture-corpus/00_repo_map.md", "file_type": "service", "degree": 11}, {"id": "solana_networks", "label": "Solana Networks", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 12.7, "font": {"size": 0, "color": "#ffffff"}, "title": "Solana Networks", "community": 0, "community_name": "Wallet Policy And Solana Flows", "source_file": "architecture-corpus/01_wallets_and_networks.md", "file_type": "network", "degree": 1}, {"id": "wdk_btc", "label": "wdk-btc-wallet", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 18.2, "font": {"size": 12, "color": "#ffffff"}, "title": "wdk-btc-wallet", "community": 1, "community_name": "BTC And EVM Wallet Runtimes", "source_file": "architecture-corpus/01_wallets_and_networks.md", "file_type": "service", "degree": 3}, {"id": "btc_networks", "label": "Bitcoin Networks", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 12.7, "font": {"size": 0, "color": "#ffffff"}, "title": "Bitcoin Networks", "community": 1, "community_name": "BTC And EVM Wallet Runtimes", "source_file": "architecture-corpus/01_wallets_and_networks.md", "file_type": "network", "degree": 1}, {"id": "wdk_evm", "label": "wdk-evm-wallet", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 26.4, "font": {"size": 12, "color": "#ffffff"}, "title": "wdk-evm-wallet", "community": 1, "community_name": "BTC And EVM Wallet Runtimes", "source_file": "architecture-corpus/01_wallets_and_networks.md", "file_type": "service", "degree": 6}, {"id": "evm_networks", "label": "EVM Networks", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 12.7, "font": {"size": 0, "color": "#ffffff"}, "title": "EVM Networks", "community": 1, "community_name": "BTC And EVM Wallet Runtimes", "source_file": "architecture-corpus/01_wallets_and_networks.md", "file_type": "network", "degree": 1}, {"id": "provider_gateway", "label": "provider-gateway", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 31.8, "font": {"size": 12, "color": "#ffffff"}, "title": "provider-gateway", "community": 2, "community_name": "Shared Provider And MCP Data Plane", "source_file": "architecture-corpus/00_repo_map.md", "file_type": "service", "degree": 8}, {"id": "shared_solana_rpc", "label": "Shared Solana RPC", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 12.7, "font": {"size": 0, "color": "#ffffff"}, "title": "Shared Solana RPC", "community": 2, "community_name": "Shared Provider And MCP Data Plane", "source_file": "architecture-corpus/01_wallets_and_networks.md", "file_type": "infra", "degree": 1}, {"id": "shared_evm_rpc", "label": "Shared EVM RPC", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 12.7, "font": {"size": 0, "color": "#ffffff"}, "title": "Shared EVM RPC", "community": 2, "community_name": "Shared Provider And MCP Data Plane", "source_file": "architecture-corpus/01_wallets_and_networks.md", "file_type": "infra", "degree": 1}, {"id": "mcp_server", "label": "mcp-server", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 23.6, "font": {"size": 12, "color": "#ffffff"}, "title": "mcp-server", "community": 2, "community_name": "Shared Provider And MCP Data Plane", "source_file": "architecture-corpus/00_repo_map.md", "file_type": "service", "degree": 5}, {"id": "market_tools", "label": "Market / DeFi / On-chain Tools", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 12.7, "font": {"size": 0, "color": "#ffffff"}, "title": "Market / DeFi / On-chain Tools", "community": 2, "community_name": "Shared Provider And MCP Data Plane", "source_file": "architecture-corpus/02_tools_inventory.md", "file_type": "toolgroup", "degree": 1}, {"id": "erc8004_discovery", "label": "ERC-8004 Discovery", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 12.7, "font": {"size": 0, "color": "#ffffff"}, "title": "ERC-8004 Discovery", "community": 2, "community_name": "Shared Provider And MCP Data Plane", "source_file": "architecture-corpus/02_tools_inventory.md", "file_type": "toolgroup", "degree": 1}, {"id": "openclaw_host", "label": "OpenClaw Host", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 23.6, "font": {"size": 12, "color": "#ffffff"}, "title": "OpenClaw Host", "community": 3, "community_name": "Agent Hosts And Plugin Bridges", "source_file": "architecture-corpus/00_repo_map.md", "file_type": "host", "degree": 5}, {"id": "openclaw_agent_wallet_plugin", "label": "OpenClaw Plugin: Agent Wallet", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 15.5, "font": {"size": 12, "color": "#ffffff"}, "title": "OpenClaw Plugin: Agent Wallet", "community": 3, "community_name": "Agent Hosts And Plugin Bridges", "source_file": "architecture-corpus/02_tools_inventory.md", "file_type": "plugin", "degree": 2}, {"id": "openclaw_pay_bridge_plugin", "label": "OpenClaw Plugin: pay-bridge", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 15.5, "font": {"size": 12, "color": "#ffffff"}, "title": "OpenClaw Plugin: pay-bridge", "community": 3, "community_name": "Agent Hosts And Plugin Bridges", "source_file": "architecture-corpus/02_tools_inventory.md", "file_type": "plugin", "degree": 2}, {"id": "hermes_host", "label": "Hermes Agent", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 15.5, "font": {"size": 12, "color": "#ffffff"}, "title": "Hermes Agent", "community": 3, "community_name": "Agent Hosts And Plugin Bridges", "source_file": "architecture-corpus/00_repo_map.md", "file_type": "host", "degree": 2}, {"id": "hermes_wallet_plugin", "label": "Hermes Plugin: agent_wallet", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 15.5, "font": {"size": 12, "color": "#ffffff"}, "title": "Hermes Plugin: agent_wallet", "community": 3, "community_name": "Agent Hosts And Plugin Bridges", "source_file": "architecture-corpus/02_tools_inventory.md", "file_type": "plugin", "degree": 2}, {"id": "pay_cli", "label": "pay CLI / pay.sh", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 12.7, "font": {"size": 0, "color": "#ffffff"}, "title": "pay CLI / pay.sh", "community": 3, "community_name": "Agent Hosts And Plugin Bridges", "source_file": "architecture-corpus/02_tools_inventory.md", "file_type": "service", "degree": 1}, {"id": "bags", "label": "Bags", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 15.5, "font": {"size": 12, "color": "#ffffff"}, "title": "Bags", "community": 0, "community_name": "Wallet Policy And Solana Flows", "source_file": "architecture-corpus/01_wallets_and_networks.md", "file_type": "protocol", "degree": 2}, {"id": "jupiter_earn", "label": "Jupiter Earn", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 15.5, "font": {"size": 12, "color": "#ffffff"}, "title": "Jupiter Earn", "community": 0, "community_name": "Wallet Policy And Solana Flows", "source_file": "architecture-corpus/01_wallets_and_networks.md", "file_type": "protocol", "degree": 2}, {"id": "kamino", "label": "Kamino Lending", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 12.7, "font": {"size": 0, "color": "#ffffff"}, "title": "Kamino Lending", "community": 0, "community_name": "Wallet Policy And Solana Flows", "source_file": "architecture-corpus/01_wallets_and_networks.md", "file_type": "protocol", "degree": 1}, {"id": "x402", "label": "x402 Paid API Flow", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 12.7, "font": {"size": 0, "color": "#ffffff"}, "title": "x402 Paid API Flow", "community": 0, "community_name": "Wallet Policy And Solana Flows", "source_file": "architecture-corpus/01_wallets_and_networks.md", "file_type": "protocol", "degree": 1}, {"id": "velora", "label": "Velora Swaps", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 15.5, "font": {"size": 12, "color": "#ffffff"}, "title": "Velora Swaps", "community": 1, "community_name": "BTC And EVM Wallet Runtimes", "source_file": "architecture-corpus/01_wallets_and_networks.md", "file_type": "protocol", "degree": 2}, {"id": "aave", "label": "Aave V3", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 12.7, "font": {"size": 0, "color": "#ffffff"}, "title": "Aave V3", "community": 1, "community_name": "BTC And EVM Wallet Runtimes", "source_file": "architecture-corpus/01_wallets_and_networks.md", "file_type": "protocol", "degree": 1}, {"id": "agent_a2a_gateway", "label": "agent-a2a-gateway", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 15.5, "font": {"size": 12, "color": "#ffffff"}, "title": "agent-a2a-gateway", "community": 4, "community_name": "Delivery, A2A, And Registration Surfaces", "source_file": "architecture-corpus/00_repo_map.md", "file_type": "service", "degree": 2}, {"id": "landing", "label": "landing site", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 15.5, "font": {"size": 12, "color": "#ffffff"}, "title": "landing site", "community": 4, "community_name": "Delivery, A2A, And Registration Surfaces", "source_file": "architecture-corpus/00_repo_map.md", "file_type": "frontend", "degree": 2}, {"id": "solana_8004", "label": "solana-8004", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 18.2, "font": {"size": 12, "color": "#ffffff"}, "title": "solana-8004", "community": 4, "community_name": "Delivery, A2A, And Registration Surfaces", "source_file": "architecture-corpus/00_repo_map.md", "file_type": "service", "degree": 3}, {"id": "erc8004_registry", "label": "ERC-8004 Registration", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 15.5, "font": {"size": 12, "color": "#ffffff"}, "title": "ERC-8004 Registration", "community": 4, "community_name": "Delivery, A2A, And Registration Surfaces", "source_file": "architecture-corpus/02_tools_inventory.md", "file_type": "protocol", "degree": 2}];
+const RAW_EDGES = [{"from": "repo", "to": "agent_wallet", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "repo", "to": "wdk_btc", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "repo", "to": "wdk_evm", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "repo", "to": "provider_gateway", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "repo", "to": "mcp_server", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "repo", "to": "openclaw_host", "label": "targets_host", "title": "targets_host [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "repo", "to": "hermes_host", "label": "targets_host", "title": "targets_host [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "repo", "to": "agent_a2a_gateway", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "repo", "to": "landing", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "repo", "to": "solana_8004", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "agent_wallet", "to": "solana_networks", "label": "owns_wallet_path", "title": "owns_wallet_path [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "agent_wallet", "to": "wdk_btc", "label": "selects_backend", "title": "selects_backend [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "agent_wallet", "to": "wdk_evm", "label": "selects_backend", "title": "selects_backend [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "agent_wallet", "to": "provider_gateway", "label": "uses_shared_provider_mode", "title": "uses_shared_provider_mode [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "agent_wallet", "to": "bags", "label": "supports_protocol", "title": "supports_protocol [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "agent_wallet", "to": "jupiter_earn", "label": "supports_protocol", "title": "supports_protocol [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "agent_wallet", "to": "kamino", "label": "supports_protocol", "title": "supports_protocol [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "agent_wallet", "to": "x402", "label": "supports_protocol", "title": "supports_protocol [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "wdk_btc", "to": "btc_networks", "label": "serves_wallet_on", "title": "serves_wallet_on [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "wdk_evm", "to": "evm_networks", "label": "serves_wallet_on", "title": "serves_wallet_on [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "wdk_evm", "to": "velora", "label": "supports_protocol", "title": "supports_protocol [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "wdk_evm", "to": "aave", "label": "supports_protocol", "title": "supports_protocol [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "wdk_evm", "to": "provider_gateway", "label": "can_route_via", "title": "can_route_via [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "provider_gateway", "to": "shared_solana_rpc", "label": "exposes", "title": "exposes [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "provider_gateway", "to": "shared_evm_rpc", "label": "exposes", "title": "exposes [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "provider_gateway", "to": "bags", "label": "relays", "title": "relays [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "provider_gateway", "to": "jupiter_earn", "label": "relays", "title": "relays [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "provider_gateway", "to": "velora", "label": "supports_related_reads", "title": "supports_related_reads [AMBIGUOUS]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "AMBIGUOUS"}, {"from": "mcp_server", "to": "market_tools", "label": "exposes_toolgroup", "title": "exposes_toolgroup [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "mcp_server", "to": "erc8004_discovery", "label": "exposes_toolgroup", "title": "exposes_toolgroup [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "mcp_server", "to": "erc8004_registry", "label": "reads_registration_data", "title": "reads_registration_data [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "openclaw_host", "to": "openclaw_agent_wallet_plugin", "label": "loads_plugin", "title": "loads_plugin [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "openclaw_host", "to": "openclaw_pay_bridge_plugin", "label": "loads_plugin", "title": "loads_plugin [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "openclaw_agent_wallet_plugin", "to": "agent_wallet", "label": "bridges_to", "title": "bridges_to [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "openclaw_pay_bridge_plugin", "to": "pay_cli", "label": "bridges_to", "title": "bridges_to [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "hermes_host", "to": "hermes_wallet_plugin", "label": "loads_plugin", "title": "loads_plugin [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "hermes_wallet_plugin", "to": "agent_wallet", "label": "bridges_to", "title": "bridges_to [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "agent_a2a_gateway", "to": "openclaw_host", "label": "forwards_to_runtime", "title": "forwards_to_runtime [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "landing", "to": "openclaw_host", "label": "documents_user_entrypoint", "title": "documents_user_entrypoint [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "solana_8004", "to": "erc8004_registry", "label": "publishes_to", "title": "publishes_to [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "solana_8004", "to": "mcp_server", "label": "complements_discovery_surface", "title": "complements_discovery_surface [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}];
+const LEGEND = [{"cid": 0, "color": "#4E79A7", "label": "Wallet Policy And Solana Flows", "count": 7}, {"cid": 1, "color": "#F28E2B", "label": "BTC And EVM Wallet Runtimes", "count": 6}, {"cid": 2, "color": "#E15759", "label": "Shared Provider And MCP Data Plane", "count": 6}, {"cid": 3, "color": "#76B7B2", "label": "Agent Hosts And Plugin Bridges", "count": 6}, {"cid": 4, "color": "#59A14F", "label": "Delivery, A2A, And Registration Surfaces", "count": 4}];
+
+// HTML-escape helper — prevents XSS when injecting graph data into innerHTML
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// Build vis datasets
+const nodesDS = new vis.DataSet(RAW_NODES.map(n => ({
+  id: n.id, label: n.label, color: n.color, size: n.size,
+  font: n.font, title: n.title,
+  _community: n.community, _community_name: n.community_name,
+  _source_file: n.source_file, _file_type: n.file_type, _degree: n.degree,
+})));
+
+const edgesDS = new vis.DataSet(RAW_EDGES.map((e, i) => ({
+  id: i, from: e.from, to: e.to,
+  label: '',
+  title: e.title,
+  dashes: e.dashes,
+  width: e.width,
+  color: e.color,
+  arrows: { to: { enabled: true, scaleFactor: 0.5 } },
+})));
+
+const container = document.getElementById('graph');
+const network = new vis.Network(container, { nodes: nodesDS, edges: edgesDS }, {
+  physics: {
+    enabled: true,
+    solver: 'forceAtlas2Based',
+    forceAtlas2Based: {
+      gravitationalConstant: -60,
+      centralGravity: 0.005,
+      springLength: 120,
+      springConstant: 0.08,
+      damping: 0.4,
+      avoidOverlap: 0.8,
+    },
+    stabilization: { iterations: 200, fit: true },
+  },
+  interaction: {
+    hover: true,
+    tooltipDelay: 100,
+    hideEdgesOnDrag: true,
+    navigationButtons: false,
+    keyboard: false,
+  },
+  nodes: { shape: 'dot', borderWidth: 1.5 },
+  edges: { smooth: { type: 'continuous', roundness: 0.2 }, selectionWidth: 3 },
+});
+
+network.once('stabilizationIterationsDone', () => {
+  network.setOptions({ physics: { enabled: false } });
+});
+
+function showInfo(nodeId) {
+  const n = nodesDS.get(nodeId);
+  if (!n) return;
+  const neighborIds = network.getConnectedNodes(nodeId);
+  const neighborItems = neighborIds.map(nid => {
+    const nb = nodesDS.get(nid);
+    const color = nb ? nb.color.background : '#555';
+    return `<span class="neighbor-link" style="border-left-color:${esc(color)}" onclick="focusNode(${JSON.stringify(nid)})">${esc(nb ? nb.label : nid)}</span>`;
+  }).join('');
+  document.getElementById('info-content').innerHTML = `
+    <div class="field"><b>${esc(n.label)}</b></div>
+    <div class="field">Type: ${esc(n._file_type || 'unknown')}</div>
+    <div class="field">Community: ${esc(n._community_name)}</div>
+    <div class="field">Source: ${esc(n._source_file || '-')}</div>
+    <div class="field">Degree: ${n._degree}</div>
+    ${neighborIds.length ? `<div class="field" style="margin-top:8px;color:#aaa;font-size:11px">Neighbors (${neighborIds.length})</div><div id="neighbors-list">${neighborItems}</div>` : ''}
+  `;
+}
+
+function focusNode(nodeId) {
+  network.focus(nodeId, { scale: 1.4, animation: true });
+  network.selectNodes([nodeId]);
+  showInfo(nodeId);
+}
+
+// Track hovered node — hover detection is more reliable than click params
+let hoveredNodeId = null;
+network.on('hoverNode', params => {
+  hoveredNodeId = params.node;
+  container.style.cursor = 'pointer';
+});
+network.on('blurNode', () => {
+  hoveredNodeId = null;
+  container.style.cursor = 'default';
+});
+container.addEventListener('click', () => {
+  if (hoveredNodeId !== null) {
+    showInfo(hoveredNodeId);
+    network.selectNodes([hoveredNodeId]);
+  }
+});
+network.on('click', params => {
+  if (params.nodes.length > 0) {
+    showInfo(params.nodes[0]);
+  } else if (hoveredNodeId === null) {
+    document.getElementById('info-content').innerHTML = '<span class="empty">Click a node to inspect it</span>';
+  }
+});
+
+const searchInput = document.getElementById('search');
+const searchResults = document.getElementById('search-results');
+searchInput.addEventListener('input', () => {
+  const q = searchInput.value.toLowerCase().trim();
+  searchResults.innerHTML = '';
+  if (!q) { searchResults.style.display = 'none'; return; }
+  const matches = RAW_NODES.filter(n => n.label.toLowerCase().includes(q)).slice(0, 20);
+  if (!matches.length) { searchResults.style.display = 'none'; return; }
+  searchResults.style.display = 'block';
+  matches.forEach(n => {
+    const el = document.createElement('div');
+    el.className = 'search-item';
+    el.textContent = n.label;
+    el.style.borderLeft = `3px solid ${n.color.background}`;
+    el.style.paddingLeft = '8px';
+    el.onclick = () => {
+      network.focus(n.id, { scale: 1.5, animation: true });
+      network.selectNodes([n.id]);
+      showInfo(n.id);
+      searchResults.style.display = 'none';
+      searchInput.value = '';
+    };
+    searchResults.appendChild(el);
+  });
+});
+document.addEventListener('click', e => {
+  if (!searchResults.contains(e.target) && e.target !== searchInput)
+    searchResults.style.display = 'none';
+});
+
+const hiddenCommunities = new Set();
+const legendEl = document.getElementById('legend');
+LEGEND.forEach(c => {
+  const item = document.createElement('div');
+  item.className = 'legend-item';
+  item.innerHTML = `<div class="legend-dot" style="background:${c.color}"></div>
+    <span class="legend-label">${c.label}</span>
+    <span class="legend-count">${c.count}</span>`;
+  item.onclick = () => {
+    if (hiddenCommunities.has(c.cid)) {
+      hiddenCommunities.delete(c.cid);
+      item.classList.remove('dimmed');
+    } else {
+      hiddenCommunities.add(c.cid);
+      item.classList.add('dimmed');
+    }
+    const updates = RAW_NODES
+      .filter(n => n.community === c.cid)
+      .map(n => ({ id: n.id, hidden: hiddenCommunities.has(c.cid) }));
+    nodesDS.update(updates);
+  };
+  legendEl.appendChild(item);
+});
+</script>
+<script>
+// Render hyperedges as shaded regions
+const hyperedges = [];
+// afterDrawing passes ctx already transformed to network coordinate space.
+// Draw node positions raw — no manual pan/zoom/DPR math needed.
+network.on('afterDrawing', function(ctx) {
+    hyperedges.forEach(h => {
+        const positions = h.nodes
+            .map(nid => network.getPositions([nid])[nid])
+            .filter(p => p !== undefined);
+        if (positions.length < 2) return;
+        ctx.save();
+        ctx.globalAlpha = 0.12;
+        ctx.fillStyle = '#6366f1';
+        ctx.strokeStyle = '#6366f1';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        // Centroid and expanded hull in network coordinates
+        const cx = positions.reduce((s, p) => s + p.x, 0) / positions.length;
+        const cy = positions.reduce((s, p) => s + p.y, 0) / positions.length;
+        const expanded = positions.map(p => ({
+            x: cx + (p.x - cx) * 1.15,
+            y: cy + (p.y - cy) * 1.15
+        }));
+        ctx.moveTo(expanded[0].x, expanded[0].y);
+        expanded.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 0.4;
+        ctx.stroke();
+        // Label
+        ctx.globalAlpha = 0.8;
+        ctx.fillStyle = '#4f46e5';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(h.label, cx, cy - 5);
+        ctx.restore();
+    });
+});
+</script>
+</body>
+</html>
