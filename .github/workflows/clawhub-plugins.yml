@@ -5,7 +5,6 @@ on:
     paths:
       - ".github/workflows/clawhub-plugins.yml"
       - ".openclaw/extensions/agent-wallet/**"
-      - ".openclaw/extensions/pay-bridge/**"
       - "scripts/manage_openclaw_plugin_packages.mjs"
   push:
     tags:
@@ -34,11 +33,6 @@ jobs:
             family: bundle-plugin
             tarball_prefix: agentlayertech-agent-wallet-plugin
             source_path: .openclaw/extensions/agent-wallet
-          - id: pay-bridge
-            dir: .openclaw/extensions/pay-bridge
-            family: code-plugin
-            tarball_prefix: agentlayertech-pay-bridge-plugin
-            source_path: .openclaw/extensions/pay-bridge
 
     steps:
       - uses: actions/checkout@v4
