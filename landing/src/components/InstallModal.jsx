@@ -1,17 +1,9 @@
 import { useEffect, useState } from 'react'
 import '../styles/InstallModal.css'
 
-const MCP_CONFIG = `{
-  "mcpServers": {
-    "AgentLayer": {
-      "url": "https://agent-layer-production-852f.up.railway.app/mcp"
-    }
-  }
-}`
-
-const WALLET_INSTALL = `git clone https://github.com/lopushok9/Agent-Layer.git
-cd Agent-Layer/agent-wallet
-python3 scripts/install_agent_wallet.py`
+const OPENCLAW_INSTALL = 'npx @agentlayer.tech/wallet install --yes'
+const HERMES_INSTALL =
+  'npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet hermes install --yes'
 
 export const InstallModal = ({ isOpen, onClose }) => {
   const [copiedKey, setCopiedKey] = useState(null)
@@ -65,8 +57,8 @@ export const InstallModal = ({ isOpen, onClose }) => {
       >
         <div className="install-modal-header">
           <div>
-            <span className="install-modal-eyebrow">Install</span>
-            <h2 id="install-modal-title" className="install-modal-title">Connect AgentLayer</h2>
+            <span className="install-modal-eyebrow">Beta</span>
+            <h2 id="install-modal-title" className="install-modal-title">Install AgentLayer</h2>
           </div>
           <button type="button" className="install-modal-close" onClick={onClose} aria-label="Close install dialog">
             Close
@@ -75,97 +67,58 @@ export const InstallModal = ({ isOpen, onClose }) => {
 
         <div className="install-modal-body">
           <p className="install-modal-copy">
-            Install the wallet runtime if you want local balances, swaps and staking in OpenClaw. Add the MCP config below to connect AgentLayer market and protocol data.
+            Beta release. Use the default install for OpenClaw, or add Hermes in the same step.
           </p>
 
           <div className="install-modal-stack">
-            <section className="install-modal-panel">
+            <section className="install-modal-panel" aria-label="OpenClaw install command">
               <div className="install-modal-panel-head">
                 <div>
-                  <span className="install-modal-code-label">Step 01 · Wallet</span>
-                  <h3 className="install-modal-panel-title">Local wallet runtime</h3>
+                  <span className="install-modal-code-label">OpenClaw</span>
+                  <h3 className="install-modal-panel-title">Default install</h3>
                 </div>
                 <button
                   type="button"
                   className="install-modal-copy-btn"
-                  onClick={() => handleCopy(WALLET_INSTALL, 'wallet')}
-                  aria-label="Copy wallet install commands"
+                  onClick={() => handleCopy(OPENCLAW_INSTALL, 'openclaw')}
+                  aria-label="Copy OpenClaw install command"
                 >
-                  {copiedKey === 'wallet' ? 'Copied' : 'Copy'}
+                  {copiedKey === 'openclaw' ? 'Copied' : 'Copy'}
                 </button>
               </div>
 
-              <p className="install-modal-panel-copy">
-                Installs the local Solana wallet runtime for OpenClaw with preview-first execution and per-user encrypted storage.
-              </p>
-
               <pre className="install-modal-code">
-                <code>{WALLET_INSTALL}</code>
+                <code>{OPENCLAW_INSTALL}</code>
               </pre>
-
-              <div className="install-modal-steps" aria-label="Wallet install notes">
-                <p className="install-modal-panel-note">
-                  The installer creates local config, prepares the Python runtime, and patches OpenClaw for the wallet plugin.
-                </p>
-                <p className="install-modal-panel-note">
-                  For signing flows, provide <code>AGENT_WALLET_BOOT_KEY</code> and seal runtime secrets locally instead of storing them in config JSON.
-                </p>
-              </div>
             </section>
 
-            <section className="install-modal-panel">
+            <section className="install-modal-panel" aria-label="Hermes install command">
               <div className="install-modal-panel-head">
                 <div>
-                  <span className="install-modal-code-label">Step 02 · MCP</span>
-                  <h3 className="install-modal-panel-title">AgentLayer MCP server</h3>
+                  <span className="install-modal-code-label">Hermes</span>
+                  <h3 className="install-modal-panel-title">Install with Hermes</h3>
                 </div>
                 <button
                   type="button"
                   className="install-modal-copy-btn"
-                  onClick={() => handleCopy(MCP_CONFIG, 'mcp')}
-                  aria-label="Copy MCP config"
+                  onClick={() => handleCopy(HERMES_INSTALL, 'hermes')}
+                  aria-label="Copy Hermes install command"
                 >
-                  {copiedKey === 'mcp' ? 'Copied' : 'Copy'}
+                  {copiedKey === 'hermes' ? 'Copied' : 'Copy'}
                 </button>
               </div>
 
-              <p className="install-modal-panel-copy">
-                Connect the hosted MCP endpoint to expose prices, on-chain data, DeFi metrics and agent discovery tools in your client.
-              </p>
-
               <pre className="install-modal-code">
-                <code>{MCP_CONFIG}</code>
+                <code>{HERMES_INSTALL}</code>
               </pre>
-
-              <p className="install-modal-panel-note">
-                Add this config to your client, or ask your OpenClaw agent to connect to the MCP endpoint directly.
-              </p>
             </section>
           </div>
         </div>
 
         <div className="install-modal-footer">
           <p className="install-modal-note">
-            Need more detail about setup, wallet runtime, or project structure?
+            Beta version. Test critical flows before relying on them in production.
           </p>
-          <div className="install-modal-actions">
-            <a
-              href="https://github.com/lopushok9/Agent-Layer/tree/main/agent-wallet"
-              className="install-modal-link install-modal-link-secondary"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Wallet docs
-            </a>
-            <a
-              href="https://github.com/lopushok9/Agent-Layer"
-              className="install-modal-link"
-              target="_blank"
-              rel="noreferrer"
-            >
-              View GitHub repository
-            </a>
-          </div>
         </div>
       </section>
     </div>
