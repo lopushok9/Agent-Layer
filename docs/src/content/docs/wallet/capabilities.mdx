@@ -6,114 +6,91 @@ head: []
 
 # Capabilities
 
-AgentLayer exposes wallet capabilities to the agent through a constrained tool surface.
+AgentLayer exposes a constrained wallet surface rather than raw wallet ownership.
 
-The main rule is:
-
-- the agent can use the wallet
-- the agent does not own the wallet
+The current capability map is split across Solana, Bitcoin, EVM, and x402-paid request flows.
 
 ## Cross-wallet basics
 
-Available on connected backends where relevant:
+Available where relevant across connected backends:
 
 - `get_wallet_capabilities`
 - `get_wallet_address`
 - `get_wallet_balance`
 
+## Solana
+
+Current Solana reads include:
+
+- portfolio and token price reads
+- staking validator and stake-account inspection
+- Bags claimable positions and fee analytics
+- Jupiter Earn token, position, and earnings reads
+- Flash Trade market and position reads
+- Kamino market, reserve, obligation, and rewards reads
+- LI.FI chain support, quote, and transfer-status reads
+
+Current Solana writes include:
+
+- message signing
+- SOL transfers
+- SPL transfers
+- Jupiter-routed token swaps
+- native staking, stake deactivation, and stake withdrawal
+- Bags fee claims
+- Bags token launch
+- Flash Trade perpetual open and close flows
+- Jupiter Earn deposit and withdraw
+- Kamino deposit, withdraw, borrow, and repay
+- close empty token accounts
+- devnet or testnet airdrops
+- private Solana payouts through Houdini
+- Solana-origin LI.FI cross-chain swaps
+
 ## Bitcoin
 
-Current BTC tools:
+Current BTC support includes:
 
-- `get_btc_transfer_history`
-- `get_btc_fee_rates`
-- `get_btc_max_spendable`
-- `transfer_btc`
+- transfer history
+- fee rates
+- max spendable estimation
+- approval-gated BTC transfers
 
-`transfer_btc` follows:
+## EVM
 
-1. `preview`
-2. `prepare`
-3. `execute`
+Current EVM reads include:
 
-`execute` requires a host-issued approval token.
+- token balances and metadata
+- fee-rate reads
+- receipt lookup
+- network inspection
+- Aave account, reserve, and position reads
+- Lido overview, position, and withdrawal-request reads
+- LI.FI chain support, quote, and transfer-status reads
 
-## Solana reads
+Current EVM writes include:
 
-Current Solana read tools:
+- network switching
+- native transfers
+- ERC-20 transfers
+- swaps on supported mainnet networks
+- Aave supply, withdraw, borrow, and repay
+- Lido stake, wrap, unwrap, withdrawal request, and withdrawal claim flows
+- EVM-origin LI.FI cross-chain swaps
 
-- `get_wallet_portfolio`
-- `get_solana_token_prices`
-- `get_bags_claimable_positions`
-- `get_bags_fee_analytics`
-- `get_solana_staking_validators`
-- `get_solana_stake_account`
-- `get_jupiter_earn_tokens`
-- `get_jupiter_earn_positions`
-- `get_jupiter_earn_earnings`
-- `get_kamino_lend_markets`
-- `get_kamino_lend_market_reserves`
-- `get_kamino_lend_user_obligations`
-- `get_kamino_lend_user_rewards`
+## x402 paid requests
 
-## Solana writes
+The wallet layer also exposes:
 
-Current Solana write-capable tools:
+- x402 service discovery
+- x402 service detail inspection
+- unpaid request preview with `402 Payment Required` parsing
+- approval-gated paid request execution
 
-- `sign_wallet_message`
-- `transfer_sol`
-- `stake_sol_native`
-- `transfer_spl_token`
-- `swap_solana_tokens`
-- `claim_bags_fees`
-- `launch_bags_token`
-- `jupiter_earn_deposit`
-- `jupiter_earn_withdraw`
-- `kamino_lend_deposit`
-- `kamino_lend_withdraw`
-- `kamino_lend_borrow`
-- `kamino_lend_repay`
-- `close_empty_token_accounts`
-- `deactivate_solana_stake`
-- `withdraw_solana_stake`
-- `request_devnet_airdrop`
+## Temporarily disabled tools
 
-Most write flows use:
+Some Jupiter portfolio-oriented tools remain in the codebase but are currently hidden from the active agent surface:
 
-1. `preview`
-2. `prepare`
-3. `execute`
-
-With the following safety boundary:
-
-- `prepare` returns an execution plan only
-- `prepare` does not expose signed transaction bytes
-- `execute` requires a host-issued approval token
-
-## Bags
-
-Bags support currently includes:
-
-- token launch
-- fee claims
-- fee analytics
-
-The provider path uses the shared gateway, while signing still stays in the wallet layer.
-
-## Kamino and Jupiter Earn
-
-Current DeFi coverage includes:
-
-- Jupiter Earn discovery
-- Jupiter Earn position reads
-- Jupiter Earn earnings reads
-- Jupiter Earn deposit and withdraw flows
-- Kamino market discovery
-- Kamino reserve reads
-- Kamino user obligation reads
-- Kamino user reward reads
-- Kamino deposit, withdraw, borrow, and repay flows
-
-## Notes
-
-Some older Jupiter portfolio-oriented tools remain in the codebase for later re-enable, but the active wallet surface should be treated as the list above.
+- `get_jupiter_portfolio_platforms`
+- `get_jupiter_portfolio`
+- `get_jupiter_staked_jup`

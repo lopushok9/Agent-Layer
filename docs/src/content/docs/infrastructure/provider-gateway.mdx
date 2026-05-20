@@ -6,12 +6,30 @@ head: []
 
 # Provider Gateway
 
-`provider-gateway/` is the shared provider access layer used for:
+`provider-gateway/` is the shared non-custodial provider access layer.
+
+It exists to make onboarding easier without moving signing or custody out of `agent-wallet`.
+
+## Current uses
+
+Today the gateway is used for:
 
 - hosted Solana RPC defaults
-- Bags launch and fees provider access
-- Jupiter Earn provider access
+- shared mainnet RPC proxying when operator-owned RPC is not configured
+- Bags launch flows
+- Bags fee and claim-related reads
+- Jupiter Earn reads and transaction-building support
+- Houdini-backed private-payout support in production-oriented setups
 
-It stays non-custodial.
+## What it is not
 
-Signing remains outside the gateway.
+The gateway is not a wallet and not a signing service.
+
+Its boundary stays narrow:
+
+- provider access
+- routing
+- partner API mediation
+- shared infra defaults
+
+Signing, approval checks, local wallet state, and transaction verification remain in `agent-wallet`.

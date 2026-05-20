@@ -1,0 +1,52 @@
+---
+title: x402 Payments
+description: Paid API requests through the wallet layer.
+head: []
+---
+
+# x402 Payments
+
+AgentLayer now includes wallet-mediated x402 payment flows for paid APIs and paid HTTP endpoints.
+
+This surface is intentionally split into discovery, preview, and payment execution.
+
+## Current tools
+
+Read and discovery tools:
+
+- `x402_search_services`
+- `x402_get_service_details`
+- `x402_preview_request`
+
+Payment tool:
+
+- `x402_pay_request`
+
+## What this enables
+
+The wallet can now help with:
+
+- discovering x402-paid services
+- inspecting service metadata before spending
+- making an unpaid request first and parsing `402 Payment Required`
+- preparing or executing the exact payment-bound request through the active wallet backend
+
+## Current execution model
+
+This milestone is not symmetric across chains.
+
+Current behavior is:
+
+- Solana exact-buyer flow can execute through the wallet flow
+- EVM remains prepare-oriented for x402 and is not the primary execution path yet
+
+## Safety model
+
+x402 write behavior stays inside the same approval model as other wallet writes:
+
+- inspect the unpaid request first
+- bind approval to the exact previewed request
+- require a host-issued approval token before execute
+- keep the payment request scoped to the exact URL, method, headers, and body that were previewed
+
+The goal is to let agents pay for API access without turning the wallet layer into a generic unrestricted HTTP client.

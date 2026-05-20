@@ -6,83 +6,122 @@ head: []
 
 # Solana Wallet
 
-The Solana wallet backend lives in `agent-wallet/` and is the authoritative wallet layer for OpenClaw.
+The Solana backend in `agent-wallet/` is still the broadest wallet surface in AgentLayer.
 
-Current areas include:
+It now covers much more than simple transfers.
 
-- SOL and SPL transfers
-- swaps
-- staking
-- Bags launch
-- Bags fee claims and analytics
-- Jupiter Earn
-- Kamino lending
+## Current read surface
 
-## Current functionality
+Solana reads currently include:
 
-### Reads
+- wallet address, balance, and full token portfolio
+- token pricing through Jupiter
+- native staking validator discovery
+- native stake-account inspection
+- Bags claimable positions
+- Bags fee analytics
+- Jupiter Earn token discovery
+- Jupiter Earn position reads
+- Jupiter Earn earnings reads
+- Flash Trade market discovery
+- Flash Trade position reads
+- Kamino market, reserve, obligation, and rewards reads
+- LI.FI quote and status reads for cross-chain routes
 
-- wallet balance and address
-- portfolio and token price reads
-- staking validators and stake account state
-- Bags claimable positions and fee analytics
-- Jupiter Earn tokens, positions, and earnings
-- Kamino markets, reserves, obligations, and rewards
+## Current write surface
 
-### Writes
+Solana write-capable flows currently include:
 
-- SOL transfers
-- SPL transfers
-- message signing
-- swaps through Jupiter routing
-- native staking
-- stake deactivation and withdrawal
-- empty token account cleanup
-- Bags token launch
-- Bags fee claim
-- Jupiter Earn deposit and withdraw
-- Kamino deposit, withdraw, borrow, and repay
-- devnet airdrops
+- `sign_wallet_message`
+- `transfer_sol`
+- `transfer_spl_token`
+- `swap_solana_tokens`
+- `stake_sol_native`
+- `deactivate_solana_stake`
+- `withdraw_solana_stake`
+- `close_empty_token_accounts`
+- `request_devnet_airdrop`
 
-## Write flow
+On top of the base wallet flows, Solana also includes:
 
-Write-capable tools are designed around:
+- `claim_bags_fees`
+- `launch_bags_token`
+- `flash_trade_open_position`
+- `flash_trade_close_position`
+- `jupiter_earn_deposit`
+- `jupiter_earn_withdraw`
+- `kamino_lend_deposit`
+- `kamino_lend_withdraw`
+- `kamino_lend_borrow`
+- `kamino_lend_repay`
+- `swap_solana_privately`
+- `continue_solana_private_swap`
+- `get_solana_private_swap_status`
+- `swap_solana_lifi_cross_chain_tokens`
 
-1. `preview`
-2. `prepare`
-3. `execute`
+## Solana-specific functional areas
 
-The intended boundary is:
+### Bags
 
-- use `preview` first
-- use `prepare` for an execution plan only
-- use `execute` only with host approval
+Current Bags support includes:
 
-`prepare` does not expose signed transaction bytes to the agent.
+- claimable position reads
+- fee analytics
+- fee claims
+- token launch
+
+### Jupiter Earn
+
+Current Jupiter Earn support includes:
+
+- supported token discovery
+- position reads
+- earnings reads
+- deposit and withdraw flows
+
+### Kamino
+
+Current Kamino coverage includes:
+
+- market discovery
+- reserve reads
+- user obligation reads
+- user reward reads
+- deposit, withdraw, borrow, and repay flows
+
+### Flash Trade
+
+Current Flash Trade support includes:
+
+- perpetual market discovery
+- open position reads
+- perpetual position open flow
+- perpetual position close flow
+
+### Private payouts
+
+The Solana wallet now includes a Houdini-backed private payout path.
+
+The current implementation is intentionally narrow:
+
+- same-token private payouts only
+- initial coverage for `SOL -> SOL` and `USDC -> USDC`
+- `preview -> execute -> continue` flow instead of the usual full prepare step
+
+### Cross-chain
+
+Solana can now originate LI.FI-powered cross-chain swaps to supported EVM destinations when LI.FI returns a route.
 
 ## Provider model
 
-By default, users do not need to bring their own RPC to start.
+By default, Solana onboarding does not require operator-managed RPC.
 
-The stack can use:
+The current default path can use:
 
 - hosted provider gateway
 - shared Solana RPC
-- Bags provider access for launch and fees
+- Bags provider access
+- Jupiter Earn provider-gateway support
+- Houdini through the provider gateway in production-oriented setups
 
-Advanced users can still override the default path with their own RPC or their own gateway deployment.
-
-In practice:
-
-- shared RPC is the easiest onboarding path
-- a dedicated RPC is the better choice if you want faster or more predictable performance
-
-## Delegation model
-
-Much of the operational setup can be delegated to an agent or local installer.
-
-The user should still own:
-
-- runtime secrets
-- approval decisions
-- any mainnet-risk acceptance
+Bring your own RPC only when you want stronger operator control or better performance guarantees.

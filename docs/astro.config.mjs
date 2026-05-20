@@ -25,7 +25,9 @@ export default defineConfig({
             { label: "Architecture", slug: "wallet/architecture" },
             { label: "Capabilities", slug: "wallet/capabilities" },
             { label: "Bitcoin Wallet", slug: "wallet/bitcoin" },
-            { label: "Solana Wallet", slug: "wallet/solana" }
+            { label: "Solana Wallet", slug: "wallet/solana" },
+            { label: "EVM Wallet", slug: "wallet/evm" },
+            { label: "x402 Payments", slug: "wallet/x402" }
           ]
         },
         {

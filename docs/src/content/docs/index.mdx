@@ -8,29 +8,37 @@ head: []
 
 AgentLayer is a local-first wallet and finance stack for agents.
 
-The system includes:
+The current product surface is broader than the original Solana MVP. Today the stack combines:
 
-- a local wallet backend for OpenClaw
-- a separate local Bitcoin wallet built on WDK
-- shared provider access for Solana RPC and Bags
-- a finance and crypto MCP layer
-
-The design goal is simple:
-
-- keep secrets local
-- let agents use constrained wallet capabilities
-- preserve explicit approval for risky writes
+- a local wallet backend for OpenClaw and Hermes-style hosts
+- a Solana backend for transfers, swaps, staking, and Solana DeFi flows
+- a separate local Bitcoin runtime
+- a separate local EVM runtime for Ethereum and Base
+- a shared provider gateway for onboarding-friendly Solana and partner-provider access
+- wallet-mediated x402 paid API flows
+- a finance and crypto MCP layer for read-oriented market and chain data
 
 ## Main parts
 
-- `agent-wallet/` — authoritative wallet backend
-- `.openclaw/` — local OpenClaw bridge
-- `wdk-btc-wallet/` — local Bitcoin wallet service
-- `provider-gateway/` — shared provider access
+- `agent-wallet/` — authoritative wallet policy, approvals, signing, and execution layer
+- `.openclaw/` — thin OpenClaw bridge
+- `wdk-btc-wallet/` — localhost Bitcoin runtime
+- `wdk-evm-wallet/` — localhost EVM runtime
+- `provider-gateway/` — shared non-custodial provider access
 - `mcp-server/` — finance and crypto MCP server
+
+## Current feature areas
+
+At a high level, AgentLayer currently exposes:
+
+- cross-wallet basics like capability discovery, address lookup, and balance reads
+- Solana flows for SOL/SPL transfers, swaps, staking, portfolio reads, Bags, Flash Trade, Jupiter Earn, Kamino, private payouts, and LI.FI bridging
+- Bitcoin reads plus approval-gated BTC transfers
+- EVM flows for transfers, swaps, Aave, Lido, and LI.FI bridging
+- x402 discovery, request preview, and paid-request execution through the wallet layer
 
 ## Beta status
 
-AgentLayer is currently in beta.
+AgentLayer is still beta software.
 
-Use it carefully, test flows before relying on them, and expect changes as the stack evolves.
+The surface is expanding quickly, so treat these docs as a capability map of the current stack rather than a guarantee that every flow is production-hardened in every environment.

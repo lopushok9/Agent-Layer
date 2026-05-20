@@ -10,26 +10,54 @@ AgentLayer is built around one rule:
 
 the agent gets wallet capabilities, not wallet ownership.
 
-That means:
+That rule now spans three backend families:
+
+- Solana in `agent-wallet`
+- Bitcoin through the local `wdk-btc-wallet` runtime
+- EVM through the local `wdk-evm-wallet` runtime
+
+## Core safety boundaries
+
+The important boundaries are:
 
 - secret material stays local
 - signing stays in the wallet layer
-- risky writes require approval
+- risky writes require explicit approval
 - `prepare` does not expose signed transaction bytes to the agent
+- approval is bound to the exact operation that was previewed
 
 ## Core flow
 
-Write-capable operations use:
+Most write-capable operations use:
 
 1. `preview`
 2. `prepare`
 3. `execute`
 
-`execute` requires a host-issued approval token.
+The standard meaning is:
 
-## Components
+- `preview` explains what would happen
+- `prepare` returns an execution plan
+- `execute` requires a host-issued approval token
 
-- `agent-wallet` owns policy, approvals, signing, and execution
-- `.openclaw` stays a thin bridge layer
-- `provider-gateway` stays non-custodial
-- local wallet services handle local secret storage where needed
+There are a few deliberate exceptions. For example, the Houdini private-payout flow is optimized around `preview -> execute -> continue` because a separate prepare step adds little value there.
+
+## Runtime structure
+
+Current responsibilities are split like this:
+
+- `agent-wallet` owns policy, approvals, validation, signing, and execution decisions
+- `.openclaw` stays a thin host bridge
+- Hermes integration stays a bridge to the same Python backend, not a fork of wallet logic
+- `provider-gateway` stays non-custodial and provider-oriented
+- local BTC and EVM runtimes keep their own local wallet storage and host-only setup paths
+
+## Mainnet behavior
+
+Mainnet flows are intentionally stricter.
+
+For mainnet execution:
+
+- the runtime surfaces clearer confirmation context
+- approval tokens must include explicit mainnet confirmation
+- the host should restate the network, asset, amount, and destination before execution

@@ -6,19 +6,47 @@ head: []
 
 # Quick Start
 
-Most of the setup can be delegated to an agent or local installer.
+Most local setup can still be delegated to an agent or installer, but three things should remain user-owned:
 
-The user should still be the one who:
+- runtime secrets
+- wallet passwords
+- final approval for risky writes
 
-- chooses and stores the secrets
-- enters wallet passwords
-- confirms risky writes
+## Fastest install path
 
-The agent can handle the repetitive setup work around the wallet stack.
+The easiest current setup is still the bundled installer:
 
-## Bitcoin
+```bash
+npx @agentlayer.tech/wallet install --yes
+```
 
-Start the local Bitcoin wallet service:
+That lays down the local runtime, Python backend, helper services, and host config scaffolding.
+
+## Solana-first setup
+
+The default onboarding path is Solana.
+
+You provide the local runtime secrets:
+
+```bash
+export AGENT_WALLET_BOOT_KEY='...'
+export AGENT_WALLET_MASTER_KEY='...'
+export AGENT_WALLET_APPROVAL_SECRET='...'
+```
+
+Then install or finalize the local runtime.
+
+You do not need to bring your own Solana RPC just to get started. The default path already supports:
+
+- hosted shared Solana RPC through the provider gateway
+- Bags provider access
+- Jupiter Earn provider-gateway backed flows
+
+Bring your own RPC only if you want more control, higher limits, or more predictable performance.
+
+## Bitcoin setup
+
+Start the local Bitcoin runtime:
 
 ```bash
 cd wdk-btc-wallet && sh run-local.sh
@@ -30,70 +58,26 @@ Then connect it to OpenClaw:
 sh agent-wallet/scripts/setup_btc_wallet.sh
 ```
 
-That flow asks for:
+That flow creates or unlocks a local BTC wallet and binds it to the current host user.
 
-- `user-id`
-- `mainnet`, `testnet`, or `regtest`
-- a local wallet password
+## EVM setup
 
-What the user does:
-
-- chooses the password
-- keeps the password
-- optionally reveals the seed phrase later through the host-only recovery flow
-
-What can be delegated:
-
-- starting the local BTC wallet service
-- creating or unlocking the wallet
-- connecting it to OpenClaw
-- patching local config
-
-## Solana
-
-Install the wallet backend:
+Start or bootstrap the local EVM runtime:
 
 ```bash
-cd agent-wallet
-python3 scripts/install_agent_wallet.py
+sh agent-wallet/scripts/setup_evm_wallet.sh
 ```
 
-Provide the local runtime secrets:
+That host-side setup can:
 
-```bash
-export AGENT_WALLET_BOOT_KEY='...'
-export AGENT_WALLET_MASTER_KEY='...'
-export AGENT_WALLET_APPROVAL_SECRET='...'
-```
-
-What the user does:
-
-- generates or chooses the secrets
-- stores them safely
-- provides them locally to the runtime
-
-What can be delegated:
-
-- installing the wallet backend
-- creating local config
-- wiring OpenClaw to the wallet backend
-- handling the routine local setup steps
-
-You do not need to bring your own RPC just to get started.
-
-The default setup already includes:
-
-- shared Solana RPC through the hosted gateway
-- Bags provider access for launch and fees
-
-If you want faster or more predictable performance, you can also set your own RPC.
-
-Use the shared gateway for the easiest start.
-Use your own RPC if you want a more operator-controlled or faster setup.
+- start `wdk-evm-wallet`
+- create or unlock the local EVM vault wallet
+- bind the wallet for the local user
+- wire OpenClaw to `backend=wdk_evm_local`
 
 ## Safety model during setup
 
-The intended split is:
+The operational split is still the same:
 
 - the user owns secrets, passwords, and approvals
-- the agent automates setup and day-to-day wallet operations through constrained interfaces
+- the agent can automate installation, binding, and routine wallet operations through constrained tools

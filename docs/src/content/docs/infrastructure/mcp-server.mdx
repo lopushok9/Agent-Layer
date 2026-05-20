@@ -6,14 +6,40 @@ head: []
 
 # MCP Server
 
-`mcp-server/` is the finance and crypto MCP layer in AgentLayer.
+`mcp-server/` is the read-oriented finance and crypto layer in AgentLayer.
 
-It is used for structured read-oriented access to:
+Its role is to give agents structured market and chain context without turning the wallet backend into a general data scraper.
 
-- prices
-- DeFi data
-- wallet and token data
-- gas data
+## Current role
+
+The MCP server is used for:
+
+- token and coin prices
+- DeFi reads
+- wallet and token lookups
+- gas and fee context
+- chain and explorer lookups
+- search and discovery
+- sentiment and market summary surfaces
 - ERC-8004 agent discovery
 
-It complements the wallet stack rather than replacing it.
+## Boundary with the wallet
+
+The wallet stack remains the write-capable layer.
+
+Use `mcp-server` when the job is:
+
+- inspect
+- compare
+- quote
+- search
+- summarize
+
+Use `agent-wallet` when the job is:
+
+- sign
+- transfer
+- stake
+- swap
+- bridge
+- approve a payment

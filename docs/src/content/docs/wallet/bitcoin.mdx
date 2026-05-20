@@ -6,37 +6,49 @@ head: []
 
 # Bitcoin Wallet
 
-AgentLayer uses a separate local Bitcoin wallet service built on Tether WDK.
+AgentLayer uses a separate local Bitcoin runtime built on Tether WDK.
 
-Key properties:
+The Bitcoin path stays deliberately isolated from the Solana and EVM signers.
 
-- encrypted local vault
-- localhost-only service
+## Current model
+
+The BTC backend is built around:
+
+- encrypted local vault storage
+- localhost-only service access
+- host-managed password entry
 - local bearer-token auth between trusted components
-- host-managed password flow
-- seed phrase stays out of the normal agent path
+- seed phrase recovery kept outside the normal agent path
 
-This means the user keeps the secret, while the agent works through wallet capabilities.
+## Current BTC functionality
 
-## User flow
+The active BTC tool surface is intentionally small:
 
-1. start `wdk-btc-wallet`
-2. run `setup_btc_wallet.sh`
-3. create or unlock a wallet
-4. let the agent use the wallet through `walletId`-based capabilities
+- `get_wallet_capabilities`
+- `get_wallet_address`
+- `get_wallet_balance`
+- `get_btc_transfer_history`
+- `get_btc_fee_rates`
+- `get_btc_max_spendable`
+- `transfer_btc`
 
-## Agent flow
+This gives the agent enough coverage for:
 
-The agent can:
+- inspecting the connected BTC wallet
+- reading transaction history
+- estimating spendable amounts and fees
+- preparing and sending BTC transfers with approval
 
-- get wallet address
-- read balances
-- read transfer history
-- estimate fees
-- preview and execute BTC transfers through approval-gated flow
+## Safety boundary
 
-The agent does not:
+BTC transfers follow the same approval pattern as the rest of the wallet stack:
 
-- see the wallet password
-- see the seed phrase
-- create recovery exports during normal operation
+1. `preview`
+2. `prepare`
+3. `execute`
+
+The user still owns:
+
+- the wallet password
+- any recovery flow
+- final approval for sending funds

@@ -1,0 +1,87 @@
+---
+title: EVM Wallet
+description: Current EVM wallet surface in AgentLayer.
+head: []
+---
+
+# EVM Wallet
+
+AgentLayer includes a separate local EVM backend built around `wdk-evm-wallet`.
+
+It is exposed through `agent-wallet` as a constrained wallet surface rather than a raw signer.
+
+## Supported networks
+
+Current host-facing EVM support is centered on:
+
+- Ethereum mainnet
+- Base mainnet
+
+The runtime can inspect or switch the active EVM network through:
+
+- `get_evm_network`
+- `set_evm_network`
+
+## Core EVM functionality
+
+Available read flows include:
+
+- wallet address and balance
+- ERC-20 token balances
+- ERC-20 token metadata
+- fee-rate reads
+- transaction receipt lookup
+
+Available write-capable flows include:
+
+- native asset transfers
+- ERC-20 token transfers
+- ERC-20 swaps on supported mainnet networks
+- cross-chain swaps from Ethereum/Base through LI.FI
+
+## DeFi support
+
+Current EVM DeFi surface includes:
+
+- Aave V3 account reads
+- Aave reserve catalog reads
+- Aave position reads
+- Aave supply, withdraw, borrow, and repay flows
+
+On Ethereum mainnet, the wallet also exposes Lido flows:
+
+- Lido staking overview
+- stETH and wstETH position reads
+- stake ETH for wstETH
+- wrap stETH
+- unwrap wstETH
+- withdrawal queue request reads
+- withdrawal request and claim flows
+
+## Swaps and bridging
+
+Two separate cross-chain layers exist today:
+
+- `swap_evm_tokens` for EVM-native swaps on supported mainnet networks
+- `swap_evm_lifi_cross_chain_tokens` for EVM-origin LI.FI routes to Ethereum, Base, or Solana
+
+Shared LI.FI discovery and status tools are also available:
+
+- `get_lifi_supported_chains`
+- `get_lifi_quote`
+- `get_lifi_transfer_status`
+
+## Safety model
+
+Sensitive EVM actions follow the same wallet rule as Solana:
+
+1. `preview`
+2. `prepare`
+3. `execute`
+
+The important boundary is unchanged:
+
+- `prepare` returns an execution plan only
+- `prepare` does not return signed transaction bytes
+- `execute` requires a host-issued approval token
+- mainnet execution requires explicit final confirmation
