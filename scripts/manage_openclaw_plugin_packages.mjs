@@ -12,14 +12,6 @@ const packageSpecs = [
       { from: "index.ts", to: "dist/index.js" },
     ],
   },
-  {
-    name: "@agentlayertech/pay-bridge-plugin",
-    dir: path.join(repoRoot, ".openclaw/extensions/pay-bridge"),
-    copies: [
-      { from: "index.ts", to: "dist/index.js" },
-      { from: "core.mjs", to: "dist/core.mjs" },
-    ],
-  },
 ];
 
 function expectedOpenClawBlock(runtimeExtensions) {

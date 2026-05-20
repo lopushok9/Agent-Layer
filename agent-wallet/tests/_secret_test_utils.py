@@ -21,6 +21,7 @@ def install_test_sealed_secrets(
     master_key: str | None = None,
     approval_secret: str | None = None,
     private_key: str | None = None,
+    evm_wallet_password: str | None = None,
 ) -> str:
     """Install a sealed runtime secret bundle for smoke tests."""
     os.environ["OPENCLAW_HOME"] = str(openclaw_home)
@@ -35,6 +36,8 @@ def install_test_sealed_secrets(
         secrets["approval_secret"] = approval_secret
     if private_key is not None:
         secrets["private_key"] = private_key
+    if evm_wallet_password is not None:
+        secrets["wdk_evm_wallet_password"] = evm_wallet_password
     if secrets:
         seal_keys(boot_key, secrets)
     return boot_key

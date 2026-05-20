@@ -18,6 +18,7 @@ def main() -> None:
 
         shutil.rmtree(temp_home)
     os.environ["OPENCLAW_HOME"] = str(temp_home)
+    os.environ["OPENCLAW_EVM_WDK_WALLET_ROOT"] = str(Path(__file__).resolve().parents[2] / "wdk-evm-wallet")
 
     with FakeWdkEvmWalletServer(network="base-sepolia") as server:
         os.environ["AGENT_WALLET_BACKEND"] = "wdk_evm_local"
@@ -27,6 +28,7 @@ def main() -> None:
         os.environ["WDK_EVM_ACCOUNT_INDEX"] = "0"
         os.environ["SOLANA_NETWORK"] = "sepolia"
 
+        from _secret_test_utils import install_test_sealed_secrets  # noqa: E402
         from agent_wallet.evm_user_wallets import (  # noqa: E402
             create_user_evm_wallet,
             get_user_evm_wallet_binding,
@@ -34,6 +36,11 @@ def main() -> None:
         )
         from agent_wallet.openclaw_runtime import onboard_openclaw_user_wallet  # noqa: E402
 
+        install_test_sealed_secrets(
+            temp_home,
+            boot_key="runtime-evm-boot-key",
+            evm_wallet_password="runtime-evm-password",
+        )
         created = create_user_evm_wallet(
             "runtime-evm@example.com",
             password="runtime-evm-password",
@@ -42,14 +49,7 @@ def main() -> None:
         )
         assert created["wallet_id"] == server.wallet_id
 
-        server.error_responses["POST /v1/evm/address/resolve"] = {
-            "status": 400,
-            "payload": {
-                "ok": False,
-                "error": "Wallet is locked.",
-                "error_code": "wallet_locked",
-            },
-        }
+        server.unlocked_wallet_ids.clear()
 
         context = onboard_openclaw_user_wallet("runtime-evm@example.com", network="sepolia")
         session = context.session_metadata()
@@ -67,8 +67,7 @@ def main() -> None:
         assert "transfer_evm_native" in session.tool_names
         assert "transfer_sol" not in session.tool_names
         assert bundle["session"]["address"] == session.address
-
-        server.error_responses.pop("POST /v1/evm/address/resolve", None)
+        assert server.wallet_id in server.unlocked_wallet_ids
 
         autobind_user = "runtime-evm-autobind@example.com"
         created_autobind = create_user_evm_wallet(
@@ -91,6 +90,15 @@ def main() -> None:
         assert autobind_binding["wallet_id"] == created_autobind["wallet_id"]
         assert autobind_binding["address"] == created_autobind["address"]
         assert resolve_user_evm_wallet_path(autobind_user, network="base-sepolia").exists() is True
+
+        autoprovision_user = "runtime-evm-autoprovision@example.com"
+        autoprovision_context = onboard_openclaw_user_wallet(autoprovision_user, network="base")
+        autoprovision_session = autoprovision_context.session_metadata()
+        autoprovision_binding = get_user_evm_wallet_binding(autoprovision_user, network="base")
+
+        assert autoprovision_session.network == "base"
+        assert autoprovision_binding["wallet_id"] == server.wallet_id
+        assert resolve_user_evm_wallet_path(autoprovision_user, network="ethereum").exists() is True
 
     print("smoke_openclaw_evm_runtime: ok")
 

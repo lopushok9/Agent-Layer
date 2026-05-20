@@ -33,6 +33,7 @@ INCLUDED_TOP_LEVEL_DIRS = [
 EXCLUDED_EXACT_RELATIVE_PATHS = {
     ".openclaw/extensions-local",
     ".openclaw/openclaw.local.example.json",
+    ".openclaw/extensions/pay-bridge",
 }
 EXCLUDED_DIR_NAMES = {
     ".git",

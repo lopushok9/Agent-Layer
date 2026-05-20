@@ -102,6 +102,35 @@ def _unwrap_payload(response: httpx.Response) -> dict[str, Any]:
     return data
 
 
+def _unwrap_list_payload(response: httpx.Response) -> list[dict[str, Any]]:
+    try:
+        payload = response.json()
+    except Exception as exc:  # pragma: no cover - defensive
+        raise WalletBackendError(
+            f"wdk-evm-wallet returned a non-JSON response ({response.status_code}).",
+            code="network_unavailable",
+            details={
+                "service": "wdk-evm-wallet",
+                "http_status": response.status_code,
+            },
+        ) from exc
+    if response.status_code >= 400 or payload.get("ok") is False:
+        detail = payload.get("error") or f"HTTP {response.status_code}"
+        raise WalletBackendError(
+            str(detail),
+            code=str(payload.get("error_code") or "").strip() or None,
+            details=_error_details_from_payload(payload),
+        )
+    data = payload.get("data")
+    if not isinstance(data, list):
+        raise WalletBackendError("wdk-evm-wallet returned an invalid list response payload.")
+    wallets: list[dict[str, Any]] = []
+    for item in data:
+        if isinstance(item, dict):
+            wallets.append(dict(item))
+    return wallets
+
+
 class WdkEvmLocalClient:
     """Small client for the local EVM wallet service."""
 
@@ -203,3 +232,26 @@ class WdkEvmLocalClient:
                 details={"service": "wdk-evm-wallet", "path": path},
             ) from exc
         return _unwrap_payload(response)
+
+    def list_wallets_sync(self) -> list[dict[str, Any]]:
+        try:
+            with httpx.Client(
+                timeout=float(settings.http_timeout),
+                headers=self._headers,
+                follow_redirects=False,
+                trust_env=False,
+            ) as client:
+                response = client.get(f"{self.base_url}/v1/evm/wallets")
+        except httpx.TimeoutException as exc:
+            raise WalletBackendError(
+                "wdk-evm-wallet request timed out.",
+                code="network_unavailable",
+                details={"service": "wdk-evm-wallet", "path": "/v1/evm/wallets"},
+            ) from exc
+        except httpx.RequestError as exc:
+            raise WalletBackendError(
+                f"wdk-evm-wallet request failed: {exc}",
+                code="network_unavailable",
+                details={"service": "wdk-evm-wallet", "path": "/v1/evm/wallets"},
+            ) from exc
+        return _unwrap_list_payload(response)

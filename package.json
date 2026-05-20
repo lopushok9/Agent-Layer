@@ -1,6 +1,6 @@
 {
   "name": "@agentlayer.tech/wallet",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "description": "NPM installer for the OpenClaw Agent Wallet local runtime.",
   "type": "module",
   "repository": {
@@ -40,7 +40,6 @@
     "agent-wallet/pyproject.toml",
     ".openclaw/AGENTS.md",
     ".openclaw/extensions/agent-wallet/",
-    ".openclaw/extensions/pay-bridge/",
     "hermes/plugins/agent_wallet/",
     "wdk-btc-wallet/src/",
     "wdk-btc-wallet/bootstrap.sh",

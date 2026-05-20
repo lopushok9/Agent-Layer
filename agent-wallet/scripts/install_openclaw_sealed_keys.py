@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import secrets as py_secrets
 import sys
 from pathlib import Path
 
@@ -49,12 +50,15 @@ def _collect_secret_updates() -> dict[str, str]:
     master_key = os.getenv("AGENT_WALLET_MASTER_KEY", "").strip()
     approval_secret = os.getenv("AGENT_WALLET_APPROVAL_SECRET", "").strip()
     private_key = os.getenv("SOLANA_AGENT_PRIVATE_KEY", "").strip()
+    evm_wallet_password = os.getenv("WDK_EVM_WALLET_PASSWORD", "").strip()
     if master_key:
         updates["master_key"] = master_key
     if approval_secret:
         updates["approval_secret"] = approval_secret
     if private_key:
         updates["private_key"] = private_key
+    if evm_wallet_password:
+        updates["wdk_evm_wallet_password"] = evm_wallet_password
     return updates
 
 
@@ -80,6 +84,10 @@ def main() -> None:
     sealed_path = resolve_sealed_keys_path()
     existing = unseal_keys(boot_key) if sealed_path.exists() and not args.replace else {}
     secrets = {**existing, **updates}
+    generated_keys: list[str] = []
+    if "wdk_evm_wallet_password" not in secrets:
+        secrets["wdk_evm_wallet_password"] = py_secrets.token_urlsafe(24)
+        generated_keys.append("wdk_evm_wallet_password")
     if not secrets:
         raise SystemExit(
             "No secrets provided. Set AGENT_WALLET_MASTER_KEY, AGENT_WALLET_APPROVAL_SECRET, "
@@ -93,7 +101,7 @@ def main() -> None:
                 "ok": True,
                 "path": str(path),
                 "stored_keys": sorted(secrets.keys()),
-                "updated_keys": sorted(updates.keys()),
+                "updated_keys": sorted(set(updates.keys()) | set(generated_keys)),
                 "replaced": bool(args.replace),
             },
             indent=2,

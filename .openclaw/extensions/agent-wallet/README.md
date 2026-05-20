@@ -77,7 +77,7 @@ The ClawHub plugin package only installs the native OpenClaw plugin. It expects 
 
 If that runtime is not present, set `plugins.entries.agent-wallet.config.packageRoot` explicitly.
 
-That installs the Python backend, Node dependencies for the local BTC/EVM runtimes, and patches the OpenClaw plugin config. Wallet creation, unlock, and local service start stay as separate host-side steps.
+That installs the Python backend, Node dependencies for the local BTC/EVM runtimes, and patches the OpenClaw plugin config. Solana stays ready immediately; EVM readiness can now be auto-healed during normal wallet switching when the runtime has sealed local vault credentials.
 
 For self-hosted installs, prefer `SOLANA_RPC_URL` / `SOLANA_RPC_URLS` in local env and treat the plugin `rpcUrl` / `rpcUrls` fields as fallback only. If the local runtime exposes `ALCHEMY_API_KEY` or `HELIUS_API_KEY`, the wallet can derive the Solana RPC URL automatically for `mainnet` or `devnet`. Local env always takes precedence over `openclaw.json`.
 
@@ -88,12 +88,13 @@ Important:
 - For a local official OpenClaw install, `userId` should represent the wallet owner for that agent install.
 - The public OpenClaw plugin docs do not document a per-request end-user identifier in `registerTool(...).execute(...)`, so dynamic multi-user wallet selection is intentionally kept in the Python/runtime layer, not inside the TypeScript plugin itself.
 - Helper scripts in `agent-wallet/scripts/` are generic patch/finalize utilities and no longer assume a specific local username, path, or temporary master key.
-- The OpenClaw plugin API in this repo exposes tool registration, not host password prompts, so BTC and EVM wallet create/unlock remain host-shell or CLI flows outside the agent tool surface.
+- The OpenClaw plugin API in this repo exposes tool registration, not host password prompts. EVM wallet create/unlock still is not a public agent tool, but the runtime can now auto-create or auto-unlock the local EVM wallet during `set_wallet_backend` or EVM tool calls when `sealed_keys.json` contains the local EVM vault password.
 - For a one-command local BTC onboarding path, use `agent-wallet/scripts/bootstrap_openclaw_btc.py`, which both sets up the BTC wallet binding and patches local OpenClaw config for `backend=wdk_btc_local`.
 - The BTC flow now only supports local service URLs (`127.0.0.1` / `localhost` / `::1`).
 - The local BTC service is protected with a bearer token loaded from `~/.openclaw/wdk-btc-wallet/local-auth-token`, not from plugin config JSON.
 - When the BTC service URL is local, that bootstrap script can also auto-start `wdk-btc-wallet` before patching OpenClaw config.
 - The EVM flow also only supports local service URLs (`127.0.0.1` / `localhost` / `::1`) and uses a bearer token loaded from `~/.openclaw/wdk-evm-wallet/local-auth-token`.
+- The installer now provisions a sealed local EVM vault password under `sealed_keys.json` by default, and host-side EVM setup helpers refresh that sealed value whenever the operator enters a new password.
 - The EVM tool surface is intentionally narrow: Velora swap quote/execute, Aave V3 account/reserve/position flows, native transfers, ERC-20 transfers, fee quotes, and receipt lookup only. No arbitrary calldata, standalone approvals, or generic contract execution are exposed to the agent.
 - Velora swap and Aave V3 support are currently limited to `ethereum` and `base`. Test carefully because the upstream WDK protocol packages are still beta.
 - Agents can call `set_wallet_backend` to switch the active wallet for the current OpenClaw plugin session between Solana, EVM, and Bitcoin. This does not edit `openclaw.json`; plugin config remains the startup default.

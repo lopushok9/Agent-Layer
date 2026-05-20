@@ -8,7 +8,7 @@ from typing import Any
 from agent_wallet.approval import issue_approval_token
 from agent_wallet.btc_user_wallets import get_user_btc_wallet_binding
 from agent_wallet.config import settings
-from agent_wallet.evm_user_wallets import ensure_user_evm_wallet_binding, get_user_evm_wallet_binding
+from agent_wallet.evm_user_wallets import ensure_user_evm_wallet_ready
 from agent_wallet.models import OpenClawWalletSessionMetadata
 from agent_wallet.openclaw_adapter import OpenClawWalletAdapter
 from agent_wallet.plugin_bundle import build_openclaw_plugin_bundle
@@ -173,38 +173,17 @@ def onboard_openclaw_user_wallet(
             "base_sepolia": "base-sepolia",
         }
         effective_network = aliases.get(requested_network, requested_network)
-        binding: dict[str, Any] | None = None
         wallet_id = str(wdk_evm_wallet_id or settings.wdk_evm_wallet_id).strip()
         if not service_url:
             raise WalletBackendError("wdk_evm_service_url is required for backend=wdk_evm_local.")
-        if wallet_id:
-            try:
-                binding = get_user_evm_wallet_binding(user_id, network=effective_network)
-            except WalletBackendError:
-                binding = ensure_user_evm_wallet_binding(
-                    user_id,
-                    network=effective_network,
-                    service_url=service_url,
-                    wallet_id=wallet_id,
-                    account_index=account_index,
-                )
-            else:
-                if str(binding.get("wallet_id") or "").strip() != wallet_id:
-                    binding = ensure_user_evm_wallet_binding(
-                        user_id,
-                        network=effective_network,
-                        service_url=service_url,
-                        wallet_id=wallet_id,
-                        account_index=account_index,
-                    )
-        else:
-            binding = ensure_user_evm_wallet_binding(
-                user_id,
-                network=effective_network,
-                service_url=service_url,
-                account_index=account_index,
-            )
-            wallet_id = str(binding.get("wallet_id") or "").strip()
+        binding = ensure_user_evm_wallet_ready(
+            user_id,
+            network=effective_network,
+            service_url=service_url,
+            wallet_id=wallet_id or None,
+            account_index=account_index,
+        )
+        wallet_id = str(binding.get("wallet_id") or wallet_id).strip()
         if not wallet_id:
             raise WalletBackendError(
                 "wdk_evm_wallet_id is required for backend=wdk_evm_local, or create a bound user EVM wallet first."
@@ -212,17 +191,7 @@ def onboard_openclaw_user_wallet(
 
         client = WdkEvmLocalClient(service_url)
         wallet_meta = client.post_sync("/v1/evm/wallets/get", {"walletId": wallet_id})
-        resolved_address = str((binding or {}).get("address") or "").strip()
-        if not resolved_address:
-            address_payload = client.post_sync(
-                "/v1/evm/address/resolve",
-                {
-                    "walletId": wallet_id,
-                    "accountIndex": account_index,
-                    "network": effective_network,
-                },
-            )
-            resolved_address = str(address_payload.get("address") or "").strip()
+        resolved_address = str(binding.get("address") or "").strip()
         backend = WdkEvmLocalWalletBackend(
             service_url=service_url,
             wallet_id=wallet_id,

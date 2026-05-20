@@ -405,6 +405,7 @@ For the local EVM backend (`backend=wdk_evm_local`), the lifecycle mirrors the B
 - the EVM service is localhost-only and no longer accepts remote service URLs through the OpenClaw EVM flow
 - `agent-wallet` talks to it through a local bearer token loaded from `~/.openclaw/wdk-evm-wallet/local-auth-token`
 - `agent-wallet` stores only a per-user EVM wallet binding under `~/.openclaw/users/<normalized-user-id>/wallets/evm-<network>-agent.json`
+- the runtime can auto-create missing EVM bindings or auto-unlock the local vault during ordinary OpenClaw switching/tool calls when `sealed_keys.json` contains `wdk_evm_wallet_password`
 - supported EVM networks are `ethereum`, `sepolia`, `base`, and `base-sepolia`
 - OpenClaw-facing EVM tools accept an optional per-call `network` override for `ethereum` or `base`, so the agent can switch between the two mainnet EVM paths without editing host config
 - EVM `get_wallet_balance` now returns an enriched portfolio-style payload with native balance, discovered ERC-20 balances, and USD values when token discovery and pricing are available
@@ -429,6 +430,7 @@ That wrapper:
 - can auto-start `wdk-evm-wallet/run-local.sh` if the local service is not already healthy
 - creates or unlocks the local EVM wallet binding
 - also binds the paired EVM network by default: `ethereum <-> base`, `sepolia <-> base-sepolia`
+- stores the entered EVM vault password into `sealed_keys.json` when `AGENT_WALLET_BOOT_KEY` is available, so later OpenClaw wallet switching can auto-raise the EVM backend without another password prompt
 - patches OpenClaw config to `backend=wdk_evm_local`
 
 Example host-side EVM wallet creation:
@@ -453,6 +455,7 @@ Per-user wallets are now encrypted at rest in one hardened mode:
 
 Do not store `masterKey`, `privateKey`, or approval secrets in plugin config JSON or direct runtime environment variables.
 `AGENT_WALLET_MASTER_KEY`, `AGENT_WALLET_APPROVAL_SECRET`, and `SOLANA_AGENT_PRIVATE_KEY` are now provisioning-only inputs for installer/admin scripts and are rejected by the runtime.
+The installer also provisions a sealed `wdk_evm_wallet_password` by default so greenfield EVM wallet setup can happen automatically on first switch.
 Create or update that sealed file with:
 
 ```bash

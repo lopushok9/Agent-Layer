@@ -368,6 +368,17 @@ def resolve_solana_private_key() -> str:
     )
 
 
+def resolve_evm_wallet_password() -> str:
+    """Resolve the local EVM vault password from env or the sealed secret store."""
+    direct = os.getenv("WDK_EVM_WALLET_PASSWORD", "").strip()
+    if direct:
+        return direct
+    return _resolve_sealed_secret(
+        "wdk_evm_wallet_password",
+        "evm_wallet_password",
+    )
+
+
 def use_encrypted_user_wallets() -> bool:
     """Per-user wallet files are always encrypted in the hardened runtime."""
     return True

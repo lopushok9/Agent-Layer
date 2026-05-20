@@ -11,7 +11,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from _secret_test_utils import install_test_sealed_secrets  # noqa: E402
 from _wdk_evm_test_server import FakeWdkEvmWalletServer  # noqa: E402
+from agent_wallet.sealed_keys import unseal_keys  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "manage_openclaw_evm_wallet.py"
@@ -36,7 +38,11 @@ def main() -> None:
         temp_home = Path("/tmp/openclaw-evm-script-smoke")
         if temp_home.exists():
             shutil.rmtree(temp_home)
-        os.environ["OPENCLAW_HOME"] = str(temp_home)
+        install_test_sealed_secrets(
+            temp_home,
+            boot_key="script-evm-boot-key",
+            master_key="script-evm-master-key",
+        )
         os.environ["WDK_EVM_LOCAL_TOKEN"] = server.auth_token
         os.environ["WDK_EVM_SERVICE_URL"] = server.base_url
 
@@ -60,6 +66,7 @@ def main() -> None:
         assert setup_created["wallet"]["wallet_id"] == server.wallet_id
         assert setup_created["openclaw_config_hint"]["backend"] == "wdk_evm_local"
         assert setup_created["paired_binding"]["network"] == "ethereum"
+        assert unseal_keys("script-evm-boot-key")["wdk_evm_wallet_password"] == "script-evm-password"
 
         binding = _run(
             "get",

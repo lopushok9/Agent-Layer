@@ -12,11 +12,10 @@ The public install command is:
 npx @agentlayer.tech/wallet install --yes
 ```
 
-The repo also ships two native OpenClaw plugin packages for ClawHub:
+The repo also ships a native OpenClaw plugin package for ClawHub:
 
 ```text
 @agentlayertech/agent-wallet-plugin
-@agentlayertech/pay-bridge-plugin
 ```
 
 ## When npm Publishes
@@ -200,7 +199,6 @@ Dry-run the package contents from each plugin directory:
 
 ```bash
 (cd .openclaw/extensions/agent-wallet && npm pack --dry-run)
-(cd .openclaw/extensions/pay-bridge && npm pack --dry-run)
 ```
 
 Publish to ClawHub with the package-specific command documented by OpenClaw:
@@ -208,16 +206,12 @@ Publish to ClawHub with the package-specific command documented by OpenClaw:
 ```bash
 clawhub package publish .openclaw/extensions/agent-wallet --dry-run
 clawhub package publish .openclaw/extensions/agent-wallet
-
-clawhub package publish .openclaw/extensions/pay-bridge --dry-run
-clawhub package publish .openclaw/extensions/pay-bridge
 ```
 
 Users then install them natively through OpenClaw:
 
 ```bash
 openclaw plugins install clawhub:@agentlayertech/agent-wallet-plugin
-openclaw plugins install clawhub:@agentlayertech/pay-bridge-plugin
 ```
 
 GitHub Actions can publish the same packages automatically from tags and manual
@@ -231,14 +225,13 @@ CLAWHUB_TOKEN
 
 Workflow behavior:
 
-- `pull_request`: packs both plugins and runs ClawHub `--dry-run`
+- `pull_request`: packs the plugin and runs ClawHub `--dry-run`
 - `workflow_dispatch`: publishes or dry-runs based on the `dry_run` input
-- `push` on `v*` tags: publishes both plugins automatically
+- `push` on `v*` tags: publishes the plugin automatically
 
 The workflow currently publishes:
 
 - `.openclaw/extensions/agent-wallet` as `bundle-plugin`
-- `.openclaw/extensions/pay-bridge` as `code-plugin`
 
 `agent-wallet` stays on `bundle-plugin` because that package name was first
 published to ClawHub with that family, and ClawHub does not allow family
@@ -298,17 +291,16 @@ It publishes these ClawHub packages:
 
 ```text
 @agentlayertech/agent-wallet-plugin
-@agentlayertech/pay-bridge-plugin
 ```
 
 ### Triggers
 
 - `pull_request`
-  - runs ClawHub publish in `--dry-run` mode for both plugin packages
+  - runs ClawHub publish in `--dry-run` mode for the plugin package
 - `workflow_dispatch`
   - supports manual runs with a `dry_run` boolean input
 - `push` on git tags matching `v*`
-  - publishes both plugin packages to ClawHub
+  - publishes the plugin package to ClawHub
 
 ### Required secret
 
@@ -330,7 +322,6 @@ publisher access to:
 The workflow currently publishes:
 
 - `.openclaw/extensions/agent-wallet` as `bundle-plugin`
-- `.openclaw/extensions/pay-bridge` as `code-plugin`
 
 `agent-wallet` remains on `bundle-plugin` because the package
 `@agentlayertech/agent-wallet-plugin` was first created in ClawHub with that
@@ -346,7 +337,6 @@ If you want one git tag to publish both npm and ClawHub surfaces together:
 package.json
 agent-wallet/pyproject.toml
 .openclaw/extensions/agent-wallet/package.json
-.openclaw/extensions/pay-bridge/package.json
 ```
 
 2. Commit the release version bump.

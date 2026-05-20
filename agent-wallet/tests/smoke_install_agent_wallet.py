@@ -92,9 +92,7 @@ def main() -> None:
     ).read_text(encoding="utf-8")
     assert "/v1/evm/lido/overview/get" in synced_server.read_text(encoding="utf-8")
     runtime_agent_wallet_dist = runtime_root / ".openclaw" / "extensions" / "agent-wallet" / "dist" / "index.js"
-    runtime_pay_bridge_dist = runtime_root / ".openclaw" / "extensions" / "pay-bridge" / "dist" / "index.js"
     assert runtime_agent_wallet_dist.exists()
-    assert runtime_pay_bridge_dist.exists()
     assert runtime_env.read_text(encoding="utf-8") == (
         "PROVIDER_GATEWAY_URL=https://preserved.example\n"
         "AGENT_WALLET_BOOT_KEY_FILE=/tmp/preserved-boot-key\n"

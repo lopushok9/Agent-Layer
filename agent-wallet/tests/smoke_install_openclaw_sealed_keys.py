@@ -41,10 +41,15 @@ def main() -> None:
 
     first = _run_script(env)
     assert first["ok"] is True
-    assert first["updated_keys"] == ["approval_secret", "master_key"]
+    assert set(first["updated_keys"]) == {
+        "approval_secret",
+        "master_key",
+        "wdk_evm_wallet_password",
+    }
     sealed = unseal_keys(env["AGENT_WALLET_BOOT_KEY"])
     assert sealed["master_key"] == "master-from-installer"
     assert sealed["approval_secret"] == "approval-from-installer"
+    assert sealed["wdk_evm_wallet_password"]
 
     env.pop("AGENT_WALLET_MASTER_KEY", None)
     env["SOLANA_AGENT_PRIVATE_KEY"] = "private-from-installer"
@@ -61,7 +66,9 @@ def main() -> None:
     third = _run_script(env, "--replace")
     assert third["replaced"] is True
     sealed = unseal_keys(env["AGENT_WALLET_BOOT_KEY"])
-    assert sealed == {"master_key": "replacement-master"}
+    assert sealed["master_key"] == "replacement-master"
+    assert sealed["wdk_evm_wallet_password"]
+    assert set(sealed.keys()) == {"master_key", "wdk_evm_wallet_password"}
     assert resolve_sealed_keys_path().exists()
 
     print("smoke_install_openclaw_sealed_keys: ok")

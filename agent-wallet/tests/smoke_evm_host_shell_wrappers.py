@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from _secret_test_utils import install_test_sealed_secrets  # noqa: E402
 from _wdk_evm_test_server import FakeWdkEvmWalletServer  # noqa: E402
+from agent_wallet.sealed_keys import unseal_keys  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 SETUP_SCRIPT = ROOT / "scripts" / "setup_evm_wallet.sh"
@@ -57,6 +58,7 @@ def main() -> None:
         assert setup_payload["ok"] is True
         assert setup_payload["evm_setup"]["wallet"]["wallet_id"] == server.wallet_id
         assert setup_payload["evm_setup"]["paired_binding"]["network"] == "ethereum"
+        assert unseal_keys("test-boot-key-for-evm-host-shell")["wdk_evm_wallet_password"] == "host-shell-evm-password"
 
     print("smoke_evm_host_shell_wrappers: ok")
 

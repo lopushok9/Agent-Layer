@@ -113,5 +113,4 @@ Then publish each plugin package with:
 
 ```bash
 clawhub package publish .openclaw/extensions/agent-wallet
-clawhub package publish .openclaw/extensions/pay-bridge
 ```

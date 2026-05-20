@@ -43,7 +43,6 @@ def main() -> None:
     _write(source_root / "wdk-btc-wallet" / "node_modules" / "ignored.txt", "ignored\n")
     _write(source_root / "wdk-evm-wallet" / "package.json", '{"name":"wdk-evm-wallet"}\n')
     _write(source_root / ".openclaw" / "extensions" / "agent-wallet" / "index.ts", "export {};\n")
-    _write(source_root / ".openclaw" / "extensions" / "pay-bridge" / "index.ts", "export {};\n")
     _write(source_root / ".openclaw" / "extensions-local" / "cache.txt", "ignored\n")
     _write(source_root / "mcp-server" / "server.py", "print('mcp')\n")
     _write(source_root / "provider-gateway" / "requirements.txt", "httpx\n")
@@ -83,7 +82,6 @@ def main() -> None:
     assert f"{bundle_root}/wdk-btc-wallet/package.json" in names
     assert f"{bundle_root}/wdk-evm-wallet/package.json" in names
     assert f"{bundle_root}/.openclaw/extensions/agent-wallet/index.ts" in names
-    assert f"{bundle_root}/.openclaw/extensions/pay-bridge/index.ts" in names
     assert f"{bundle_root}/agent-a2a-gateway/requirements.txt" in names
     assert f"{bundle_root}/bundle-manifest.json" in names
 

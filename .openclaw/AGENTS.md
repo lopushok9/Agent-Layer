@@ -7,22 +7,16 @@ These instructions apply to the entire `.openclaw/` tree.
 This tree contains local OpenClaw host-side workspace assets. In the current repo, its main responsibilities are:
 
 - the `agent-wallet` extension that bridges OpenClaw to the authoritative Python `agent-wallet` backend
-- the `pay-bridge` extension that bridges OpenClaw to the local `pay` CLI for paid API discovery and execution
 
 ## Current structure
 - `.openclaw/extensions/agent-wallet/index.ts` — TypeScript extension entrypoint registered by OpenClaw.
 - `.openclaw/extensions/agent-wallet/openclaw.plugin.json` — plugin manifest and config schema.
 - `.openclaw/extensions/agent-wallet/package.json` — extension package metadata.
 - `.openclaw/extensions/agent-wallet/skills/wallet-operator/SKILL.md` — user-facing operational wallet safety guidance.
-- `.openclaw/extensions/pay-bridge/index.ts` — TypeScript entrypoint for the local `pay` CLI bridge.
-- `.openclaw/extensions/pay-bridge/openclaw.plugin.json` — plugin manifest and config schema for pay tools.
-- `.openclaw/extensions/pay-bridge/core.mjs` — local `pay` command execution and output shaping.
-- `.openclaw/extensions/pay-bridge/skills/pay-operator/SKILL.md` — user-facing operational guidance for paid API usage.
 
 ## Design intent
 - Keep the TypeScript extension thin and host-oriented.
 - Let Python own wallet logic, policy, approvals, signing rules, and Solana implementation details.
-- Let `pay` remain the source of truth for paid API wallet/account behavior.
 - Let the extension focus on:
   - resolving config
   - locating the Python package
@@ -35,7 +29,6 @@ This tree contains local OpenClaw host-side workspace assets. In the current rep
 
 ### Keep bridge logic thin
 - Do not duplicate business logic from Python unless OpenClaw requires it at registration time.
-- Do not duplicate payment protocol logic from `pay`; prefer invoking the local CLI and shaping its output.
 - Do not reimplement approval validation, transaction policy, wallet derivation, or Solana-specific rules in TypeScript.
 - Prefer forwarding config into the CLI bridge and letting Python decide runtime behavior.
 - Treat this layer as a transport and schema bridge, not an execution authority.

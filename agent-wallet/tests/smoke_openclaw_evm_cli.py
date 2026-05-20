@@ -11,6 +11,7 @@ from pathlib import Path
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PACKAGE_ROOT))
 
+from _secret_test_utils import install_test_sealed_secrets  # noqa: E402
 from _wdk_evm_test_server import FakeWdkEvmWalletServer  # noqa: E402
 
 
@@ -30,6 +31,13 @@ def _run(config: dict, *args: str, stdin_text: str | None = None) -> dict:
 
 def main() -> None:
     with FakeWdkEvmWalletServer(network="ethereum") as server:
+        temp_home = Path("/tmp/openclaw-evm-cli-smoke")
+        install_test_sealed_secrets(
+            temp_home,
+            boot_key="cli-evm-boot-key",
+            evm_wallet_password="cli-evm-password",
+        )
+        os.environ["OPENCLAW_HOME"] = str(temp_home)
         os.environ["WDK_EVM_LOCAL_TOKEN"] = server.auth_token
         config = {
             "backend": "wdk_evm_local",
@@ -165,6 +173,21 @@ def main() -> None:
         )
         assert result["ok"] is True
         assert result["data"]["address"].startswith("0x")
+
+        auto_balance = _run(
+            config,
+            "invoke",
+            "--user-id",
+            "evm-cli-autoprovision@example.com",
+            "--tool",
+            "get_wallet_balance",
+            "--arguments-json",
+            "{}",
+            "--config-json",
+            json.dumps(config),
+        )
+        assert auto_balance["ok"] is True
+        assert auto_balance["data"]["balance_native"] == "1.23"
 
     print("smoke_openclaw_evm_cli: ok")
 

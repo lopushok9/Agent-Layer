@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
+import secrets
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -47,15 +47,6 @@ OPTIONAL_TOOLS = [
     "get_flash_trade_positions",
     "flash_trade_open_position",
     "flash_trade_close_position",
-]
-
-PAY_BRIDGE_PLUGIN_ID = "pay-bridge"
-PAY_BRIDGE_TOOLS = [
-    "pay_status",
-    "pay_wallet_info",
-    "pay_search_services",
-    "pay_get_service_endpoints",
-    "pay_api_request",
 ]
 
 X402_TOOLS = [
@@ -104,13 +95,6 @@ def _default_extension_path() -> Path:
     return _repo_root() / ".openclaw" / "extensions" / "agent-wallet"
 
 
-def _default_pay_bridge_extension_path() -> Path:
-    runtime_root = _trusted_runtime_root()
-    if runtime_root is not None:
-        return runtime_root / ".openclaw" / "extensions" / PAY_BRIDGE_PLUGIN_ID
-    return _repo_root() / ".openclaw" / "extensions" / PAY_BRIDGE_PLUGIN_ID
-
-
 def _default_package_root() -> Path:
     runtime_root = _trusted_runtime_root()
     if runtime_root is not None:
@@ -131,14 +115,6 @@ def _default_python_bin() -> str:
         if runtime_python.exists():
             return str(runtime_python)
     return sys.executable
-
-
-def _default_pay_binary() -> str:
-    explicit = os.getenv("OPENCLAW_PAY_BINARY", "").strip()
-    if explicit:
-        return explicit
-    resolved = shutil.which("pay")
-    return resolved or "pay"
 
 
 def _default_user_id() -> str:
@@ -178,10 +154,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=True,
     )
     parser.add_argument("--extension-path", default=str(_default_extension_path()))
-    parser.add_argument("--pay-bridge-extension-path", default=str(_default_pay_bridge_extension_path()))
     parser.add_argument("--package-root", default=str(_default_package_root()))
     parser.add_argument("--python-bin", default=_default_python_bin())
-    parser.add_argument("--pay-binary", default=_default_pay_binary())
     parser.add_argument("--write-master-key", action=argparse.BooleanOptionalAction, default=False)
     return parser
 
@@ -191,12 +165,15 @@ def _collect_sealed_secret_updates() -> dict[str, str]:
     master_key = os.getenv("AGENT_WALLET_MASTER_KEY", "").strip()
     approval_secret = os.getenv("AGENT_WALLET_APPROVAL_SECRET", "").strip()
     private_key = os.getenv("SOLANA_AGENT_PRIVATE_KEY", "").strip()
+    evm_wallet_password = os.getenv("WDK_EVM_WALLET_PASSWORD", "").strip()
     if master_key:
         updates["master_key"] = master_key
     if approval_secret:
         updates["approval_secret"] = approval_secret
     if private_key:
         updates["private_key"] = private_key
+    if evm_wallet_password:
+        updates["wdk_evm_wallet_password"] = evm_wallet_password
     return updates
 
 
@@ -205,10 +182,12 @@ def _maybe_install_sealed_keys() -> str | None:
     if not boot_key:
         return None
     updates = _collect_sealed_secret_updates()
-    if not updates:
-        return None
     sealed_path = resolve_sealed_keys_path()
     existing = unseal_keys(boot_key) if sealed_path.exists() else {}
+    if "wdk_evm_wallet_password" not in existing and "wdk_evm_wallet_password" not in updates:
+        updates["wdk_evm_wallet_password"] = secrets.token_urlsafe(24)
+    if not updates:
+        return None
     return str(seal_keys(boot_key, {**existing, **updates}))
 
 
@@ -255,17 +234,14 @@ def main() -> None:
     allow = plugins.setdefault("allow", [])
     if args.plugin_id not in allow:
         allow.append(args.plugin_id)
-    if PAY_BRIDGE_PLUGIN_ID not in allow:
-        allow.append(PAY_BRIDGE_PLUGIN_ID)
+    allow[:] = [item for item in allow if item != "pay-bridge"]
 
     load = plugins.setdefault("load", {})
     paths = load.setdefault("paths", [])
     extension_path_text = str(Path(args.extension_path).expanduser().resolve())
     if extension_path_text not in paths:
         paths.append(extension_path_text)
-    pay_bridge_extension_path_text = str(Path(args.pay_bridge_extension_path).expanduser().resolve())
-    if pay_bridge_extension_path_text not in paths:
-        paths.append(pay_bridge_extension_path_text)
+    paths[:] = [item for item in paths if "extensions/pay-bridge" not in str(item)]
 
     entries = plugins.setdefault("entries", {})
     effective_network = _normalize_network(args.backend, args.network)
@@ -318,25 +294,19 @@ def main() -> None:
         "enabled": True,
         "config": plugin_config,
     }
-    existing_pay_entry = entries.get(PAY_BRIDGE_PLUGIN_ID) if isinstance(entries.get(PAY_BRIDGE_PLUGIN_ID), dict) else {}
-    existing_pay_config = (
-        dict(existing_pay_entry.get("config"))
-        if isinstance(existing_pay_entry.get("config"), dict)
-        else {}
-    )
-    pay_bridge_config = {
-        **existing_pay_config,
-        "payBinary": args.pay_binary.strip() or _default_pay_binary(),
-        "requireHttps": bool(existing_pay_config.get("requireHttps", True)),
-    }
-    entries[PAY_BRIDGE_PLUGIN_ID] = {
-        "enabled": True,
-        "config": pay_bridge_config,
-    }
+    entries.pop("pay-bridge", None)
 
     tools = data.setdefault("tools", {})
     also_allow = tools.setdefault("alsoAllow", [])
-    for tool_name in OPTIONAL_TOOLS + PAY_BRIDGE_TOOLS + X402_TOOLS:
+    removed_pay_tools = {
+        "pay_status",
+        "pay_wallet_info",
+        "pay_search_services",
+        "pay_get_service_endpoints",
+        "pay_api_request",
+    }
+    also_allow[:] = [tool_name for tool_name in also_allow if tool_name not in removed_pay_tools]
+    for tool_name in OPTIONAL_TOOLS + X402_TOOLS:
         if tool_name not in also_allow:
             also_allow.append(tool_name)
 
@@ -352,7 +322,6 @@ def main() -> None:
                 "config_path": str(config_path),
                 "backup_path": str(backup_path),
                 "extension_path": extension_path_text,
-                "pay_bridge_extension_path": pay_bridge_extension_path_text,
                 "python_bin": args.python_bin,
                 "package_root": plugin_config["packageRoot"],
                 "plugin_id": args.plugin_id,

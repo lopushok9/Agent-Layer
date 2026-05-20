@@ -18,7 +18,7 @@ AgentLayer is a beta local-first wallet and finance stack for agents.
 The repository includes:
 
 - `agent-wallet/` - the main wallet backend for AgentLayer
-- `.openclaw/` - the local AgentLayer bridge layer, including the OpenClaw wallet bridge and the `pay.sh` API-payments bridge
+- `.openclaw/` - the local AgentLayer bridge layer for the OpenClaw wallet integration
 - `hermes/` - optional Hermes Agent plugin bridge for the same wallet backend
 - `wdk-btc-wallet/` - the local Bitcoin wallet service
 - `wdk-evm-wallet/` - the local EVM wallet service
@@ -55,7 +55,6 @@ Install the native OpenClaw plugins from ClawHub:
 
 ```bash
 openclaw plugins install clawhub:@agentlayertech/agent-wallet-plugin
-openclaw plugins install clawhub:@agentlayertech/pay-bridge-plugin
 ```
 
 Those ClawHub packages do not replace the npm installer. Keep `npx @agentlayer.tech/wallet install --yes` for laying down the local wallet runtime, Python backend, and helper services. The ClawHub packages only install the OpenClaw plugin surfaces that point at that runtime.
@@ -92,7 +91,6 @@ Use ClawHub when you want the plugin itself to be installed through OpenClaw:
 
 ```bash
 openclaw plugins install clawhub:@agentlayertech/agent-wallet-plugin
-openclaw plugins install clawhub:@agentlayertech/pay-bridge-plugin
 ```
 
 Recommended order:
