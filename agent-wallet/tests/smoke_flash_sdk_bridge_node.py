@@ -67,6 +67,33 @@ def main() -> None:
     assert markets_response["data"]["market_count"] == 2
     assert markets_response["data"]["markets"][1]["collateral_symbol"] == "USDC"
 
+    real_env = dict(os.environ)
+    real_env["FLASH_SDK_BRIDGE_MODE"] = "real"
+    real_markets = subprocess.run(
+        ["node", str(bridge_path)],
+        input=json.dumps(
+            {
+                "action": "get_markets",
+                "network": "mainnet",
+            }
+        ).encode("utf-8"),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=real_env,
+        check=False,
+    )
+    if real_markets.returncode != 0:
+        raise AssertionError(real_markets.stderr.decode("utf-8", errors="replace"))
+    real_markets_response = json.loads(real_markets.stdout.decode("utf-8"))
+    assert real_markets_response["ok"] is True
+    assert real_markets_response["data"]["market_count"] > 0
+    real_symbols = {
+        str(item.get("market_symbol") or "").strip()
+        for item in real_markets_response["data"]["markets"]
+        if isinstance(item, dict)
+    }
+    assert "SOL" in real_symbols
+
     positions = subprocess.run(
         ["node", str(bridge_path)],
         input=json.dumps(

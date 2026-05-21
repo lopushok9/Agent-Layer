@@ -350,14 +350,22 @@ function variantToSide(sideVariant) {
   return String(sideVariant ?? "");
 }
 
+function safeTokenSymbol(poolConfig, mintPk) {
+  try {
+    return poolConfig.getTokenFromMintPk(mintPk)?.symbol ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function buildMarketSnapshot(poolConfig, marketConfig, deprecated = false) {
-  const targetToken = poolConfig.getTokenFromMintPk(marketConfig.targetMint);
-  const collateralToken = poolConfig.getTokenFromMintPk(marketConfig.collateralMint);
+  const targetSymbol = safeTokenSymbol(poolConfig, marketConfig.targetMint);
+  const collateralSymbol = safeTokenSymbol(poolConfig, marketConfig.collateralMint);
   return {
     pool_name: poolConfig.poolName,
-    symbol: targetToken.symbol,
-    market_symbol: targetToken.symbol,
-    collateral_symbol: collateralToken.symbol,
+    symbol: targetSymbol,
+    market_symbol: targetSymbol,
+    collateral_symbol: collateralSymbol,
     side: variantToSide(marketConfig.side),
     market_id: marketConfig.marketId,
     market_address: marketConfig.marketAccount.toBase58(),
@@ -374,14 +382,16 @@ function buildMarketSnapshot(poolConfig, marketConfig, deprecated = false) {
 
 function buildPositionSnapshot(poolConfig, positionAccount) {
   const marketConfig = poolConfig.getMarketConfigByPk(positionAccount.market);
-  const targetToken = poolConfig.getTokenFromMintPk(marketConfig.targetMint);
-  const collateralToken = poolConfig.getTokenFromMintPk(marketConfig.collateralMint);
+  const targetSymbol = marketConfig ? safeTokenSymbol(poolConfig, marketConfig.targetMint) : null;
+  const collateralSymbol = marketConfig
+    ? safeTokenSymbol(poolConfig, marketConfig.collateralMint)
+    : null;
   return {
     pool_name: poolConfig.poolName,
-    symbol: targetToken.symbol,
-    market_symbol: targetToken.symbol,
-    collateral_symbol: collateralToken.symbol,
-    side: variantToSide(marketConfig.side),
+    symbol: targetSymbol,
+    market_symbol: targetSymbol,
+    collateral_symbol: collateralSymbol,
+    side: variantToSide(marketConfig?.side),
     is_active: Boolean(positionAccount.isActive),
     position_address: positionAccount.pubkey.toBase58(),
     market_address: positionAccount.market.toBase58(),
