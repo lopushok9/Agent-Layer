@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -114,6 +116,21 @@ def _resolve_sealed_keys_path() -> Path:
     return _resolve_openclaw_home() / "sealed_keys.json"
 
 
+def _runtime_base_for(runtime_root: Path) -> Path:
+    resolved = runtime_root.expanduser().resolve()
+    if resolved.parent.name == "releases":
+        return resolved.parent.parent
+    return resolved.parent
+
+
+def _shared_runtime_root(runtime_root: Path) -> Path:
+    return _runtime_base_for(runtime_root) / "shared"
+
+
+def _shared_dependency_links_supported() -> bool:
+    return os.name != "nt"
+
+
 def _atomic_write_text(path: Path, content: str, *, mode: int = 0o600) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_path = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
@@ -137,6 +154,21 @@ def _chmod_if_exists(path: Path, mode: int = 0o600) -> None:
         path.chmod(mode)
     except FileNotFoundError:
         return
+
+
+def _sha256_text(parts: list[str]) -> str:
+    digest = hashlib.sha256()
+    for part in parts:
+        digest.update(part.encode("utf-8"))
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _file_text_or_empty(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ""
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -366,8 +398,95 @@ def _ensure_python_wrapper(venv_path: Path) -> Path:
     return wrapper
 
 
-def _ensure_python_runtime(venv_path: Path, package_root: Path) -> tuple[Path, bool]:
+def _python_runtime_fingerprint(package_root: Path, python_bin: Path) -> str:
+    version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    return _sha256_text(
+        [
+            f"python-bin:{python_bin}",
+            f"python-version:{version}",
+            f"platform:{platform.system()}",
+            f"machine:{platform.machine()}",
+            _file_text_or_empty(package_root / "pyproject.toml"),
+        ]
+    )[:24]
+
+
+def _python_runtime_plan(
+    venv_path: Path,
+    package_root: Path,
+    runtime_root: Path,
+) -> dict[str, object]:
+    if _shared_dependency_links_supported():
+        fingerprint = _python_runtime_fingerprint(package_root, Path(sys.executable))
+        shared_root = _shared_runtime_root(runtime_root) / "python" / fingerprint
+        shared_venv_path = shared_root / "venv"
+        shared_wrapper = _venv_python_wrapper(shared_venv_path)
+        return {
+            "shared": True,
+            "fingerprint": fingerprint,
+            "shared_root": str(shared_root),
+            "venv_path": str(shared_venv_path),
+            "release_link_path": str(venv_path),
+            "python_bin": str(venv_path / shared_wrapper.relative_to(shared_venv_path)),
+            "action": "reuse" if shared_venv_path.exists() else "create",
+            "exists": shared_venv_path.exists(),
+        }
+    return {
+        "shared": False,
+        "fingerprint": None,
+        "shared_root": None,
+        "venv_path": str(venv_path),
+        "release_link_path": str(venv_path),
+        "python_bin": str(_venv_python_wrapper(venv_path)),
+        "action": "install",
+        "exists": _venv_python(venv_path).exists(),
+    }
+
+
+def _replace_with_directory_symlink(link_path: Path, target_path: Path) -> None:
+    target_resolved = target_path.resolve()
+    if link_path.is_symlink():
+        existing_target = link_path.resolve()
+        if existing_target == target_resolved:
+            return
+        link_path.unlink()
+    elif link_path.exists():
+        if link_path.is_dir():
+            shutil.rmtree(link_path)
+        else:
+            link_path.unlink()
+    link_path.parent.mkdir(parents=True, exist_ok=True)
+    link_path.symlink_to(target_resolved, target_is_directory=True)
+
+
+def _ensure_python_runtime(
+    venv_path: Path,
+    package_root: Path,
+    runtime_root: Path,
+) -> tuple[Path, bool, dict[str, object]]:
     created = False
+    plan = _python_runtime_plan(venv_path, package_root, runtime_root)
+    if bool(plan["shared"]):
+        shared_root = Path(str(plan["shared_root"]))
+        shared_venv_path = Path(str(plan["venv_path"]))
+        python_bin = _venv_python(shared_venv_path)
+        if not python_bin.exists():
+            venv.EnvBuilder(with_pip=True).create(shared_venv_path)
+            created = True
+            subprocess.run(
+                [str(python_bin), "-m", "pip", "install", "-e", str(package_root)],
+                check=True,
+            )
+        shared_wrapper = _ensure_python_wrapper(shared_venv_path)
+        _replace_with_directory_symlink(venv_path, shared_venv_path)
+        plan["action"] = "create" if created else "reuse"
+        plan["exists"] = True
+        return (
+            venv_path / shared_wrapper.relative_to(shared_venv_path),
+            created,
+            plan,
+        )
+
     python_bin = _venv_python(venv_path)
     if not python_bin.exists():
         venv.EnvBuilder(with_pip=True).create(venv_path)
@@ -377,10 +496,79 @@ def _ensure_python_runtime(venv_path: Path, package_root: Path) -> tuple[Path, b
         [str(python_bin), "-m", "pip", "install", "-e", str(package_root)],
         check=True,
     )
-    return _ensure_python_wrapper(venv_path), created
+    return (
+        _ensure_python_wrapper(venv_path),
+        created,
+        plan,
+    )
 
 
-def _ensure_node_runtime(npm_bin: str, project_root: Path) -> dict[str, object]:
+def _node_version() -> str:
+    result = subprocess.run(
+        ["node", "--version"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout.strip()
+
+
+def _node_runtime_fingerprint(project_root: Path) -> str:
+    return _sha256_text(
+        [
+            f"node-version:{_node_version()}",
+            f"platform:{platform.system()}",
+            f"machine:{platform.machine()}",
+            _file_text_or_empty(project_root / "package.json"),
+            _file_text_or_empty(project_root / "package-lock.json"),
+        ]
+    )[:24]
+
+
+def _node_runtime_plan(project_root: Path, runtime_root: Path) -> dict[str, object]:
+    package_json = project_root / "package.json"
+    package_lock = project_root / "package-lock.json"
+    command = ["npm", "ci"] if package_lock.exists() else ["npm", "install"]
+    if _shared_dependency_links_supported():
+        fingerprint = _node_runtime_fingerprint(project_root)
+        shared_project_root = _shared_runtime_root(runtime_root) / "node" / project_root.name / fingerprint
+        shared_node_modules = shared_project_root / "node_modules"
+        return {
+            "project_root": str(project_root),
+            "package_json": str(package_json),
+            "package_lock": str(package_lock) if package_lock.exists() else None,
+            "command": command,
+            "shared": True,
+            "fingerprint": fingerprint,
+            "shared_root": str(shared_project_root),
+            "node_modules_path": str(shared_node_modules),
+            "release_link_path": str(project_root / "node_modules"),
+            "action": "reuse" if shared_node_modules.exists() else "create",
+            "exists": shared_node_modules.exists(),
+        }
+    return {
+        "project_root": str(project_root),
+        "package_json": str(package_json),
+        "package_lock": str(package_lock) if package_lock.exists() else None,
+        "command": command,
+        "shared": False,
+        "fingerprint": None,
+        "shared_root": None,
+        "node_modules_path": str(project_root / "node_modules"),
+        "release_link_path": str(project_root / "node_modules"),
+        "action": "install",
+        "exists": (project_root / "node_modules").exists(),
+    }
+
+
+def _copy_if_exists(source: Path, target: Path) -> None:
+    if not source.exists():
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
+
+
+def _ensure_node_runtime(npm_bin: str, project_root: Path, runtime_root: Path) -> dict[str, object]:
     package_json = project_root / "package.json"
     if not package_json.exists():
         raise SystemExit(f"Missing package.json for Node runtime at '{project_root}'.")
@@ -394,14 +582,30 @@ def _ensure_node_runtime(npm_bin: str, project_root: Path) -> dict[str, object]:
     env["NPM_CONFIG_CACHE"] = cache_dir
     env["npm_config_cache"] = cache_dir
     Path(cache_dir).expanduser().mkdir(parents=True, exist_ok=True)
+    plan = _node_runtime_plan(project_root, runtime_root)
+    if bool(plan["shared"]):
+        shared_project_root = Path(str(plan["shared_root"]))
+        shared_node_modules = Path(str(plan["node_modules_path"]))
+        created = False
+        if not shared_node_modules.exists():
+            shared_project_root.mkdir(parents=True, exist_ok=True)
+            _copy_if_exists(package_json, shared_project_root / "package.json")
+            _copy_if_exists(package_lock, shared_project_root / "package-lock.json")
+            _copy_if_exists(project_root / ".npmrc", shared_project_root / ".npmrc")
+            subprocess.run(command, cwd=shared_project_root, check=True, env=env)
+            created = True
+        _replace_with_directory_symlink(project_root / "node_modules", shared_node_modules)
+        plan["cache_dir"] = cache_dir
+        plan["created"] = created
+        plan["action"] = "create" if created else "reuse"
+        plan["exists"] = True
+        return plan
+
     subprocess.run(command, cwd=project_root, check=True, env=env)
-    return {
-        "project_root": str(project_root),
-        "package_json": str(package_json),
-        "package_lock": str(package_lock) if package_lock.exists() else None,
-        "command": command,
-        "cache_dir": cache_dir,
-    }
+    plan["cache_dir"] = cache_dir
+    plan["created"] = True
+    plan["exists"] = True
+    return plan
 
 
 def _pending_env_names() -> list[str]:
@@ -526,13 +730,28 @@ def main() -> None:
     python_bin = Path(sys.executable)
     venv_created = False
     existing_wrapper = _venv_python_wrapper(venv_path)
+    python_runtime: dict[str, object] = {
+        "shared": False,
+        "fingerprint": None,
+        "shared_root": None,
+        "venv_path": str(venv_path),
+        "release_link_path": str(venv_path),
+        "python_bin": str(_venv_python_wrapper(venv_path)),
+        "action": "skipped",
+        "exists": existing_wrapper.exists(),
+    }
     if args.skip_python_setup and args.install_from_runtime and existing_wrapper.exists():
         python_bin = existing_wrapper
     elif not args.skip_python_setup:
         if not args.dry_run:
-            python_bin, venv_created = _ensure_python_runtime(venv_path, package_root)
+            python_bin, venv_created, python_runtime = _ensure_python_runtime(
+                venv_path,
+                package_root,
+                runtime_root,
+            )
         else:
-            python_bin = _venv_python_wrapper(venv_path)
+            python_runtime = _python_runtime_plan(venv_path, package_root, runtime_root)
+            python_bin = Path(str(python_runtime["python_bin"]))
 
     node_runtime = {
         "skipped": bool(args.skip_node_setup),
@@ -548,17 +767,22 @@ def main() -> None:
         if args.dry_run:
             node_runtime["projects"] = [
                 {
-                    "project_root": str(project_root),
+                    **_node_runtime_plan(project_root, runtime_root),
                     "command": [
                         args.npm_bin,
                         "ci" if (project_root / "package-lock.json").exists() else "install",
                     ],
+                    "cache_dir": (
+                        os.environ.get("OPENCLAW_AGENT_WALLET_NPM_CACHE")
+                        or str(_resolve_openclaw_home() / "npm-cache")
+                    ),
+                    "created": False,
                 }
                 for project_root in node_projects
             ]
         else:
             node_runtime["projects"] = [
-                _ensure_node_runtime(args.npm_bin, project_root)
+                _ensure_node_runtime(args.npm_bin, project_root, runtime_root)
                 for project_root in node_projects
             ]
 
@@ -600,6 +824,7 @@ def main() -> None:
                 "install_from_runtime": bool(args.install_from_runtime),
                 "python_bin": str(python_bin),
                 "venv_created": venv_created,
+                "python_runtime": python_runtime,
                 "node_runtime": node_runtime,
                 "runtime_sync": runtime_sync,
                 "configured": configured,

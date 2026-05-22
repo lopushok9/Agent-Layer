@@ -127,6 +127,84 @@ def main() -> None:
     assert status_payload["active_version"] == package_version
     assert status_payload["available_releases"] == [package_version]
 
+    status_verbose = subprocess.run(
+        ["node", str(cli), "status", "--verbose"],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=env,
+    )
+    status_verbose_payload = json.loads(status_verbose.stdout)
+    assert status_verbose_payload["verbose"] is True
+    assert status_verbose_payload["active_python_runtime"]["exists"] is False
+    assert len(status_verbose_payload["active_node_runtimes"]) == 3
+    assert all(item["exists"] is False for item in status_verbose_payload["active_node_runtimes"])
+    assert "shared_snapshot_inventory" in status_verbose_payload
+
+    update_env = dict(env)
+    update_env["OPENCLAW_AGENT_WALLET_UPDATE_CLI_PATH"] = str(cli)
+    update_dry_run = subprocess.run(
+        [
+            "node",
+            str(cli),
+            "update",
+            "--yes",
+            "--dry-run",
+            "--config-path",
+            str(config_path),
+            "--env-path",
+            str(env_path),
+            "--backend",
+            "none",
+            "--skip-python-setup",
+            "--skip-node-setup",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=update_env,
+    )
+    update_dry_payload = json.loads(update_dry_run.stdout)
+    assert update_dry_payload["ok"] is True
+    assert update_dry_payload["command"] == "update"
+    assert update_dry_payload["dry_run"] is True
+    assert update_dry_payload["current_version"] == package_version
+    assert update_dry_payload["target_version"] == package_version
+    assert update_dry_payload["dependency_plan"]["python"]["action"] in {
+        "reuse",
+        "create",
+        "install",
+        "skipped",
+    }
+    assert len(update_dry_payload["dependency_plan"]["node_projects"]) == 0
+    assert Path(update_dry_payload["target_runtime_root"]).resolve() == runtime_root.resolve()
+
+    update = subprocess.run(
+        [
+            "node",
+            str(cli),
+            "update",
+            "--yes",
+            "--config-path",
+            str(config_path),
+            "--env-path",
+            str(env_path),
+            "--backend",
+            "none",
+            "--skip-python-setup",
+            "--skip-node-setup",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=update_env,
+    )
+    update_payload = json.loads(update.stdout)
+    assert update_payload["ok"] is True
+    assert Path(update_payload["runtime_root"]).resolve() == runtime_root.resolve()
+    assert (runtime_base / "current").resolve() == runtime_root.resolve()
+    assert "Update summary:" in update.stderr
+
     current_directory_runtime = temp_root / "directory-current-runtime"
     shutil.copytree(runtime_root, current_directory_runtime)
     current_link = runtime_base / "current"

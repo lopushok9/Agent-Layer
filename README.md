@@ -3,6 +3,7 @@
 
 [![npm version](https://img.shields.io/npm/v/%40agentlayer.tech%2Fwallet)](https://www.npmjs.com/package/@agentlayer.tech/wallet)
 [![npm downloads](https://img.shields.io/npm/dm/%40agentlayer.tech%2Fwallet)](https://www.npmjs.com/package/@agentlayer.tech/wallet)
+[![docs](https://img.shields.io/badge/docs-agent--layer.tech-blue)](https://docs.agent-layer.tech/)
 [![license](https://img.shields.io/github/license/lopushok9/Agent-Layer)](https://github.com/lopushok9/Agent-Layer/blob/main/LICENSE)
 
 ```bash
@@ -82,8 +83,12 @@ wallet status
 wallet doctor
 wallet hermes install --yes
 wallet update --yes
+wallet update --yes --dry-run
 wallet rollback
 ```
+
+`wallet update --yes` now delegates to the latest published npm package and reuses shared Python and Node dependency snapshots when they have not changed, so frequent upgrades do not need to rebuild every runtime dependency from scratch.
+Use `wallet update --yes --dry-run` to inspect the target runtime version and whether Python/Node dependency snapshots will be reused or rebuilt before switching `current`.
 
 ## Native OpenClaw plugin installs
 
@@ -114,6 +119,111 @@ sh ./setup.sh
 ```
 
 If you want the installer to finish the OpenClaw plugin wiring in the same pass, provide the runtime secrets before running it:
+
+## Wallet capabilities through external services
+
+AgentLayer keeps keys, approvals, and signing local, but the wallet can still operate through a set of registered provider-backed tools. These tools are exposed through the OpenClaw wallet plugin as explicit service integrations rather than raw shell access, config editing, or backend switching.
+
+### x402 paid APIs
+
+The x402 bundle turns the wallet into a buyer for metered APIs and paid HTTP endpoints:
+
+- `x402_search_services` - search x402-paid services through discovery providers such as CDP Bazaar and Agentic Market without spending funds.
+- `x402_get_service_details` - resolve one discovered service or resource into a normalized detail payload before attempting payment.
+- `x402_preview_request` - make an unpaid request, detect `402 Payment Required`, and summarize payment terms and supported payment options.
+- `x402_pay_request` - prepare or execute the paid retry through the active wallet backend. The current flow executes the Solana exact-buyer path and keeps EVM as prepare-only.
+
+This gives the wallet a direct bridge from service discovery to paid API consumption while preserving approval-token checks before execution.
+
+### LI.FI cross-chain routing
+
+The LI.FI bundle covers discovery, quote inspection, transfer tracking, and routed execution across Solana, Ethereum, and Base:
+
+- `get_lifi_supported_chains` - list the chains currently allowed for LI.FI routing in the wallet surface.
+- `get_lifi_quote` - fetch a read-only cross-chain quote before any execution planning.
+- `get_lifi_transfer_status` - inspect a routed transfer by transaction hash or LI.FI step id.
+- `swap_solana_lifi_cross_chain_tokens` - preview, prepare, or execute a Solana-origin cross-chain route into Ethereum or Base.
+- `swap_evm_lifi_cross_chain_tokens` - preview, prepare, or execute an EVM-origin cross-chain route across Ethereum, Base, and Solana when LI.FI returns a route.
+
+### Jupiter trading and yield
+
+On Solana, Jupiter-backed tools cover market pricing, swaps, and Jupiter Earn vault flows:
+
+- `get_solana_token_prices` - fetch current Solana token pricing through Jupiter.
+- `swap_solana_tokens` - preview, prepare, or execute a Jupiter-routed Solana token swap.
+- `get_jupiter_earn_tokens` - list Jupiter Earn vault assets currently supported on mainnet.
+- `get_jupiter_earn_positions` - inspect wallet positions in Jupiter Earn vaults.
+- `get_jupiter_earn_earnings` - fetch earnings for one or more Jupiter Earn positions.
+- `jupiter_earn_deposit` - preview, prepare, or execute a Jupiter Earn deposit.
+- `jupiter_earn_withdraw` - preview, prepare, or execute a Jupiter Earn withdrawal.
+
+### Houdini private payouts
+
+For privacy-preserving Solana payout flows, the wallet exposes a Houdini-backed bundle:
+
+- `swap_solana_privately` - create a preview or approved private payout through Houdini routing. The current MVP supports same-token flows such as `SOL -> SOL` and `USDC -> USDC`.
+- `continue_solana_private_swap` - continue a previously created Houdini order and submit the local funding transfer to the returned deposit address.
+- `get_solana_private_swap_status` - check Houdini status for an existing private payout.
+- `list_pending_solana_private_swaps` - list cached pending Houdini orders for the current OpenClaw session.
+
+This flow is intentionally optimized for `preview -> execute` rather than adding a no-op prepare step.
+
+### Kamino lending
+
+Kamino integration gives the wallet a structured Solana lending surface:
+
+- `get_kamino_lend_markets` - list Kamino lending markets available on Solana mainnet.
+- `get_kamino_lend_market_reserves` - inspect reserve metrics for one Kamino market.
+- `get_kamino_lend_user_obligations` - inspect the wallet's obligations inside a Kamino market.
+- `get_kamino_lend_user_rewards` - fetch the wallet's Kamino rewards summary.
+- `kamino_lend_deposit` - preview, prepare, or execute a lending deposit.
+- `kamino_lend_withdraw` - preview, prepare, or execute a lending withdrawal.
+- `kamino_lend_borrow` - preview, prepare, or execute a borrow.
+- `kamino_lend_repay` - preview, prepare, or execute a repay.
+
+### Flash Trade perps
+
+Flash Trade integration adds a managed perpetuals surface on Solana mainnet:
+
+- `get_flash_trade_markets` - list currently available Flash Trade markets.
+- `get_flash_trade_positions` - inspect the wallet's open Flash Trade positions.
+- `flash_trade_open_position` - preview, prepare, or execute a perp position open.
+- `flash_trade_close_position` - preview, prepare, or execute a perp position close.
+
+### Bags launch and fee-share
+
+Bags-backed tools cover token launch and post-launch fee analytics:
+
+- `get_bags_claimable_positions` - inspect claimable Bags fee-share positions for a Solana wallet.
+- `get_bags_fee_analytics` - fetch analytics and optional claim history for a launched token.
+- `claim_bags_fees` - preview, prepare, or execute a Bags fee-share claim.
+- `launch_bags_token` - preview, prepare, or execute a Bags token launch with fee-share configuration.
+
+### EVM DeFi integrations
+
+The EVM wallet surface includes named DeFi integrations on `ethereum` and `base`, without exposing arbitrary calldata execution.
+
+Velora swap routing:
+
+- `get_evm_swap_quote` - fetch a read-only EVM swap quote.
+- `swap_evm_tokens` - preview, prepare, or execute a routed EVM token swap.
+
+Aave V3:
+
+- `get_evm_aave_account` - inspect the wallet's Aave account state.
+- `get_evm_aave_reserves` - fetch reserve data for supported Aave markets.
+- `get_evm_aave_positions` - inspect the wallet's open Aave positions.
+- `manage_evm_aave_position` - preview, prepare, or execute Aave position changes through the managed wallet flow.
+
+Lido:
+
+- `get_evm_lido_overview` - fetch Lido protocol overview data relevant to the wallet surface.
+- `get_evm_lido_positions` - inspect the wallet's Lido positions.
+- `get_evm_lido_withdrawal_requests` - inspect outstanding Lido withdrawal requests.
+- `manage_evm_lido_position` - preview, prepare, or execute a Lido staking position change.
+- `manage_evm_lido_withdrawal` - preview, prepare, or execute a Lido withdrawal management action.
+
+Across these service-backed flows, read operations remain directly callable, while write operations stay behind preview, explicit intent, and host-issued approval tokens before execution.
 
 Solana:
 

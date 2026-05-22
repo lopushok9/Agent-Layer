@@ -13,6 +13,8 @@ const setupPath = path.join(packageRoot, "setup.sh");
 const packageJsonPath = path.join(packageRoot, "package.json");
 const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
 const packageVersion = packageJson.version;
+const UPDATE_CLI_PATH_ENV = "OPENCLAW_AGENT_WALLET_UPDATE_CLI_PATH";
+const UPDATE_PACKAGE_SPEC_ENV = "OPENCLAW_AGENT_WALLET_UPDATE_PACKAGE_SPEC";
 
 function printHelp() {
   console.log(`openclaw-agent-wallet
@@ -37,6 +39,7 @@ Examples:
   npx @agentlayer.tech/wallet hermes install --yes
   npx @agentlayer.tech/wallet install --backend none
   npx @agentlayer.tech/wallet update --yes
+  npx @agentlayer.tech/wallet update --yes --dry-run
   npx @agentlayer.tech/wallet status
 
 The installer writes a versioned runtime under:
@@ -46,7 +49,8 @@ After a successful install it switches:
   ~/.openclaw/agent-wallet-runtime/current
 
 Wallet files and sealed secrets remain under OPENCLAW_HOME and are not replaced
-by updates.`);
+by updates. The update command fetches the latest published npm package and
+reuses shared dependency snapshots when possible.`);
 }
 
 function expandHome(value) {
@@ -207,6 +211,80 @@ function activeVersion(env = process.env) {
   return path.basename(path.resolve(path.dirname(current), link));
 }
 
+function listDirectories(rootPath) {
+  try {
+    return fs
+      .readdirSync(rootPath, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort();
+  } catch (error) {
+    if (error?.code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+function activePythonRuntimeInfo(env = process.env) {
+  const currentRoot = resolvedCurrentRuntimeRoot(env);
+  if (!currentRoot) return null;
+  const linkPath = path.join(currentRoot, "agent-wallet", ".runtime-venv");
+  const exists = fs.existsSync(linkPath);
+  const symlinkTarget = readLinkOrNull(linkPath);
+  const resolvedTarget = exists ? path.resolve(path.dirname(linkPath), symlinkTarget || ".") : null;
+  return {
+    link_path: linkPath,
+    exists,
+    symlink: Boolean(symlinkTarget),
+    target: symlinkTarget || null,
+    resolved_target: resolvedTarget,
+    shared: Boolean(resolvedTarget && resolvedTarget.includes(`${path.sep}shared${path.sep}python${path.sep}`)),
+  };
+}
+
+function activeNodeRuntimeInfo(env = process.env) {
+  const currentRoot = resolvedCurrentRuntimeRoot(env);
+  if (!currentRoot) return [];
+  const projects = [
+    path.join(currentRoot, "wdk-btc-wallet"),
+    path.join(currentRoot, "wdk-evm-wallet"),
+    path.join(currentRoot, "agent-wallet", "scripts", "flash-sdk-bridge"),
+  ];
+  return projects
+    .filter((projectRoot) => fs.existsSync(path.join(projectRoot, "package.json")))
+    .map((projectRoot) => {
+      const linkPath = path.join(projectRoot, "node_modules");
+      const exists = fs.existsSync(linkPath);
+      const symlinkTarget = readLinkOrNull(linkPath);
+      const resolvedTarget = exists ? path.resolve(path.dirname(linkPath), symlinkTarget || ".") : null;
+      return {
+        project_root: projectRoot,
+        project_name: path.basename(projectRoot),
+        link_path: linkPath,
+        exists,
+        symlink: Boolean(symlinkTarget),
+        target: symlinkTarget || null,
+        resolved_target: resolvedTarget,
+        shared: Boolean(resolvedTarget && resolvedTarget.includes(`${path.sep}shared${path.sep}node${path.sep}`)),
+      };
+    });
+}
+
+function sharedSnapshotInventory(env = process.env) {
+  const runtimeBase = resolveRuntimeBase(env);
+  const sharedRoot = path.join(runtimeBase, "shared");
+  const pythonRoot = path.join(sharedRoot, "python");
+  const nodeRoot = path.join(sharedRoot, "node");
+  const nodeProjects = listDirectories(nodeRoot).map((projectName) => ({
+    project_name: projectName,
+    snapshots: listDirectories(path.join(nodeRoot, projectName)),
+  }));
+  return {
+    shared_root: sharedRoot,
+    python_snapshots: listDirectories(pythonRoot),
+    node_projects: nodeProjects,
+  };
+}
+
 function switchSymlink(linkPath, targetPath) {
   const absoluteTarget = path.resolve(targetPath);
   if (!fs.existsSync(absoluteTarget)) {
@@ -266,6 +344,60 @@ function withoutCliOnlyArgs(args) {
     output.push(value);
   }
   return output;
+}
+
+function extractTrailingJson(text) {
+  const raw = String(text || "");
+  const newlineStart = raw.lastIndexOf("\n{");
+  const start = newlineStart >= 0 ? newlineStart + 1 : raw.indexOf("{");
+  if (start < 0) {
+    throw new Error("Could not find JSON payload in command output.");
+  }
+  return JSON.parse(raw.slice(start));
+}
+
+function pathVersionFromRuntimeRoot(runtimeRoot) {
+  if (!runtimeRoot) return null;
+  const normalized = path.resolve(String(runtimeRoot));
+  if (path.basename(path.dirname(normalized)) !== "releases") return null;
+  return path.basename(normalized);
+}
+
+function resolveCliPackageMeta(cliPath) {
+  try {
+    const root = path.resolve(path.dirname(cliPath), "..");
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+    return {
+      name: String(pkg.name || packageJson.name),
+      version: String(pkg.version || ""),
+      root,
+    };
+  } catch {
+    return {
+      name: packageJson.name,
+      version: "",
+      root: "",
+    };
+  }
+}
+
+function summarizeDependencyPlan(payload) {
+  const python = payload?.python_runtime && typeof payload.python_runtime === "object"
+    ? {
+        action: payload.python_runtime.action || "unknown",
+        shared: Boolean(payload.python_runtime.shared),
+        fingerprint: payload.python_runtime.fingerprint || null,
+      }
+    : null;
+  const nodeProjects = Array.isArray(payload?.node_runtime?.projects)
+    ? payload.node_runtime.projects.map((project) => ({
+        project_root: project.project_root,
+        action: project.action || "unknown",
+        shared: Boolean(project.shared),
+        fingerprint: project.fingerprint || null,
+      }))
+    : [];
+  return { python, node_projects: nodeProjects };
 }
 
 function token() {
@@ -442,24 +574,25 @@ function runDoctor() {
   return missing.length === 0 ? 0 : 1;
 }
 
-function runStatus() {
-  console.log(
-    JSON.stringify(
-      {
-        ok: true,
-        package_name: packageJson.name,
-        package_version: packageVersion,
-        openclaw_home: resolveOpenclawHome(),
-        runtime_base: resolveRuntimeBase(),
-        current_runtime: currentRuntimePath(),
-        previous_runtime: readLinkOrNull(previousRuntimePath()),
-        active_version: activeVersion(),
-        available_releases: listReleases(),
-      },
-      null,
-      2,
-    ),
-  );
+function runStatus(args = []) {
+  const payload = {
+    ok: true,
+    package_name: packageJson.name,
+    package_version: packageVersion,
+    openclaw_home: resolveOpenclawHome(),
+    runtime_base: resolveRuntimeBase(),
+    current_runtime: currentRuntimePath(),
+    previous_runtime: readLinkOrNull(previousRuntimePath()),
+    active_version: activeVersion(),
+    available_releases: listReleases(),
+  };
+  if (hasFlag(args, "--verbose")) {
+    payload.verbose = true;
+    payload.active_python_runtime = activePythonRuntimeInfo();
+    payload.active_node_runtimes = activeNodeRuntimeInfo();
+    payload.shared_snapshot_inventory = sharedSnapshotInventory();
+  }
+  console.log(JSON.stringify(payload, null, 2));
   return 0;
 }
 
@@ -554,6 +687,14 @@ function runInstall(args, { commandName = "install" } = {}) {
     });
   }
 
+  const pythonInfo = activePythonRuntimeInfo(env);
+  const nodeInfo = activeNodeRuntimeInfo(env)
+    .map((item) => `${item.project_name}:${item.shared ? "shared" : item.exists ? "local" : "missing"}`)
+    .join(", ");
+  console.error(
+    `Update summary: version=${packageVersion} active=${activeVersion(env) || packageVersion} python=${pythonInfo?.shared ? "shared" : pythonInfo?.exists ? "local" : "missing"} node=[${nodeInfo}]`,
+  );
+
   console.error(
     JSON.stringify(
       {
@@ -570,6 +711,118 @@ function runInstall(args, { commandName = "install" } = {}) {
     ),
   );
   return 0;
+}
+
+function resolveUpdatePackageSpec(env = process.env) {
+  const explicit = String(env[UPDATE_PACKAGE_SPEC_ENV] || "").trim();
+  if (explicit) return explicit;
+  return `${packageJson.name}@latest`;
+}
+
+function runDelegatedInstallForUpdate(args, { captureOutput = false } = {}) {
+  const localCliPath = String(process.env[UPDATE_CLI_PATH_ENV] || "").trim();
+  if (localCliPath) {
+    const meta = resolveCliPackageMeta(localCliPath);
+    const result = spawnSync("node", [localCliPath, "install", ...args], {
+      cwd: packageRoot,
+      stdio: captureOutput ? "pipe" : "inherit",
+      encoding: captureOutput ? "utf8" : undefined,
+      env: process.env,
+    });
+    return {
+      result,
+      delegated_via: "cli_path",
+      target_package_spec: meta.name || packageJson.name,
+      target_version_hint: meta.version || null,
+    };
+  }
+
+  const npmBin = commandPath("npm");
+  if (!npmBin) {
+    throw new Error("npm is required for `wallet update`. Install npm or run `npx @agentlayer.tech/wallet install --yes`.");
+  }
+
+  const packageSpec = resolveUpdatePackageSpec();
+  const result = spawnSync(
+    npmBin,
+    ["exec", "--yes", `--package=${packageSpec}`, "openclaw-agent-wallet", "install", ...args],
+    {
+      cwd: packageRoot,
+      stdio: captureOutput ? "pipe" : "inherit",
+      encoding: captureOutput ? "utf8" : undefined,
+      env: process.env,
+    },
+  );
+  return {
+    result,
+    delegated_via: "npm_exec",
+    target_package_spec: packageSpec,
+    target_version_hint: null,
+  };
+}
+
+function runUpdate(args) {
+  const dryRun = hasFlag(args, "--dry-run");
+  if (dryRun) {
+    try {
+      const delegated = runDelegatedInstallForUpdate(args, { captureOutput: true });
+      const { result } = delegated;
+      if (result.error) {
+        console.error(result.error.message);
+        return 1;
+      }
+      if ((result.status ?? 1) !== 0) {
+        const stderr = String(result.stderr || "").trim();
+        const stdout = String(result.stdout || "").trim();
+        if (stderr) process.stderr.write(`${stderr}\n`);
+        if (stdout) process.stdout.write(`${stdout}\n`);
+        return result.status ?? 1;
+      }
+      const payload = extractTrailingJson(result.stdout || "");
+      const targetVersion =
+        delegated.target_version_hint ||
+        pathVersionFromRuntimeRoot(payload.runtime_root) ||
+        null;
+      console.log(
+        JSON.stringify(
+          {
+            ok: true,
+            command: "update",
+            dry_run: true,
+            current_version: activeVersion(),
+            installed_cli_version: packageVersion,
+            target_package_spec: delegated.target_package_spec,
+            target_version: targetVersion,
+            delegated_via: delegated.delegated_via,
+            runtime_base: resolveRuntimeBase(),
+            current_runtime: currentRuntimePath(),
+            target_runtime_root: payload.runtime_root,
+            dependency_plan: summarizeDependencyPlan(payload),
+            install_plan: payload,
+          },
+          null,
+          2,
+        ),
+      );
+      return 0;
+    } catch (error) {
+      console.error(error.message);
+      return 1;
+    }
+  }
+
+  let delegated;
+  try {
+    delegated = runDelegatedInstallForUpdate(args, { captureOutput: false });
+  } catch (error) {
+    console.error(error.message);
+    return 1;
+  }
+  if (delegated.result.error) {
+    console.error(delegated.result.error.message);
+    return 1;
+  }
+  return delegated.result.status ?? 1;
 }
 
 function runRollback(args) {
@@ -755,7 +1008,7 @@ if (command === "doctor") {
 }
 
 if (command === "status") {
-  process.exit(runStatus());
+  process.exit(runStatus(args.slice(1)));
 }
 
 if (command === "install" || command === "setup") {
@@ -763,7 +1016,7 @@ if (command === "install" || command === "setup") {
 }
 
 if (command === "update") {
-  process.exit(runInstall(args.slice(1), { commandName: "update" }));
+  process.exit(runUpdate(args.slice(1)));
 }
 
 if (command === "rollback") {
