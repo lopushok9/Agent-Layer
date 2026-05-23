@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## v0.1.24 - 2026-05-23
+
+- Fixed the published npm package CLI metadata so
+  `npx @agentlayer.tech/wallet install --yes` resolves the wallet installer
+  command correctly.
+- Updated the root README install guidance to describe the new local Solana
+  mainnet wallet onboarding flow instead of requiring manual runtime secret
+  exports.
+
 ## v0.1.23 - 2026-05-23
 
 - Made the default Solana install flow mainnet-first for fresh local
