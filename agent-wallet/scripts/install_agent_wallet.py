@@ -304,6 +304,14 @@ def _sync_runtime_tree(source_root: Path, runtime_root: Path) -> dict[str, objec
 def _ensure_env_file(env_path: Path, env_example_path: Path) -> bool:
     if env_path.exists():
         return False
+    if not env_example_path.exists():
+        source_candidate = _package_root() / ".env.example"
+        if source_candidate.exists():
+            env_example_path = source_candidate
+        else:
+            raise SystemExit(
+                f"Missing env example template at '{env_example_path}'."
+            )
     env_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(env_example_path, env_path)
     _chmod_if_exists(env_path, 0o600)

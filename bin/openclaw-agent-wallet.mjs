@@ -294,7 +294,7 @@ function switchSymlink(linkPath, targetPath) {
   fs.mkdirSync(path.dirname(linkPath), { recursive: true });
   const tempLink = `${linkPath}.tmp-${process.pid}`;
   try {
-    fs.rmSync(tempLink, { force: true, recursive: false });
+    fs.rmSync(tempLink, { force: true, recursive: true });
   } catch {
     // ignored
   }
@@ -303,7 +303,7 @@ function switchSymlink(linkPath, targetPath) {
   try {
     const existing = fs.lstatSync(linkPath);
     if (!existing.isSymbolicLink()) {
-      fs.rmSync(tempLink, { force: true });
+      fs.rmSync(tempLink, { force: true, recursive: true });
       throw new Error(`${linkPath} exists and is not a symlink. Refusing to replace it.`);
     }
   } catch (error) {
@@ -600,14 +600,19 @@ function buildInstallerEnv(args) {
   const env = { ...process.env };
   const sealedKeysPath = path.join(resolveOpenclawHome(env), "sealed_keys.json");
   const sealedKeysExist = fs.existsSync(sealedKeysPath);
+  const dryRun = hasFlag(args, "--dry-run");
   if (!env.AGENT_WALLET_BOOT_KEY) {
-    const existingBootKey = resolveBootKeyFromFile(env) || currentBootKey(env);
+    const existingBootKey =
+      resolveBootKeyFromFile(env) ||
+      readTextIfExists(defaultBootKeyFile(env)).trim() ||
+      currentBootKey(env);
     if (existingBootKey) {
       env.AGENT_WALLET_BOOT_KEY = existingBootKey;
     }
   }
 
   const shouldGenerateSecrets =
+    !dryRun &&
     !hasFlag(args, "--no-auto-secrets") &&
     (hasFlag(args, "--yes") || !env.AGENT_WALLET_BOOT_KEY);
 
