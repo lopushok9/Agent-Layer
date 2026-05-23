@@ -39,10 +39,10 @@ Recommended config:
         "config": {
           "userId": "openclaw-local-user",
           "backend": "solana_local",
-          "network": "devnet",
+          "network": "mainnet",
           "rpcUrls": [
             "https://your-primary-rpc.example",
-            "https://api.devnet.solana.com"
+            "https://api.mainnet-beta.solana.com"
           ],
           "signOnly": false,
           "encryptUserWallets": true,
@@ -77,7 +77,7 @@ The ClawHub plugin package only installs the native OpenClaw plugin. It expects 
 
 If that runtime is not present, set `plugins.entries.agent-wallet.config.packageRoot` explicitly.
 
-That installs the Python backend, Node dependencies for the local BTC/EVM runtimes, and patches the OpenClaw plugin config. Solana stays ready immediately; EVM readiness can now be auto-healed during normal wallet switching when the runtime has sealed local vault credentials.
+That installs the Python backend, Node dependencies for the local BTC/EVM runtimes, patches the OpenClaw plugin config, and provisions the first encrypted per-user Solana mainnet wallet when no explicit signer is already configured. EVM readiness can still be auto-healed during normal wallet switching when the runtime has sealed local vault credentials.
 
 For self-hosted installs, prefer `SOLANA_RPC_URL` / `SOLANA_RPC_URLS` in local env and treat the plugin `rpcUrl` / `rpcUrls` fields as fallback only. If the local runtime exposes `ALCHEMY_API_KEY` or `HELIUS_API_KEY`, the wallet can derive the Solana RPC URL automatically for `mainnet` or `devnet`. Local env always takes precedence over `openclaw.json`.
 

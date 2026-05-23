@@ -284,12 +284,12 @@ and still append the official Solana endpoint as fallback.
 
 For OpenClaw self-hosting, this means users can keep their own Alchemy/Helius key locally in `.env` or shell env. Nothing needs to be proxied or hosted by us.
 
-For OpenClaw install/runtime, the intended creation flow is:
+For OpenClaw install/runtime, the default creation flow is:
 
 1. OpenClaw plugin config sets `backend=solana_local`
-2. Optional: set `network=devnet`
-3. Optional: set `autoCreateWallet=true`
-4. On first startup, if no keypair exists and auto-create is enabled, the plugin creates a local wallet file under `~/.openclaw/wallets/`
+2. The installer configures `network=mainnet` unless you pass `--network`
+3. The installer calls host-side onboarding once the sealed runtime secrets exist
+4. If no explicit sealed signer or `SOLANA_AGENT_KEYPAIR_PATH` exists, onboarding creates an encrypted per-user Solana wallet under `~/.openclaw/users/.../wallets/`
 
 For multi-user OpenClaw integration, use `agent_wallet.user_wallets.create_wallet_backend_for_user(user_id)`.
 That provisions a wallet per user under:

@@ -186,7 +186,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--plugin-id", default="agent-wallet")
     parser.add_argument("--user-id", default=_default_user_id())
     parser.add_argument("--backend", default="solana_local")
-    parser.add_argument("--network", default="devnet")
+    parser.add_argument("--network", default="mainnet")
     parser.add_argument("--rpc-url", default="")
     parser.add_argument("--rpc-urls", default="")
     parser.add_argument("--sign-only", action=argparse.BooleanOptionalAction, default=False)
@@ -667,6 +667,79 @@ def _build_next_steps(
     return command
 
 
+def _is_solana_backend(backend: str) -> bool:
+    return backend.strip().lower() in {"solana", "solana_local", "solana-local"}
+
+
+def _build_solana_onboard_config(args: argparse.Namespace) -> dict[str, object]:
+    config: dict[str, object] = {
+        "backend": args.backend,
+        "network": args.network,
+        "signOnly": bool(args.sign_only),
+        "encryptUserWallets": True,
+        "migratePlaintextUserWallets": True,
+        "refuseMainnetWalletRecreation": True,
+    }
+    if args.rpc_url.strip():
+        config["rpcUrl"] = args.rpc_url.strip()
+    if args.rpc_urls.strip():
+        config["rpcUrls"] = [item.strip() for item in args.rpc_urls.split(",") if item.strip()]
+    return config
+
+
+def _runtime_env_for_onboard(package_root: Path) -> dict[str, str]:
+    env = dict(os.environ)
+    python_path = env.get("PYTHONPATH", "").strip()
+    env["PYTHONPATH"] = (
+        f"{package_root}{os.pathsep}{python_path}" if python_path else str(package_root)
+    )
+    for var_name in (
+        "AGENT_WALLET_MASTER_KEY",
+        "AGENT_WALLET_APPROVAL_SECRET",
+        "SOLANA_AGENT_PRIVATE_KEY",
+    ):
+        env.pop(var_name, None)
+    return env
+
+
+def _bootstrap_solana_wallet(
+    python_bin: Path,
+    package_root: Path,
+    args: argparse.Namespace,
+) -> dict[str, object] | None:
+    if not _is_solana_backend(args.backend):
+        return None
+    result = subprocess.run(
+        [
+            str(python_bin),
+            "-m",
+            "agent_wallet.openclaw_cli",
+            "onboard",
+            "--user-id",
+            args.user_id,
+            "--config-json",
+            json.dumps(_build_solana_onboard_config(args)),
+        ],
+        cwd=package_root,
+        capture_output=True,
+        text=True,
+        check=True,
+        env=_runtime_env_for_onboard(package_root),
+    )
+    payload = json.loads(result.stdout)
+    session = dict(payload.get("session") or {})
+    return {
+        "ok": True,
+        "user_id": session.get("user_id") or args.user_id,
+        "address": session.get("address"),
+        "network": session.get("network") or args.network,
+        "wallet_path": session.get("wallet_path"),
+        "storage_format": session.get("storage_format"),
+        "created_now": bool(session.get("created_now")),
+        "backend": session.get("backend"),
+    }
+
+
 def main() -> None:
     args = build_parser().parse_args()
     source_package_root = Path(args.package_root).expanduser().resolve()
@@ -798,6 +871,7 @@ def main() -> None:
     pending_env = _pending_env_names() if backend_enabled else []
     configured = False
     configure_stdout = ""
+    solana_onboard_result: dict[str, object] | None = None
     if backend_enabled and not pending_env and not args.dry_run:
         result = subprocess.run(
             _build_next_steps(
@@ -813,6 +887,11 @@ def main() -> None:
         )
         configured = True
         configure_stdout = result.stdout
+        solana_onboard_result = _bootstrap_solana_wallet(
+            python_bin,
+            package_root,
+            args,
+        )
 
     print(
         json.dumps(
@@ -837,6 +916,7 @@ def main() -> None:
                 "runtime_sync": runtime_sync,
                 "configured": configured,
                 "pending_env": pending_env,
+                "solana_wallet": solana_onboard_result,
                 "next_configure_command": _build_next_steps(
                     python_bin,
                     install_config_script,

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## v0.1.23 - 2026-05-23
+
+- Made the default Solana install flow mainnet-first for fresh local
+  onboarding.
+- Added host-side Solana wallet provisioning to the installer so
+  `wallet install --yes` creates an encrypted per-user mainnet wallet when no
+  explicit signer is already configured.
+- Kept wallet secrets local by running runtime onboarding without
+  provisioning-only secret environment variables and returning only public
+  wallet metadata in installer output.
+- Updated installer smoke coverage to verify encrypted wallet creation,
+  mainnet config, address pinning, and absence of boot/master/approval secrets
+  in stdout.
+
 ## v0.1.18 - 2026-05-19
 
 - Started the native x402 buyer integration inside `agent-wallet` instead of

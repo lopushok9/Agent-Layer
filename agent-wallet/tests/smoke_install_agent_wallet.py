@@ -71,6 +71,7 @@ def main() -> None:
     assert payload["config_created"] is True
     assert payload["configured"] is False
     assert payload["pending_env"] == []
+    assert payload["solana_wallet"] is None
     assert payload["node_runtime"]["skipped"] is True
     assert payload["runtime_sync"]["enabled"] is True
     assert payload["runtime_sync"]["skipped"] is False
@@ -181,6 +182,44 @@ def main() -> None:
     )
     runtime_payload = json.loads(runtime_install.stdout)
     assert runtime_payload["python_bin"] == str(runtime_wrapper)
+
+    solana_root = temp_root / "solana-home"
+    solana_env = dict(os.environ)
+    solana_env["OPENCLAW_HOME"] = str(solana_root)
+    solana_env["AGENT_WALLET_BOOT_KEY"] = "test-boot-key-for-solana-installer"
+    solana_env["AGENT_WALLET_MASTER_KEY"] = "test-master-key-for-solana-installer"
+    solana_env["AGENT_WALLET_APPROVAL_SECRET"] = "test-approval-secret-for-solana-installer"
+    solana_install = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--config-path",
+            str(solana_root / "openclaw.json"),
+            "--env-path",
+            str(solana_root / ".env"),
+            "--runtime-root",
+            str(solana_root / "agent-wallet-runtime" / "current"),
+            "--skip-python-setup",
+            "--skip-node-setup",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=solana_env,
+    )
+    solana_payload = json.loads(solana_install.stdout)
+    assert solana_payload["configured"] is True
+    assert solana_payload["pending_env"] == []
+    assert solana_payload["solana_wallet"]["network"] == "mainnet"
+    assert solana_payload["solana_wallet"]["created_now"] is True
+    assert solana_payload["solana_wallet"]["storage_format"] == "encrypted"
+    assert Path(solana_payload["solana_wallet"]["wallet_path"]).exists()
+    assert Path(f"{solana_payload['solana_wallet']['wallet_path']}.pin.json").exists()
+    solana_config = json.loads((solana_root / "openclaw.json").read_text(encoding="utf-8"))
+    assert solana_config["plugins"]["entries"]["agent-wallet"]["config"]["network"] == "mainnet"
+    assert "test-master-key-for-solana-installer" not in solana_install.stdout
+    assert "test-approval-secret-for-solana-installer" not in solana_install.stdout
+    assert "test-boot-key-for-solana-installer" not in solana_install.stdout
 
     print("smoke_install_agent_wallet: ok")
 

@@ -343,7 +343,12 @@ The installer then:
 When the installer reaches the final config step, the default plugin config is:
 
 - `backend=solana_local`
-- `network=devnet`
+- `network=mainnet`
+
+For a fresh Solana install, `wallet install --yes` also provisions the first local mainnet
+wallet for the configured local `userId`. The wallet secret stays encrypted under
+`~/.openclaw/users/.../wallets/`; the agent-facing surface only receives the public
+address and guarded wallet tools.
 
 ## What is not done automatically
 
@@ -358,10 +363,11 @@ The installer does not:
 - expose seed phrases to the agent
 - install `python3`, `node`, or `npm` for you
 
-For Solana specifically, install alone does not make signed transactions available. You still need a readable wallet identity:
+For existing Solana installs, the runtime keeps the current identity precedence:
 
 - read-only mode: `SOLANA_AGENT_PUBLIC_KEY`
 - signing mode: a sealed `private_key` or `SOLANA_AGENT_KEYPAIR_PATH`
+- otherwise: the encrypted per-user local wallet created by onboarding
 
 Optional private Solana payout routing is also available through Houdini. To enable it, add the Houdini partner credentials to the wallet runtime:
 
@@ -471,7 +477,8 @@ You only need to bring your own RPC if you want to override the default route. S
 - `ALCHEMY_API_KEY`
 - `HELIUS_API_KEY`
 
-Automatic local Solana wallet creation exists, but it is off by default:
+The legacy global keypair auto-create flag still exists for compatibility, but normal
+OpenClaw onboarding should use the encrypted per-user wallet path created by the installer:
 
 ```bash
 SOLANA_AUTO_CREATE_WALLET=false
