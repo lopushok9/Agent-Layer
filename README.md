@@ -249,15 +249,19 @@ Lido:
 
 Across these service-backed flows, read operations remain directly callable, while write operations stay behind preview, explicit intent, and host-issued approval tokens before execution.
 
-If you want the installer to finish the OpenClaw plugin wiring in the same pass, provide the runtime secrets first:
-
-Solana:
+For the default Solana flow, run the installer directly:
 
 ```bash
-export AGENT_WALLET_BOOT_KEY="$(openssl rand -base64 32)"
-export AGENT_WALLET_MASTER_KEY="$(openssl rand -base64 32)"
-export AGENT_WALLET_APPROVAL_SECRET="$(openssl rand -base64 32)"
+npx @agentlayer.tech/wallet install --yes
 ```
+
+That installs the runtime, patches the OpenClaw plugin config, generates local
+runtime secrets when missing, and creates the first encrypted per-user Solana
+mainnet wallet. The agent receives the public address and guarded wallet tools,
+not the private key.
+
+BTC and EVM are separate host-side setup flows.
+
 Bitcoin:
 
 ```bash
@@ -272,7 +276,17 @@ sh agent-wallet/scripts/setup_evm_wallet.sh
 
 That host-side bootstrap can auto-start the local `wdk-evm-wallet` service, create or unlock the vault wallet, bind both `base` and `ethereum` for the same local user, and patch OpenClaw config to `backend=wdk_evm_local`.
 
-That generates three fresh local secrets in the current shell session. If you prefer Python instead of `openssl`:
+Advanced operators can still supply their own runtime provisioning secrets
+instead of using `--yes` auto-generation:
+
+```bash
+export AGENT_WALLET_BOOT_KEY="$(openssl rand -base64 32)"
+export AGENT_WALLET_MASTER_KEY="$(openssl rand -base64 32)"
+export AGENT_WALLET_APPROVAL_SECRET="$(openssl rand -base64 32)"
+npx @agentlayer.tech/wallet install --no-auto-secrets
+```
+
+If you prefer Python instead of `openssl`:
 
 ```bash
 python3 -c "import secrets; print(secrets.token_urlsafe(32))"
@@ -284,7 +298,10 @@ Run it three times and assign the outputs to:
 - `AGENT_WALLET_MASTER_KEY`
 - `AGENT_WALLET_APPROVAL_SECRET`
 
-Without those secrets, the installer still lays down the runtime and installs dependencies, but stops before the final hardened OpenClaw config step and prints the exact `next_configure_command` to run later.
+These variables are provisioning inputs only. Runtime secrets are sealed into
+`~/.openclaw/sealed_keys.json`; normal runtime execution should use
+`AGENT_WALLET_BOOT_KEY` or `AGENT_WALLET_BOOT_KEY_FILE`, not direct
+`AGENT_WALLET_MASTER_KEY` / `AGENT_WALLET_APPROVAL_SECRET` env loading.
 
 ## Connect the MCP server
 
