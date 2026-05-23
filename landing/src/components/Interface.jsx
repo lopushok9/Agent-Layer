@@ -3,6 +3,19 @@ import '../styles/Interface.css' // We'll create this
 
 export const Interface = ({ onInstallClick }) => {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+    const [installCopied, setInstallCopied] = useState(false)
+
+    const handleInstallCopy = async () => {
+        const command = 'npx @agentlayer.tech/wallet install --yes'
+
+        try {
+            await navigator.clipboard.writeText(command)
+            setInstallCopied(true)
+            window.setTimeout(() => setInstallCopied(false), 1800)
+        } catch (error) {
+            setInstallCopied(false)
+        }
+    }
 
     return (
         <div className="interface">
@@ -76,10 +89,6 @@ export const Interface = ({ onInstallClick }) => {
                 <div className="hero-content">
                     <h1 className="hero-headline">Wallet for agents</h1>
 
-                    <p className="subtitle">
-                        Secure wallet for autonomous agents.
-                    </p>
-
                     <p className="subtitle hero-subtitle-secondary">
                         Make payments via x402, use stablecoins, swap assets, earn yield with defi and buy tokenized stocks across the most popular chains.
                     </p>
@@ -89,9 +98,26 @@ export const Interface = ({ onInstallClick }) => {
                     </div>
                 </div>
 
-                <div className="hero-install-command" aria-label="Install command">
+                <button
+                    type="button"
+                    className={`hero-install-command ${installCopied ? 'copied' : ''}`}
+                    aria-label="Copy install command"
+                    onClick={handleInstallCopy}
+                >
                     <code>npx @agentlayer.tech/wallet install --yes</code>
-                </div>
+                    <span className="hero-install-command-copy" aria-hidden="true">
+                        {installCopied ? (
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M3.5 8.25L6.25 11L12.5 4.75" stroke="#111213" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                        ) : (
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <rect x="5" y="3" width="8" height="10" rx="1.5" stroke="#111213" strokeWidth="1.3" />
+                                <path d="M3 11V4.5C3 3.67157 3.67157 3 4.5 3H10" stroke="#111213" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                        )}
+                    </span>
+                </button>
             </main>
 
             {/* Continuation Section (Reference Implementation) */}

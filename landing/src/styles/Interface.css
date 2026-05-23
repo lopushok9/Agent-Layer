@@ -323,7 +323,15 @@
     box-shadow: 0 18px 48px rgba(17, 18, 19, 0.08);
     padding: 16px 26px;
     max-width: min(92vw, 760px);
+    width: min(92vw, 760px);
     overflow-x: auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    cursor: pointer;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+    text-align: left;
 }
 
 .hero-install-command code {
@@ -334,6 +342,33 @@
     line-height: 1.4;
     font-family: "IBM Plex Mono", "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
     white-space: nowrap;
+}
+
+.hero-install-command:hover,
+.hero-install-command:focus-visible {
+    border-color: #b8c0c8;
+    box-shadow: 0 22px 56px rgba(17, 18, 19, 0.12);
+    transform: translateY(-1px);
+}
+
+.hero-install-command:focus-visible {
+    outline: none;
+}
+
+.hero-install-command.copied {
+    border-color: #b7d4bf;
+}
+
+.hero-install-command-copy {
+    flex: 0 0 auto;
+    width: 32px;
+    height: 32px;
+    border-radius: 999px;
+    border: 1px solid #d8dde3;
+    background: #f6f8fa;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .subtitle a {
@@ -626,10 +661,19 @@
         margin-top: 24px;
         padding: 14px 18px;
         max-width: calc(100% - 40px);
+        width: calc(100% - 40px);
+        gap: 12px;
     }
 
     .hero-install-command code {
         font-size: 13px;
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+
+    .hero-install-command-copy {
+        width: 30px;
+        height: 30px;
     }
 
     .extended-section {
