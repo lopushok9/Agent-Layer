@@ -226,6 +226,62 @@ function activeVersion(env = process.env) {
   return path.basename(path.resolve(path.dirname(current), link));
 }
 
+function detectRuntimeVersion(runtimeRoot) {
+  try {
+    const packageJsonText = fs.readFileSync(path.join(runtimeRoot, "package.json"), "utf8");
+    const pkg = JSON.parse(packageJsonText);
+    return String(pkg.version || "").trim() || null;
+  } catch {
+    // ignored
+  }
+  try {
+    const pyprojectText = fs.readFileSync(path.join(runtimeRoot, "agent-wallet", "pyproject.toml"), "utf8");
+    const match = pyprojectText.match(/^version = "([^"]+)"/m);
+    return match?.[1] || null;
+  } catch {
+    return null;
+  }
+}
+
+function uniquePathWithSuffix(targetPath) {
+  if (!fs.existsSync(targetPath)) return targetPath;
+  let counter = 2;
+  while (true) {
+    const candidate = `${targetPath}-${counter}`;
+    if (!fs.existsSync(candidate)) return candidate;
+    counter += 1;
+  }
+}
+
+function migrateDirectoryRuntimePointer(linkPath) {
+  const stat = fs.lstatSync(linkPath);
+  if (!stat.isDirectory()) return null;
+  const runtimeBase = path.dirname(linkPath);
+  const releasesDir = path.join(runtimeBase, "releases");
+  fs.mkdirSync(releasesDir, { recursive: true });
+  const detectedVersion = detectRuntimeVersion(linkPath);
+  const baseName = detectedVersion ? `${detectedVersion}-migrated` : `legacy-current-${Date.now()}`;
+  const destination = uniquePathWithSuffix(path.join(releasesDir, baseName));
+  fs.renameSync(linkPath, destination);
+  return destination;
+}
+
+function existingRuntimePointerTarget(linkPath) {
+  const link = readLinkOrNull(linkPath);
+  if (link) {
+    return path.resolve(path.dirname(linkPath), link);
+  }
+  try {
+    const stat = fs.lstatSync(linkPath);
+    if (stat.isDirectory()) {
+      return migrateDirectoryRuntimePointer(linkPath);
+    }
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  return null;
+}
+
 function listDirectories(rootPath) {
   try {
     return fs
@@ -665,6 +721,7 @@ function runInstall(args, { commandName = "install" } = {}) {
   const currentPath = currentRuntimePath();
   const previousPath = previousRuntimePath();
   const installerArgs = withoutCliOnlyArgs(args);
+  const dryRun = hasFlag(args, "--dry-run");
 
   if (!hasFlag(installerArgs, "--runtime-root")) {
     installerArgs.push("--runtime-root", releaseRoot);
@@ -695,9 +752,13 @@ function runInstall(args, { commandName = "install" } = {}) {
     return result.status ?? 1;
   }
 
-  const currentTarget = readLinkOrNull(currentPath);
+  if (dryRun) {
+    return 0;
+  }
+
+  const currentTarget = existingRuntimePointerTarget(currentPath);
   if (currentTarget) {
-    switchSymlink(previousPath, path.resolve(path.dirname(currentPath), currentTarget));
+    switchSymlink(previousPath, currentTarget);
   }
   switchSymlink(currentPath, releaseRoot);
 

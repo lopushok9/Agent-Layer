@@ -263,8 +263,63 @@ def main() -> None:
     assert Path(directory_current_payload["agent_wallet_package_root"]).resolve() == (
         current_link / "agent-wallet"
     ).resolve()
-    shutil.rmtree(current_link)
-    current_link.symlink_to(runtime_root, target_is_directory=True)
+
+    directory_current_update_dry_run = subprocess.run(
+        [
+            "node",
+            str(cli),
+            "update",
+            "--yes",
+            "--dry-run",
+            "--config-path",
+            str(config_path),
+            "--env-path",
+            str(env_path),
+            "--backend",
+            "none",
+            "--skip-python-setup",
+            "--skip-node-setup",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=update_env,
+    )
+    directory_current_update_dry_payload = json.loads(directory_current_update_dry_run.stdout)
+    assert directory_current_update_dry_payload["ok"] is True
+    assert current_link.is_dir()
+    assert not current_link.is_symlink()
+
+    directory_current_update = subprocess.run(
+        [
+            "node",
+            str(cli),
+            "update",
+            "--yes",
+            "--config-path",
+            str(config_path),
+            "--env-path",
+            str(env_path),
+            "--backend",
+            "none",
+            "--skip-python-setup",
+            "--skip-node-setup",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=update_env,
+    )
+    directory_current_update_payload = json.loads(directory_current_update.stdout)
+    assert directory_current_update_payload["ok"] is True
+    assert current_link.is_symlink()
+    assert current_link.resolve() == runtime_root.resolve()
+    previous_link = runtime_base / "previous"
+    assert previous_link.is_symlink()
+    assert previous_link.resolve().parent == (runtime_base / "releases").resolve()
+    assert previous_link.resolve().name.startswith(f"{package_version}-migrated") or previous_link.resolve().name.startswith(
+        "legacy-current-"
+    )
 
     other_runtime = runtime_base / "releases" / "0.0.9"
     other_runtime.mkdir(parents=True, exist_ok=True)
