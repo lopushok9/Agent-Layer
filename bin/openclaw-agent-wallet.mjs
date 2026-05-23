@@ -53,6 +53,21 @@ by updates. The update command fetches the latest published npm package and
 reuses shared dependency snapshots when possible.`);
 }
 
+function primaryBinCommand(pkg = packageJson) {
+  const bin = pkg?.bin;
+  if (!bin) return "wallet";
+  if (typeof bin === "string") {
+    const packageName = String(pkg?.name || "").trim();
+    if (packageName) {
+      const parts = packageName.split("/");
+      return parts[parts.length - 1] || "wallet";
+    }
+    return "wallet";
+  }
+  const names = Object.keys(bin);
+  return names[0] || "wallet";
+}
+
 function expandHome(value) {
   if (!value) return value;
   if (value === "~") return os.homedir();
@@ -748,9 +763,10 @@ function runDelegatedInstallForUpdate(args, { captureOutput = false } = {}) {
   }
 
   const packageSpec = resolveUpdatePackageSpec();
+  const binCommand = primaryBinCommand();
   const result = spawnSync(
     npmBin,
-    ["exec", "--yes", `--package=${packageSpec}`, "openclaw-agent-wallet", "install", ...args],
+    ["exec", "--yes", `--package=${packageSpec}`, binCommand, "--", "install", ...args],
     {
       cwd: packageRoot,
       stdio: captureOutput ? "pipe" : "inherit",

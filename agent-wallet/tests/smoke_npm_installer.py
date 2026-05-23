@@ -205,6 +205,48 @@ def main() -> None:
     assert (runtime_base / "current").resolve() == runtime_root.resolve()
     assert "Update summary:" in update.stderr
 
+    pack_result = subprocess.run(
+        ["npm", "pack", "--json"],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=repo_root,
+    )
+    pack_payload = json.loads(pack_result.stdout)
+    tarball_name = pack_payload[0]["filename"]
+    tarball_path = repo_root / tarball_name
+    try:
+        npm_exec_temp_root = temp_root / "npm-exec-update"
+        npm_exec_env = dict(env)
+        npm_exec_env["OPENCLAW_HOME"] = str(npm_exec_temp_root)
+        npm_exec_env["OPENCLAW_AGENT_WALLET_UPDATE_PACKAGE_SPEC"] = f"file:{tarball_path}"
+        npm_exec_dry_run = subprocess.run(
+            [
+                "node",
+                str(cli),
+                "update",
+                "--yes",
+                "--dry-run",
+                "--backend",
+                "none",
+                "--skip-python-setup",
+                "--skip-node-setup",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            env=npm_exec_env,
+        )
+        npm_exec_payload = json.loads(npm_exec_dry_run.stdout)
+        assert npm_exec_payload["ok"] is True
+        assert npm_exec_payload["delegated_via"] == "npm_exec"
+        assert npm_exec_payload["target_package_spec"] == f"file:{tarball_path}"
+        assert Path(npm_exec_payload["target_runtime_root"]).resolve() == (
+            npm_exec_temp_root / "agent-wallet-runtime" / "releases" / package_version
+        ).resolve()
+    finally:
+        tarball_path.unlink(missing_ok=True)
+
     current_directory_runtime = temp_root / "directory-current-runtime"
     shutil.copytree(runtime_root, current_directory_runtime)
     current_link = runtime_base / "current"
