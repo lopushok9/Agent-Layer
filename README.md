@@ -9,7 +9,9 @@
 ```bash
 npx @agentlayer.tech/wallet install --yes
 ```
-For install to Hermes use
+
+For Hermes:
+
 ```bash
 npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet hermes install --yes
 ```
@@ -46,35 +48,35 @@ System prerequisites:
 - `node`
 - `npm`
 
-Install through npm:
+Install the local runtime:
 
 ```bash
 npx @agentlayer.tech/wallet install --yes
 ```
 
-Install the native OpenClaw plugins from ClawHub:
+Install the native OpenClaw plugin from ClawHub:
 
 ```bash
 openclaw plugins install clawhub:@agentlayertech/agent-wallet-plugin
 ```
 
-Those ClawHub packages do not replace the npm installer. Keep `npx @agentlayer.tech/wallet install --yes` for laying down the local wallet runtime, Python backend, and helper services. The ClawHub packages only install the OpenClaw plugin surfaces that point at that runtime.
+The ClawHub package does not replace the npm installer. `npx @agentlayer.tech/wallet install --yes` installs the local runtime, Python backend, and helper services. ClawHub only installs the OpenClaw plugin surface that points at that runtime.
 
-Or install the CLI globally first:
+Or install the CLI globally:
 
 ```bash
 npm install -g @agentlayer.tech/wallet
 wallet install --yes
 ```
 
-The npm CLI runs the same bundled installer, but uses a versioned runtime layout:
+The CLI uses a versioned runtime layout:
 
 ```bash
 ~/.openclaw/agent-wallet-runtime/releases/<version>
 ~/.openclaw/agent-wallet-runtime/current
 ```
 
-`--yes` generates local runtime secrets when this is the first install. The installer stores `master_key` and `approval_secret` in `~/.openclaw/sealed_keys.json`; only the boot key needed to unlock that sealed bundle is written to the installed runtime `.env`.
+On first install, `--yes` generates local runtime secrets. The installer stores `master_key` and `approval_secret` in `~/.openclaw/sealed_keys.json`; only the boot key needed to unlock that sealed bundle is written to the runtime `.env`.
 
 Useful npm CLI commands:
 
@@ -87,12 +89,11 @@ wallet update --yes --dry-run
 wallet rollback
 ```
 
-`wallet update --yes` now delegates to the latest published npm package and reuses shared Python and Node dependency snapshots when they have not changed, so frequent upgrades do not need to rebuild every runtime dependency from scratch.
-Use `wallet update --yes --dry-run` to inspect the target runtime version and whether Python/Node dependency snapshots will be reused or rebuilt before switching `current`.
+`wallet update --yes` delegates to the latest published npm package and reuses shared Python and Node dependency snapshots when possible. Use `wallet update --yes --dry-run` to inspect the target version and dependency plan before switching `current`.
 
 ## Native OpenClaw plugin installs
 
-Use ClawHub when you want the plugin itself to be installed through OpenClaw:
+Use ClawHub when you want the plugin installed through OpenClaw:
 
 ```bash
 openclaw plugins install clawhub:@agentlayertech/agent-wallet-plugin
@@ -104,7 +105,7 @@ Recommended order:
 2. Install the plugin package from ClawHub with `openclaw plugins install clawhub:...`.
 3. Restart the OpenClaw gateway and enable/configure the plugin entry in `openclaw.json`.
 
-The `agent-wallet` ClawHub plugin auto-checks the standard runtime path at:
+The `agent-wallet` ClawHub plugin checks the standard runtime path at:
 
 ```bash
 ~/.openclaw/agent-wallet-runtime/current/agent-wallet
@@ -118,7 +119,30 @@ Install from a local clone:
 sh ./setup.sh
 ```
 
-If you want the installer to finish the OpenClaw plugin wiring in the same pass, provide the runtime secrets before running it:
+## Updating
+
+If your installed CLI is `0.1.22` or newer, use:
+
+```bash
+wallet update --yes --dry-run
+wallet update --yes
+```
+
+If your installed CLI is older than `0.1.22`, or `wallet` is missing, use:
+
+```bash
+npx --yes @agentlayer.tech/wallet@latest update --yes --dry-run
+npx --yes @agentlayer.tech/wallet@latest update --yes
+```
+
+After updating, verify the active runtime:
+
+```bash
+npx --yes @agentlayer.tech/wallet@latest status --verbose
+```
+
+This flow keeps wallet files and `sealed_keys.json` in place, upgrades the runtime under `~/.openclaw/agent-wallet-runtime/releases/<version>`, and reuses shared Python and Node dependency snapshots when possible.
+
 
 ## Wallet capabilities through external services
 
@@ -225,6 +249,8 @@ Lido:
 
 Across these service-backed flows, read operations remain directly callable, while write operations stay behind preview, explicit intent, and host-issued approval tokens before execution.
 
+If you want the installer to finish the OpenClaw plugin wiring in the same pass, provide the runtime secrets first:
+
 Solana:
 
 ```bash
@@ -258,7 +284,7 @@ Run it three times and assign the outputs to:
 - `AGENT_WALLET_MASTER_KEY`
 - `AGENT_WALLET_APPROVAL_SECRET`
 
-Without those secrets, the installer still lays down the runtime and installs dependencies, but it stops short of the final hardened OpenClaw config step and prints the exact `next_configure_command` you should run after secrets are available.
+Without those secrets, the installer still lays down the runtime and installs dependencies, but stops before the final hardened OpenClaw config step and prints the exact `next_configure_command` to run later.
 
 ## Connect the MCP server
 
@@ -280,7 +306,7 @@ OpenClaw remains the primary local environment, but the repo also ships an optio
 hermes/plugins/agent_wallet
 ```
 
-It exposes a thin bridge, not a port of wallet logic:
+It exposes a thin bridge, not a separate wallet implementation:
 
 - `agent_wallet_tools`
 - `agent_wallet_invoke`
@@ -294,7 +320,7 @@ Install it by symlinking the plugin directory into Hermes:
 npx @agentlayer.tech/wallet hermes install --yes
 ```
 
-That command installs the Hermes plugin, runs `hermes plugins enable agent-wallet`, writes non-secret runtime paths into `~/.hermes/.env`, and points Hermes at a local boot-key file. Secrets stay in the existing protected OpenClaw runtime paths, especially `~/.openclaw/sealed_keys.json`; do not put wallet secrets into Hermes tool config.
+That command installs the Hermes plugin, runs `hermes plugins enable agent-wallet`, writes non-secret runtime paths into `~/.hermes/.env`, and points Hermes at a local boot-key file. Secrets stay in the protected OpenClaw runtime paths, especially `~/.openclaw/sealed_keys.json`; do not put wallet secrets into Hermes tool config.
 
 ## What you get after install
 
@@ -304,11 +330,11 @@ If you install through npm, the runtime is extracted under:
 ~/.openclaw/agent-wallet-runtime/current
 ```
 
-The installer then does the following:
+The installer then:
 
 - creates `agent-wallet/.env` from `agent-wallet/.env.example` if it does not exist
-- creates `agent-wallet/.venv` and installs the Python backend with `pip install -e`
-- installs Node dependencies for `wdk-btc-wallet` and `wdk-evm-wallet`
+- creates `agent-wallet/.runtime-venv` and installs the Python backend
+- installs Node dependencies for `wdk-btc-wallet`, `wdk-evm-wallet`, and `flash-sdk-bridge`
 - creates a minimal `~/.openclaw/openclaw.json` if one does not exist
 - if the required secrets are already present, writes or updates `~/.openclaw/sealed_keys.json`
 - if the required secrets are already present, patches `~/.openclaw/openclaw.json` to load the `agent-wallet` extension and point it at the installed runtime
