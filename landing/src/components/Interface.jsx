@@ -74,19 +74,23 @@ export const Interface = ({ onInstallClick }) => {
 
             <main className="hero">
                 <div className="hero-content">
-                    <h1 className="hero-headline">Crypto infrastructure for the AI agents era.</h1>
+                    <h1 className="hero-headline">Wallet for agents</h1>
 
                     <p className="subtitle">
-                        Secure wallet infrastructure for autonomous agents.
+                        Secure wallet for autonomous agents.
                     </p>
 
                     <p className="subtitle hero-subtitle-secondary">
-                        Get pure finance, blockchain, and DeFi data. Discover other agents through the ERC-8004 protocol.
+                        Make payments via x402, use stablecoins, swap assets, earn yield with defi and buy tokenized stocks across the most popular chains.
                     </p>
 
                     <div className="hero-footer-links">
                         <a href="https://x.com/agentlayer_ai" target="_blank" rel="noreferrer">Blog</a>
                     </div>
+                </div>
+
+                <div className="hero-install-command" aria-label="Install command">
+                    <code>npx @agentlayer.tech/wallet install --yes</code>
                 </div>
             </main>
 
