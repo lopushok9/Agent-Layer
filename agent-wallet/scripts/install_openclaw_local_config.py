@@ -16,7 +16,7 @@ from agent_wallet.file_ops import atomic_write_text, chmod_if_exists
 from agent_wallet.sealed_keys import resolve_sealed_keys_path, seal_keys, unseal_keys
 from security_utils import write_redacted_backup
 
-OPTIONAL_TOOLS = [
+LEGACY_ALLOWLIST_TOOLS = [
     "get_wallet_capabilities",
     "get_wallet_address",
     "get_wallet_balance",
@@ -55,6 +55,62 @@ X402_TOOLS = [
     "x402_preview_request",
     "x402_pay_request",
 ]
+
+
+def _extract_tool_allowlist_from_manifest(manifest_path: Path) -> list[str]:
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+    tools = manifest.get("contracts", {}).get("tools", [])
+    if not isinstance(tools, list):
+        return []
+
+    allowlist: list[str] = []
+    for item in tools:
+        tool_name = str(item).strip()
+        if tool_name and tool_name not in allowlist:
+            allowlist.append(tool_name)
+    return allowlist
+
+
+def _load_extension_tool_allowlist(extension_path: Path) -> list[str]:
+    manifest_candidates = [
+        extension_path / "openclaw.plugin.json",
+        _repo_root() / ".openclaw" / "extensions" / "agent-wallet" / "openclaw.plugin.json",
+    ]
+    for manifest_path in manifest_candidates:
+        allowlist = _extract_tool_allowlist_from_manifest(manifest_path)
+        if allowlist:
+            return allowlist
+    return LEGACY_ALLOWLIST_TOOLS + X402_TOOLS
+
+
+def _is_agent_wallet_extension_path(value: object) -> bool:
+    return "extensions/agent-wallet" in str(value).replace("\\", "/")
+
+
+def _normalize_load_paths(paths: list[object], extension_path_text: str) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+
+    for item in paths:
+        item_text = str(item).strip()
+        if not item_text:
+            continue
+        if "extensions/pay-bridge" in item_text:
+            continue
+        if _is_agent_wallet_extension_path(item_text) and item_text != extension_path_text:
+            continue
+        if item_text in seen:
+            continue
+        normalized.append(item_text)
+        seen.add(item_text)
+
+    if extension_path_text not in seen:
+        normalized.append(extension_path_text)
+    return normalized
 
 
 def _default_config_path() -> Path:
@@ -239,9 +295,7 @@ def main() -> None:
     load = plugins.setdefault("load", {})
     paths = load.setdefault("paths", [])
     extension_path_text = str(Path(args.extension_path).expanduser().resolve())
-    if extension_path_text not in paths:
-        paths.append(extension_path_text)
-    paths[:] = [item for item in paths if "extensions/pay-bridge" not in str(item)]
+    paths[:] = _normalize_load_paths(list(paths), extension_path_text)
 
     entries = plugins.setdefault("entries", {})
     effective_network = _normalize_network(args.backend, args.network)
@@ -306,7 +360,7 @@ def main() -> None:
         "pay_api_request",
     }
     also_allow[:] = [tool_name for tool_name in also_allow if tool_name not in removed_pay_tools]
-    for tool_name in OPTIONAL_TOOLS + X402_TOOLS:
+    for tool_name in _load_extension_tool_allowlist(Path(extension_path_text)):
         if tool_name not in also_allow:
             also_allow.append(tool_name)
 

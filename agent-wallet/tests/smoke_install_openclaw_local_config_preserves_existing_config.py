@@ -35,6 +35,12 @@ def main() -> None:
             {
                 "plugins": {
                     "allow": ["agent-wallet"],
+                    "load": {
+                        "paths": [
+                            str((temp_root / "agent-wallet-runtime" / "releases" / "0.1.22" / ".openclaw" / "extensions" / "agent-wallet").resolve()),
+                            str((temp_root / "plugins" / "other-plugin").resolve()),
+                        ]
+                    },
                     "entries": {
                         "agent-wallet": {
                             "enabled": True,
@@ -102,8 +108,18 @@ def main() -> None:
     assert "agent-wallet" in config_data["plugins"]["allow"]
     assert "pay-bridge" not in config_data["plugins"]["allow"]
     assert "pay-bridge" not in config_data["plugins"]["entries"]
+    assert config_data["plugins"]["load"]["paths"] == [
+        str((temp_root / "plugins" / "other-plugin").resolve()),
+        str(runtime_extension.resolve()),
+    ]
 
     also_allow = config_data["tools"]["alsoAllow"]
+    assert "get_evm_network" in also_allow
+    assert "set_evm_network" in also_allow
+    assert "get_evm_swap_quote" in also_allow
+    assert "swap_evm_tokens" in also_allow
+    assert "transfer_evm_native" in also_allow
+    assert "transfer_evm_token" in also_allow
     assert "swap_solana_privately" in also_allow
     assert "continue_solana_private_swap" in also_allow
     assert "list_pending_solana_private_swaps" in also_allow

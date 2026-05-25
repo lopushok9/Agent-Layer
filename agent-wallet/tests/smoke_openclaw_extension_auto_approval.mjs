@@ -78,6 +78,42 @@ async function main() {
       slippage_bps: 100,
     },
   };
+  const preparedPreview = {
+    ...preview,
+    mode: "prepare",
+    prepared: false,
+    signed: false,
+    broadcasted: false,
+    confirmed: false,
+    execution_plan_only: true,
+  };
+  const evmPrepared = {
+    chain: "evm",
+    network: "base",
+    is_mainnet: true,
+    mode: "prepare",
+    asset_type: "swap",
+    input_amount_raw: "1000000",
+    token_in: "0x1111111111111111111111111111111111111111",
+    token_out: "0x2222222222222222222222222222222222222222",
+    swap_provider: "velora",
+    estimated_output_amount_raw: "995000",
+    minimum_output_amount_raw: "985050",
+    price_impact_pct: 0.002,
+    fee_summary: { gas_fee_native: "4722815300334" },
+    confirmation_summary: {
+      operation: "EVM swap",
+      network: "base",
+      swap_provider: "velora",
+      estimated_output_amount_raw: "995000",
+      minimum_output_amount_raw: "985050",
+      price_impact_pct: 0.002,
+      quote_fingerprint: "evm-prepare-fingerprint",
+      token_in: "0x1111111111111111111111111111111111111111",
+      token_out: "0x2222222222222222222222222222222222222222",
+      input_amount_raw: "1000000",
+    },
+  };
   const x402Preview = {
     mode: "preview",
     network: "solana:mainnet",
@@ -103,6 +139,12 @@ async function main() {
     if (parsed.command === "invoke" && parsed.tool === "swap_solana_tokens" && parsed.arguments.mode === "preview") {
       return { stdout: JSON.stringify({ ok: true, data: preview }), stderr: "" };
     }
+    if (parsed.command === "invoke" && parsed.tool === "swap_solana_tokens" && parsed.arguments.mode === "prepare") {
+      return { stdout: JSON.stringify({ ok: true, data: preparedPreview }), stderr: "" };
+    }
+    if (parsed.command === "invoke" && parsed.tool === "swap_evm_tokens" && parsed.arguments.mode === "prepare") {
+      return { stdout: JSON.stringify({ ok: true, data: evmPrepared }), stderr: "" };
+    }
     if (
       parsed.command === "invoke" &&
       parsed.tool === "x402_preview_request" &&
@@ -111,11 +153,15 @@ async function main() {
       return { stdout: JSON.stringify({ ok: true, data: x402Preview }), stderr: "" };
     }
     if (parsed.command === "issue-approval") {
-      assert.ok(["swap_solana_tokens", "x402_pay_request"].includes(parsed.tool));
+      assert.ok(["swap_solana_tokens", "swap_evm_tokens", "x402_pay_request"].includes(parsed.tool));
       assert.equal(parsed.mainnetConfirmed, true);
       if (parsed.tool === "swap_solana_tokens") {
         assert.equal(typeof parsed.summary._preview_digest, "string");
         assert.ok(parsed.summary._preview_digest.length > 10);
+      } else if (parsed.tool === "swap_evm_tokens") {
+        assert.equal(parsed.summary._preview_digest, undefined);
+        assert.equal(parsed.summary.network, "base");
+        assert.equal(parsed.summary.input_amount_raw, "1000000");
       } else {
         assert.equal(parsed.summary._preview_digest, undefined);
       }
@@ -127,8 +173,14 @@ async function main() {
     if (parsed.command === "invoke" && parsed.tool === "swap_solana_tokens" && parsed.arguments.mode === "execute") {
       assert.equal(parsed.tool, "swap_solana_tokens");
       assert.equal(typeof parsed.arguments.approval_token, "string");
-      assert.equal(parsed.arguments._approved_preview.input_mint, preview.input_mint);
+      assert.equal(parsed.arguments._approved_preview.input_mint, preparedPreview.input_mint);
+      assert.equal(parsed.arguments._approved_preview.mode, "prepare");
       return { stdout: JSON.stringify({ ok: true, data: { executed: true } }), stderr: "" };
+    }
+    if (parsed.command === "invoke" && parsed.tool === "swap_evm_tokens" && parsed.arguments.mode === "execute") {
+      assert.equal(typeof parsed.arguments.approval_token, "string");
+      assert.equal(parsed.arguments.approval_token.includes("."), true);
+      return { stdout: JSON.stringify({ ok: true, data: { hash: "0xevmhash" } }), stderr: "" };
     }
     if (parsed.command === "invoke" && parsed.tool === "x402_pay_request" && parsed.arguments.mode === "execute") {
       assert.equal(typeof parsed.arguments.approval_token, "string");
@@ -182,8 +234,9 @@ async function main() {
     output_mint: preview.output_mint,
     amount: 0.056,
     slippage_bps: 100,
-    mode: "preview",
-    purpose: "test preview",
+    mode: "prepare",
+    purpose: "test prepare",
+    user_intent: true,
   });
 
   const executed = await swapTool.execute("2", {
@@ -196,6 +249,26 @@ async function main() {
   });
 
   assert.equal(JSON.parse(executed.content[0].text).executed, true);
+  const evmSwapTool = tools.find((tool) => tool.name === "swap_evm_tokens");
+  assert.ok(evmSwapTool, "swap_evm_tokens tool should be registered");
+  await evmSwapTool.execute("evm-1", {
+    token_in: evmPrepared.token_in,
+    token_out: evmPrepared.token_out,
+    amount_in_raw: evmPrepared.input_amount_raw,
+    mode: "prepare",
+    purpose: "test evm prepare",
+    user_intent: true,
+    network: "base",
+  });
+  const evmExecuted = await evmSwapTool.execute("evm-2", {
+    token_in: evmPrepared.token_in,
+    token_out: evmPrepared.token_out,
+    amount_in_raw: evmPrepared.input_amount_raw,
+    mode: "execute",
+    purpose: "test evm execute",
+    network: "base",
+  });
+  assert.equal(JSON.parse(evmExecuted.content[0].text).hash, "0xevmhash");
   const x402Previewed = await x402PreviewTool.execute("3", {
     url: x402Preview.confirmation_summary.url,
     method: "POST",
@@ -214,7 +287,7 @@ async function main() {
   assert.equal(JSON.parse(x402Executed.content[0].text).paid, true);
   assert.equal(
     calls.filter((entry) => entry.parsed.command === "issue-approval").length,
-    2
+    3
   );
 
   delete globalThis.__TEST_EXEC_FILE__;

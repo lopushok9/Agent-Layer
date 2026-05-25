@@ -62,6 +62,12 @@ def main() -> None:
     assert "agent-wallet" in config_data["plugins"]["allow"]
     assert plugin_config["packageRoot"] == str(runtime_package.resolve())
     assert plugin_config["pythonBin"] == str(wrapper.resolve())
+    assert "get_evm_network" in config_data["tools"]["alsoAllow"]
+    assert "set_evm_network" in config_data["tools"]["alsoAllow"]
+    assert "get_evm_swap_quote" in config_data["tools"]["alsoAllow"]
+    assert "swap_evm_tokens" in config_data["tools"]["alsoAllow"]
+    assert "transfer_evm_native" in config_data["tools"]["alsoAllow"]
+    assert "transfer_evm_token" in config_data["tools"]["alsoAllow"]
     assert "x402_search_services" in config_data["tools"]["alsoAllow"]
     assert "x402_pay_request" in config_data["tools"]["alsoAllow"]
     assert "get_flash_trade_markets" in config_data["tools"]["alsoAllow"]

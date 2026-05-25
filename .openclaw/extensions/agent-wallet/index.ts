@@ -71,19 +71,19 @@ function pruneApprovalPreviewCache() {
 function cachePreviewForApproval(userId, toolName, payload) {
   const cacheToolName = approvalPreviewToolName(toolName);
   if (!payload || payload.ok !== true || !payload.data || typeof payload.data !== "object") return;
-  const preview = payload.data;
-  if (preview.mode !== "preview") return;
-  if (!preview.confirmation_summary || typeof preview.confirmation_summary !== "object") return;
+  const approvalSource = payload.data;
+  if (!["preview", "prepare"].includes(String(approvalSource.mode || ""))) return;
+  if (!approvalSource.confirmation_summary || typeof approvalSource.confirmation_summary !== "object") return;
   pruneApprovalPreviewCache();
-  const digest = previewDigest(preview);
+  const digest = previewDigest(approvalSource);
   approvalPreviewCache.set(approvalCacheKey(userId, cacheToolName), {
     digest,
     expiresAt:
       cacheToolName === "swap_solana_privately"
         ? Date.now() + PRIVATE_SWAP_CACHE_TTL_MS
         : Date.now() + PREVIEW_CACHE_TTL_MS,
-    preview,
-    summary: preview.confirmation_summary,
+    preview: approvalSource,
+    summary: approvalSource.confirmation_summary,
   });
   if (cacheToolName === "swap_solana_privately") {
     privateSwapOrderCache.delete(approvalCacheKey(userId, cacheToolName));
