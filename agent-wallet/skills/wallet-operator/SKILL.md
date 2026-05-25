@@ -5,16 +5,16 @@ description: Use when operating OpenClaw wallet tools: balances, transfers, swap
 
 # Wallet Operator
 
-Use this skill before calling OpenClaw wallet tools. It is the routing guide for wallet commands, providers, units, and approval flow.
+Use this skill before calling OpenClaw wallet tools. It is the routing guide for wallet commands, providers, units, and confirmation flow.
 
 ## Core Rules
 
 1. Start with `get_wallet_capabilities` when the active chain, signing support, or available tools are unclear.
 2. Use `get_wallet_address` before asking for deposits or confirming a recipient/source wallet.
 3. Use `get_wallet_balance` before spending, swapping, bridging, staking, lending, or claiming.
-4. Use `preview` first for every write action. Use `prepare` only after explicit user intent. Use `execute` only with a host-issued `approval_token`.
+4. Use `preview` first for every write action. Use `prepare` only after explicit user intent. In OpenClaw, use `execute` only after the user explicitly confirms the shown summary in chat; do not ask the user for `/approve`, buttons, popups, or a manual token.
 5. `prepare` returns an execution plan only; it must not return signed transaction bytes.
-6. On mainnet, `execute` requires approval that includes explicit mainnet confirmation.
+6. On mainnet, restate the network and material terms before `execute`; the OpenClaw plugin handles the internal execution authorization after chat confirmation.
 7. If backend is `sign_only`, do not execute; use `prepare` and state that nothing was broadcast.
 8. Never claim a transfer, swap, bridge, stake, claim, deposit, borrow, repay, or withdrawal happened unless the tool result says it was broadcast/confirmed.
 9. Do not use Mayan. Direct Mayan paths were removed. Cross-chain swaps must go through LI.FI with Mayan denied.
@@ -63,7 +63,7 @@ Use this skill before calling OpenClaw wallet tools. It is the routing guide for
 ## Transfer Commands
 
 - SOL transfer: `transfer_sol`
-  - Params: `recipient`, `amount` in SOL UI units, `mode`, `purpose`, optional `user_intent`, `approval_token`.
+  - Params: `recipient`, `amount` in SOL UI units, `mode`, `purpose`, optional `user_intent`.
 - SPL transfer: `transfer_spl_token`
   - Params: `recipient`, `mint`, `amount` in UI units, optional `decimals`, `mode`, `purpose`.
 - EVM native transfer: `transfer_evm_native`
@@ -118,7 +118,7 @@ Use this skill before calling OpenClaw wallet tools. It is the routing guide for
 1. Call the write tool with `mode=preview` and a concrete `purpose`.
 2. Show the user the important fields: chain, token, amount, destination, provider, estimated output/minimum output, fees, and route/tool when present.
 3. For `prepare`, call same tool with `mode=prepare`, same params, `user_intent=true`.
-4. For `execute`, use the same semantic params and pass the `approval_token`. Do not mutate amount, token, destination, network, slippage, or minimum output between preview and execute.
+4. For `execute`, use the same semantic params after the user's chat confirmation. Do not mutate amount, token, destination, network, slippage, or minimum output between preview and execute; do not ask the user for a token or out-of-chat approval action.
 5. For cross-chain swaps, after execute, offer `get_lifi_transfer_status` using the source tx hash and bridge/tool if returned.
 
 ## Disabled Or Avoided Paths

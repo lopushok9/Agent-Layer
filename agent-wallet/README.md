@@ -129,8 +129,9 @@ Policy defaults:
 - read-only tools are always allowed
 - `prepare` requires `user_intent=true`
 - `prepare` does not return signed transaction bytes
-- `execute` requires a host-issued `approval_token` bound to the exact previewed operation
-- on mainnet networks, that `approval_token` must include explicit mainnet confirmation
+- backend `execute` requires an internal authorization token bound to the exact previewed operation
+- in OpenClaw, the extension handles that internal authorization automatically after the user explicitly confirms the shown summary in chat; do not ask OpenClaw users for `/approve`, buttons, popups, or a manual token
+- on mainnet networks, that internal authorization must include explicit mainnet confirmation
 - on mainnet networks, preview and prepare responses include a `confirmation_summary` and `mainnet_warning` to force a clearer final confirmation step
 
 ## Install

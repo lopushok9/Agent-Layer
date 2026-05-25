@@ -2993,6 +2993,32 @@ async def main() -> None:
     assert no_repreview_execute.ok is True
     assert no_repreview_backend._swap_preview_calls == 1
 
+    no_repreview_legacy_summary_preview = dict(no_repreview_preview.data)
+    no_repreview_legacy_summary_preview["confirmation_summary"] = {
+        **no_repreview_preview.data["confirmation_summary"],
+        "quote_fingerprint": "legacy-bridge-fingerprint",
+    }
+    no_repreview_legacy_summary_execute = await no_repreview_adapter.invoke(
+        "swap_solana_tokens",
+        {
+            "input_mint": "So11111111111111111111111111111111111111112",
+            "output_mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "amount": 0.1,
+            "slippage_bps": 50,
+            "mode": "execute",
+            "purpose": "test digest-bound swap execute with legacy summary",
+            "approval_token": _issue_execute_approval(
+                tool_name="swap_solana_tokens",
+                preview=no_repreview_legacy_summary_preview,
+                network="devnet",
+                bind_preview_digest=True,
+            ),
+            "_approved_preview": no_repreview_legacy_summary_preview,
+        },
+    )
+    assert no_repreview_legacy_summary_execute.ok is True
+    assert no_repreview_backend._swap_preview_calls == 1
+
     no_repreview_flash_backend = NoRepreviewFlashBackend()
     no_repreview_flash_adapter = OpenClawWalletAdapter(no_repreview_flash_backend)
     no_repreview_flash_preview = await no_repreview_flash_adapter.invoke(

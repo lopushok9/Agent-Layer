@@ -118,8 +118,8 @@ The intended user-facing flow inside OpenClaw is:
    transfers, swaps, Aave position changes, staking, stake deactivation, and stake withdrawals should start in `preview`.
 3. Prepare only with intent:
    `prepare` is for explicit execution planning intent and returns no signed transaction bytes.
-4. Execute only with approval:
-   `execute` requires a host-issued `approval_token` bound to the exact previewed operation. On `mainnet`, that token must include explicit mainnet confirmation.
+4. Execute only after chat confirmation:
+   after the user explicitly confirms the shown preview/prepare summary in chat, call `execute` with the same semantic params. The OpenClaw extension handles the internal execution authorization automatically and binds it to the cached operation.
 5. On mainnet, restate the network, asset, amount, and destination, validator, or stake account before execute.
 
 For staking specifically, the normal agent flow should be:

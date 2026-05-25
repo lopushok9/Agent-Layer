@@ -25,6 +25,10 @@ const approvalPreviewCache = new Map();
 const privateSwapOrderCache = new Map();
 const WALLET_TOOL_ONLY_GUIDANCE =
   "Use this wallet tool instead of shelling out to solana CLI, spl-token CLI, curl, or exec. If it fails, surface the wallet-tool error and stop rather than falling back to terminal commands.";
+const OPENCLAW_EXECUTE_APPROVAL_GUIDANCE =
+  "Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute with the same semantic params; the OpenClaw plugin handles the internal execution authorization automatically.";
+const APPROVAL_CONTEXT_MISSING_MESSAGE =
+  `Confirmation context is not ready or expired. ${OPENCLAW_EXECUTE_APPROVAL_GUIDANCE} Do not ask for /approve, buttons, popups, or a manual token.`;
 const APPROVAL_PREVIEW_TOOL_ALIASES = new Map([
   ["x402_pay_request", "x402_preview_request"],
 ]);
@@ -113,6 +117,31 @@ function cachedPreviewForToken(userId, toolName, token) {
   const cached = latestCachedPreview(userId, toolName);
   if (!cached || cached.digest !== digest) return null;
   return cached.preview && typeof cached.preview === "object" ? cached.preview : null;
+}
+
+function requiresApprovedPreviewPayload(toolName) {
+  return PREVIEW_BOUND_SWAP_TOOLS.has(toolName);
+}
+
+function looksLikeApprovalContextError(message) {
+  const text = String(message || "").toLowerCase();
+  return (
+    text.includes("approval_token") ||
+    text.includes("approval token") ||
+    text.includes("approval context") ||
+    text.includes("approved preview") ||
+    text.includes("preview payload") ||
+    text.includes("previewed operation")
+  );
+}
+
+function normalizeApprovalContextError(error) {
+  const message = String(error?.message || error || "");
+  if (!looksLikeApprovalContextError(message)) return error;
+  const wrapped = new Error(`${APPROVAL_CONTEXT_MISSING_MESSAGE} Original wallet error: ${message}`);
+  if (typeof error?.code === "string") wrapped.code = error.code;
+  if (error?.details && typeof error.details === "object") wrapped.details = error.details;
+  return wrapped;
 }
 
 function cachePendingPrivateSwapOrder(userId, toolName, preview, details) {
@@ -530,6 +559,41 @@ async function issueApprovalToken(api, config, userId, toolName, previewPayload)
   return token;
 }
 
+async function attachApprovalForExecute(api, config, userId, toolName, effectiveParams) {
+  if (String(effectiveParams.mode || "") !== "execute") return null;
+
+  const cached = latestCachedPreview(userId, toolName);
+  if (cached?.preview && cached?.summary) {
+    effectiveParams.approval_token = await issueApprovalToken(
+      api,
+      config,
+      userId,
+      toolName,
+      cached.preview
+    );
+    if (requiresApprovedPreviewPayload(toolName)) {
+      effectiveParams._approved_preview = cached.preview;
+    }
+    return cached;
+  }
+
+  if (
+    requiresApprovedPreviewPayload(toolName) &&
+    typeof effectiveParams.approval_token === "string" &&
+    effectiveParams.approval_token.trim() &&
+    effectiveParams._approved_preview === undefined
+  ) {
+    const cachedPreview = cachedPreviewForToken(userId, toolName, effectiveParams.approval_token);
+    if (cachedPreview) {
+      effectiveParams._approved_preview = cachedPreview;
+    }
+  }
+
+  if (effectiveParams.approval_token) return null;
+
+  throw new Error(APPROVAL_CONTEXT_MISSING_MESSAGE);
+}
+
 function asContent(data) {
   return {
     content: [
@@ -664,40 +728,15 @@ function registerTool(api, definition) {
       if (activeBackend === "wdk_evm_local" && effectiveParams.network !== undefined) {
         configOverride.network = normalizeSelectableEvmNetwork(effectiveParams.network);
       }
-      if (String(effectiveParams.mode || "") === "execute") {
-        if (
-          PREVIEW_BOUND_SWAP_TOOLS.has(definition.name) &&
-          typeof effectiveParams.approval_token === "string" &&
-          effectiveParams.approval_token.trim() &&
-          effectiveParams._approved_preview === undefined
-        ) {
-          const cachedPreview = cachedPreviewForToken(userId, definition.name, effectiveParams.approval_token);
-          if (cachedPreview) {
-            effectiveParams._approved_preview = cachedPreview;
-          }
-        }
-        if (!effectiveParams.approval_token) {
-          const cached = latestCachedPreview(userId, definition.name);
-          if (cached?.preview && cached?.summary) {
-            effectiveParams.approval_token = await issueApprovalToken(
-              api,
-              configOverride,
-              userId,
-              definition.name,
-              cached.preview
-            );
-            if (PREVIEW_BOUND_SWAP_TOOLS.has(definition.name) && effectiveParams._approved_preview === undefined) {
-              effectiveParams._approved_preview = cached.preview;
-            }
-          }
-        }
+      if (definition.name !== "continue_solana_private_swap") {
+        await attachApprovalForExecute(api, configOverride, userId, definition.name, effectiveParams);
       }
       if (definition.name === "continue_solana_private_swap") {
         const cached = latestCachedPreview(userId, PRIVATE_SWAP_APPROVAL_TOOL_NAME);
-        if (cached?.preview && effectiveParams._approved_preview === undefined) {
+        if (cached?.preview) {
           effectiveParams._approved_preview = cached.preview;
         }
-        if (!effectiveParams.approval_token && cached?.preview && cached?.summary) {
+        if (cached?.preview && cached?.summary) {
           effectiveParams.approval_token = await issueApprovalToken(
             api,
             configOverride,
@@ -705,6 +744,8 @@ function registerTool(api, definition) {
             PRIVATE_SWAP_APPROVAL_TOOL_NAME,
             cached.preview
           );
+        } else if (!effectiveParams.approval_token) {
+          throw new Error(APPROVAL_CONTEXT_MISSING_MESSAGE);
         }
         if (effectiveParams._resume_private_swap_order === undefined && cached?.preview) {
           const pendingOrder = latestPendingPrivateSwapOrder(
@@ -784,16 +825,24 @@ function registerTool(api, definition) {
             if (errorCode === "houdini_exchange_rate_limited" && errorDetails) {
               throw new Error(formatPrivateSwapRateLimitError(errorDetails));
             }
-            throw error;
+            throw normalizeApprovalContextError(error);
           }
         }
       } else if (definition.name === "continue_solana_private_swap") {
-        payload = await executeWalletTool();
+        try {
+          payload = await executeWalletTool();
+        } catch (error) {
+          throw normalizeApprovalContextError(error);
+        }
         if (payload?.data?.execution_state === "funding_submitted") {
           clearPendingPrivateSwapOrder(userId, PRIVATE_SWAP_APPROVAL_TOOL_NAME);
         }
       } else {
-        payload = await executeWalletTool();
+        try {
+          payload = await executeWalletTool();
+        } catch (error) {
+          throw normalizeApprovalContextError(error);
+        }
       }
       cachePreviewForApproval(userId, definition.name, payload);
       if (payload?.ok === false) {
@@ -888,7 +937,7 @@ const walletSessionToolDefinitions = [
   {
     name: "x402_pay_request",
     description:
-      "Prepare or execute an x402 paid request using the active wallet backend. This milestone executes the Solana exact buyer flow and keeps EVM as prepare-only.",
+      `Prepare or execute an x402 paid request using the active wallet backend. This milestone executes the Solana exact buyer flow and keeps EVM as prepare-only. ${OPENCLAW_EXECUTE_APPROVAL_GUIDANCE}`,
     parameters: {
       type: "object",
       properties: {
@@ -907,10 +956,6 @@ const walletSessionToolDefinitions = [
         user_intent: {
           type: "boolean",
           description: "Must be true for prepare mode.",
-        },
-        approval_token: {
-          type: "string",
-          description: "Required for execute mode and must be issued against the exact x402 payment summary.",
         },
       },
       required: ["url", "mode", "purpose"],
@@ -1216,7 +1261,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "sign_wallet_message",
-    description: "Sign an arbitrary message with the connected wallet after explicit approval.",
+    description: "Sign an arbitrary message with the connected wallet after explicit user confirmation in chat.",
     optional: true,
     parameters: {
       type: "object",
@@ -1231,7 +1276,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "transfer_sol",
-    description: "Preview, prepare, or execute a native SOL transfer. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    description: "Preview, prepare, or execute a native SOL transfer. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
     optional: true,
     parameters: {
       type: "object",
@@ -1241,7 +1286,6 @@ const solanaToolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        approval_token: { type: "string" },
       },
       required: ["recipient", "amount", "mode", "purpose"],
       additionalProperties: false,
@@ -1249,7 +1293,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "transfer_spl_token",
-    description: "Preview, prepare, or execute an SPL token transfer by mint address. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    description: "Preview, prepare, or execute an SPL token transfer by mint address. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
     optional: true,
     parameters: {
       type: "object",
@@ -1261,7 +1305,6 @@ const solanaToolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        approval_token: { type: "string" },
       },
       required: ["recipient", "mint", "amount", "mode", "purpose"],
       additionalProperties: false,
@@ -1269,7 +1312,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "swap_solana_tokens",
-    description: `Preview, prepare, or execute a Solana token swap via Jupiter. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation. ${WALLET_TOOL_ONLY_GUIDANCE}`,
+    description: `Preview, prepare, or execute a Solana token swap via Jupiter. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically. ${WALLET_TOOL_ONLY_GUIDANCE}`,
     optional: true,
     parameters: {
       type: "object",
@@ -1281,7 +1324,6 @@ const solanaToolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        approval_token: { type: "string" },
       },
       required: ["input_mint", "output_mint", "amount", "mode", "purpose"],
       additionalProperties: false,
@@ -1289,7 +1331,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "swap_solana_privately",
-    description: `Preview or create a Solana private payout through Houdini's anonymous routing. The initial implementation supports same-token private payouts only, such as SOL->SOL or USDC->USDC. Use preview first, then execute after explicit approval. The first execute creates the Houdini order and returns its deposit address; use continue_solana_private_swap to submit the funding transfer. ${WALLET_TOOL_ONLY_GUIDANCE}`,
+    description: `Preview or create a Solana private payout through Houdini's anonymous routing. The initial implementation supports same-token private payouts only, such as SOL->SOL or USDC->USDC. Use preview first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically. The first execute creates the Houdini order and returns its deposit address; use continue_solana_private_swap to submit the funding transfer. ${WALLET_TOOL_ONLY_GUIDANCE}`,
     optional: true,
     parameters: {
       type: "object",
@@ -1302,7 +1344,6 @@ const solanaToolDefinitions = [
         mode: { type: "string", enum: ["preview", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        approval_token: { type: "string" },
       },
       required: ["input_token", "output_token", "destination_address", "amount", "mode", "purpose"],
       additionalProperties: false,
@@ -1311,15 +1352,13 @@ const solanaToolDefinitions = [
   {
     name: "continue_solana_private_swap",
     description:
-      "Continue a previously created Houdini private Solana payout and submit the funding transfer to the cached deposit address. Use this after swap_solana_privately execute has returned a pending order.",
+      "Continue a previously created Houdini private Solana payout and submit the funding transfer to the cached deposit address. Use this after swap_solana_privately execute has returned a pending order; the OpenClaw plugin reuses the cached confirmation context automatically.",
     optional: true,
     parameters: {
       type: "object",
       properties: {
         houdini_id: { type: "string" },
-        approval_token: { type: "string" },
       },
-      required: ["approval_token"],
       additionalProperties: false,
     },
   },
@@ -1339,7 +1378,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "swap_solana_lifi_cross_chain_tokens",
-    description: "Preview, prepare, or execute a Solana-origin cross-chain swap through LI.FI. This currently supports Solana as the source chain and ethereum/base as the destination chain. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    description: "Preview, prepare, or execute a Solana-origin cross-chain swap through LI.FI. This currently supports Solana as the source chain and ethereum/base as the destination chain. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
     optional: true,
     parameters: {
       type: "object",
@@ -1356,7 +1395,6 @@ const solanaToolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        approval_token: { type: "string" },
       },
       required: [
         "input_token",
@@ -1372,7 +1410,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "claim_bags_fees",
-    description: "Preview, prepare, or execute a Bags fee-share claim for the connected wallet on mainnet. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    description: "Preview, prepare, or execute a Bags fee-share claim for the connected wallet on mainnet. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
     optional: true,
     parameters: {
       type: "object",
@@ -1381,7 +1419,6 @@ const solanaToolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        approval_token: { type: "string" },
       },
       required: ["token_mint", "mode", "purpose"],
       additionalProperties: false,
@@ -1389,7 +1426,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "launch_bags_token",
-    description: "Preview, prepare, or execute a Bags token launch with fee-share config on mainnet. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    description: "Preview, prepare, or execute a Bags token launch with fee-share config on mainnet. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
     optional: true,
     parameters: {
       type: "object",
@@ -1416,7 +1453,6 @@ const solanaToolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        approval_token: { type: "string" },
       },
       required: [
         "name",
@@ -1434,7 +1470,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "jupiter_earn_deposit",
-    description: "Preview, prepare, or execute a Jupiter Earn deposit using a raw base-unit amount. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    description: "Preview, prepare, or execute a Jupiter Earn deposit using a raw base-unit amount. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
     optional: true,
     parameters: {
       type: "object",
@@ -1444,7 +1480,6 @@ const solanaToolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        approval_token: { type: "string" },
       },
       required: ["asset", "amount_raw", "mode", "purpose"],
       additionalProperties: false,
@@ -1452,7 +1487,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "jupiter_earn_withdraw",
-    description: "Preview, prepare, or execute a Jupiter Earn withdraw using a raw base-unit amount. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    description: "Preview, prepare, or execute a Jupiter Earn withdraw using a raw base-unit amount. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
     optional: true,
     parameters: {
       type: "object",
@@ -1462,7 +1497,6 @@ const solanaToolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        approval_token: { type: "string" },
       },
       required: ["asset", "amount_raw", "mode", "purpose"],
       additionalProperties: false,
@@ -1470,7 +1504,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "kamino_lend_deposit",
-    description: "Preview, prepare, or execute a Kamino lending deposit using a decimal token amount. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    description: "Preview, prepare, or execute a Kamino lending deposit using a decimal token amount. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
     optional: true,
     parameters: {
       type: "object",
@@ -1481,7 +1515,6 @@ const solanaToolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        approval_token: { type: "string" },
       },
       required: ["market", "reserve", "amount_ui", "mode", "purpose"],
       additionalProperties: false,
@@ -1489,7 +1522,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "kamino_lend_withdraw",
-    description: "Preview, prepare, or execute a Kamino lending withdraw using a decimal token amount. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    description: "Preview, prepare, or execute a Kamino lending withdraw using a decimal token amount. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
     optional: true,
     parameters: {
       type: "object",
@@ -1500,7 +1533,6 @@ const solanaToolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        approval_token: { type: "string" },
       },
       required: ["market", "reserve", "amount_ui", "mode", "purpose"],
       additionalProperties: false,
@@ -1508,7 +1540,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "kamino_lend_borrow",
-    description: "Preview, prepare, or execute a Kamino lending borrow using a decimal token amount. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    description: "Preview, prepare, or execute a Kamino lending borrow using a decimal token amount. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
     optional: true,
     parameters: {
       type: "object",
@@ -1519,7 +1551,6 @@ const solanaToolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        approval_token: { type: "string" },
       },
       required: ["market", "reserve", "amount_ui", "mode", "purpose"],
       additionalProperties: false,
@@ -1527,7 +1558,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "kamino_lend_repay",
-    description: "Preview, prepare, or execute a Kamino lending repay using a decimal token amount. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    description: "Preview, prepare, or execute a Kamino lending repay using a decimal token amount. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
     optional: true,
     parameters: {
       type: "object",
@@ -1538,7 +1569,6 @@ const solanaToolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        approval_token: { type: "string" },
       },
       required: ["market", "reserve", "amount_ui", "mode", "purpose"],
       additionalProperties: false,
@@ -1579,7 +1609,6 @@ const solanaToolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        approval_token: { type: "string" },
       },
       required: [
         "pool_name",
@@ -1617,7 +1646,6 @@ const solanaToolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        approval_token: { type: "string" },
       },
       required: ["pool_name", "market_symbol", "side", "mode", "purpose"],
       additionalProperties: false,
@@ -1625,7 +1653,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "close_empty_token_accounts",
-    description: "Preview or execute closing zero-balance token accounts. Execute requires a host-issued approval token bound to the previewed operation.",
+    description: "Preview or execute closing zero-balance token accounts. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
     optional: true,
     parameters: {
       type: "object",
@@ -1633,7 +1661,6 @@ const solanaToolDefinitions = [
         limit: { type: "integer" },
         mode: { type: "string", enum: ["preview", "execute"] },
         purpose: { type: "string" },
-        approval_token: { type: "string" },
       },
       required: ["limit", "mode", "purpose"],
       additionalProperties: false,
@@ -1710,7 +1737,7 @@ const btcToolDefinitions = [
   },
   {
     name: "transfer_btc",
-    description: "Preview, prepare, or execute a BTC transfer in satoshis. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    description: "Preview, prepare, or execute a BTC transfer in satoshis. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
     optional: true,
     parameters: {
       type: "object",
@@ -1722,7 +1749,6 @@ const btcToolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        approval_token: { type: "string" },
       },
       required: ["recipient", "amount_sats", "mode", "purpose"],
       additionalProperties: false,
@@ -1938,7 +1964,7 @@ const evmToolDefinitions = [
   },
   {
     name: "manage_evm_aave_position",
-    description: "Preview, prepare, or execute a narrow Aave V3 lending operation on supported EVM mainnet networks. Supported operations are supply, withdraw, borrow, and repay. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    description: "Preview, prepare, or execute a narrow Aave V3 lending operation on supported EVM mainnet networks. Supported operations are supply, withdraw, borrow, and repay. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
     optional: true,
     parameters: {
       type: "object",
@@ -1949,7 +1975,6 @@ const evmToolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        approval_token: { type: "string" },
         network: { type: "string", enum: ["ethereum", "base"] },
       },
       required: ["operation", "token_address", "amount_raw", "mode", "purpose"],
@@ -1980,7 +2005,7 @@ const evmToolDefinitions = [
   },
   {
     name: "manage_evm_lido_position",
-    description: "Preview, prepare, or execute a narrow Lido staking operation on Ethereum mainnet. Supported operations are stake_eth_for_wsteth, wrap_steth, and unwrap_wsteth. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    description: "Preview, prepare, or execute a narrow Lido staking operation on Ethereum mainnet. Supported operations are stake_eth_for_wsteth, wrap_steth, and unwrap_wsteth. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
     optional: true,
     parameters: {
       type: "object",
@@ -1990,7 +2015,6 @@ const evmToolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        approval_token: { type: "string" },
         network: { type: "string", enum: ["ethereum"] },
       },
       required: ["operation", "amount_raw", "mode", "purpose"],
@@ -2010,7 +2034,7 @@ const evmToolDefinitions = [
   },
   {
     name: "manage_evm_lido_withdrawal",
-    description: "Preview, prepare, or execute a narrow Lido withdrawal queue operation on Ethereum mainnet. Supported operations are request_withdrawal_steth, request_withdrawal_wsteth, and claim_withdrawal. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    description: "Preview, prepare, or execute a narrow Lido withdrawal queue operation on Ethereum mainnet. Supported operations are request_withdrawal_steth, request_withdrawal_wsteth, and claim_withdrawal. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
     optional: true,
     parameters: {
       type: "object",
@@ -2024,7 +2048,6 @@ const evmToolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        approval_token: { type: "string" },
         network: { type: "string", enum: ["ethereum"] },
       },
       required: ["operation", "mode", "purpose"],
@@ -2048,7 +2071,7 @@ const evmToolDefinitions = [
   },
   {
     name: "swap_evm_tokens",
-    description: "Preview, prepare, or execute an ERC-20 to ERC-20 swap through Velora on supported EVM mainnet networks. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    description: "Preview, prepare, or execute an ERC-20 to ERC-20 swap through Velora on supported EVM mainnet networks. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
     optional: true,
     parameters: {
       type: "object",
@@ -2059,7 +2082,6 @@ const evmToolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        approval_token: { type: "string" },
         network: { type: "string", enum: ["ethereum", "base"] },
       },
       required: ["token_in", "token_out", "amount_in_raw", "mode", "purpose"],
@@ -2068,7 +2090,7 @@ const evmToolDefinitions = [
   },
   {
     name: "swap_evm_lifi_cross_chain_tokens",
-    description: "Preview, prepare, or execute an EVM-origin cross-chain swap through LI.FI. This currently supports ethereum/base as the source network and ethereum/base/solana as the destination chain. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    description: "Preview, prepare, or execute an EVM-origin cross-chain swap through LI.FI. This currently supports ethereum/base as the source network and ethereum/base/solana as the destination chain. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
     optional: true,
     parameters: {
       type: "object",
@@ -2085,7 +2107,6 @@ const evmToolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        approval_token: { type: "string" },
         network: { type: "string", enum: ["ethereum", "base"] },
       },
       required: [
@@ -2102,7 +2123,7 @@ const evmToolDefinitions = [
   },
   {
     name: "transfer_evm_native",
-    description: "Preview, prepare, or execute a native EVM transfer using a wei amount. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    description: "Preview, prepare, or execute a native EVM transfer using a wei amount. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
     optional: true,
     parameters: {
       type: "object",
@@ -2112,7 +2133,6 @@ const evmToolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        approval_token: { type: "string" },
         network: { type: "string", enum: ["ethereum", "base"] },
       },
       required: ["recipient", "amount_wei", "mode", "purpose"],
@@ -2121,7 +2141,7 @@ const evmToolDefinitions = [
   },
   {
     name: "transfer_evm_token",
-    description: "Preview, prepare, or execute an ERC-20 transfer using a raw base-unit amount. Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation.",
+    description: "Preview, prepare, or execute an ERC-20 transfer using a raw base-unit amount. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
     optional: true,
     parameters: {
       type: "object",
@@ -2132,7 +2152,6 @@ const evmToolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        approval_token: { type: "string" },
         network: { type: "string", enum: ["ethereum", "base"] },
       },
       required: ["token_address", "recipient", "amount_raw", "mode", "purpose"],
