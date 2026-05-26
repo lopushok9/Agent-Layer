@@ -7,6 +7,7 @@ import base64
 import binascii
 import hashlib
 import json
+import time
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -2061,6 +2062,18 @@ class SolanaWalletBackend(AgentWalletBackend):
         if isinstance(route_fee_bps, int):
             parts.append(f"route fee {route_fee_bps} bps (already reflected in quoted output)")
         return "; ".join(parts)
+
+    def _swap_fee_lamports(self, payload: dict[str, Any]) -> int | None:
+        fee_summary = payload.get("fee_summary")
+        if isinstance(fee_summary, dict):
+            network_fee = _coerce_int(fee_summary.get("network_fee_lamports"))
+            if network_fee is not None:
+                return network_fee
+        return None
+
+    def _default_swap_intent_max_fee_lamports(self, fee_summary: dict[str, Any]) -> int:
+        estimated_fee = _coerce_int(fee_summary.get("network_fee_lamports")) or 0
+        return max(estimated_fee * 3, estimated_fee + 100_000, 500_000)
 
     def _require_mainnet_bags(self, feature: str) -> None:
         if self.network != "mainnet":
@@ -5505,6 +5518,88 @@ class SolanaWalletBackend(AgentWalletBackend):
             "source": quote_source,
         }
 
+    async def preview_swap_intent(
+        self,
+        input_mint: str,
+        output_mint: str,
+        amount_ui: float,
+        slippage_bps: int = 50,
+        minimum_output_amount_raw: int | None = None,
+        max_fee_lamports: int | None = None,
+        valid_for_seconds: int = 30,
+        max_attempts: int = 2,
+    ) -> dict[str, Any]:
+        if valid_for_seconds <= 0 or valid_for_seconds > 120:
+            raise WalletBackendError("valid_for_seconds must be between 1 and 120.")
+        if max_attempts <= 0 or max_attempts > 5:
+            raise WalletBackendError("max_attempts must be between 1 and 5.")
+
+        indicative = await self.preview_swap(
+            input_mint=input_mint,
+            output_mint=output_mint,
+            amount_ui=amount_ui,
+            slippage_bps=slippage_bps,
+        )
+        min_output_raw = (
+            int(minimum_output_amount_raw)
+            if minimum_output_amount_raw is not None
+            else int(indicative.get("minimum_output_amount_raw") or 0)
+        )
+        if min_output_raw <= 0:
+            raise WalletBackendError("minimum_output_amount_raw could not be derived from the indicative quote.")
+
+        fee_summary = (
+            indicative.get("fee_summary")
+            if isinstance(indicative.get("fee_summary"), dict)
+            else {}
+        )
+        fee_limit = (
+            int(max_fee_lamports)
+            if max_fee_lamports is not None
+            else self._default_swap_intent_max_fee_lamports(fee_summary)
+        )
+        if fee_limit < 0:
+            raise WalletBackendError("max_fee_lamports must be non-negative.")
+
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "mode": "intent_preview",
+            "asset_type": "solana-swap-intent",
+            "owner": indicative.get("owner"),
+            "input_mint": indicative["input_mint"],
+            "output_mint": indicative["output_mint"],
+            "input_amount_ui": indicative["input_amount_ui"],
+            "input_amount_raw": indicative["input_amount_raw"],
+            "input_decimals": indicative.get("input_decimals"),
+            "output_decimals": indicative.get("output_decimals"),
+            "indicative_output_amount_ui": indicative.get("estimated_output_amount_ui"),
+            "indicative_output_amount_raw": indicative.get("estimated_output_amount_raw"),
+            "minimum_output_amount_ui": indicative.get("minimum_output_amount_ui"),
+            "minimum_output_amount_raw": min_output_raw,
+            "max_slippage_bps": slippage_bps,
+            "slippage_bps": slippage_bps,
+            "max_fee_lamports": fee_limit,
+            "max_fee_sol": fee_limit / solana_rpc.LAMPORTS_PER_SOL,
+            "valid_for_seconds": valid_for_seconds,
+            "valid_until_epoch_seconds": int(time.time()) + valid_for_seconds,
+            "max_attempts": max_attempts,
+            "allowed_providers": ["jupiter-ultra", "jupiter-metis"],
+            "recipient_policy": "owner-only",
+            "spend_policy": "exact-input",
+            "indicative_swap_provider": indicative.get("swap_provider"),
+            "indicative_price_impact_pct": indicative.get("price_impact_pct"),
+            "indicative_route_plan": indicative.get("route_plan", []),
+            "indicative_fee_summary": fee_summary,
+            "intent_note": (
+                "This is an intent approval preview. Execute will fetch a fresh quote and "
+                "only sign/send if it remains inside these approved limits."
+            ),
+            "can_send": self.get_capabilities().can_send_transaction,
+            "sign_only": self.sign_only,
+            "source": "swap-intent",
+        }
+
     async def execute_swap(
         self,
         input_mint: str,
@@ -5520,11 +5615,10 @@ class SolanaWalletBackend(AgentWalletBackend):
         )
         return await self.execute_swap_from_preview(preview)
 
-    async def execute_swap_from_preview(
+    async def _submit_prepared_swap(
         self,
-        preview: dict[str, Any],
+        prepared: dict[str, Any],
     ) -> dict[str, Any]:
-        prepared = await self.prepare_swap_from_preview(preview)
         if self.sign_only:
             raise WalletBackendError(
                 "This wallet backend is in sign-only mode. Disable sign_only to broadcast transactions."
@@ -5582,6 +5676,120 @@ class SolanaWalletBackend(AgentWalletBackend):
             "execute_response": submitted,
             "source": prepared.get("swap_provider") or "jupiter-metis",
         }
+
+    async def execute_swap_from_preview(
+        self,
+        preview: dict[str, Any],
+    ) -> dict[str, Any]:
+        prepared = await self.prepare_swap_from_preview(preview)
+        return await self._submit_prepared_swap(prepared)
+
+    async def execute_swap_intent(
+        self,
+        *,
+        input_mint: str,
+        output_mint: str,
+        amount_ui: float,
+        slippage_bps: int = 50,
+        minimum_output_amount_raw: int | None = None,
+        max_fee_lamports: int | None = None,
+        valid_until_epoch_seconds: int | None = None,
+        max_attempts: int = 2,
+    ) -> dict[str, Any]:
+        if valid_until_epoch_seconds is not None and int(time.time()) > int(valid_until_epoch_seconds):
+            raise WalletBackendError("Approved swap intent has expired. Create a fresh intent preview.")
+        if max_attempts <= 0 or max_attempts > 5:
+            raise WalletBackendError("max_attempts must be between 1 and 5.")
+
+        attempts: list[dict[str, Any]] = []
+        last_error: str | None = None
+        for attempt_index in range(max_attempts):
+            if valid_until_epoch_seconds is not None and int(time.time()) > int(valid_until_epoch_seconds):
+                break
+            try:
+                preview = await self.preview_swap(
+                    input_mint=input_mint,
+                    output_mint=output_mint,
+                    amount_ui=amount_ui,
+                    slippage_bps=slippage_bps,
+                )
+                estimated_output_raw = int(preview.get("estimated_output_amount_raw") or 0)
+                if (
+                    minimum_output_amount_raw is not None
+                    and estimated_output_raw < int(minimum_output_amount_raw)
+                ):
+                    attempts.append(
+                        {
+                            "attempt": attempt_index + 1,
+                            "swap_provider": preview.get("swap_provider"),
+                            "rejected": "quote_below_minimum_output",
+                            "estimated_output_amount_raw": estimated_output_raw,
+                            "minimum_output_amount_raw": int(minimum_output_amount_raw),
+                        }
+                    )
+                    last_error = "Fresh swap quote is below the approved minimum output."
+                    continue
+
+                prepared = await self.prepare_swap_from_preview(preview)
+                prepared_fee = self._swap_fee_lamports(prepared)
+                if (
+                    max_fee_lamports is not None
+                    and prepared_fee is not None
+                    and prepared_fee > int(max_fee_lamports)
+                ):
+                    attempts.append(
+                        {
+                            "attempt": attempt_index + 1,
+                            "swap_provider": prepared.get("swap_provider"),
+                            "rejected": "fee_above_limit",
+                            "fee_lamports": prepared_fee,
+                            "max_fee_lamports": int(max_fee_lamports),
+                        }
+                    )
+                    last_error = "Fresh swap fee exceeds the approved fee limit."
+                    continue
+
+                result = await self._submit_prepared_swap(prepared)
+                result["intent_execution"] = {
+                    "approved_minimum_output_amount_raw": minimum_output_amount_raw,
+                    "approved_max_fee_lamports": max_fee_lamports,
+                    "fresh_quote_used": True,
+                    "attempt_count": attempt_index + 1,
+                    "max_attempts": max_attempts,
+                    "attempts": attempts
+                    + [
+                        {
+                            "attempt": attempt_index + 1,
+                            "swap_provider": prepared.get("swap_provider"),
+                            "status": "submitted",
+                        }
+                    ],
+                }
+                return result
+            except (WalletBackendError, ProviderError) as exc:
+                last_error = str(exc)
+                attempts.append(
+                    {
+                        "attempt": attempt_index + 1,
+                        "rejected": "execution_error",
+                        "error": str(exc),
+                    }
+                )
+                if "sign-only mode" in str(exc).lower():
+                    break
+            if attempt_index + 1 < max_attempts:
+                await asyncio.sleep(min(0.5 * (attempt_index + 1), 1.5))
+
+        raise WalletBackendError(
+            "Solana swap intent execution failed within the approved limits. Funds were not moved.",
+            details={
+                "reason": last_error,
+                "attempts": attempts,
+                "minimum_output_amount_raw": minimum_output_amount_raw,
+                "max_fee_lamports": max_fee_lamports,
+                "max_attempts": max_attempts,
+            },
+        )
 
     async def prepare_swap(
         self,

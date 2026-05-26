@@ -87,6 +87,49 @@ async function main() {
     confirmed: false,
     execution_plan_only: true,
   };
+  const intentPreview = {
+    chain: "solana",
+    network: "mainnet",
+    is_mainnet: true,
+    mode: "intent_preview",
+    asset_type: "solana-swap-intent",
+    owner: "Wallet111111111111111111111111111111111111111",
+    input_mint: preview.input_mint,
+    output_mint: preview.output_mint,
+    input_amount_ui: 0.056,
+    input_amount_raw: 56000000,
+    minimum_output_amount_raw: 4900000,
+    minimum_output_amount_ui: 4.9,
+    max_slippage_bps: 100,
+    slippage_bps: 100,
+    max_fee_lamports: 500000,
+    valid_until_epoch_seconds: 4102444800,
+    valid_for_seconds: 30,
+    max_attempts: 2,
+    allowed_providers: ["jupiter-ultra", "jupiter-metis"],
+    recipient_policy: "owner-only",
+    spend_policy: "exact-input",
+    confirmation_summary: {
+      operation: "Swap intent",
+      network: "mainnet",
+      owner: "Wallet111111111111111111111111111111111111111",
+      input_mint: preview.input_mint,
+      output_mint: preview.output_mint,
+      input_amount_ui: 0.056,
+      input_amount_raw: 56000000,
+      minimum_output_amount_raw: 4900000,
+      minimum_output_amount_ui: 4.9,
+      max_slippage_bps: 100,
+      slippage_bps: 100,
+      max_fee_lamports: 500000,
+      valid_until_epoch_seconds: 4102444800,
+      valid_for_seconds: 30,
+      max_attempts: 2,
+      allowed_providers: ["jupiter-ultra", "jupiter-metis"],
+      recipient_policy: "owner-only",
+      spend_policy: "exact-input",
+    },
+  };
   const evmPrepared = {
     chain: "evm",
     network: "base",
@@ -177,6 +220,9 @@ async function main() {
     if (parsed.command === "invoke" && parsed.tool === "swap_solana_tokens" && parsed.arguments.mode === "prepare") {
       return { stdout: JSON.stringify({ ok: true, data: preparedPreview }), stderr: "" };
     }
+    if (parsed.command === "invoke" && parsed.tool === "swap_solana_tokens" && parsed.arguments.mode === "intent_preview") {
+      return { stdout: JSON.stringify({ ok: true, data: intentPreview }), stderr: "" };
+    }
     if (parsed.command === "invoke" && parsed.tool === "swap_evm_tokens" && parsed.arguments.mode === "prepare") {
       return { stdout: JSON.stringify({ ok: true, data: evmPrepared }), stderr: "" };
     }
@@ -197,8 +243,14 @@ async function main() {
       assert.ok(["swap_solana_tokens", "swap_evm_tokens", "transfer_sol", "transfer_evm_native", "x402_pay_request"].includes(parsed.tool));
       assert.equal(parsed.mainnetConfirmed, true);
       if (parsed.tool === "swap_solana_tokens") {
-        assert.equal(typeof parsed.summary._preview_digest, "string");
-        assert.ok(parsed.summary._preview_digest.length > 10);
+        if (parsed.summary.operation === "Swap intent") {
+          assert.equal(parsed.summary._preview_digest, undefined);
+          assert.equal(parsed.summary.recipient_policy, "owner-only");
+          assert.equal(parsed.summary.minimum_output_amount_raw, 4900000);
+        } else {
+          assert.equal(typeof parsed.summary._preview_digest, "string");
+          assert.ok(parsed.summary._preview_digest.length > 10);
+        }
       } else if (parsed.tool === "swap_evm_tokens") {
         assert.equal(parsed.summary._preview_digest, undefined);
         assert.equal(parsed.summary.network, "base");
@@ -224,6 +276,12 @@ async function main() {
       assert.equal(parsed.arguments._approved_preview.input_mint, preparedPreview.input_mint);
       assert.equal(parsed.arguments._approved_preview.mode, "prepare");
       return { stdout: JSON.stringify({ ok: true, data: { executed: true } }), stderr: "" };
+    }
+    if (parsed.command === "invoke" && parsed.tool === "swap_solana_tokens" && parsed.arguments.mode === "intent_execute") {
+      assert.equal(parsed.tool, "swap_solana_tokens");
+      assert.equal(typeof parsed.arguments.approval_token, "string");
+      assert.equal(parsed.arguments._approved_preview, undefined);
+      return { stdout: JSON.stringify({ ok: true, data: { intentExecuted: true } }), stderr: "" };
     }
     if (parsed.command === "invoke" && parsed.tool === "swap_evm_tokens" && parsed.arguments.mode === "execute") {
       assert.equal(typeof parsed.arguments.approval_token, "string");
@@ -325,6 +383,24 @@ async function main() {
     _approved_preview: { mode: "preview", input_mint: "stale" },
   });
 
+  await swapTool.execute("2-intent-preview", {
+    input_mint: preview.input_mint,
+    output_mint: preview.output_mint,
+    amount: 0.056,
+    slippage_bps: 100,
+    mode: "intent_preview",
+    purpose: "test intent preview",
+  });
+  const intentExecuted = await swapTool.execute("2-intent-execute", {
+    input_mint: preview.input_mint,
+    output_mint: preview.output_mint,
+    amount: 0.056,
+    slippage_bps: 100,
+    mode: "intent_execute",
+    purpose: "test intent execute",
+  });
+  assert.equal(JSON.parse(intentExecuted.content[0].text).intentExecuted, true);
+
   const evmSwapTool = tools.find((tool) => tool.name === "swap_evm_tokens");
   assert.ok(evmSwapTool, "swap_evm_tokens tool should be registered");
   await evmSwapTool.execute("evm-1", {
@@ -418,7 +494,7 @@ async function main() {
   assert.equal(JSON.parse(x402Executed.content[0].text).paid, true);
   assert.equal(
     calls.filter((entry) => entry.parsed.command === "issue-approval").length,
-    6
+    7
   );
 
   delete globalThis.__TEST_EXEC_FILE__;

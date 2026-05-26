@@ -1047,7 +1047,9 @@ class FakeBackend(AgentWalletBackend):
             "input_amount_ui": amount_ui,
             "input_amount_raw": 100000000,
             "estimated_output_amount_ui": 12.34,
+            "estimated_output_amount_raw": 12340000,
             "minimum_output_amount_ui": 12.0,
+            "minimum_output_amount_raw": 12000000,
             "slippage_bps": slippage_bps,
             "price_impact_pct": "0.01",
             "fee_summary": {
@@ -1527,7 +1529,9 @@ class FakeBackend(AgentWalletBackend):
             "output_mint": output_mint,
             "input_amount_ui": amount_ui,
             "estimated_output_amount_ui": 12.34,
+            "estimated_output_amount_raw": 12340000,
             "minimum_output_amount_ui": 12.0,
+            "minimum_output_amount_raw": 12000000,
             "slippage_bps": slippage_bps,
             "price_impact_pct": "0.01",
             "signature": "fake-swap-signature",
@@ -2691,6 +2695,44 @@ async def main() -> None:
         },
     )
     assert executed_swap.ok and executed_swap.data["confirmed"] is True
+
+    intent_swap_preview = await adapter.invoke(
+        "swap_solana_tokens",
+        {
+            "input_mint": "So11111111111111111111111111111111111111112",
+            "output_mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "amount": 0.1,
+            "slippage_bps": 50,
+            "mode": "intent_preview",
+            "purpose": "test swap intent preview",
+            "valid_for_seconds": 30,
+            "max_attempts": 2,
+        },
+    )
+    assert intent_swap_preview.ok
+    assert intent_swap_preview.data["asset_type"] == "solana-swap-intent"
+    assert intent_swap_preview.data["confirmation_summary"]["operation"] == "Swap intent"
+    assert "_preview_digest" not in intent_swap_preview.data["confirmation_summary"]
+    assert intent_swap_preview.data["minimum_output_amount_raw"] == 12000000
+
+    intent_swap_execute = await adapter.invoke(
+        "swap_solana_tokens",
+        {
+            "input_mint": "So11111111111111111111111111111111111111112",
+            "output_mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "amount": 0.1,
+            "slippage_bps": 50,
+            "mode": "intent_execute",
+            "purpose": "test swap intent execute",
+            "approval_token": _issue_execute_approval(
+                tool_name="swap_solana_tokens",
+                preview=intent_swap_preview.data,
+                network="devnet",
+            ),
+        },
+    )
+    assert intent_swap_execute.ok and intent_swap_execute.data["confirmed"] is True
+    assert intent_swap_execute.data["intent_execution"]["fresh_quote_used"] is True
 
     private_swap_preview = await mainnet_adapter.invoke(
         "swap_solana_privately",

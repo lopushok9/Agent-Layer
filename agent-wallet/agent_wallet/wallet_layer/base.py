@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -735,6 +736,60 @@ class AgentWalletBackend(ABC):
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support swap previews.")
 
+    async def preview_swap_intent(
+        self,
+        input_mint: str,
+        output_mint: str,
+        amount_ui: float,
+        slippage_bps: int = 50,
+        minimum_output_amount_raw: int | None = None,
+        max_fee_lamports: int | None = None,
+        valid_for_seconds: int = 30,
+        max_attempts: int = 2,
+    ) -> dict[str, Any]:
+        preview = await self.preview_swap(
+            input_mint=input_mint,
+            output_mint=output_mint,
+            amount_ui=amount_ui,
+            slippage_bps=slippage_bps,
+        )
+        fee_summary = preview.get("fee_summary") if isinstance(preview.get("fee_summary"), dict) else {}
+        network_fee_lamports = fee_summary.get("network_fee_lamports")
+        if max_fee_lamports is None and isinstance(network_fee_lamports, int):
+            max_fee_lamports = max(network_fee_lamports * 3, network_fee_lamports + 100_000)
+        resolved_min_raw = minimum_output_amount_raw
+        if resolved_min_raw is None and isinstance(preview.get("minimum_output_amount_raw"), int):
+            resolved_min_raw = int(preview["minimum_output_amount_raw"])
+        return {
+            "chain": preview.get("chain", "solana"),
+            "network": preview.get("network", getattr(self, "network", "unknown")),
+            "mode": "intent_preview",
+            "asset_type": "solana-swap-intent",
+            "owner": preview.get("owner"),
+            "input_mint": preview.get("input_mint", input_mint),
+            "output_mint": preview.get("output_mint", output_mint),
+            "input_amount_ui": preview.get("input_amount_ui", amount_ui),
+            "input_amount_raw": preview.get("input_amount_raw"),
+            "minimum_output_amount_raw": resolved_min_raw,
+            "minimum_output_amount_ui": preview.get("minimum_output_amount_ui"),
+            "indicative_output_amount_ui": preview.get("estimated_output_amount_ui"),
+            "indicative_output_amount_raw": preview.get("estimated_output_amount_raw"),
+            "max_slippage_bps": slippage_bps,
+            "slippage_bps": slippage_bps,
+            "max_fee_lamports": max_fee_lamports,
+            "valid_for_seconds": valid_for_seconds,
+            "valid_until_epoch_seconds": int(time.time()) + valid_for_seconds,
+            "max_attempts": max_attempts,
+            "allowed_providers": ["jupiter-ultra", "jupiter-metis"],
+            "recipient_policy": "owner-only",
+            "spend_policy": "exact-input",
+            "indicative_swap_provider": preview.get("swap_provider"),
+            "indicative_fee_summary": fee_summary,
+            "can_send": preview.get("can_send"),
+            "sign_only": preview.get("sign_only"),
+            "source": "swap-intent",
+        }
+
     async def prepare_swap(
         self,
         input_mint: str,
@@ -774,6 +829,53 @@ class AgentWalletBackend(ABC):
             amount_ui=float(preview["input_amount_ui"]),
             slippage_bps=int(preview.get("slippage_bps") or 50),
         )
+
+    async def execute_swap_intent(
+        self,
+        *,
+        input_mint: str,
+        output_mint: str,
+        amount_ui: float,
+        slippage_bps: int = 50,
+        minimum_output_amount_raw: int | None = None,
+        max_fee_lamports: int | None = None,
+        valid_until_epoch_seconds: int | None = None,
+        max_attempts: int = 2,
+    ) -> dict[str, Any]:
+        if valid_until_epoch_seconds is not None and int(time.time()) > int(valid_until_epoch_seconds):
+            raise WalletBackendError("Approved swap intent has expired. Create a fresh intent preview.")
+        preview = await self.preview_swap(
+            input_mint=input_mint,
+            output_mint=output_mint,
+            amount_ui=amount_ui,
+            slippage_bps=slippage_bps,
+        )
+        output_raw = preview.get("estimated_output_amount_raw")
+        if (
+            minimum_output_amount_raw is not None
+            and isinstance(output_raw, int)
+            and output_raw < int(minimum_output_amount_raw)
+        ):
+            raise WalletBackendError(
+                "Fresh swap quote is below the approved minimum output. Funds were not moved."
+            )
+        fee_summary = preview.get("fee_summary") if isinstance(preview.get("fee_summary"), dict) else {}
+        network_fee_lamports = fee_summary.get("network_fee_lamports")
+        if (
+            max_fee_lamports is not None
+            and isinstance(network_fee_lamports, int)
+            and network_fee_lamports > int(max_fee_lamports)
+        ):
+            raise WalletBackendError("Fresh swap fee exceeds the approved fee limit. Funds were not moved.")
+        result = await self.execute_swap_from_preview(preview)
+        result["intent_execution"] = {
+            "approved_minimum_output_amount_raw": minimum_output_amount_raw,
+            "approved_max_fee_lamports": max_fee_lamports,
+            "fresh_quote_used": True,
+            "attempt_count": 1,
+            "max_attempts": max_attempts,
+        }
+        return result
 
     async def get_bags_claimable_positions(
         self,

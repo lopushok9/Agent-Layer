@@ -76,7 +76,7 @@ function cachePreviewForApproval(userId, toolName, payload) {
   const cacheToolName = approvalPreviewToolName(toolName);
   if (!payload || payload.ok !== true || !payload.data || typeof payload.data !== "object") return;
   const approvalSource = payload.data;
-  if (!["preview", "prepare"].includes(String(approvalSource.mode || ""))) return;
+  if (!["preview", "prepare", "intent_preview"].includes(String(approvalSource.mode || ""))) return;
   if (!approvalSource.confirmation_summary || typeof approvalSource.confirmation_summary !== "object") return;
   pruneApprovalPreviewCache();
   const digest = previewDigest(approvalSource);
@@ -119,7 +119,21 @@ function cachedPreviewForToken(userId, toolName, token) {
   return cached.preview && typeof cached.preview === "object" ? cached.preview : null;
 }
 
-function requiresApprovedPreviewPayload(toolName) {
+function isSolanaSwapIntentPayload(payload) {
+  return (
+    payload &&
+    typeof payload === "object" &&
+    (String(payload.asset_type || "") === "solana-swap-intent" ||
+      String(payload.mode || "") === "intent_preview")
+  );
+}
+
+function isSolanaSwapIntentExecute(params) {
+  return String(params?.mode || "") === "intent_execute";
+}
+
+function requiresApprovedPreviewPayload(toolName, params = null) {
+  if (toolName === "swap_solana_tokens" && isSolanaSwapIntentExecute(params)) return false;
   return PREVIEW_BOUND_SWAP_TOOLS.has(toolName);
 }
 
@@ -536,7 +550,7 @@ async function issueApprovalToken(api, config, userId, toolName, previewPayload)
   if (!summary || typeof summary !== "object") {
     throw new Error(`No confirmation_summary available for ${toolName}.`);
   }
-  const summaryForToken = PREVIEW_BOUND_SWAP_TOOLS.has(toolName)
+  const summaryForToken = PREVIEW_BOUND_SWAP_TOOLS.has(toolName) && !isSolanaSwapIntentPayload(previewPayload)
     ? { ...summary, _preview_digest: previewDigest(previewPayload) }
     : { ...summary };
   const extraArgs = [
@@ -560,7 +574,7 @@ async function issueApprovalToken(api, config, userId, toolName, previewPayload)
 }
 
 async function attachApprovalForExecute(api, config, userId, toolName, effectiveParams) {
-  if (String(effectiveParams.mode || "") !== "execute") return null;
+  if (!["execute", "intent_execute"].includes(String(effectiveParams.mode || ""))) return null;
 
   const cached = latestCachedPreview(userId, toolName);
   if (cached?.preview && cached?.summary) {
@@ -571,14 +585,14 @@ async function attachApprovalForExecute(api, config, userId, toolName, effective
       toolName,
       cached.preview
     );
-    if (requiresApprovedPreviewPayload(toolName)) {
+    if (requiresApprovedPreviewPayload(toolName, effectiveParams)) {
       effectiveParams._approved_preview = cached.preview;
     }
     return cached;
   }
 
   if (
-    requiresApprovedPreviewPayload(toolName) &&
+    requiresApprovedPreviewPayload(toolName, effectiveParams) &&
     typeof effectiveParams.approval_token === "string" &&
     effectiveParams.approval_token.trim() &&
     effectiveParams._approved_preview === undefined
@@ -1312,7 +1326,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "swap_solana_tokens",
-    description: `Preview, prepare, or execute a Solana token swap via Jupiter. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically. ${WALLET_TOOL_ONLY_GUIDANCE}`,
+    description: `Preview, prepare, or execute a Solana token swap via Jupiter. Prefer intent_preview followed by intent_execute after the user explicitly confirms the intent summary in chat; intent_execute fetches a fresh quote and only executes inside the approved limits. Legacy preview/prepare/execute remains available. The OpenClaw plugin handles internal execution authorization automatically. ${WALLET_TOOL_ONLY_GUIDANCE}`,
     optional: true,
     parameters: {
       type: "object",
@@ -1321,7 +1335,11 @@ const solanaToolDefinitions = [
         output_mint: { type: "string" },
         amount: { type: "number" },
         slippage_bps: { type: "integer" },
-        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
+        minimum_output_amount_raw: { type: "integer" },
+        max_fee_lamports: { type: "integer" },
+        valid_for_seconds: { type: "integer" },
+        max_attempts: { type: "integer" },
+        mode: { type: "string", enum: ["preview", "prepare", "execute", "intent_preview", "intent_execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
       },

@@ -17,7 +17,7 @@ In practice this means the agent works through explicit tools for:
 - EVM native balance, ERC-20 balance/metadata, fee-rate, receipt, Velora swap quote/execute, Aave V3 account/reserve/position flows, and transfer flows through the local `wdk-evm-wallet` backend
 - wallet address, balances, and portfolio reads
 - native SOL and SPL token transfers
-- Jupiter swap and price lookup
+- Jupiter swap and price lookup, including Solana swap intent execution that refreshes quotes inside user-approved limits
 - Jupiter Earn read/deposit/withdraw flows
 - Kamino lending read/deposit/withdraw/borrow/repay flows
 - native Solana staking, stake deactivation, and stake withdrawal

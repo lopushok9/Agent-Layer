@@ -352,6 +352,28 @@ class OpenClawWalletAdapter:
                     summary[key] = value
             return summary
 
+        if asset_type == "solana-swap-intent":
+            return {
+                "operation": action_label,
+                "network": str(payload.get("network") or getattr(self.backend, "network", "unknown")),
+                "owner": payload.get("owner"),
+                "input_mint": payload.get("input_mint"),
+                "output_mint": payload.get("output_mint"),
+                "input_amount_ui": payload.get("input_amount_ui"),
+                "input_amount_raw": payload.get("input_amount_raw"),
+                "minimum_output_amount_raw": payload.get("minimum_output_amount_raw"),
+                "minimum_output_amount_ui": payload.get("minimum_output_amount_ui"),
+                "max_slippage_bps": payload.get("max_slippage_bps"),
+                "slippage_bps": payload.get("slippage_bps"),
+                "max_fee_lamports": payload.get("max_fee_lamports"),
+                "valid_until_epoch_seconds": payload.get("valid_until_epoch_seconds"),
+                "valid_for_seconds": payload.get("valid_for_seconds"),
+                "max_attempts": payload.get("max_attempts"),
+                "allowed_providers": payload.get("allowed_providers"),
+                "recipient_policy": payload.get("recipient_policy"),
+                "spend_policy": payload.get("spend_policy"),
+            }
+
         if asset_type == "solana-lifi-cross-chain-swap":
             return {
                 "operation": action_label,
@@ -2451,7 +2473,9 @@ class OpenClawWalletAdapter:
                     name="swap_solana_tokens",
                     description=(
                         "Preview or execute a Solana token swap through Jupiter routing. "
-                        "Use preview first, then execute only after explicit user approval."
+                        "Prefer intent_preview, then intent_execute after explicit chat confirmation; "
+                        "intent_execute fetches a fresh quote and only sends if it remains inside the approved limits. "
+                        "Legacy preview/prepare/execute remains available."
                     ),
                     input_schema={
                         "type": "object",
@@ -2472,10 +2496,26 @@ class OpenClawWalletAdapter:
                                 "type": "integer",
                                 "description": "Optional slippage tolerance in basis points. Defaults to 50.",
                             },
+                            "minimum_output_amount_raw": {
+                                "type": "integer",
+                                "description": "Optional approved minimum output amount in raw output token units for intent_preview.",
+                            },
+                            "max_fee_lamports": {
+                                "type": "integer",
+                                "description": "Optional maximum Solana network fee in lamports for intent_preview.",
+                            },
+                            "valid_for_seconds": {
+                                "type": "integer",
+                                "description": "Optional intent validity window in seconds. Defaults to 30, max 120.",
+                            },
+                            "max_attempts": {
+                                "type": "integer",
+                                "description": "Optional number of fresh quote/simulate/execute attempts. Defaults to 2, max 5.",
+                            },
                             "mode": {
                                 "type": "string",
-                                "enum": ["preview", "prepare", "execute"],
-                                "description": "preview returns a quote, prepare returns an execution plan without signed transaction bytes, execute attempts to swap.",
+                                "enum": ["preview", "prepare", "execute", "intent_preview", "intent_execute"],
+                                "description": "intent_preview returns approved risk limits; intent_execute requotes and executes atomically inside those limits. Legacy preview/prepare/execute remains supported.",
                             },
                             "purpose": {
                                 "type": "string",
@@ -5249,6 +5289,10 @@ class OpenClawWalletAdapter:
                 output_mint = args.get("output_mint")
                 amount = args.get("amount")
                 slippage_bps = args.get("slippage_bps", 50)
+                minimum_output_amount_raw = args.get("minimum_output_amount_raw")
+                max_fee_lamports = args.get("max_fee_lamports")
+                valid_for_seconds = args.get("valid_for_seconds", 30)
+                max_attempts = args.get("max_attempts", 2)
                 mode = args.get("mode")
                 purpose = args.get("purpose")
                 user_intent = args.get("user_intent", False)
@@ -5262,8 +5306,22 @@ class OpenClawWalletAdapter:
                     raise WalletBackendError("amount must be a positive number.")
                 if not isinstance(slippage_bps, int) or slippage_bps <= 0:
                     raise WalletBackendError("slippage_bps must be a positive integer.")
-                if mode not in {"preview", "prepare", "execute"}:
-                    raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
+                if minimum_output_amount_raw is not None and (
+                    not isinstance(minimum_output_amount_raw, int) or minimum_output_amount_raw <= 0
+                ):
+                    raise WalletBackendError("minimum_output_amount_raw must be a positive integer when provided.")
+                if max_fee_lamports is not None and (
+                    not isinstance(max_fee_lamports, int) or max_fee_lamports < 0
+                ):
+                    raise WalletBackendError("max_fee_lamports must be a non-negative integer when provided.")
+                if not isinstance(valid_for_seconds, int) or valid_for_seconds <= 0 or valid_for_seconds > 120:
+                    raise WalletBackendError("valid_for_seconds must be an integer between 1 and 120.")
+                if not isinstance(max_attempts, int) or max_attempts <= 0 or max_attempts > 5:
+                    raise WalletBackendError("max_attempts must be an integer between 1 and 5.")
+                if mode not in {"preview", "prepare", "execute", "intent_preview", "intent_execute"}:
+                    raise WalletBackendError(
+                        "mode must be 'preview', 'prepare', 'execute', 'intent_preview' or 'intent_execute'."
+                    )
                 if not isinstance(purpose, str) or not purpose.strip():
                     raise WalletBackendError("purpose is required.")
 
@@ -5280,6 +5338,27 @@ class OpenClawWalletAdapter:
                         data=self._annotate_sensitive_payload(
                             preview,
                             action_label="Swap",
+                            mode="preview",
+                        ),
+                    )
+
+                if mode == "intent_preview":
+                    intent_preview = await self.backend.preview_swap_intent(
+                        input_mint=input_mint.strip(),
+                        output_mint=output_mint.strip(),
+                        amount_ui=float(amount),
+                        slippage_bps=slippage_bps,
+                        minimum_output_amount_raw=minimum_output_amount_raw,
+                        max_fee_lamports=max_fee_lamports,
+                        valid_for_seconds=valid_for_seconds,
+                        max_attempts=max_attempts,
+                    )
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            intent_preview,
+                            action_label="Swap intent",
                             mode="preview",
                         ),
                     )
@@ -5302,6 +5381,103 @@ class OpenClawWalletAdapter:
                             ),
                             action_label="Swap",
                             mode="prepare",
+                        ),
+                    )
+
+                if mode == "intent_execute":
+                    approval_payload = inspect_approval_token(
+                        approval_token,
+                        tool_name=tool_name,
+                        network=str(getattr(self.backend, "network", "unknown")),
+                        require_mainnet_confirmation=self._is_mainnet_for_backend(self.backend),
+                    )
+                    approval_summary = approval_payload.get("binding", {}).get("summary")
+                    if not isinstance(approval_summary, dict):
+                        raise WalletBackendError(
+                            "approval_token does not match the requested operation. Generate a new intent preview and approval before execute."
+                        )
+                    expected_summary = {
+                        "operation": "Swap intent",
+                        "network": str(getattr(self.backend, "network", "unknown")),
+                        "input_mint": input_mint.strip(),
+                        "output_mint": output_mint.strip(),
+                    }
+                    for key, expected_value in expected_summary.items():
+                        if approval_summary.get(key) != expected_value:
+                            raise WalletBackendError(
+                                "approval_token does not match the requested swap intent. Generate a fresh intent preview and approval before execute."
+                            )
+                    current_owner = await self.backend.get_address()
+                    approved_owner = approval_summary.get("owner")
+                    if approved_owner and current_owner and str(approved_owner) != str(current_owner):
+                        raise WalletBackendError(
+                            "approval_token does not match the active wallet owner. Generate a fresh intent preview and approval before execute."
+                        )
+                    try:
+                        approved_amount = float(approval_summary.get("input_amount_ui"))
+                        approved_slippage = int(
+                            approval_summary.get("max_slippage_bps")
+                            if approval_summary.get("max_slippage_bps") is not None
+                            else approval_summary.get("slippage_bps")
+                        )
+                    except (TypeError, ValueError):
+                        raise WalletBackendError(
+                            "approval_token does not match the requested swap intent. Generate a fresh intent preview and approval before execute."
+                        )
+                    if approved_amount != float(amount) or approved_slippage != slippage_bps:
+                        raise WalletBackendError(
+                            "approval_token does not match the requested swap intent. Generate a fresh intent preview and approval before execute."
+                        )
+                    if approval_summary.get("recipient_policy") != "owner-only":
+                        raise WalletBackendError("approved swap intent recipient policy is invalid.")
+                    if approval_summary.get("spend_policy") != "exact-input":
+                        raise WalletBackendError("approved swap intent spend policy is invalid.")
+
+                    approval_summary_copy = dict(approval_summary)
+                    self._require_execute_approval(
+                        approval_token=approval_token,
+                        tool_name=tool_name,
+                        summary=approval_summary_copy,
+                        action_label="Swap intent",
+                    )
+                    try:
+                        approved_min_output_raw = (
+                            int(approval_summary_copy["minimum_output_amount_raw"])
+                            if approval_summary_copy.get("minimum_output_amount_raw") is not None
+                            else None
+                        )
+                        approved_max_fee_lamports = (
+                            int(approval_summary_copy["max_fee_lamports"])
+                            if approval_summary_copy.get("max_fee_lamports") is not None
+                            else None
+                        )
+                        approved_valid_until = (
+                            int(approval_summary_copy["valid_until_epoch_seconds"])
+                            if approval_summary_copy.get("valid_until_epoch_seconds") is not None
+                            else None
+                        )
+                        approved_max_attempts = int(approval_summary_copy.get("max_attempts") or max_attempts)
+                    except (TypeError, ValueError):
+                        raise WalletBackendError(
+                            "approval_token does not contain valid swap intent limits. Generate a fresh intent preview and approval before execute."
+                        )
+                    result = await self.backend.execute_swap_intent(
+                        input_mint=input_mint.strip(),
+                        output_mint=output_mint.strip(),
+                        amount_ui=float(amount),
+                        slippage_bps=slippage_bps,
+                        minimum_output_amount_raw=approved_min_output_raw,
+                        max_fee_lamports=approved_max_fee_lamports,
+                        valid_until_epoch_seconds=approved_valid_until,
+                        max_attempts=approved_max_attempts,
+                    )
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            result,
+                            action_label="Swap",
+                            mode="execute",
                         ),
                     )
 

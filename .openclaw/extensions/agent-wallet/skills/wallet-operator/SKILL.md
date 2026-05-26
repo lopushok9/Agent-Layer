@@ -11,9 +11,10 @@ Safety rules:
 - Use Kamino market/reserve reads before Kamino writes when the user needs lending context.
 - Use Aave account reads before Aave writes when the user needs EVM lending context.
 - For transfers, native staking, swaps, Aave writes, Jupiter Earn writes, and Kamino writes, use `preview` before `prepare` or `execute`.
+- For Solana Jupiter swaps through `swap_solana_tokens`, prefer `intent_preview` then `intent_execute` after explicit chat confirmation. The user confirms risk limits; the backend refreshes the quote and only executes inside those limits.
 - For `swap_solana_privately`, use `preview` and then `execute` after explicit user approval. Do not use `prepare` for this tool.
 - Use `prepare` only when the user clearly intends to produce an execution plan.
-- Use `execute` only after the host issues an `approval_token` bound to the exact previewed operation.
+- Use `execute` only after the user explicitly confirms the shown summary in chat. OpenClaw handles the internal approval token; do not ask for `/approve`, buttons, popups, or a manual token. For Solana swap intents, the token is bound to the approved intent limits instead of one fragile quote.
 - On `mainnet`, require an approval token that includes explicit mainnet confirmation before any execution.
 - Before any `mainnet` execute, restate the network, operation type, asset, amount, and destination, validator, or stake account.
 - If a preview or prepare result includes `confirmation_summary` or `mainnet_warning`, surface that summary before asking for confirmation.

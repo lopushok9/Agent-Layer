@@ -88,7 +88,7 @@ Current safe tools:
 - `transfer_sol`
 - `stake_sol_native`
 - `transfer_spl_token`
-- `swap_solana_tokens`
+- `swap_solana_tokens` - Solana Jupiter swaps; prefer `intent_preview` -> chat confirmation -> `intent_execute` so execution refreshes the quote inside approved limits.
 - `swap_solana_privately` - Houdini-backed private Solana payout flow for same-token `SOL->SOL` or `USDC->USDC` transfers to a destination wallet.
 - `get_solana_private_swap_status`
 - `get_jupiter_earn_tokens`
