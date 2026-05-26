@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     wdk_evm_account_index: int = 0
 
     jupiter_api_base_url: str = "https://lite-api.jup.ag/swap/v1"
+    jupiter_swap_v2_api_base_url: str = "https://api.jup.ag/swap/v2"
     jupiter_ultra_api_base_url: str = "https://lite-api.jup.ag/ultra/v1"
     jupiter_price_api_base_url: str = "https://lite-api.jup.ag/price/v3"
     jupiter_portfolio_api_base_url: str = "https://api.jup.ag/portfolio/v1"

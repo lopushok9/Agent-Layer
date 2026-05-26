@@ -12,7 +12,7 @@ Use this skill before calling OpenClaw wallet tools. It is the routing guide for
 1. Start with `get_wallet_capabilities` when the active chain, signing support, or available tools are unclear.
 2. Use `get_wallet_address` before asking for deposits or confirming a recipient/source wallet.
 3. Use `get_wallet_balance` before spending, swapping, bridging, staking, lending, or claiming.
-4. Use `preview` first for every write action. For Solana Jupiter swaps, prefer `intent_preview` then `intent_execute` after explicit chat confirmation so execution can refresh the quote inside approved limits. Use `prepare` only after explicit user intent. In OpenClaw, use `execute` only after the user explicitly confirms the shown summary in chat; do not ask the user for `/approve`, buttons, popups, or a manual token.
+4. Use `preview` first for every write action. For Solana Jupiter swaps, prefer `intent_preview` then `intent_execute` after explicit chat confirmation so execution can refresh the quote inside approved limits. Solana swap intents are normalized by the backend to at least 300 bps slippage, 120 seconds validity, and 3 fresh execution attempts; do not pass a hand-tightened `minimum_output_amount_raw` unless the user explicitly set that floor. Use `prepare` only after explicit user intent. In OpenClaw, use `execute` only after the user explicitly confirms the shown summary in chat; do not ask the user for `/approve`, buttons, popups, or a manual token.
 5. `prepare` returns an execution plan only; it must not return signed transaction bytes.
 6. On mainnet, restate the network and material terms before `execute`; the OpenClaw plugin handles the internal execution authorization after chat confirmation.
 7. If backend is `sign_only`, do not execute; use `prepare` and state that nothing was broadcast.
@@ -78,7 +78,9 @@ Use this skill before calling OpenClaw wallet tools. It is the routing guide for
 - Solana same-chain Jupiter swap: `swap_solana_tokens`
   - Params: `input_mint`, `output_mint`, `amount` in UI units, optional `slippage_bps`, `minimum_output_amount_raw`, `max_fee_lamports`, `valid_for_seconds`, `max_attempts`, `mode`, `purpose`.
   - Prefer `mode=intent_preview`, show the intent limits to the user, then after chat confirmation call `mode=intent_execute` with the same semantic params. This confirms risk limits, not a stale quote fingerprint.
-  - Use legacy `preview`/`prepare`/`execute` only when an exact quote-bound flow is specifically needed.
+  - Default Solana swap slippage is 300 bps (3%). The backend computes the approved minimum output from the indicative output and slippage, not from a strict RFQ threshold.
+  - The primary execution path uses Jupiter Swap API V2 `/order` + `/execute`; if a JupiterZ/RFQ route fails, the backend retries with a non-JupiterZ route when possible.
+  - Do not use legacy `execute` for Solana Jupiter swaps in OpenClaw; exact quote-bound approval is too fragile for active markets.
   - Use for SOL<->SPL or SPL<->SPL on Solana. Do not use LI.FI for Solana-only swaps.
 - EVM same-chain Velora swap: `swap_evm_tokens`
   - Params: `token_in`, `token_out`, `amount_in_raw` base-unit string, `mode`, `purpose`, optional `network`.

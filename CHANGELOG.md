@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## v0.1.26 - 2026-05-26
+
+- Reworked Solana Jupiter swaps to prefer intent approvals, so OpenClaw confirms
+  risk limits and executes against a fresh quote instead of binding approval to
+  a fragile exact quote payload.
+- Added Jupiter Swap API V2 `/order` + `/execute` routing with managed landing
+  support and fallback routing for Solana swaps.
+- Hardened Solana swap intent defaults to 3% slippage, a 120-second execution
+  window, three fresh execution attempts, and safer minimum-output handling.
+- Fixed Jupiter V2 execution payload compatibility by sending
+  `lastValidBlockHeight` in the string form expected by the API.
+- Disabled legacy exact-preview Solana swap execute in the OpenClaw bridge to
+  prevent stale approval-token mismatches on active markets.
+
 ## v0.1.24 - 2026-05-23
 
 - Fixed the published npm package CLI metadata so

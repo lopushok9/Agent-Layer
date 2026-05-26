@@ -14,8 +14,9 @@ from agent_wallet.approval import issue_approval_token
 from agent_wallet.exceptions import ProviderError
 from agent_wallet.openclaw_adapter import OpenClawWalletAdapter, preview_payload_digest
 from agent_wallet.plugin_bundle import build_openclaw_plugin_bundle
-from agent_wallet.providers import x402
+from agent_wallet.providers import jupiter, x402
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletCapabilities
+from agent_wallet.wallet_layer.solana import SolanaWalletBackend
 
 
 class FakeBackend(AgentWalletBackend):
@@ -2714,6 +2715,9 @@ async def main() -> None:
     assert intent_swap_preview.data["confirmation_summary"]["operation"] == "Swap intent"
     assert "_preview_digest" not in intent_swap_preview.data["confirmation_summary"]
     assert intent_swap_preview.data["minimum_output_amount_raw"] == 12000000
+    assert intent_swap_preview.data["slippage_bps"] == 300
+    assert intent_swap_preview.data["valid_for_seconds"] == 120
+    assert intent_swap_preview.data["max_attempts"] == 3
 
     intent_swap_execute = await adapter.invoke(
         "swap_solana_tokens",
@@ -3496,6 +3500,76 @@ async def main() -> None:
         allowed_mainnet_x402.data["confirmation_requirements"]["execute_requires_mainnet_confirmed_in_token"]
         is True
     )
+
+    original_fetch_swap_v2_order = jupiter.fetch_swap_v2_order
+    async def fake_strict_swap_v2_order(**kwargs):
+        return {
+            "outAmount": "100000000",
+            "otherAmountThreshold": "100000000",
+            "transaction": "unused",
+            "requestId": "strict-rfq-order",
+            "router": "jupiterz",
+            "mode": "ultra",
+        }
+    jupiter.fetch_swap_v2_order = fake_strict_swap_v2_order
+    strict_threshold_backend = SolanaWalletBackend(
+        rpc_url="http://127.0.0.1:8899",
+        network="mainnet",
+        address="11111111111111111111111111111111",
+        sign_only=True,
+    )
+    strict_threshold_backend._resolve_mint_decimals = lambda mint: asyncio.sleep(0, result=6)
+    strict_threshold_preview = await strict_threshold_backend.preview_swap(
+        input_mint="So11111111111111111111111111111111111111112",
+        output_mint="EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        amount_ui=5,
+        slippage_bps=300,
+    )
+    assert strict_threshold_preview["swap_provider"] == "jupiter-v2-order"
+    assert strict_threshold_preview["minimum_output_amount_raw"] == 97000000
+    strict_threshold_intent = await strict_threshold_backend.preview_swap_intent(
+        input_mint="So11111111111111111111111111111111111111112",
+        output_mint="EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        amount_ui=5,
+        slippage_bps=50,
+        minimum_output_amount_raw=100000000,
+        valid_for_seconds=120,
+        max_attempts=1,
+    )
+    assert strict_threshold_intent["minimum_output_amount_raw"] == 97000000
+    assert strict_threshold_intent["requested_minimum_output_amount_raw"] == 100000000
+    assert strict_threshold_intent["minimum_output_policy"] == "explicit_clamped_to_slippage_floor"
+    assert strict_threshold_intent["slippage_bps"] == 300
+    assert strict_threshold_intent["max_attempts"] == 3
+    jupiter.fetch_swap_v2_order = original_fetch_swap_v2_order
+
+    class FakeJupiterResponse:
+        status_code = 200
+
+        @staticmethod
+        def json() -> dict:
+            return {"status": "Success", "signature": "SwapV2Sig1111111111111111111111111111111111"}
+
+    class FakeJupiterClient:
+        def __init__(self) -> None:
+            self.body = None
+
+        async def post(self, url, json=None, headers=None):
+            self.body = json
+            return FakeJupiterResponse()
+
+    fake_jupiter_client = FakeJupiterClient()
+    original_jupiter_get_client = jupiter.get_client
+    jupiter.get_client = lambda: fake_jupiter_client
+    try:
+        await jupiter.execute_swap_v2_order(
+            signed_transaction_base64="signed-tx",
+            request_id="request-id",
+            last_valid_block_height=123456,
+        )
+        assert fake_jupiter_client.body["lastValidBlockHeight"] == "123456"
+    finally:
+        jupiter.get_client = original_jupiter_get_client
 
     x402.prepare_request = original_prepare_request
     x402.execute_request = original_execute_request

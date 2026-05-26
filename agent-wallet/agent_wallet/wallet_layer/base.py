@@ -732,7 +732,7 @@ class AgentWalletBackend(ABC):
         input_mint: str,
         output_mint: str,
         amount_ui: float,
-        slippage_bps: int = 50,
+        slippage_bps: int = 300,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support swap previews.")
 
@@ -741,7 +741,7 @@ class AgentWalletBackend(ABC):
         input_mint: str,
         output_mint: str,
         amount_ui: float,
-        slippage_bps: int = 50,
+        slippage_bps: int = 300,
         minimum_output_amount_raw: int | None = None,
         max_fee_lamports: int | None = None,
         valid_for_seconds: int = 30,
@@ -760,6 +760,10 @@ class AgentWalletBackend(ABC):
         resolved_min_raw = minimum_output_amount_raw
         if resolved_min_raw is None and isinstance(preview.get("minimum_output_amount_raw"), int):
             resolved_min_raw = int(preview["minimum_output_amount_raw"])
+        output_decimals = preview.get("output_decimals")
+        minimum_output_amount_ui = preview.get("minimum_output_amount_ui")
+        if resolved_min_raw is not None and isinstance(output_decimals, int):
+            minimum_output_amount_ui = int(resolved_min_raw) / (10**output_decimals)
         return {
             "chain": preview.get("chain", "solana"),
             "network": preview.get("network", getattr(self, "network", "unknown")),
@@ -771,7 +775,7 @@ class AgentWalletBackend(ABC):
             "input_amount_ui": preview.get("input_amount_ui", amount_ui),
             "input_amount_raw": preview.get("input_amount_raw"),
             "minimum_output_amount_raw": resolved_min_raw,
-            "minimum_output_amount_ui": preview.get("minimum_output_amount_ui"),
+            "minimum_output_amount_ui": minimum_output_amount_ui,
             "indicative_output_amount_ui": preview.get("estimated_output_amount_ui"),
             "indicative_output_amount_raw": preview.get("estimated_output_amount_raw"),
             "max_slippage_bps": slippage_bps,
@@ -795,7 +799,7 @@ class AgentWalletBackend(ABC):
         input_mint: str,
         output_mint: str,
         amount_ui: float,
-        slippage_bps: int = 50,
+        slippage_bps: int = 300,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support swap preparation.")
 
@@ -807,7 +811,7 @@ class AgentWalletBackend(ABC):
             input_mint=str(preview["input_mint"]),
             output_mint=str(preview["output_mint"]),
             amount_ui=float(preview["input_amount_ui"]),
-            slippage_bps=int(preview.get("slippage_bps") or 50),
+            slippage_bps=int(preview.get("slippage_bps") or 300),
         )
 
     async def execute_swap(
@@ -815,7 +819,7 @@ class AgentWalletBackend(ABC):
         input_mint: str,
         output_mint: str,
         amount_ui: float,
-        slippage_bps: int = 50,
+        slippage_bps: int = 300,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support swaps.")
 
@@ -827,7 +831,7 @@ class AgentWalletBackend(ABC):
             input_mint=str(preview["input_mint"]),
             output_mint=str(preview["output_mint"]),
             amount_ui=float(preview["input_amount_ui"]),
-            slippage_bps=int(preview.get("slippage_bps") or 50),
+            slippage_bps=int(preview.get("slippage_bps") or 300),
         )
 
     async def execute_swap_intent(
@@ -836,7 +840,7 @@ class AgentWalletBackend(ABC):
         input_mint: str,
         output_mint: str,
         amount_ui: float,
-        slippage_bps: int = 50,
+        slippage_bps: int = 300,
         minimum_output_amount_raw: int | None = None,
         max_fee_lamports: int | None = None,
         valid_until_epoch_seconds: int | None = None,

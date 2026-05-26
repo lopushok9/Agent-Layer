@@ -93,6 +93,7 @@ def _apply_config_overrides(config: dict[str, Any]) -> None:
         ),
         "openclawHome": ("OPENCLAW_HOME", config.get("openclawHome"), True),
         "jupiterBaseUrl": ("JUPITER_API_BASE_URL", config.get("jupiterBaseUrl"), True),
+        "jupiterSwapV2BaseUrl": ("JUPITER_SWAP_V2_API_BASE_URL", config.get("jupiterSwapV2BaseUrl"), True),
         "jupiterUltraBaseUrl": ("JUPITER_ULTRA_API_BASE_URL", config.get("jupiterUltraBaseUrl"), True),
         "jupiterPriceBaseUrl": ("JUPITER_PRICE_API_BASE_URL", config.get("jupiterPriceBaseUrl"), True),
         "jupiterPortfolioBaseUrl": (

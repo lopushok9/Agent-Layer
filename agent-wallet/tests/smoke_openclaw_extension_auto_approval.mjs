@@ -270,12 +270,7 @@ async function main() {
       };
     }
     if (parsed.command === "invoke" && parsed.tool === "swap_solana_tokens" && parsed.arguments.mode === "execute") {
-      assert.equal(parsed.tool, "swap_solana_tokens");
-      assert.equal(typeof parsed.arguments.approval_token, "string");
-      assert.notEqual(parsed.arguments.approval_token, staleSwapToken);
-      assert.equal(parsed.arguments._approved_preview.input_mint, preparedPreview.input_mint);
-      assert.equal(parsed.arguments._approved_preview.mode, "prepare");
-      return { stdout: JSON.stringify({ ok: true, data: { executed: true } }), stderr: "" };
+      throw new Error("legacy Solana swap execute should not reach the wallet CLI");
     }
     if (parsed.command === "invoke" && parsed.tool === "swap_solana_tokens" && parsed.arguments.mode === "intent_execute") {
       assert.equal(parsed.tool, "swap_solana_tokens");
@@ -340,6 +335,11 @@ async function main() {
   register(api);
   const swapTool = tools.find((tool) => tool.name === "swap_solana_tokens");
   assert.ok(swapTool, "swap_solana_tokens tool should be registered");
+  assert.deepEqual(
+    swapTool.parameters.properties.mode.enum,
+    ["preview", "intent_preview", "intent_execute"],
+    "OpenClaw-facing Solana swaps should not expose legacy exact-preview execute"
+  );
   const x402PreviewTool = tools.find((tool) => tool.name === "x402_preview_request");
   assert.ok(x402PreviewTool, "x402_preview_request tool should be registered");
   const x402PayTool = tools.find((tool) => tool.name === "x402_pay_request");
@@ -362,26 +362,17 @@ async function main() {
     user_intent: true,
   });
 
-  const executed = await swapTool.execute("2", {
-    input_mint: preview.input_mint,
-    output_mint: preview.output_mint,
-    amount: 0.056,
-    slippage_bps: 100,
-    mode: "execute",
-    purpose: "test execute",
-  });
-
-  assert.equal(JSON.parse(executed.content[0].text).executed, true);
-  await swapTool.execute("2-stale-agent-token", {
-    input_mint: preview.input_mint,
-    output_mint: preview.output_mint,
-    amount: 0.056,
-    slippage_bps: 100,
-    mode: "execute",
-    purpose: "test execute overwrites stale agent token",
-    approval_token: staleSwapToken,
-    _approved_preview: { mode: "preview", input_mint: "stale" },
-  });
+  await assert.rejects(
+    () => swapTool.execute("2", {
+      input_mint: preview.input_mint,
+      output_mint: preview.output_mint,
+      amount: 0.056,
+      slippage_bps: 100,
+      mode: "execute",
+      purpose: "test legacy execute is rejected",
+    }),
+    /Legacy exact-preview execute is disabled/
+  );
 
   await swapTool.execute("2-intent-preview", {
     input_mint: preview.input_mint,
@@ -494,7 +485,7 @@ async function main() {
   assert.equal(JSON.parse(x402Executed.content[0].text).paid, true);
   assert.equal(
     calls.filter((entry) => entry.parsed.command === "issue-approval").length,
-    7
+    5
   );
 
   delete globalThis.__TEST_EXEC_FILE__;

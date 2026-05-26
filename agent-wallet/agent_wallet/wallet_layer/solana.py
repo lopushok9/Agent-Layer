@@ -49,6 +49,8 @@ TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
 NATIVE_SOL_MINT = "So11111111111111111111111111111111111111112"
 STAKE_PROGRAM_ID = "Stake11111111111111111111111111111111111111"
 HOUDINI_PRIVATE_OUTPUT_DRIFT_BPS = 600
+SOLANA_SWAP_DEFAULT_SLIPPAGE_BPS = 300
+SOLANA_SWAP_INTENT_DEFAULT_MAX_FEE_LAMPORTS = 6_000_000
 
 
 def _load_signing_key():
@@ -2073,7 +2075,18 @@ class SolanaWalletBackend(AgentWalletBackend):
 
     def _default_swap_intent_max_fee_lamports(self, fee_summary: dict[str, Any]) -> int:
         estimated_fee = _coerce_int(fee_summary.get("network_fee_lamports")) or 0
-        return max(estimated_fee * 3, estimated_fee + 100_000, 500_000)
+        return max(
+            estimated_fee * 3,
+            estimated_fee + 100_000,
+            SOLANA_SWAP_INTENT_DEFAULT_MAX_FEE_LAMPORTS,
+        )
+
+    def _swap_minimum_output_floor(self, *, out_amount_raw: int, slippage_bps: int) -> int:
+        if out_amount_raw <= 0:
+            return 0
+        if slippage_bps <= 0:
+            raise WalletBackendError("slippage_bps must be greater than zero.")
+        return max(1, (out_amount_raw * max(0, 10_000 - slippage_bps)) // 10_000)
 
     def _require_mainnet_bags(self, feature: str) -> None:
         if self.network != "mainnet":
@@ -5439,7 +5452,8 @@ class SolanaWalletBackend(AgentWalletBackend):
         input_mint: str,
         output_mint: str,
         amount_ui: float,
-        slippage_bps: int = 50,
+        slippage_bps: int = SOLANA_SWAP_DEFAULT_SLIPPAGE_BPS,
+        exclude_routers: list[str] | None = None,
     ) -> dict[str, Any]:
         if self.network != "mainnet":
             raise WalletBackendError("Provider-routed swaps are only enabled for Solana mainnet.")
@@ -5460,29 +5474,38 @@ class SolanaWalletBackend(AgentWalletBackend):
             raise WalletBackendError("amount is too small for the input token decimals.")
 
         sender = await self.get_address()
-        quote_source = "jupiter-ultra"
+        quote_source = "jupiter-v2-order"
         try:
-            quote = await jupiter.fetch_ultra_order(
+            quote = await jupiter.fetch_swap_v2_order(
                 input_mint=input_mint,
                 output_mint=output_mint,
                 amount_raw=raw_amount,
                 taker=sender,
-                slippage_bps=slippage_bps,
+                exclude_routers=exclude_routers,
             )
         except ProviderError:
-            quote = await jupiter.fetch_quote(
-                input_mint=input_mint,
-                output_mint=output_mint,
-                amount_raw=raw_amount,
-                slippage_bps=slippage_bps,
-            )
-            quote_source = "jupiter-metis"
+            quote_source = "jupiter-ultra"
+            try:
+                quote = await jupiter.fetch_ultra_order(
+                    input_mint=input_mint,
+                    output_mint=output_mint,
+                    amount_raw=raw_amount,
+                    taker=sender,
+                    slippage_bps=slippage_bps,
+                )
+            except ProviderError:
+                quote = await jupiter.fetch_quote(
+                    input_mint=input_mint,
+                    output_mint=output_mint,
+                    amount_raw=raw_amount,
+                    slippage_bps=slippage_bps,
+                )
+                quote_source = "jupiter-metis"
 
         out_amount_raw = int(quote.get("outAmount") or 0)
-        other_threshold_raw = int(
-            quote.get("otherAmountThreshold")
-            or quote.get("minOutAmount")
-            or 0
+        other_threshold_raw = self._swap_minimum_output_floor(
+            out_amount_raw=out_amount_raw,
+            slippage_bps=slippage_bps,
         )
         fee_summary = self._build_swap_fee_summary(
             swap_provider=quote_source,
@@ -5523,16 +5546,18 @@ class SolanaWalletBackend(AgentWalletBackend):
         input_mint: str,
         output_mint: str,
         amount_ui: float,
-        slippage_bps: int = 50,
+        slippage_bps: int = SOLANA_SWAP_DEFAULT_SLIPPAGE_BPS,
         minimum_output_amount_raw: int | None = None,
         max_fee_lamports: int | None = None,
-        valid_for_seconds: int = 30,
-        max_attempts: int = 2,
+        valid_for_seconds: int = 120,
+        max_attempts: int = 3,
     ) -> dict[str, Any]:
         if valid_for_seconds <= 0 or valid_for_seconds > 120:
             raise WalletBackendError("valid_for_seconds must be between 1 and 120.")
         if max_attempts <= 0 or max_attempts > 5:
             raise WalletBackendError("max_attempts must be between 1 and 5.")
+        slippage_bps = max(int(slippage_bps), SOLANA_SWAP_DEFAULT_SLIPPAGE_BPS)
+        max_attempts = max(int(max_attempts), 3)
 
         indicative = await self.preview_swap(
             input_mint=input_mint,
@@ -5540,13 +5565,30 @@ class SolanaWalletBackend(AgentWalletBackend):
             amount_ui=amount_ui,
             slippage_bps=slippage_bps,
         )
-        min_output_raw = (
+        indicative_output_raw = int(indicative.get("estimated_output_amount_raw") or 0)
+        slippage_floor_raw = self._swap_minimum_output_floor(
+            out_amount_raw=indicative_output_raw,
+            slippage_bps=slippage_bps,
+        )
+        requested_min_output_raw = (
             int(minimum_output_amount_raw)
             if minimum_output_amount_raw is not None
-            else int(indicative.get("minimum_output_amount_raw") or 0)
+            else None
         )
+        if requested_min_output_raw is not None:
+            min_output_raw = min(requested_min_output_raw, slippage_floor_raw)
+            minimum_output_policy = (
+                "explicit_clamped_to_slippage_floor"
+                if requested_min_output_raw > slippage_floor_raw
+                else "explicit"
+            )
+        else:
+            min_output_raw = slippage_floor_raw
+            minimum_output_policy = "slippage_floor"
         if min_output_raw <= 0:
             raise WalletBackendError("minimum_output_amount_raw could not be derived from the indicative quote.")
+        output_decimals = int(indicative.get("output_decimals") or 0)
+        min_output_ui = min_output_raw / (10**output_decimals)
 
         fee_summary = (
             indicative.get("fee_summary")
@@ -5575,8 +5617,10 @@ class SolanaWalletBackend(AgentWalletBackend):
             "output_decimals": indicative.get("output_decimals"),
             "indicative_output_amount_ui": indicative.get("estimated_output_amount_ui"),
             "indicative_output_amount_raw": indicative.get("estimated_output_amount_raw"),
-            "minimum_output_amount_ui": indicative.get("minimum_output_amount_ui"),
+            "minimum_output_amount_ui": min_output_ui,
             "minimum_output_amount_raw": min_output_raw,
+            "requested_minimum_output_amount_raw": requested_min_output_raw,
+            "minimum_output_policy": minimum_output_policy,
             "max_slippage_bps": slippage_bps,
             "slippage_bps": slippage_bps,
             "max_fee_lamports": fee_limit,
@@ -5584,7 +5628,7 @@ class SolanaWalletBackend(AgentWalletBackend):
             "valid_for_seconds": valid_for_seconds,
             "valid_until_epoch_seconds": int(time.time()) + valid_for_seconds,
             "max_attempts": max_attempts,
-            "allowed_providers": ["jupiter-ultra", "jupiter-metis"],
+            "allowed_providers": ["jupiter-v2-order", "jupiter-ultra", "jupiter-metis"],
             "recipient_policy": "owner-only",
             "spend_policy": "exact-input",
             "indicative_swap_provider": indicative.get("swap_provider"),
@@ -5605,7 +5649,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         input_mint: str,
         output_mint: str,
         amount_ui: float,
-        slippage_bps: int = 50,
+        slippage_bps: int = SOLANA_SWAP_DEFAULT_SLIPPAGE_BPS,
     ) -> dict[str, Any]:
         preview = await self.preview_swap(
             input_mint=input_mint,
@@ -5624,7 +5668,14 @@ class SolanaWalletBackend(AgentWalletBackend):
                 "This wallet backend is in sign-only mode. Disable sign_only to broadcast transactions."
             )
 
-        if prepared.get("swap_provider") == "jupiter-ultra":
+        if prepared.get("swap_provider") == "jupiter-v2-order":
+            submitted = await jupiter.execute_swap_v2_order(
+                signed_transaction_base64=str(prepared["transaction_base64"]),
+                request_id=str(prepared["request_id"]),
+                last_valid_block_height=_coerce_int(prepared.get("last_valid_block_height")),
+            )
+            onchain_signature = submitted.get("signature") or submitted.get("txid")
+        elif prepared.get("swap_provider") == "jupiter-ultra":
             submitted = await jupiter.execute_ultra_order(
                 signed_transaction_base64=str(prepared["transaction_base64"]),
                 request_id=str(prepared["request_id"]),
@@ -5690,16 +5741,18 @@ class SolanaWalletBackend(AgentWalletBackend):
         input_mint: str,
         output_mint: str,
         amount_ui: float,
-        slippage_bps: int = 50,
+        slippage_bps: int = SOLANA_SWAP_DEFAULT_SLIPPAGE_BPS,
         minimum_output_amount_raw: int | None = None,
         max_fee_lamports: int | None = None,
         valid_until_epoch_seconds: int | None = None,
-        max_attempts: int = 2,
+        max_attempts: int = 3,
     ) -> dict[str, Any]:
         if valid_until_epoch_seconds is not None and int(time.time()) > int(valid_until_epoch_seconds):
             raise WalletBackendError("Approved swap intent has expired. Create a fresh intent preview.")
         if max_attempts <= 0 or max_attempts > 5:
             raise WalletBackendError("max_attempts must be between 1 and 5.")
+        slippage_bps = max(int(slippage_bps), SOLANA_SWAP_DEFAULT_SLIPPAGE_BPS)
+        max_attempts = max(int(max_attempts), 3)
 
         attempts: list[dict[str, Any]] = []
         last_error: str | None = None
@@ -5707,11 +5760,13 @@ class SolanaWalletBackend(AgentWalletBackend):
             if valid_until_epoch_seconds is not None and int(time.time()) > int(valid_until_epoch_seconds):
                 break
             try:
+                exclude_routers = ["jupiterz"] if attempt_index > 0 else None
                 preview = await self.preview_swap(
                     input_mint=input_mint,
                     output_mint=output_mint,
                     amount_ui=amount_ui,
                     slippage_bps=slippage_bps,
+                    exclude_routers=exclude_routers,
                 )
                 estimated_output_raw = int(preview.get("estimated_output_amount_raw") or 0)
                 if (
@@ -5780,8 +5835,10 @@ class SolanaWalletBackend(AgentWalletBackend):
             if attempt_index + 1 < max_attempts:
                 await asyncio.sleep(min(0.5 * (attempt_index + 1), 1.5))
 
+        reason_suffix = f" Last reason: {last_error}" if last_error else ""
         raise WalletBackendError(
-            "Solana swap intent execution failed within the approved limits. Funds were not moved.",
+            "Solana swap intent execution failed within the approved limits. Funds were not moved."
+            + reason_suffix,
             details={
                 "reason": last_error,
                 "attempts": attempts,
@@ -5796,7 +5853,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         input_mint: str,
         output_mint: str,
         amount_ui: float,
-        slippage_bps: int = 50,
+        slippage_bps: int = SOLANA_SWAP_DEFAULT_SLIPPAGE_BPS,
     ) -> dict[str, Any]:
         preview = await self.preview_swap(
             input_mint=input_mint,
@@ -5837,13 +5894,23 @@ class SolanaWalletBackend(AgentWalletBackend):
 
         swap_provider = str(preview.get("swap_provider") or "jupiter-metis")
         request_id = None
-        if swap_provider == "jupiter-ultra":
+        if swap_provider in {"jupiter-v2-order", "jupiter-ultra"}:
             swap_build = preview["quote_response"]
             unsigned_transaction = VersionedTransaction.from_bytes(
                 base64.b64decode(str(swap_build["transaction"]))
             )
             request_id = swap_build.get("requestId")
-            last_valid_block_height = swap_build.get("expireAt")
+            blockhash_metadata = swap_build.get("blockhashWithMetadata")
+            last_valid_block_height = (
+                blockhash_metadata.get("lastValidBlockHeight")
+                if isinstance(blockhash_metadata, dict)
+                else None
+            )
+            if last_valid_block_height is None:
+                last_valid_block_height = (
+                    swap_build.get("lastValidBlockHeight")
+                    or swap_build.get("expireAt")
+                )
             prioritization_fee_lamports = swap_build.get("prioritizationFeeLamports")
             compute_unit_limit = swap_build.get("computeUnitLimit")
         else:

@@ -91,6 +91,13 @@ def _direct_jupiter_enabled() -> bool:
     return bool(settings.jupiter_api_key.strip())
 
 
+def _swap_v2_base_url() -> str:
+    return os.getenv(
+        "JUPITER_SWAP_V2_API_BASE_URL",
+        settings.jupiter_swap_v2_api_base_url,
+    ).strip().rstrip("/")
+
+
 def _unwrap_gateway_payload(
     status_code: int,
     payload: Any,
@@ -367,6 +374,52 @@ async def fetch_ultra_order(
     return data
 
 
+async def fetch_swap_v2_order(
+    *,
+    input_mint: str,
+    output_mint: str,
+    amount_raw: int,
+    taker: str,
+    slippage_bps: int | str | None = None,
+    exclude_routers: list[str] | None = None,
+    swap_mode: str = "ExactIn",
+) -> dict[str, Any]:
+    """Fetch a Jupiter Swap API V2 meta-aggregator order."""
+    client = get_client()
+    params: dict[str, Any] = {
+        "inputMint": input_mint,
+        "outputMint": output_mint,
+        "amount": str(amount_raw),
+        "taker": taker,
+    }
+    if swap_mode != "ExactIn":
+        params["swapMode"] = swap_mode
+    if slippage_bps is not None:
+        params["slippageBps"] = str(slippage_bps)
+    if exclude_routers:
+        params["excludeRouters"] = ",".join(str(item).strip() for item in exclude_routers if str(item).strip())
+
+    response = await client.get(
+        f"{_swap_v2_base_url()}/order",
+        params=params,
+        headers=_headers(),
+    )
+    if response.status_code != 200:
+        raise ProviderError("jupiter-v2", f"HTTP {response.status_code}: {response.text[:300]}")
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ProviderError("jupiter-v2", "Unexpected order response from Jupiter Swap V2.")
+    if data.get("error") or data.get("errorCode"):
+        raise ProviderError(
+            "jupiter-v2",
+            str(data.get("error") or data.get("errorCode") or "Unknown Swap V2 order error."),
+            details=data,
+        )
+    if "outAmount" not in data:
+        raise ProviderError("jupiter-v2", "Unexpected order response from Jupiter Swap V2.")
+    return data
+
+
 async def build_swap_transaction(
     *,
     user_public_key: str,
@@ -474,6 +527,42 @@ async def execute_ultra_order(
             "jupiter-ultra",
             str(data.get("error") or data.get("errorCode") or "Unknown Ultra execute error."),
         )
+    return data
+
+
+async def execute_swap_v2_order(
+    *,
+    signed_transaction_base64: str,
+    request_id: str,
+    last_valid_block_height: int | str | None = None,
+) -> dict[str, Any]:
+    """Execute a signed Jupiter Swap API V2 order."""
+    client = get_client()
+    body: dict[str, Any] = {
+        "signedTransaction": signed_transaction_base64,
+        "requestId": request_id,
+    }
+    if last_valid_block_height is not None:
+        body["lastValidBlockHeight"] = str(last_valid_block_height)
+    response = await client.post(
+        f"{_swap_v2_base_url()}/execute",
+        json=body,
+        headers={**_headers(), "Content-Type": "application/json"},
+    )
+    if response.status_code != 200:
+        raise ProviderError("jupiter-v2", f"HTTP {response.status_code}: {response.text[:300]}")
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ProviderError("jupiter-v2", "Unexpected execute response from Jupiter Swap V2.")
+    if data.get("error") or data.get("errorCode"):
+        raise ProviderError(
+            "jupiter-v2",
+            str(data.get("error") or data.get("errorCode") or "Unknown Swap V2 execute error."),
+            details=data,
+        )
+    if str(data.get("status") or "").strip().lower() == "failed":
+        message = data.get("error") or data.get("code") or "Swap V2 execute failed."
+        raise ProviderError("jupiter-v2", str(message), details=data)
     return data
 
 

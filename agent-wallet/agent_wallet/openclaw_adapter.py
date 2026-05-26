@@ -2475,7 +2475,7 @@ class OpenClawWalletAdapter:
                         "Preview or execute a Solana token swap through Jupiter routing. "
                         "Prefer intent_preview, then intent_execute after explicit chat confirmation; "
                         "intent_execute fetches a fresh quote and only sends if it remains inside the approved limits. "
-                        "Legacy preview/prepare/execute remains available."
+                        "OpenClaw should not use legacy execute for Solana swaps because exact Jupiter quote payloads expire quickly."
                     ),
                     input_schema={
                         "type": "object",
@@ -2494,11 +2494,11 @@ class OpenClawWalletAdapter:
                             },
                             "slippage_bps": {
                                 "type": "integer",
-                                "description": "Optional slippage tolerance in basis points. Defaults to 50.",
+                                "description": "Optional slippage tolerance in basis points. Defaults to 300 (3%) for Solana swaps.",
                             },
                             "minimum_output_amount_raw": {
                                 "type": "integer",
-                                "description": "Optional approved minimum output amount in raw output token units for intent_preview.",
+                                "description": "Optional approved minimum output in raw output token units for intent_preview. For intent swaps, overly strict values are clamped to the slippage floor.",
                             },
                             "max_fee_lamports": {
                                 "type": "integer",
@@ -2506,11 +2506,11 @@ class OpenClawWalletAdapter:
                             },
                             "valid_for_seconds": {
                                 "type": "integer",
-                                "description": "Optional intent validity window in seconds. Defaults to 30, max 120.",
+                                "description": "Optional intent validity window in seconds. Intent swaps use at least 120 seconds, max 120.",
                             },
                             "max_attempts": {
                                 "type": "integer",
-                                "description": "Optional number of fresh quote/simulate/execute attempts. Defaults to 2, max 5.",
+                                "description": "Optional number of fresh quote/simulate/execute attempts. Intent swaps use at least 3 attempts, max 5.",
                             },
                             "mode": {
                                 "type": "string",
@@ -5288,11 +5288,11 @@ class OpenClawWalletAdapter:
                 input_mint = args.get("input_mint")
                 output_mint = args.get("output_mint")
                 amount = args.get("amount")
-                slippage_bps = args.get("slippage_bps", 50)
+                slippage_bps = args.get("slippage_bps", 300)
                 minimum_output_amount_raw = args.get("minimum_output_amount_raw")
                 max_fee_lamports = args.get("max_fee_lamports")
-                valid_for_seconds = args.get("valid_for_seconds", 30)
-                max_attempts = args.get("max_attempts", 2)
+                valid_for_seconds = args.get("valid_for_seconds", 120)
+                max_attempts = args.get("max_attempts", 3)
                 mode = args.get("mode")
                 purpose = args.get("purpose")
                 user_intent = args.get("user_intent", False)
@@ -5324,6 +5324,10 @@ class OpenClawWalletAdapter:
                     )
                 if not isinstance(purpose, str) or not purpose.strip():
                     raise WalletBackendError("purpose is required.")
+                if mode in {"intent_preview", "intent_execute"}:
+                    slippage_bps = max(slippage_bps, 300)
+                    valid_for_seconds = max(valid_for_seconds, 120)
+                    max_attempts = max(max_attempts, 3)
 
                 if mode == "preview":
                     preview = await self.backend.preview_swap(

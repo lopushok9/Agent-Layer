@@ -222,6 +222,10 @@
         "type": "string",
         "description": "Optional Jupiter Swap API base URL."
       },
+      "jupiterSwapV2BaseUrl": {
+        "type": "string",
+        "description": "Optional Jupiter Swap API V2 base URL."
+      },
       "jupiterUltraBaseUrl": {
         "type": "string",
         "description": "Optional Jupiter Ultra API base URL."

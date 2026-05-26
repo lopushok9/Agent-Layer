@@ -575,6 +575,11 @@ async function issueApprovalToken(api, config, userId, toolName, previewPayload)
 
 async function attachApprovalForExecute(api, config, userId, toolName, effectiveParams) {
   if (!["execute", "intent_execute"].includes(String(effectiveParams.mode || ""))) return null;
+  if (toolName === "swap_solana_tokens" && String(effectiveParams.mode || "") === "execute") {
+    throw new Error(
+      "Legacy exact-preview execute is disabled for Solana Jupiter swaps in OpenClaw. Use intent_preview, ask for explicit chat confirmation, then call intent_execute. The intent path binds approval to risk limits instead of a fragile Jupiter quote payload."
+    );
+  }
 
   const cached = latestCachedPreview(userId, toolName);
   if (cached?.preview && cached?.summary) {
@@ -1326,7 +1331,7 @@ const solanaToolDefinitions = [
   },
   {
     name: "swap_solana_tokens",
-    description: `Preview, prepare, or execute a Solana token swap via Jupiter. Prefer intent_preview followed by intent_execute after the user explicitly confirms the intent summary in chat; intent_execute fetches a fresh quote and only executes inside the approved limits. Legacy preview/prepare/execute remains available. The OpenClaw plugin handles internal execution authorization automatically. ${WALLET_TOOL_ONLY_GUIDANCE}`,
+    description: `Preview or execute a Solana token swap via Jupiter. Use intent_preview followed by intent_execute after the user explicitly confirms the intent summary in chat; intent_execute fetches a fresh quote and only executes inside the approved limits. Do not use legacy execute for Solana swaps. The OpenClaw plugin handles internal execution authorization automatically. ${WALLET_TOOL_ONLY_GUIDANCE}`,
     optional: true,
     parameters: {
       type: "object",
@@ -1334,12 +1339,12 @@ const solanaToolDefinitions = [
         input_mint: { type: "string" },
         output_mint: { type: "string" },
         amount: { type: "number" },
-        slippage_bps: { type: "integer" },
-        minimum_output_amount_raw: { type: "integer" },
+        slippage_bps: { type: "integer", description: "Optional slippage tolerance in basis points. Defaults to 300 (3%) for Solana swaps." },
+        minimum_output_amount_raw: { type: "integer", description: "Optional approved minimum output in raw output token units for intent_preview. For intent swaps, overly strict values are clamped to the slippage floor." },
         max_fee_lamports: { type: "integer" },
-        valid_for_seconds: { type: "integer" },
-        max_attempts: { type: "integer" },
-        mode: { type: "string", enum: ["preview", "prepare", "execute", "intent_preview", "intent_execute"] },
+        valid_for_seconds: { type: "integer", description: "Optional intent validity window in seconds. Intent swaps use at least 120 seconds, max 120." },
+        max_attempts: { type: "integer", description: "Optional number of fresh quote/simulate/execute attempts. Intent swaps use at least 3 attempts, max 5." },
+        mode: { type: "string", enum: ["preview", "intent_preview", "intent_execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
       },
