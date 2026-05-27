@@ -8,6 +8,8 @@ from agent_wallet.config import settings
 from agent_wallet.exceptions import ProviderError
 from agent_wallet.http_client import get_client
 
+KAMINO_BUILD_TIMEOUT_SECONDS = 20.0
+
 
 def _normalized_api_base() -> str:
     return settings.kamino_api_base_url.rstrip("/")
@@ -140,6 +142,7 @@ async def build_lend_deposit_transaction(
             "reserve": reserve,
             "amount": amount_ui,
         },
+        timeout=KAMINO_BUILD_TIMEOUT_SECONDS,
     )
     if response.status_code != 200:
         raise ProviderError("kamino", f"HTTP {response.status_code}: {response.text[:300]}")
@@ -163,6 +166,7 @@ async def build_lend_withdraw_transaction(
             "reserve": reserve,
             "amount": amount_ui,
         },
+        timeout=KAMINO_BUILD_TIMEOUT_SECONDS,
     )
     if response.status_code != 200:
         raise ProviderError("kamino", f"HTTP {response.status_code}: {response.text[:300]}")
@@ -186,6 +190,7 @@ async def build_lend_borrow_transaction(
             "reserve": reserve,
             "amount": amount_ui,
         },
+        timeout=KAMINO_BUILD_TIMEOUT_SECONDS,
     )
     if response.status_code != 200:
         raise ProviderError("kamino", f"HTTP {response.status_code}: {response.text[:300]}")
@@ -209,6 +214,7 @@ async def build_lend_repay_transaction(
             "reserve": reserve,
             "amount": amount_ui,
         },
+        timeout=KAMINO_BUILD_TIMEOUT_SECONDS,
     )
     if response.status_code != 200:
         raise ProviderError("kamino", f"HTTP {response.status_code}: {response.text[:300]}")

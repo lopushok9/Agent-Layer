@@ -258,9 +258,10 @@ def main() -> None:
 
     kamino_market = "7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF"
     kamino_reserve = "D6q6wuQSrifJKZYpR1M8R4YawnLDtDsMmWM1NbBmgJ59"
+    kamino_obligation = "HcrU9nyaBFmhNPrxnwXRjreVxdQTZdq2dpvktjsWiS4J"
     kamino_message = _Message(
-        [wallet, kamino_market, kamino_reserve, KAMINO_LEND_PROGRAM_ID],
-        [_Instruction(3)],
+        [wallet, kamino_market, kamino_reserve, kamino_obligation, KAMINO_LEND_PROGRAM_ID],
+        [_Instruction(4)],
     )
     kamino_result = verify_provider_kamino_lend_transaction(
         kamino_message,
@@ -268,6 +269,7 @@ def main() -> None:
         market_address=kamino_market,
         reserve_address=kamino_reserve,
         action="Kamino deposit",
+        obligation_address=kamino_obligation,
     )
     assert kamino_result["verified"] is True
     assert kamino_result["has_recognized_kamino_program"] is True
@@ -283,10 +285,24 @@ def main() -> None:
         market_address=kamino_market,
         reserve_address=kamino_reserve,
         action="Kamino deposit",
-        loaded_addresses=[kamino_market, kamino_reserve],
+        obligation_address=kamino_obligation,
+        loaded_addresses=[kamino_market, kamino_reserve, kamino_obligation],
     )
     assert kamino_lookup_result["verified"] is True
-    assert kamino_lookup_result["account_key_count"] == 4
+    assert kamino_lookup_result["account_key_count"] == 5
+
+    try:
+        verify_provider_kamino_lend_transaction(
+            kamino_message,
+            wallet_address=wallet,
+            market_address=kamino_market,
+            reserve_address=kamino_reserve,
+            action="Kamino deposit",
+            obligation_address="MissingKaminoObligation1111111111111111111111",
+        )
+        raise AssertionError("expected verifier to reject wrong Kamino obligation")
+    except WalletBackendError as exc:
+        assert "Kamino obligation" in str(exc)
 
     bad_kamino = _Message(
         [wallet, kamino_market, kamino_reserve, "BadProgram1111111111111111111111111111111111"],

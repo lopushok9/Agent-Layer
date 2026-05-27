@@ -525,6 +525,7 @@ class AgentWalletBackend(ABC):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Kamino deposit previews.")
 
@@ -533,6 +534,8 @@ class AgentWalletBackend(ABC):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
+        approved_preview: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Kamino deposit preparation.")
 
@@ -541,6 +544,8 @@ class AgentWalletBackend(ABC):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
+        approved_preview: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Kamino deposits.")
 
@@ -549,6 +554,7 @@ class AgentWalletBackend(ABC):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Kamino withdraw previews.")
 
@@ -557,6 +563,8 @@ class AgentWalletBackend(ABC):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
+        approved_preview: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Kamino withdraw preparation.")
 
@@ -565,6 +573,8 @@ class AgentWalletBackend(ABC):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
+        approved_preview: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Kamino withdraws.")
 
@@ -573,6 +583,7 @@ class AgentWalletBackend(ABC):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Kamino borrow previews.")
 
@@ -581,6 +592,8 @@ class AgentWalletBackend(ABC):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
+        approved_preview: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Kamino borrow preparation.")
 
@@ -589,6 +602,8 @@ class AgentWalletBackend(ABC):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
+        approved_preview: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Kamino borrows.")
 
@@ -597,6 +612,7 @@ class AgentWalletBackend(ABC):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Kamino repay previews.")
 
@@ -605,6 +621,8 @@ class AgentWalletBackend(ABC):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
+        approved_preview: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Kamino repay preparation.")
 
@@ -613,6 +631,8 @@ class AgentWalletBackend(ABC):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
+        approved_preview: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Kamino repays.")
 

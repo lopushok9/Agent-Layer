@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## v0.1.27 - 2026-05-27
+
+- Improved Solana swap fallback landing by enabling Jupiter dynamic slippage
+  and bounded `veryHigh` priority fees on the Metis `/swap` fallback path.
+- Hardened Kamino transaction execution with local simulation before send,
+  Kamino-specific build timeouts, and longer confirmation polling on mainnet.
+- Reused approved Kamino preview payloads during execute so OpenClaw no longer
+  needs to rebuild the same write path just to satisfy approval binding.
+- Added Kamino obligation pinning for `withdraw`, `borrow`, and `repay`, so
+  preview can require an explicit `obligation_address` and execute verifies the
+  built transaction references the selected obligation before signing.
+
 ## v0.1.26 - 2026-05-26
 
 - Reworked Solana Jupiter swaps to prefer intent approvals, so OpenClaw confirms

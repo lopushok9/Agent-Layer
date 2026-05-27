@@ -1724,6 +1724,7 @@ class FakeBackend(AgentWalletBackend):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
     ) -> dict:
         return {
             "chain": "solana",
@@ -1745,6 +1746,8 @@ class FakeBackend(AgentWalletBackend):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
+        approved_preview: dict | None = None,
     ) -> dict:
         return {
             "chain": "solana",
@@ -1769,6 +1772,7 @@ class FakeBackend(AgentWalletBackend):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
     ) -> dict:
         return {
             "chain": "solana",
@@ -1781,6 +1785,7 @@ class FakeBackend(AgentWalletBackend):
             "amount_ui": amount_ui,
             "reserve_info": {"reserve": reserve, "liquidityToken": "USDC"},
             "obligations": [{"obligationAddress": "FakeKaminoObligation11111111111111111111111"}],
+            "obligation_address": obligation_address or "FakeKaminoObligation11111111111111111111111",
             "sign_only": False,
             "can_send": True,
             "source": "kamino",
@@ -1791,6 +1796,8 @@ class FakeBackend(AgentWalletBackend):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
+        approved_preview: dict | None = None,
     ) -> dict:
         return {
             "chain": "solana",
@@ -1801,6 +1808,7 @@ class FakeBackend(AgentWalletBackend):
             "market": market,
             "reserve": reserve,
             "amount_ui": amount_ui,
+            "obligation_address": obligation_address or "FakeKaminoObligation11111111111111111111111",
             "signature": "fake-kamino-withdraw-signature",
             "broadcasted": True,
             "confirmed": True,
@@ -1815,6 +1823,7 @@ class FakeBackend(AgentWalletBackend):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
     ) -> dict:
         return {
             "chain": "solana",
@@ -1827,6 +1836,7 @@ class FakeBackend(AgentWalletBackend):
             "amount_ui": amount_ui,
             "reserve_info": {"reserve": reserve, "liquidityToken": "USDC"},
             "obligations": [{"obligationAddress": "FakeKaminoObligation11111111111111111111111"}],
+            "obligation_address": obligation_address or "FakeKaminoObligation11111111111111111111111",
             "sign_only": False,
             "can_send": True,
             "source": "kamino",
@@ -1837,6 +1847,8 @@ class FakeBackend(AgentWalletBackend):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
+        approved_preview: dict | None = None,
     ) -> dict:
         return {
             "chain": "solana",
@@ -1847,6 +1859,7 @@ class FakeBackend(AgentWalletBackend):
             "market": market,
             "reserve": reserve,
             "amount_ui": amount_ui,
+            "obligation_address": obligation_address or "FakeKaminoObligation11111111111111111111111",
             "signature": "fake-kamino-borrow-signature",
             "broadcasted": True,
             "confirmed": True,
@@ -1861,6 +1874,7 @@ class FakeBackend(AgentWalletBackend):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
     ) -> dict:
         return {
             "chain": "solana",
@@ -1873,6 +1887,7 @@ class FakeBackend(AgentWalletBackend):
             "amount_ui": amount_ui,
             "reserve_info": {"reserve": reserve, "liquidityToken": "USDC"},
             "obligations": [{"obligationAddress": "FakeKaminoObligation11111111111111111111111"}],
+            "obligation_address": obligation_address or "FakeKaminoObligation11111111111111111111111",
             "sign_only": False,
             "can_send": True,
             "source": "kamino",
@@ -1883,6 +1898,8 @@ class FakeBackend(AgentWalletBackend):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
+        approved_preview: dict | None = None,
     ) -> dict:
         return {
             "chain": "solana",
@@ -1893,6 +1910,7 @@ class FakeBackend(AgentWalletBackend):
             "market": market,
             "reserve": reserve,
             "amount_ui": amount_ui,
+            "obligation_address": obligation_address or "FakeKaminoObligation11111111111111111111111",
             "signature": "fake-kamino-repay-signature",
             "broadcasted": True,
             "confirmed": True,
@@ -2017,6 +2035,86 @@ class NoRepreviewFlashBackend(FakeBackend):
             leverage=leverage,
             side=side,
         )
+
+
+class NoRepreviewKaminoBackend(FakeBackend):
+    def __init__(self) -> None:
+        self._kamino_preview_calls = 0
+
+    async def preview_kamino_lend_deposit(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+        obligation_address: str | None = None,
+    ) -> dict:
+        self._kamino_preview_calls += 1
+        if self._kamino_preview_calls > 1:
+            raise WalletBackendError("execute should use the approved Kamino preview payload")
+        return await super().preview_kamino_lend_deposit(
+            market=market,
+            reserve=reserve,
+            amount_ui=amount_ui,
+        )
+
+
+class MultiObligationKaminoBackend(FakeBackend):
+    _options = [
+        "FakeKaminoObligation11111111111111111111111",
+        "FakeKaminoObligation22222222222222222222222",
+    ]
+
+    async def preview_kamino_lend_withdraw(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+        obligation_address: str | None = None,
+    ) -> dict:
+        selected = obligation_address if obligation_address in self._options else None
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "preview",
+            "asset_type": "kamino-lend-withdraw",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "market": market,
+            "reserve": reserve,
+            "amount_ui": amount_ui,
+            "reserve_info": {"reserve": reserve, "liquidityToken": "USDC"},
+            "obligations": [{"obligationAddress": value} for value in self._options],
+            "obligation_options": list(self._options),
+            "obligation_address": selected,
+            "requires_obligation_address": selected is None,
+            "sign_only": False,
+            "can_send": True,
+            "source": "kamino",
+        }
+
+    async def execute_kamino_lend_withdraw(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+        obligation_address: str | None = None,
+        approved_preview: dict | None = None,
+    ) -> dict:
+        preview = approved_preview or await self.preview_kamino_lend_withdraw(
+            market=market,
+            reserve=reserve,
+            amount_ui=amount_ui,
+            obligation_address=obligation_address,
+        )
+        return {
+            **preview,
+            "mode": "execute",
+            "signature": "fake-kamino-multi-obligation-withdraw-signature",
+            "broadcasted": True,
+            "confirmed": True,
+            "confirmation_status": "confirmed",
+            "slot": 1501,
+            "source": "kamino",
+        }
 
 
 class MainnetFakeBackend(FakeBackend):
@@ -2533,6 +2631,69 @@ async def main() -> None:
         },
     )
     assert kamino_execute.ok and kamino_execute.data["confirmed"] is True
+
+    multi_kamino_adapter = OpenClawWalletAdapter(MultiObligationKaminoBackend())
+    multi_kamino_preview = await multi_kamino_adapter.invoke(
+        "kamino_lend_withdraw",
+        {
+            "market": "FakeKaminoMarket111111111111111111111111111111",
+            "reserve": "FakeKaminoReserve1111111111111111111111111111",
+            "amount_ui": "1.25",
+            "mode": "preview",
+            "purpose": "test kamino multi-obligation preview",
+        },
+    )
+    assert multi_kamino_preview.ok is True
+    assert multi_kamino_preview.data["requires_obligation_address"] is True
+    assert len(multi_kamino_preview.data["obligation_options"]) == 2
+    ambiguous_kamino_prepare = await multi_kamino_adapter.invoke(
+        "kamino_lend_withdraw",
+        {
+            "market": "FakeKaminoMarket111111111111111111111111111111",
+            "reserve": "FakeKaminoReserve1111111111111111111111111111",
+            "amount_ui": "1.25",
+            "mode": "prepare",
+            "purpose": "test kamino multi-obligation prepare",
+            "user_intent": True,
+        },
+    )
+    assert ambiguous_kamino_prepare.ok is False
+
+    selected_obligation = "FakeKaminoObligation22222222222222222222222"
+    selected_kamino_preview = await multi_kamino_adapter.invoke(
+        "kamino_lend_withdraw",
+        {
+            "market": "FakeKaminoMarket111111111111111111111111111111",
+            "reserve": "FakeKaminoReserve1111111111111111111111111111",
+            "amount_ui": "1.25",
+            "obligation_address": selected_obligation,
+            "mode": "preview",
+            "purpose": "test kamino selected obligation preview",
+        },
+    )
+    assert selected_kamino_preview.ok is True
+    assert selected_kamino_preview.data["obligation_address"] == selected_obligation
+    assert selected_kamino_preview.data["confirmation_summary"]["obligation_address"] == selected_obligation
+    selected_kamino_execute = await multi_kamino_adapter.invoke(
+        "kamino_lend_withdraw",
+        {
+            "market": "FakeKaminoMarket111111111111111111111111111111",
+            "reserve": "FakeKaminoReserve1111111111111111111111111111",
+            "amount_ui": "1.25",
+            "obligation_address": selected_obligation,
+            "mode": "execute",
+            "purpose": "test kamino selected obligation execute",
+            "approval_token": _issue_execute_approval(
+                tool_name="kamino_lend_withdraw",
+                preview=selected_kamino_preview.data,
+                network="devnet",
+                bind_preview_digest=True,
+            ),
+            "_approved_preview": selected_kamino_preview.data,
+        },
+    )
+    assert selected_kamino_execute.ok is True
+    assert selected_kamino_execute.data["obligation_address"] == selected_obligation
 
     stake_preview = await adapter.invoke(
         "stake_sol_native",
@@ -3103,6 +3264,39 @@ async def main() -> None:
     )
     assert no_repreview_flash_execute.ok is True
     assert no_repreview_flash_backend._flash_open_preview_calls == 1
+
+    no_repreview_kamino_backend = NoRepreviewKaminoBackend()
+    no_repreview_kamino_adapter = OpenClawWalletAdapter(no_repreview_kamino_backend)
+    no_repreview_kamino_preview = await no_repreview_kamino_adapter.invoke(
+        "kamino_lend_deposit",
+        {
+            "market": "FakeKaminoMarket111111111111111111111111111111",
+            "reserve": "FakeKaminoReserve1111111111111111111111111111",
+            "amount_ui": "1.25",
+            "mode": "preview",
+            "purpose": "test no-repreview kamino execute",
+        },
+    )
+    assert no_repreview_kamino_preview.ok is True
+    no_repreview_kamino_execute = await no_repreview_kamino_adapter.invoke(
+        "kamino_lend_deposit",
+        {
+            "market": "FakeKaminoMarket111111111111111111111111111111",
+            "reserve": "FakeKaminoReserve1111111111111111111111111111",
+            "amount_ui": "1.25",
+            "mode": "execute",
+            "purpose": "test no-repreview kamino execute",
+            "approval_token": _issue_execute_approval(
+                tool_name="kamino_lend_deposit",
+                preview=no_repreview_kamino_preview.data,
+                network="devnet",
+                bind_preview_digest=True,
+            ),
+            "_approved_preview": no_repreview_kamino_preview.data,
+        },
+    )
+    assert no_repreview_kamino_execute.ok is True
+    assert no_repreview_kamino_backend._kamino_preview_calls == 1
 
     drifting_swap_adapter = OpenClawWalletAdapter(DriftingSwapBackend())
     drifting_swap_preview = await drifting_swap_adapter.invoke(

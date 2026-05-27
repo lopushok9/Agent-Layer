@@ -760,6 +760,7 @@ class OpenClawWalletAdapter:
             "owner",
             "authority",
             "address",
+            "obligation_address",
             "market",
             "reserve",
             "amount_native",
@@ -2969,6 +2970,10 @@ class OpenClawWalletAdapter:
                                 "type": "string",
                                 "description": "Decimal token amount to withdraw, as a string.",
                             },
+                            "obligation_address": {
+                                "type": "string",
+                                "description": "Optional Kamino obligation address. Required when preview shows multiple matching obligations.",
+                            },
                             "mode": {
                                 "type": "string",
                                 "enum": ["preview", "prepare", "execute"],
@@ -3003,6 +3008,10 @@ class OpenClawWalletAdapter:
                                 "type": "string",
                                 "description": "Decimal token amount to borrow, as a string.",
                             },
+                            "obligation_address": {
+                                "type": "string",
+                                "description": "Optional Kamino obligation address. Required when preview shows multiple obligations in the selected market.",
+                            },
                             "mode": {
                                 "type": "string",
                                 "enum": ["preview", "prepare", "execute"],
@@ -3036,6 +3045,10 @@ class OpenClawWalletAdapter:
                             "amount_ui": {
                                 "type": "string",
                                 "description": "Decimal token amount to repay, as a string.",
+                            },
+                            "obligation_address": {
+                                "type": "string",
+                                "description": "Optional Kamino obligation address. Required when preview shows multiple matching debt obligations.",
                             },
                             "mode": {
                                 "type": "string",
@@ -5003,6 +5016,7 @@ class OpenClawWalletAdapter:
                 market = args.get("market")
                 reserve = args.get("reserve")
                 amount_ui = args.get("amount_ui")
+                obligation_address = args.get("obligation_address")
                 mode = args.get("mode")
                 purpose = args.get("purpose")
                 user_intent = args.get("user_intent", False)
@@ -5014,6 +5028,8 @@ class OpenClawWalletAdapter:
                     raise WalletBackendError("reserve is required.")
                 if not isinstance(amount_ui, str) or not amount_ui.strip():
                     raise WalletBackendError("amount_ui is required.")
+                if obligation_address is not None and not isinstance(obligation_address, str):
+                    raise WalletBackendError("obligation_address must be a string when provided.")
                 if mode not in {"preview", "prepare", "execute"}:
                     raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
                 if not isinstance(purpose, str) or not purpose.strip():
@@ -5046,6 +5062,7 @@ class OpenClawWalletAdapter:
                         market=market.strip(),
                         reserve=reserve.strip(),
                         amount_ui=amount_ui.strip(),
+                        obligation_address=obligation_address.strip() if isinstance(obligation_address, str) and obligation_address.strip() else None,
                     )
                     return AgentToolResult(
                         tool=tool_name,
@@ -5063,7 +5080,12 @@ class OpenClawWalletAdapter:
                         market=market.strip(),
                         reserve=reserve.strip(),
                         amount_ui=amount_ui.strip(),
+                        obligation_address=obligation_address.strip() if isinstance(obligation_address, str) and obligation_address.strip() else None,
                     )
+                    if bool(preview.get("requires_obligation_address")):
+                        raise WalletBackendError(
+                            f"{action_label} requires obligation_address when multiple Kamino obligations match the selected position."
+                        )
                     return AgentToolResult(
                         tool=tool_name,
                         ok=True,
@@ -5077,24 +5099,49 @@ class OpenClawWalletAdapter:
                         ),
                     )
 
-                execute_preview = await preview_method(
-                    market=market.strip(),
-                    reserve=reserve.strip(),
-                    amount_ui=amount_ui.strip(),
+                approved_preview = args.get("_approved_preview")
+                execute_preview = None
+                approval_payload = inspect_approval_token(
+                    approval_token,
+                    tool_name=tool_name,
+                    network=str(getattr(self.backend, "network", "unknown")),
+                    require_mainnet_confirmation=self._is_mainnet_for_backend(self.backend),
                 )
+                approval_summary = approval_payload.get("binding", {}).get("summary")
+                if not isinstance(approval_summary, dict):
+                    raise WalletBackendError(
+                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                    )
+                approval_summary_copy = dict(approval_summary)
+                if isinstance(approval_summary_copy.get("_preview_digest"), str):
+                    if not isinstance(approved_preview, dict):
+                        raise WalletBackendError(
+                            f"Approved {action_label} preview payload is required for execute mode. Generate a new preview and approval before execute."
+                        )
+                    if preview_payload_digest(approved_preview) != approval_summary_copy["_preview_digest"]:
+                        raise WalletBackendError(
+                            "approved preview payload does not match the approval token. Generate a new preview and approval before execute."
+                        )
+                    execute_preview = dict(approved_preview)
+                else:
+                    execute_preview = await preview_method(
+                        market=market.strip(),
+                        reserve=reserve.strip(),
+                        amount_ui=amount_ui.strip(),
+                        obligation_address=obligation_address.strip() if isinstance(obligation_address, str) and obligation_address.strip() else None,
+                    )
                 self._require_execute_approval(
                     approval_token=approval_token,
                     tool_name=tool_name,
-                    summary=self._build_confirmation_summary(
-                        action_label=action_label,
-                        payload=execute_preview,
-                    ),
+                    summary=approval_summary_copy,
                     action_label=action_label,
                 )
                 result = await execute_method(
                     market=market.strip(),
                     reserve=reserve.strip(),
                     amount_ui=amount_ui.strip(),
+                    obligation_address=obligation_address.strip() if isinstance(obligation_address, str) and obligation_address.strip() else None,
+                    approved_preview=execute_preview,
                 )
                 return AgentToolResult(
                     tool=tool_name,

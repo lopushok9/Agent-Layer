@@ -47,6 +47,7 @@ agent-a2a-gateway/.env.*
 
 .claude/settings.json
 agent-wallet/SOLANA_SWAP_RELIABILITY_PLAN.md
+agent-wallet/KAMINO_DEFI_RELIABILITY_PLAN.md
 about_AL.md
 ~$*.docx
 bot_mvp.md

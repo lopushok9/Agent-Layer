@@ -718,6 +718,7 @@ def verify_provider_kamino_lend_transaction(
     market_address: str,
     reserve_address: str,
     action: str,
+    obligation_address: str | None = None,
     loaded_addresses: list[str] | None = None,
 ) -> dict[str, Any]:
     binding = _assert_basic_wallet_binding(
@@ -733,6 +734,10 @@ def verify_provider_kamino_lend_transaction(
     if reserve_address not in keys:
         raise WalletBackendError(
             f"{action} transaction does not reference the expected Kamino reserve."
+        )
+    if obligation_address and obligation_address not in keys:
+        raise WalletBackendError(
+            f"{action} transaction does not reference the expected Kamino obligation."
         )
     program_ids = _program_ids(message, loaded_addresses)
     unknown_program_ids = _assert_program_allowlist(
@@ -764,6 +769,7 @@ def verify_provider_kamino_lend_transaction(
         "instruction_count": len(_compiled_instructions(message)),
         "market_address": market_address,
         "reserve_address": reserve_address,
+        "obligation_address": obligation_address,
         "action": action,
         "verified": True,
     }

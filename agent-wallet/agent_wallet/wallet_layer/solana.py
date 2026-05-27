@@ -3765,19 +3765,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         keypair = Keypair.from_bytes(self.signer.export_keypair_bytes())
         try:
             unsigned_transaction = VersionedTransaction.from_bytes(raw_transaction)
-            signature = keypair.sign_message(to_bytes_versioned(unsigned_transaction.message))
-            signatures = list(unsigned_transaction.signatures)
-            if wallet_signer_index >= len(signatures):
-                raise WalletBackendError(
-                    "Provider transaction signer layout is incompatible with local signing."
-                )
-            signatures[wallet_signer_index] = signature
-            signed_transaction = VersionedTransaction.populate(
-                unsigned_transaction.message,
-                signatures,
-            )
-            return encode_transaction_base64(bytes(signed_transaction))
-        except Exception:
+        except (TypeError, ValueError):
             unsigned_transaction = Transaction.from_bytes(raw_transaction)
             signatures = list(unsigned_transaction.signatures)
             if wallet_signer_index >= len(signatures):
@@ -3789,6 +3777,18 @@ class SolanaWalletBackend(AgentWalletBackend):
                 unsigned_transaction.message.recent_blockhash,
             )
             return encode_transaction_base64(bytes(unsigned_transaction))
+        signature = keypair.sign_message(to_bytes_versioned(unsigned_transaction.message))
+        signatures = list(unsigned_transaction.signatures)
+        if wallet_signer_index >= len(signatures):
+            raise WalletBackendError(
+                "Provider transaction signer layout is incompatible with local signing."
+            )
+        signatures[wallet_signer_index] = signature
+        signed_transaction = VersionedTransaction.populate(
+            unsigned_transaction.message,
+            signatures,
+        )
+        return encode_transaction_base64(bytes(signed_transaction))
 
     async def _prepare_jupiter_lend_transaction(
         self,
@@ -3847,9 +3847,11 @@ class SolanaWalletBackend(AgentWalletBackend):
             raise WalletBackendError(
                 "This wallet backend is in sign-only mode. Disable sign_only to broadcast transactions."
             )
+        kamino_verified = bool((prepared.get("kamino_safety") or {}).get("verified"))
         submitted = await solana_rpc.send_transaction(
             transaction_base64=str(prepared["transaction_base64"]),
             rpc_url=self.rpc_urls,
+            skip_preflight=source == "kamino" and kamino_verified,
         )
         signature = submitted.get("signature")
         status = None
@@ -3858,6 +3860,8 @@ class SolanaWalletBackend(AgentWalletBackend):
             status = await solana_rpc.wait_for_confirmation(
                 signature=signature,
                 rpc_url=self.rpc_urls,
+                timeout_seconds=60.0 if source == "kamino" else 20.0,
+                poll_interval_seconds=2.0 if source == "kamino" else 1.0,
             )
             confirmed = status is not None
         return {
@@ -3875,6 +3879,8 @@ class SolanaWalletBackend(AgentWalletBackend):
             "slot": status.get("slot") if status else None,
             "sign_only": self.sign_only,
             "source": source,
+            "simulation": prepared.get("simulation"),
+            "kamino_safety": prepared.get("kamino_safety"),
         }
 
     async def _execute_prepared_jupiter_lend_transaction(self, prepared: dict[str, Any]) -> dict[str, Any]:
@@ -3925,6 +3931,37 @@ class SolanaWalletBackend(AgentWalletBackend):
                 matches.append(item)
         return matches
 
+    def _resolve_kamino_obligation_selection(
+        self,
+        *,
+        obligations: list[Any],
+        obligation_address: str | None,
+        action: str,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+        candidates = [item for item in obligations if isinstance(item, dict)]
+        requested = str(obligation_address or "").strip()
+        if requested:
+            requested = validate_solana_address(requested)
+            for item in candidates:
+                if (
+                    _kamino_entry_address(
+                        item,
+                        "obligationAddress",
+                        "obligation",
+                        "address",
+                        "pubkey",
+                        "loanId",
+                    )
+                    == requested
+                ):
+                    return candidates, item
+            raise WalletBackendError(
+                f"Requested obligation_address is not available for Kamino {action} in the selected market."
+            )
+        if len(candidates) == 1:
+            return candidates, candidates[0]
+        return candidates, None
+
     async def _prepare_kamino_lend_transaction(
         self,
         *,
@@ -3933,6 +3970,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
     ) -> dict[str, Any]:
         if not self.signer:
             raise WalletBackendError("Solana signer is not configured.")
@@ -3953,12 +3991,49 @@ class SolanaWalletBackend(AgentWalletBackend):
             market_address=market,
             reserve_address=reserve,
             action=f"Kamino {action}",
+            obligation_address=obligation_address,
             loaded_addresses=loaded_addresses,
         )
         signed_transaction_base64 = await self._sign_versioned_provider_transaction(
             transaction_base64=transaction_base64,
             wallet_signer_index=int(verification.get("wallet_signer_index") or 0),
         )
+        simulation_value: dict[str, Any] | None = None
+        kamino_safety: dict[str, Any]
+        try:
+            simulation = await solana_rpc.simulate_transaction(
+                transaction_base64=signed_transaction_base64,
+                rpc_url=self.rpc_urls,
+                commitment=self.commitment,
+            )
+            simulation_value = (
+                simulation.get("value") if isinstance(simulation.get("value"), dict) else {}
+            )
+            if isinstance(simulation_value, dict) and simulation_value.get("err") is not None:
+                raise WalletBackendError(
+                    f"Kamino {action} transaction simulation failed.",
+                    code="kamino_simulation_failed",
+                    details={
+                        "simulation": simulation_value,
+                        "action": action,
+                        "market": market,
+                        "reserve": reserve,
+                    },
+                )
+            kamino_safety = {
+                "verified": True,
+                "simulation_unavailable": False,
+            }
+        except ProviderError as exc:
+            kamino_safety = {
+                "verified": False,
+                "simulation_unavailable": True,
+                "warning": (
+                    "Kamino simulation could not be completed via the configured Solana RPC. "
+                    "Proceeding with structural provider verification only."
+                ),
+                "error": str(exc),
+            }
         return {
             "chain": "solana",
             "network": self.network,
@@ -3967,6 +4042,7 @@ class SolanaWalletBackend(AgentWalletBackend):
             "owner": owner,
             "market": market,
             "reserve": reserve,
+            "obligation_address": obligation_address,
             "amount_ui": amount_ui,
             "transaction_base64": signed_transaction_base64,
             "transaction_encoding": "base64",
@@ -3975,15 +4051,30 @@ class SolanaWalletBackend(AgentWalletBackend):
             "broadcasted": False,
             "confirmed": False,
             "verification": verification,
+            "simulation": simulation_value,
+            "kamino_safety": kamino_safety,
             "sign_only": self.sign_only,
             "source": "kamino",
         }
+
+    def _kamino_preview_from_approved(
+        self,
+        approved_preview: dict[str, Any] | None,
+        *,
+        asset_type: str,
+    ) -> dict[str, Any] | None:
+        if not isinstance(approved_preview, dict):
+            return None
+        if str(approved_preview.get("asset_type") or "").strip() != asset_type:
+            return None
+        return dict(approved_preview)
 
     async def preview_kamino_lend_deposit(
         self,
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
     ) -> dict[str, Any]:
         self._require_mainnet_kamino("Kamino lending")
         owner = await self.get_address()
@@ -4021,8 +4112,13 @@ class SolanaWalletBackend(AgentWalletBackend):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
+        approved_preview: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        preview = await self.preview_kamino_lend_deposit(
+        preview = self._kamino_preview_from_approved(
+            approved_preview,
+            asset_type="kamino-lend-deposit",
+        ) or await self.preview_kamino_lend_deposit(
             market=market,
             reserve=reserve,
             amount_ui=amount_ui,
@@ -4049,11 +4145,14 @@ class SolanaWalletBackend(AgentWalletBackend):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
+        approved_preview: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         prepared = await self.prepare_kamino_lend_deposit(
             market=market,
             reserve=reserve,
             amount_ui=amount_ui,
+            approved_preview=approved_preview,
         )
         result = await self._execute_prepared_provider_transaction(prepared, source="kamino")
         result["build_response"] = prepared.get("build_response")
@@ -4064,6 +4163,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
     ) -> dict[str, Any]:
         self._require_mainnet_kamino("Kamino lending")
         owner = await self.get_address()
@@ -4088,6 +4188,19 @@ class SolanaWalletBackend(AgentWalletBackend):
         )
         if not obligation_matches:
             raise WalletBackendError("No Kamino obligation found for the requested reserve.")
+        obligation_options, selected_obligation = self._resolve_kamino_obligation_selection(
+            obligations=obligation_matches,
+            obligation_address=obligation_address,
+            action="withdraw",
+        )
+        selected_obligation_address = _kamino_entry_address(
+            selected_obligation,
+            "obligationAddress",
+            "obligation",
+            "address",
+            "pubkey",
+            "loanId",
+        )
         return {
             "chain": "solana",
             "network": self.network,
@@ -4098,7 +4211,14 @@ class SolanaWalletBackend(AgentWalletBackend):
             "reserve": reserve,
             "amount_ui": amount_ui,
             "reserve_info": reserve_entry,
-            "obligations": obligation_matches,
+            "obligations": obligation_options,
+            "obligation_options": [
+                _kamino_entry_address(item, "obligationAddress", "obligation", "address", "pubkey", "loanId")
+                for item in obligation_options
+                if _kamino_entry_address(item, "obligationAddress", "obligation", "address", "pubkey", "loanId")
+            ],
+            "obligation_address": selected_obligation_address or None,
+            "requires_obligation_address": selected_obligation is None and len(obligation_options) > 1,
             "sign_only": self.sign_only,
             "can_send": self.get_capabilities().can_send_transaction,
             "source": "kamino",
@@ -4109,12 +4229,23 @@ class SolanaWalletBackend(AgentWalletBackend):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
+        approved_preview: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        preview = await self.preview_kamino_lend_withdraw(
+        preview = self._kamino_preview_from_approved(
+            approved_preview,
+            asset_type="kamino-lend-withdraw",
+        ) or await self.preview_kamino_lend_withdraw(
             market=market,
             reserve=reserve,
             amount_ui=amount_ui,
+            obligation_address=obligation_address,
         )
+        selected_obligation_address = str(preview.get("obligation_address") or "").strip()
+        if bool(preview.get("requires_obligation_address")) and not selected_obligation_address:
+            raise WalletBackendError(
+                "Kamino withdraw requires obligation_address when multiple obligations match the selected market/reserve."
+            )
         owner = str(preview["owner"])
         build = await kamino.build_lend_withdraw_transaction(
             wallet=owner,
@@ -4128,6 +4259,7 @@ class SolanaWalletBackend(AgentWalletBackend):
             market=str(preview["market"]),
             reserve=str(preview["reserve"]),
             amount_ui=str(preview["amount_ui"]),
+            obligation_address=selected_obligation_address or None,
         )
         prepared["build_response"] = build
         return prepared
@@ -4137,11 +4269,15 @@ class SolanaWalletBackend(AgentWalletBackend):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
+        approved_preview: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         prepared = await self.prepare_kamino_lend_withdraw(
             market=market,
             reserve=reserve,
             amount_ui=amount_ui,
+            obligation_address=obligation_address,
+            approved_preview=approved_preview,
         )
         result = await self._execute_prepared_provider_transaction(prepared, source="kamino")
         result["build_response"] = prepared.get("build_response")
@@ -4152,6 +4288,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
     ) -> dict[str, Any]:
         self._require_mainnet_kamino("Kamino lending")
         owner = await self.get_address()
@@ -4172,6 +4309,19 @@ class SolanaWalletBackend(AgentWalletBackend):
         obligations = await self.get_kamino_lend_user_obligations(market=market, user=owner)
         if int(obligations["obligation_count"]) <= 0:
             raise WalletBackendError("Kamino borrow requires an existing obligation in the selected market.")
+        obligation_options, selected_obligation = self._resolve_kamino_obligation_selection(
+            obligations=list(obligations["obligations"]),
+            obligation_address=obligation_address,
+            action="borrow",
+        )
+        selected_obligation_address = _kamino_entry_address(
+            selected_obligation,
+            "obligationAddress",
+            "obligation",
+            "address",
+            "pubkey",
+            "loanId",
+        )
         return {
             "chain": "solana",
             "network": self.network,
@@ -4182,7 +4332,14 @@ class SolanaWalletBackend(AgentWalletBackend):
             "reserve": reserve,
             "amount_ui": amount_ui,
             "reserve_info": reserve_entry,
-            "obligations": obligations["obligations"],
+            "obligations": obligation_options,
+            "obligation_options": [
+                _kamino_entry_address(item, "obligationAddress", "obligation", "address", "pubkey", "loanId")
+                for item in obligation_options
+                if _kamino_entry_address(item, "obligationAddress", "obligation", "address", "pubkey", "loanId")
+            ],
+            "obligation_address": selected_obligation_address or None,
+            "requires_obligation_address": selected_obligation is None and len(obligation_options) > 1,
             "sign_only": self.sign_only,
             "can_send": self.get_capabilities().can_send_transaction,
             "source": "kamino",
@@ -4193,12 +4350,23 @@ class SolanaWalletBackend(AgentWalletBackend):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
+        approved_preview: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        preview = await self.preview_kamino_lend_borrow(
+        preview = self._kamino_preview_from_approved(
+            approved_preview,
+            asset_type="kamino-lend-borrow",
+        ) or await self.preview_kamino_lend_borrow(
             market=market,
             reserve=reserve,
             amount_ui=amount_ui,
+            obligation_address=obligation_address,
         )
+        selected_obligation_address = str(preview.get("obligation_address") or "").strip()
+        if bool(preview.get("requires_obligation_address")) and not selected_obligation_address:
+            raise WalletBackendError(
+                "Kamino borrow requires obligation_address when multiple obligations exist in the selected market."
+            )
         owner = str(preview["owner"])
         build = await kamino.build_lend_borrow_transaction(
             wallet=owner,
@@ -4212,6 +4380,7 @@ class SolanaWalletBackend(AgentWalletBackend):
             market=str(preview["market"]),
             reserve=str(preview["reserve"]),
             amount_ui=str(preview["amount_ui"]),
+            obligation_address=selected_obligation_address or None,
         )
         prepared["build_response"] = build
         return prepared
@@ -4221,11 +4390,15 @@ class SolanaWalletBackend(AgentWalletBackend):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
+        approved_preview: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         prepared = await self.prepare_kamino_lend_borrow(
             market=market,
             reserve=reserve,
             amount_ui=amount_ui,
+            obligation_address=obligation_address,
+            approved_preview=approved_preview,
         )
         result = await self._execute_prepared_provider_transaction(prepared, source="kamino")
         result["build_response"] = prepared.get("build_response")
@@ -4236,6 +4409,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
     ) -> dict[str, Any]:
         self._require_mainnet_kamino("Kamino lending")
         owner = await self.get_address()
@@ -4260,6 +4434,19 @@ class SolanaWalletBackend(AgentWalletBackend):
         )
         if not obligation_matches:
             raise WalletBackendError("No Kamino debt position found for the requested reserve.")
+        obligation_options, selected_obligation = self._resolve_kamino_obligation_selection(
+            obligations=obligation_matches,
+            obligation_address=obligation_address,
+            action="repay",
+        )
+        selected_obligation_address = _kamino_entry_address(
+            selected_obligation,
+            "obligationAddress",
+            "obligation",
+            "address",
+            "pubkey",
+            "loanId",
+        )
         return {
             "chain": "solana",
             "network": self.network,
@@ -4270,7 +4457,14 @@ class SolanaWalletBackend(AgentWalletBackend):
             "reserve": reserve,
             "amount_ui": amount_ui,
             "reserve_info": reserve_entry,
-            "obligations": obligation_matches,
+            "obligations": obligation_options,
+            "obligation_options": [
+                _kamino_entry_address(item, "obligationAddress", "obligation", "address", "pubkey", "loanId")
+                for item in obligation_options
+                if _kamino_entry_address(item, "obligationAddress", "obligation", "address", "pubkey", "loanId")
+            ],
+            "obligation_address": selected_obligation_address or None,
+            "requires_obligation_address": selected_obligation is None and len(obligation_options) > 1,
             "sign_only": self.sign_only,
             "can_send": self.get_capabilities().can_send_transaction,
             "source": "kamino",
@@ -4281,12 +4475,23 @@ class SolanaWalletBackend(AgentWalletBackend):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
+        approved_preview: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        preview = await self.preview_kamino_lend_repay(
+        preview = self._kamino_preview_from_approved(
+            approved_preview,
+            asset_type="kamino-lend-repay",
+        ) or await self.preview_kamino_lend_repay(
             market=market,
             reserve=reserve,
             amount_ui=amount_ui,
+            obligation_address=obligation_address,
         )
+        selected_obligation_address = str(preview.get("obligation_address") or "").strip()
+        if bool(preview.get("requires_obligation_address")) and not selected_obligation_address:
+            raise WalletBackendError(
+                "Kamino repay requires obligation_address when multiple debt obligations match the selected market/reserve."
+            )
         owner = str(preview["owner"])
         build = await kamino.build_lend_repay_transaction(
             wallet=owner,
@@ -4300,6 +4505,7 @@ class SolanaWalletBackend(AgentWalletBackend):
             market=str(preview["market"]),
             reserve=str(preview["reserve"]),
             amount_ui=str(preview["amount_ui"]),
+            obligation_address=selected_obligation_address or None,
         )
         prepared["build_response"] = build
         return prepared
@@ -4309,11 +4515,15 @@ class SolanaWalletBackend(AgentWalletBackend):
         market: str,
         reserve: str,
         amount_ui: str,
+        obligation_address: str | None = None,
+        approved_preview: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         prepared = await self.prepare_kamino_lend_repay(
             market=market,
             reserve=reserve,
             amount_ui=amount_ui,
+            obligation_address=obligation_address,
+            approved_preview=approved_preview,
         )
         result = await self._execute_prepared_provider_transaction(prepared, source="kamino")
         result["build_response"] = prepared.get("build_response")
