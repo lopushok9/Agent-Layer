@@ -10,6 +10,8 @@ from agent_wallet.config import settings
 from agent_wallet.exceptions import ProviderError
 from agent_wallet.http_client import get_client
 
+JUPITER_SWAP_FALLBACK_PRIORITY_MAX_LAMPORTS = 2_000_000
+
 
 def _headers() -> dict[str, str]:
     headers = {"Accept": "application/json"}
@@ -89,6 +91,32 @@ async def _gateway_post(path_suffix: str, *, body: dict[str, Any]) -> tuple[int,
 
 def _direct_jupiter_enabled() -> bool:
     return bool(settings.jupiter_api_key.strip())
+
+
+def _swap_fallback_prioritization_fee() -> dict[str, Any]:
+    return {
+        "priorityLevelWithMaxLamports": {
+            "priorityLevel": "veryHigh",
+            "maxLamports": JUPITER_SWAP_FALLBACK_PRIORITY_MAX_LAMPORTS,
+            "global": False,
+        }
+    }
+
+
+def _swap_fallback_build_body(
+    *,
+    user_public_key: str,
+    quote_response: dict[str, Any],
+    wrap_and_unwrap_sol: bool,
+) -> dict[str, Any]:
+    return {
+        "userPublicKey": user_public_key,
+        "quoteResponse": quote_response,
+        "wrapAndUnwrapSol": wrap_and_unwrap_sol,
+        "dynamicComputeUnitLimit": True,
+        "dynamicSlippage": True,
+        "prioritizationFeeLamports": _swap_fallback_prioritization_fee(),
+    }
 
 
 def _swap_v2_base_url() -> str:
@@ -456,13 +484,11 @@ async def _build_swap_direct(
 ) -> dict[str, Any]:
     """Build a swap transaction directly via Jupiter API."""
     client = get_client()
-    body = {
-        "userPublicKey": user_public_key,
-        "quoteResponse": quote_response,
-        "wrapAndUnwrapSol": wrap_and_unwrap_sol,
-        "dynamicComputeUnitLimit": True,
-        "prioritizationFeeLamports": "auto",
-    }
+    body = _swap_fallback_build_body(
+        user_public_key=user_public_key,
+        quote_response=quote_response,
+        wrap_and_unwrap_sol=wrap_and_unwrap_sol,
+    )
     response = await client.post(
         f"{settings.jupiter_api_base_url.rstrip('/')}/swap",
         json=body,
@@ -483,13 +509,11 @@ async def _build_swap_via_gateway(
     wrap_and_unwrap_sol: bool = True,
 ) -> dict[str, Any]:
     """Build a swap transaction via provider gateway (uses API key)."""
-    body = {
-        "userPublicKey": user_public_key,
-        "quoteResponse": quote_response,
-        "wrapAndUnwrapSol": wrap_and_unwrap_sol,
-        "dynamicComputeUnitLimit": True,
-        "prioritizationFeeLamports": "auto",
-    }
+    body = _swap_fallback_build_body(
+        user_public_key=user_public_key,
+        quote_response=quote_response,
+        wrap_and_unwrap_sol=wrap_and_unwrap_sol,
+    )
     status_code, payload = await _gateway_post("swap", body=body)
     if status_code != 200:
         error_msg = payload if isinstance(payload, str) else json.dumps(payload)

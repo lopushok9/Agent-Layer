@@ -3543,7 +3543,14 @@ async def main() -> None:
     assert strict_threshold_intent["max_attempts"] == 3
     jupiter.fetch_swap_v2_order = original_fetch_swap_v2_order
 
-    class FakeJupiterResponse:
+    class FakeJupiterBuildResponse:
+        status_code = 200
+
+        @staticmethod
+        def json() -> dict:
+            return {"swapTransaction": "built-tx", "lastValidBlockHeight": 123456}
+
+    class FakeJupiterExecuteResponse:
         status_code = 200
 
         @staticmethod
@@ -3552,24 +3559,64 @@ async def main() -> None:
 
     class FakeJupiterClient:
         def __init__(self) -> None:
-            self.body = None
+            self.posts = []
 
         async def post(self, url, json=None, headers=None):
-            self.body = json
-            return FakeJupiterResponse()
+            self.posts.append({"url": url, "body": json, "headers": headers})
+            if str(url).endswith("/execute"):
+                return FakeJupiterExecuteResponse()
+            return FakeJupiterBuildResponse()
 
     fake_jupiter_client = FakeJupiterClient()
     original_jupiter_get_client = jupiter.get_client
+    original_gateway_post = jupiter._gateway_post
     jupiter.get_client = lambda: fake_jupiter_client
     try:
+        await jupiter._build_swap_direct(
+            user_public_key="Wallet111111111111111111111111111111111111111",
+            quote_response={"outAmount": "100000000"},
+            wrap_and_unwrap_sol=True,
+        )
+        direct_build_body = fake_jupiter_client.posts[-1]["body"]
+        assert direct_build_body["dynamicComputeUnitLimit"] is True
+        assert direct_build_body["dynamicSlippage"] is True
+        assert direct_build_body["prioritizationFeeLamports"] == {
+            "priorityLevelWithMaxLamports": {
+                "priorityLevel": "veryHigh",
+                "maxLamports": 2_000_000,
+                "global": False,
+            }
+        }
+
+        gateway_build_body = {}
+        async def fake_gateway_post(path_suffix, *, body):
+            gateway_build_body.update(body)
+            return 200, {"swapTransaction": "gateway-built-tx", "lastValidBlockHeight": 123456}
+        jupiter._gateway_post = fake_gateway_post
+        await jupiter._build_swap_via_gateway(
+            user_public_key="Wallet111111111111111111111111111111111111111",
+            quote_response={"outAmount": "100000000"},
+            wrap_and_unwrap_sol=True,
+        )
+        assert gateway_build_body["dynamicComputeUnitLimit"] is True
+        assert gateway_build_body["dynamicSlippage"] is True
+        assert gateway_build_body["prioritizationFeeLamports"] == {
+            "priorityLevelWithMaxLamports": {
+                "priorityLevel": "veryHigh",
+                "maxLamports": 2_000_000,
+                "global": False,
+            }
+        }
+
         await jupiter.execute_swap_v2_order(
             signed_transaction_base64="signed-tx",
             request_id="request-id",
             last_valid_block_height=123456,
         )
-        assert fake_jupiter_client.body["lastValidBlockHeight"] == "123456"
+        assert fake_jupiter_client.posts[-1]["body"]["lastValidBlockHeight"] == "123456"
     finally:
         jupiter.get_client = original_jupiter_get_client
+        jupiter._gateway_post = original_gateway_post
 
     x402.prepare_request = original_prepare_request
     x402.execute_request = original_execute_request

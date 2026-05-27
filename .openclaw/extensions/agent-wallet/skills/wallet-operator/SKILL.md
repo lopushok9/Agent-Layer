@@ -13,6 +13,7 @@ Safety rules:
 - For transfers, native staking, swaps, Aave writes, Jupiter Earn writes, and Kamino writes, use `preview` before `prepare` or `execute`.
 - For Solana Jupiter swaps through `swap_solana_tokens`, prefer `intent_preview` then `intent_execute` after explicit chat confirmation. The user confirms risk limits; the backend refreshes the quote and only executes inside those limits.
 - Solana swap intent defaults to at least 300 bps (3%) slippage, 120 seconds validity, and 3 fresh execution attempts. The backend computes the approved minimum output from the indicative output and slippage, clamps hand-tightened minimums to that floor, then executes through Jupiter Swap API V2 `/order` + `/execute` when available.
+- Metis `/swap` fallback builds use Jupiter dynamic slippage and a bounded `veryHigh` priority fee instead of the old `"auto"` priority mode.
 - Do not use legacy `execute` for Solana Jupiter swaps in OpenClaw. Exact quote-bound approval is too fragile for active markets and will be rejected by the bridge.
 - For `swap_solana_privately`, use `preview` and then `execute` after explicit user approval. Do not use `prepare` for this tool.
 - Use `prepare` only when the user clearly intends to produce an execution plan.

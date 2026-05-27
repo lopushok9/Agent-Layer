@@ -45,6 +45,8 @@ agent-a2a-gateway/.env.*
 
 # Local private application materials
 
+.claude/settings.json
+agent-wallet/SOLANA_SWAP_RELIABILITY_PLAN.md
 about_AL.md
 ~$*.docx
 bot_mvp.md

@@ -80,6 +80,7 @@ Use this skill before calling OpenClaw wallet tools. It is the routing guide for
   - Prefer `mode=intent_preview`, show the intent limits to the user, then after chat confirmation call `mode=intent_execute` with the same semantic params. This confirms risk limits, not a stale quote fingerprint.
   - Default Solana swap slippage is 300 bps (3%). The backend computes the approved minimum output from the indicative output and slippage, not from a strict RFQ threshold.
   - The primary execution path uses Jupiter Swap API V2 `/order` + `/execute`; if a JupiterZ/RFQ route fails, the backend retries with a non-JupiterZ route when possible.
+  - Metis `/swap` fallback builds use Jupiter dynamic slippage and a bounded `veryHigh` priority fee instead of the old `"auto"` priority mode.
   - Do not use legacy `execute` for Solana Jupiter swaps in OpenClaw; exact quote-bound approval is too fragile for active markets.
   - Use for SOL<->SPL or SPL<->SPL on Solana. Do not use LI.FI for Solana-only swaps.
 - EVM same-chain Velora swap: `swap_evm_tokens`
