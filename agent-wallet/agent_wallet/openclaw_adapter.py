@@ -873,12 +873,23 @@ class OpenClawWalletAdapter:
             action_label="x402 paid request",
             mode=mode,
         )
+        summary = dict(annotated.get("confirmation_summary") or {})
+        if summary:
+            annotated["payment_summary"] = summary
         requirements = dict(annotated.get("confirmation_requirements") or {})
         requirements["prepare_requires_user_intent"] = False
         requirements["execute_requires_approval_token"] = False
         requirements["execute_requires_mainnet_confirmed_in_token"] = False
-        annotated["confirmation_requirements"] = requirements
         annotated.pop("approval_hint", None)
+        if mode == "preview":
+            annotated.pop("confirmation_summary", None)
+            annotated.pop("confirmation_requirements", None)
+            if annotated.get("is_mainnet"):
+                annotated["preview_note"] = (
+                    "This is a paid mainnet endpoint preview only. Review the service URL, network, asset, amount, and payment destination before calling x402_pay_request."
+                )
+            return annotated
+        annotated["confirmation_requirements"] = requirements
         if annotated.get("is_mainnet"):
             annotated["mainnet_warning"] = (
                 "Mainnet x402 payment. Confirm the service URL, network, asset, amount, and payment destination before paying."

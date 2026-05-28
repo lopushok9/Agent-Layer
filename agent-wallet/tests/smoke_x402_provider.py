@@ -10,6 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from agent_wallet.exceptions import ProviderError
 from agent_wallet.providers import x402
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletCapabilities
 
@@ -572,6 +573,20 @@ async def main() -> None:
         )
         assert free_paid["payment_required"] is False
         assert free_paid["paid"] is False
+
+        try:
+            x402._validate_request_execution_policy(
+                request=x402._build_request_metadata(
+                    url="https://x402.alchemy.com/data/v1/assets/tokens/by-address",
+                    method="POST",
+                    json_body={"addresses": []},
+                ),
+                backend=FakeBackend(),
+            )
+            raise AssertionError("Alchemy x402 gateway should be rejected without auth headers.")
+        except ProviderError as exc:
+            assert exc.provider == "x402-validate"
+            assert "wallet-auth headers" in str(exc)
     finally:
         x402.get_client = original_get_client
         x402._create_payment_headers = original_create_payment_headers

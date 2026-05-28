@@ -140,6 +140,13 @@ def _append_query(url: str, query: dict[str, str]) -> str:
     )
 
 
+def _request_host(url: str) -> str:
+    try:
+        return _trim(urlsplit(url).netloc).lower()
+    except Exception:
+        return ""
+
+
 def _response_text(response: Any) -> str:
     try:
         text = response.text
@@ -516,6 +523,7 @@ def _build_request_metadata(
     )
     return {
         "url": final_url,
+        "host": _request_host(final_url),
         "method": http_method,
         "headers": normalized_headers,
         "query": normalized_query,
@@ -736,6 +744,35 @@ def _validate_payment_requirement(
         },
     )
 
+
+def _validate_request_execution_policy(
+    *,
+    request: dict[str, Any],
+    backend: AgentWalletBackend,
+) -> None:
+    host = _trim(request.get("host")).lower()
+    if host == "x402.alchemy.com":
+        headers = request.get("headers")
+        has_auth = isinstance(headers, dict) and any(
+            str(key).strip().lower() == "authorization" and str(value).strip()
+            for key, value in headers.items()
+        )
+        if not has_auth:
+            raise ProviderError(
+                "x402-validate",
+                (
+                    "Alchemy's x402 gateway needs wallet-auth headers in addition to the payment challenge. "
+                    "The generic x402 tool does not mint Alchemy SIWE/SIWS auth tokens yet, so this endpoint "
+                    "is not safe to execute through the generic flow."
+                ),
+                details={
+                    "request_url": request.get("url"),
+                    "host": host,
+                    "wallet_chain": _backend_chain(backend),
+                    "wallet_network": _backend_network(backend),
+                    "hint": "Use a dedicated Alchemy agent gateway integration or authenticated CLI flow.",
+                },
+            )
 
 def _select_sdk_payment_requirement(
     payment_required: Any,
@@ -1420,6 +1457,7 @@ async def pay_and_fetch(
         json_body=json_body,
         text_body=text_body,
     )
+    _validate_request_execution_policy(request=request, backend=backend)
     payment_headers = await _create_payment_headers(
         backend=backend,
         payment_required_header=payment_required_header,

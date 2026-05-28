@@ -33,6 +33,16 @@ def _lifi_chain_id_for_evm_network(network: str) -> str:
     return "1"
 
 
+def _normalize_x402_typed_data_value(value: Any) -> Any:
+    if isinstance(value, (bytes, bytearray)):
+        return "0x" + bytes(value).hex()
+    if isinstance(value, list):
+        return [_normalize_x402_typed_data_value(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _normalize_x402_typed_data_value(item) for key, item in value.items()}
+    return value
+
+
 def _extract_fee_wei(payload: dict[str, Any]) -> str | None:
     for key in ("fee", "maxFee", "totalFee", "gasCost", "cost"):
         value = payload.get(key)
@@ -457,7 +467,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
                 "domain": domain,
                 "types": types,
                 "primaryType": primary_type,
-                "message": message,
+                "message": _normalize_x402_typed_data_value(message),
             },
         )
         signature = str(data.get("signature") or "").strip()

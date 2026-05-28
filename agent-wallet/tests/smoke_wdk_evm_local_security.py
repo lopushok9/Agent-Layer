@@ -105,12 +105,13 @@ def main() -> None:
                 "value": "1000000",
                 "validAfter": "0",
                 "validBefore": "9999999999",
-                "nonce": "0x" + ("22" * 32),
+                "nonce": bytes.fromhex("22" * 32),
             },
         )
         assert isinstance(signature, bytes)
         assert len(signature) == 65
         assert server.sent_payloads[-1]["path"] == "/v1/evm/x402/exact/sign"
+        assert server.sent_payloads[-1]["body"]["message"]["nonce"] == "0x" + ("22" * 32)
 
     assert _timeout_for_path("/v1/evm/swap/send") >= 120.0
     assert _timeout_for_path("/v1/evm/transfer/send") >= 120.0

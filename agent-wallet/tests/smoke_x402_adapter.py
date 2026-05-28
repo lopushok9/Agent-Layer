@@ -166,7 +166,9 @@ async def main() -> None:
         assert preview.ok is True
         assert preview.data["payment_required"] is True
         assert preview.data["selected_payment"]["amount_display"] == "0.1"
-        assert preview.data["confirmation_requirements"]["execute_requires_approval_token"] is False
+        assert "confirmation_requirements" not in preview.data
+        assert "confirmation_summary" not in preview.data
+        assert preview.data["payment_summary"]["x402_amount"] == "100000"
 
         paid = await adapter.invoke(
             "x402_pay_request",
@@ -178,6 +180,7 @@ async def main() -> None:
         assert paid.ok is True
         assert paid.data["paid"] is True
         assert paid.data["confirmation_summary"]["x402_amount"] == "100000"
+        assert paid.data["payment_summary"]["x402_amount"] == "100000"
         assert paid.data["confirmation_requirements"]["execute_requires_approval_token"] is False
     finally:
         x402.get_client = original_get_client
