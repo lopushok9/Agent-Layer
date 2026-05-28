@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## v0.1.28 - 2026-05-28
+
+- Simplified `x402_pay_request` into a single-shot paid execution flow while
+  keeping `x402_preview_request` as an optional research tool.
+- Hardened x402 execution with explicit payment requirement validation, longer
+  paid-request timeouts, structured settlement logging, and safer settlement
+  header parsing.
+- Fixed Base x402 EVM signing by normalizing typed-data byte fields before
+  sending them through the local WDK signer bridge.
+- Reduced x402 preview confusion in OpenClaw by exposing a payment summary
+  without approval-token style confirmation semantics.
+- Added an early safety guard for `x402.alchemy.com` so unsupported wallet-auth
+  flows fail before spending funds.
+
 ## v0.1.27 - 2026-05-27
 
 - Improved Solana swap fallback landing by enabling Jupiter dynamic slippage
