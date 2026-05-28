@@ -245,8 +245,9 @@ class OpenClawWalletAdapter:
             AgentToolSpec(
                 name="x402_pay_request",
                 description=(
-                    "Prepare or execute an x402 paid request using the active wallet backend. "
-                    "This milestone executes the Solana exact buyer flow and keeps EVM as prepare-only."
+                    "Pay for and call an x402 endpoint using the active wallet backend. "
+                    "The tool probes the endpoint, validates compatibility, signs the payment, "
+                    "and returns the service response in one call."
                 ),
                 input_schema={
                     "type": "object",
@@ -257,26 +258,13 @@ class OpenClawWalletAdapter:
                         "query": {"type": "object", "additionalProperties": True},
                         "json_body": {},
                         "text_body": {"type": "string"},
-                        "mode": {
-                            "type": "string",
-                            "enum": ["prepare", "execute"],
-                            "description": "prepare validates the payment plan; execute sends the paid retry.",
-                        },
                         "purpose": {"type": "string"},
-                        "user_intent": {
-                            "type": "boolean",
-                            "description": "Must be true for prepare mode.",
-                        },
-                        "approval_token": {
-                            "type": "string",
-                            "description": "Required for execute mode and must be issued against the exact x402 payment summary.",
-                        },
                     },
-                    "required": ["url", "mode", "purpose"],
+                    "required": ["url", "purpose"],
                     "additionalProperties": False,
                 },
                 read_only=False,
-                requires_explicit_user_intent=True,
+                requires_explicit_user_intent=False,
                 risk_level="high",
             ),
         ]
@@ -869,6 +857,31 @@ class OpenClawWalletAdapter:
             annotated["mainnet_warning"] = (
                 "Mainnet operation. Confirm the network, asset, amount, and destination, validator, or stake account "
                 "before execute. Execute requires a host-issued approval token with mainnet confirmation."
+            )
+        return annotated
+
+    def _annotate_x402_payload(
+        self,
+        payload: dict[str, Any],
+        *,
+        mode: str,
+    ) -> dict[str, Any]:
+        if not payload.get("payment_required"):
+            return dict(payload)
+        annotated = self._annotate_sensitive_payload(
+            payload,
+            action_label="x402 paid request",
+            mode=mode,
+        )
+        requirements = dict(annotated.get("confirmation_requirements") or {})
+        requirements["prepare_requires_user_intent"] = False
+        requirements["execute_requires_approval_token"] = False
+        requirements["execute_requires_mainnet_confirmed_in_token"] = False
+        annotated["confirmation_requirements"] = requirements
+        annotated.pop("approval_hint", None)
+        if annotated.get("is_mainnet"):
+            annotated["mainnet_warning"] = (
+                "Mainnet x402 payment. Confirm the service URL, network, asset, amount, and payment destination before paying."
             )
         return annotated
 
@@ -3309,14 +3322,7 @@ class OpenClawWalletAdapter:
                     text_body=text_body,
                 )
                 if data.get("payment_required"):
-                    data = self._annotate_sensitive_payload(
-                        data,
-                        action_label="x402 paid request",
-                        mode="preview",
-                    )
-                    approval_hint = dict(data.get("approval_hint") or {})
-                    approval_hint["tool_name"] = "x402_pay_request"
-                    data["approval_hint"] = approval_hint
+                    data = self._annotate_x402_payload(data, mode="preview")
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
 
             if tool_name == "x402_pay_request":
@@ -3326,10 +3332,7 @@ class OpenClawWalletAdapter:
                 query = args.get("query")
                 json_body = args.get("json_body")
                 text_body = args.get("text_body")
-                mode = str(args.get("mode") or "").strip().lower()
                 purpose = args.get("purpose")
-                user_intent = args.get("user_intent")
-                approval_token = args.get("approval_token")
                 if not isinstance(url, str) or not url.strip():
                     raise WalletBackendError("url is required.")
                 if method is not None and not isinstance(method, str):
@@ -3340,51 +3343,9 @@ class OpenClawWalletAdapter:
                     raise WalletBackendError("query must be an object when provided.")
                 if text_body is not None and not isinstance(text_body, str):
                     raise WalletBackendError("text_body must be a string when provided.")
-                if mode not in {"prepare", "execute"}:
-                    raise WalletBackendError("mode must be 'prepare' or 'execute'.")
                 if not isinstance(purpose, str) or not purpose.strip():
                     raise WalletBackendError("purpose is required.")
-                if mode == "prepare":
-                    self._require_prepare_intent(user_intent)
-                    data = await x402.prepare_request(
-                        backend=active_backend,
-                        url=url.strip(),
-                        method=method,
-                        headers=headers,
-                        query=query,
-                        json_body=json_body,
-                        text_body=text_body,
-                    )
-                    data["purpose"] = purpose.strip()
-                    data = self._annotate_sensitive_payload(
-                        data,
-                        action_label="x402 paid request",
-                        mode="prepare",
-                    )
-                    return AgentToolResult(tool=tool_name, ok=True, data=data)
-                preview = await x402.prepare_request(
-                    backend=active_backend,
-                    url=url.strip(),
-                    method=method,
-                    headers=headers,
-                    query=query,
-                    json_body=json_body,
-                    text_body=text_body,
-                )
-                preview["purpose"] = purpose.strip()
-                preview = self._annotate_sensitive_payload(
-                    preview,
-                    action_label="x402 paid request",
-                    mode="execute",
-                )
-                self._require_execute_approval(
-                    approval_token=approval_token,
-                    tool_name=tool_name,
-                    summary=preview["confirmation_summary"],
-                    action_label="x402 paid request",
-                    backend=active_backend,
-                )
-                data = await x402.execute_request(
+                data = await x402.pay_and_fetch(
                     backend=active_backend,
                     url=url.strip(),
                     method=method,
@@ -3394,11 +3355,7 @@ class OpenClawWalletAdapter:
                     text_body=text_body,
                 )
                 data["purpose"] = purpose.strip()
-                data = self._annotate_sensitive_payload(
-                    data,
-                    action_label="x402 paid request",
-                    mode="execute",
-                )
+                data = self._annotate_x402_payload(data, mode="execute")
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
 
             if tool_name == "get_wallet_capabilities":

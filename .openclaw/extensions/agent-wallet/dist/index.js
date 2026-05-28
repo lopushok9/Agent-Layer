@@ -956,7 +956,7 @@ const walletSessionToolDefinitions = [
   {
     name: "x402_pay_request",
     description:
-      `Prepare or execute an x402 paid request using the active wallet backend. This milestone executes the Solana exact buyer flow and keeps EVM as prepare-only. ${OPENCLAW_EXECUTE_APPROVAL_GUIDANCE}`,
+      "Pay for and call an x402 endpoint using the active wallet backend. The tool probes the endpoint, validates compatibility, signs the payment, and returns the service response in one call.",
     parameters: {
       type: "object",
       properties: {
@@ -966,18 +966,9 @@ const walletSessionToolDefinitions = [
         query: { type: "object", additionalProperties: true },
         json_body: {},
         text_body: { type: "string" },
-        mode: {
-          type: "string",
-          enum: ["prepare", "execute"],
-          description: "prepare validates the payment plan; execute sends the paid retry.",
-        },
         purpose: { type: "string" },
-        user_intent: {
-          type: "boolean",
-          description: "Must be true for prepare mode.",
-        },
       },
-      required: ["url", "mode", "purpose"],
+      required: ["url", "purpose"],
       additionalProperties: false,
     },
   },

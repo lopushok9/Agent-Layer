@@ -2150,6 +2150,7 @@ async def main() -> None:
     )
     original_prepare_request = x402.prepare_request
     original_execute_request = x402.execute_request
+    original_pay_and_fetch = x402.pay_and_fetch
     async def fake_x402_prepare_request(*, backend, url, method="GET", headers=None, query=None, json_body=None, text_body=None):
         is_evm = str(getattr(backend, "chain", "")).strip().lower() == "evm"
         backend_network = str(getattr(backend, "network", "")).strip().lower()
@@ -2228,7 +2229,7 @@ async def main() -> None:
             "prepared": True,
         }
 
-    async def fake_x402_execute_request(*, backend, url, method="GET", headers=None, query=None, json_body=None, text_body=None):
+    async def fake_x402_pay_and_fetch(*, backend, url, method="GET", headers=None, query=None, json_body=None, text_body=None):
         prepared = await fake_x402_prepare_request(
             backend=backend,
             url=url,
@@ -2262,7 +2263,8 @@ async def main() -> None:
         return prepared
 
     x402.prepare_request = fake_x402_prepare_request
-    x402.execute_request = fake_x402_execute_request
+    x402.execute_request = fake_x402_pay_and_fetch
+    x402.pay_and_fetch = fake_x402_pay_and_fetch
     adapter = OpenClawWalletAdapter(FakeBackend())
     mainnet_adapter = OpenClawWalletAdapter(MainnetFakeBackend())
     bundle = build_openclaw_plugin_bundle(FakeBackend())
@@ -3592,107 +3594,62 @@ async def main() -> None:
     allowed_mainnet_balance = await mainnet_adapter.invoke("get_wallet_balance")
     assert allowed_mainnet_balance.ok is True
 
-    x402_prepared = await adapter.invoke(
+    x402_paid = await adapter.invoke(
         "x402_pay_request",
         {
             "url": "https://paid.example.com/report",
-            "mode": "prepare",
             "purpose": "buy paid report",
-            "user_intent": True,
         },
     )
-    assert x402_prepared.ok is True
-    assert x402_prepared.data["prepared"] is True
+    assert x402_paid.ok is True
+    assert x402_paid.data["paid"] is True
+    assert x402_paid.data["confirmation_requirements"]["execute_requires_approval_token"] is False
 
-    async def failing_x402_prepare_request(*, backend, url, method="GET", headers=None, query=None, json_body=None, text_body=None):
+    async def failing_x402_pay_and_fetch(*, backend, url, method="GET", headers=None, query=None, json_body=None, text_body=None):
         raise ProviderError(
             "x402-solana",
             "Failed to build the Solana x402 payment payload.",
             details={"sdk_rpc_url": "https://api.mainnet-beta.solana.com", "error_type": "SolanaRpcException"},
         )
 
-    x402.prepare_request = failing_x402_prepare_request
+    x402.pay_and_fetch = failing_x402_pay_and_fetch
     provider_failure = await adapter.invoke(
         "x402_pay_request",
         {
             "url": "https://paid.example.com/report",
-            "mode": "prepare",
             "purpose": "buy paid report",
-            "user_intent": True,
         },
     )
     assert provider_failure.ok is False
     assert provider_failure.error_code == "x402-solana"
     assert provider_failure.error_details["error_type"] == "SolanaRpcException"
-    x402.prepare_request = fake_x402_prepare_request
+    x402.pay_and_fetch = fake_x402_pay_and_fetch
 
     x402_executed = await adapter.invoke(
         "x402_pay_request",
         {
             "url": "https://paid.example.com/report",
-            "mode": "execute",
             "purpose": "buy paid report",
-            "approval_token": _issue_execute_approval(
-                tool_name="x402_pay_request",
-                preview=x402_prepared.data,
-                network="devnet",
-                mainnet_confirmed=False,
-            ),
         },
     )
     assert x402_executed.ok is True
     assert x402_executed.data["paid"] is True
     assert x402_executed.data["payment_settlement"]["transaction"] == "solana-payment-tx"
 
-    mainnet_x402_prepared = await mainnet_adapter.invoke(
+    mainnet_x402_paid = await mainnet_adapter.invoke(
         "x402_pay_request",
         {
             "url": "https://paid.example.com/report",
-            "mode": "prepare",
             "purpose": "buy paid report on mainnet",
-            "user_intent": True,
         },
     )
-    assert mainnet_x402_prepared.ok is True
-    assert "mainnet_warning" in mainnet_x402_prepared.data
-    assert mainnet_x402_prepared.data["confirmation_summary"]["x402_amount"] == "250000"
-    assert mainnet_x402_prepared.data["confirmation_summary"]["network"] == "mainnet"
-
-    denied_mainnet_x402 = await mainnet_adapter.invoke(
-        "x402_pay_request",
-        {
-            "url": "https://paid.example.com/report",
-            "mode": "execute",
-            "purpose": "buy paid report on mainnet",
-            "approval_token": _issue_execute_approval(
-                tool_name="x402_pay_request",
-                preview=mainnet_x402_prepared.data,
-                network="mainnet",
-                mainnet_confirmed=False,
-            ),
-        },
-    )
-    assert denied_mainnet_x402.ok is False
-
-    allowed_mainnet_x402 = await mainnet_adapter.invoke(
-        "x402_pay_request",
-        {
-            "url": "https://paid.example.com/report",
-            "mode": "execute",
-            "purpose": "buy paid report on mainnet",
-            "approval_token": _issue_execute_approval(
-                tool_name="x402_pay_request",
-                preview=mainnet_x402_prepared.data,
-                network="mainnet",
-                mainnet_confirmed=True,
-            ),
-        },
-    )
-    assert allowed_mainnet_x402.ok is True
-    assert allowed_mainnet_x402.data["paid"] is True
+    assert mainnet_x402_paid.ok is True
+    assert "mainnet_warning" in mainnet_x402_paid.data
+    assert mainnet_x402_paid.data["confirmation_summary"]["x402_amount"] == "250000"
+    assert mainnet_x402_paid.data["confirmation_summary"]["network"] == "mainnet"
     assert (
-        allowed_mainnet_x402.data["confirmation_requirements"]["execute_requires_mainnet_confirmed_in_token"]
-        is True
+        mainnet_x402_paid.data["confirmation_requirements"]["execute_requires_mainnet_confirmed_in_token"]
+        is False
     )
 
     original_fetch_swap_v2_order = jupiter.fetch_swap_v2_order
@@ -3814,6 +3771,7 @@ async def main() -> None:
 
     x402.prepare_request = original_prepare_request
     x402.execute_request = original_execute_request
+    x402.pay_and_fetch = original_pay_and_fetch
 
 
 if __name__ == "__main__":

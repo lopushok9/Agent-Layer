@@ -240,7 +240,7 @@ class FakeClient:
             )
         raise AssertionError(f"Unexpected GET url: {url}")
 
-    async def request(self, method: str, url: str, *, headers=None, json=None, content=None):
+    async def request(self, method: str, url: str, *, headers=None, json=None, content=None, timeout=None):
         self.calls.append((method, url, None))
         if url == "https://paid.example.com/report?topic=solana":
             if headers and headers.get("PAYMENT-SIGNATURE") == "signed-payload":
@@ -488,6 +488,16 @@ async def main() -> None:
         assert executed["payment_settlement"]["transaction"] == "solana-payment-tx"
         assert executed["response_preview"]["result"] == "paid"
 
+        paid = await x402.pay_and_fetch(
+            backend=FakeBackend(),
+            url="https://paid.example.com/report",
+            method="POST",
+            query={"topic": "solana"},
+            json_body={"depth": "full"},
+        )
+        assert paid["paid"] is True
+        assert paid["payment_settlement"]["transaction"] == "solana-payment-tx"
+
         evm_preview = await x402.preview_request(
             backend=FakeEvmBackend(),
             url="https://paid-base.example.com/report",
@@ -554,6 +564,14 @@ async def main() -> None:
         )
         assert free_preview["payment_required"] is False
         assert free_preview["response_preview"]["ok"] is True
+
+        free_paid = await x402.pay_and_fetch(
+            backend=FakeBackend(),
+            url="https://free.example.com/report",
+            method="GET",
+        )
+        assert free_paid["payment_required"] is False
+        assert free_paid["paid"] is False
     finally:
         x402.get_client = original_get_client
         x402._create_payment_headers = original_create_payment_headers

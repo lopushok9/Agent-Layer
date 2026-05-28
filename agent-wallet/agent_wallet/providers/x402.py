@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -15,6 +16,7 @@ from agent_wallet.wallet_layer.base import AgentWalletBackend
 
 CDP_BAZAAR_DISCOVERY_BASE_URL = "https://api.cdp.coinbase.com/platform/v2/x402/discovery"
 AGENTIC_MARKET_API_BASE_URL = "https://api.agentic.market/v1"
+X402_EXECUTE_TIMEOUT_SECONDS = 45.0
 SOLANA_CAIP_BY_NETWORK = {
     "mainnet": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
     "devnet": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
@@ -32,6 +34,7 @@ _USDC_IDENTIFIERS = {
     "0x036cbd53842c5426634e7929541ec2318f3dcf7e",
     "epjfwdd5aufqssqem2qn1xzybapc8g4wegkgkzwytdt1v",
 }
+log = logging.getLogger("agent_wallet.x402")
 
 
 def _backend_chain(backend: AgentWalletBackend) -> str:
@@ -529,6 +532,7 @@ async def _send_request(
     client: Any,
     request: dict[str, Any],
     extra_headers: dict[str, str] | None = None,
+    timeout: float | None = None,
 ) -> Any:
     headers = dict(request["headers"])
     if extra_headers:
@@ -539,6 +543,7 @@ async def _send_request(
         headers=headers,
         json=request["json_body"] if request["json_body"] is not None else None,
         content=request["text_body"] if request["text_body"] is not None else None,
+        timeout=timeout,
     )
 
 
@@ -669,6 +674,67 @@ def _require_executable_payment(
             },
         )
     return selected
+
+
+def _validate_payment_requirement(
+    selected: dict[str, Any] | None,
+    *,
+    backend: AgentWalletBackend,
+    request_url: str,
+) -> dict[str, Any]:
+    if not isinstance(selected, dict):
+        raise ProviderError(
+            "x402-validate",
+            "This endpoint returned HTTP 402 but no compatible payment option was found for the active wallet.",
+            details={
+                "request_url": request_url,
+                "wallet_chain": _backend_chain(backend),
+                "wallet_network": _backend_network(backend),
+            },
+        )
+
+    scheme = _trim(selected.get("scheme")).lower()
+    if scheme != "exact":
+        raise ProviderError(
+            "x402-validate",
+            f"Unsupported x402 payment scheme '{scheme or 'unknown'}'. Only 'exact' is supported.",
+            details={"request_url": request_url, "selected_payment": selected},
+        )
+
+    if not _trim(selected.get("pay_to")):
+        raise ProviderError(
+            "x402-validate",
+            "Payment destination (payTo) is missing from the x402 requirement.",
+            details={"request_url": request_url, "selected_payment": selected},
+        )
+
+    compatibility = _requirement_compatibility(selected, backend)
+    if compatibility["currently_executable"]:
+        return selected
+
+    chain = _backend_chain(backend) or "unknown"
+    network = _backend_network(backend) or "unknown"
+    requirement_network = _trim(selected.get("network")) or "unknown"
+    if chain == "solana" and requirement_network not in SOLANA_CAIP_BY_NETWORK.values():
+        message = (
+            f"This endpoint requires payment on {requirement_network}, but the active wallet is Solana ({network})."
+        )
+    elif chain == "evm" and requirement_network not in EVM_CAIP_BY_NETWORK.values():
+        message = (
+            f"This endpoint requires payment on {requirement_network}, but the active wallet is EVM ({network})."
+        )
+    else:
+        message = str(compatibility["reason"])
+
+    raise ProviderError(
+        "x402-validate",
+        message,
+        details={
+            "request_url": request_url,
+            "selected_payment": selected,
+            "compatibility": compatibility,
+        },
+    )
 
 
 def _select_sdk_payment_requirement(
@@ -940,15 +1006,57 @@ async def _create_payment_headers(
     )
 
 
-def _extract_settlement_header(response: Any) -> dict[str, Any] | None:
+def _extract_settlement_header(response: Any) -> dict[str, Any]:
     sdk = _load_x402_sdk()
-    try:
-        settle = sdk["x402HTTPClientBase"]().get_payment_settle_response(
-            lambda name: response.headers.get(name)
-        )
-    except Exception:
-        return None
+    settle = sdk["x402HTTPClientBase"]().get_payment_settle_response(
+        lambda name: response.headers.get(name)
+    )
     return settle.model_dump(by_alias=True, exclude_none=True)
+
+
+def _extract_settlement_header_safe(response: Any) -> dict[str, Any] | None:
+    try:
+        return _extract_settlement_header(response)
+    except Exception as exc:
+        log.warning(
+            "x402 settlement header parse failed",
+            extra={
+                "status_code": getattr(response, "status_code", None),
+                "payment_response": response.headers.get("PAYMENT-RESPONSE")
+                if hasattr(response, "headers")
+                else None,
+                "x_payment_response": response.headers.get("X-PAYMENT-RESPONSE")
+                if hasattr(response, "headers")
+                else None,
+                "error_type": type(exc).__name__,
+                "error": str(exc) or None,
+            },
+        )
+        return None
+
+
+def _log_x402_execute(
+    *,
+    request: dict[str, Any],
+    selected_payment: dict[str, Any] | None,
+    response: Any,
+    settlement: dict[str, Any] | None,
+) -> None:
+    log.info(
+        "x402 execute completed",
+        extra={
+            "url": request.get("url"),
+            "method": request.get("method"),
+            "request_fingerprint": request.get("request_fingerprint"),
+            "x402_network": selected_payment.get("network") if isinstance(selected_payment, dict) else None,
+            "x402_asset": selected_payment.get("asset") if isinstance(selected_payment, dict) else None,
+            "x402_amount": selected_payment.get("amount") if isinstance(selected_payment, dict) else None,
+            "x402_pay_to": selected_payment.get("pay_to") if isinstance(selected_payment, dict) else None,
+            "status_code": getattr(response, "status_code", None),
+            "transaction": settlement.get("transaction") if isinstance(settlement, dict) else None,
+            "confirmed": bool(settlement and settlement.get("success")),
+        },
+    )
 
 
 async def search_services(
@@ -1251,6 +1359,29 @@ async def execute_request(
     json_body: Any | None = None,
     text_body: str | None = None,
 ) -> dict[str, Any]:
+    executed = await pay_and_fetch(
+        backend=backend,
+        url=url,
+        method=method,
+        headers=headers,
+        query=query,
+        json_body=json_body,
+        text_body=text_body,
+    )
+    executed["mode"] = "execute"
+    return executed
+
+
+async def pay_and_fetch(
+    *,
+    backend: AgentWalletBackend,
+    url: str,
+    method: str = "GET",
+    headers: dict[str, Any] | None = None,
+    query: dict[str, Any] | None = None,
+    json_body: Any | None = None,
+    text_body: str | None = None,
+) -> dict[str, Any]:
     preview = await preview_request(
         backend=backend,
         url=url,
@@ -1268,7 +1399,13 @@ async def execute_request(
         executed["confirmed"] = False
         return executed
 
-    selected_payment = _require_executable_payment(preview=preview, backend=backend)
+    selected_payment = _validate_payment_requirement(
+        preview.get("selected_payment")
+        if isinstance(preview.get("selected_payment"), dict)
+        else None,
+        backend=backend,
+        request_url=str(preview.get("request_url") or url),
+    )
     payment_required_header = (
         dict(preview.get("response_headers") or {}).get("payment-required")
     )
@@ -1288,10 +1425,20 @@ async def execute_request(
         payment_required_header=payment_required_header,
         selected_payment=selected_payment,
     )
-    payment_headers["Access-Control-Expose-Headers"] = "PAYMENT-RESPONSE,X-PAYMENT-RESPONSE"
     client = get_client()
-    response = await _send_request(client=client, request=request, extra_headers=payment_headers)
-    settlement = _extract_settlement_header(response)
+    response = await _send_request(
+        client=client,
+        request=request,
+        extra_headers=payment_headers,
+        timeout=X402_EXECUTE_TIMEOUT_SECONDS,
+    )
+    settlement = _extract_settlement_header_safe(response)
+    _log_x402_execute(
+        request=request,
+        selected_payment=selected_payment,
+        response=response,
+        settlement=settlement,
+    )
 
     executed = dict(preview)
     executed.update(

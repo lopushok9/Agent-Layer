@@ -72,7 +72,7 @@ class FakeClient:
             )
         raise AssertionError(f"Unexpected GET {url}")
 
-    async def request(self, method: str, url: str, *, headers=None, json=None, content=None):
+    async def request(self, method: str, url: str, *, headers=None, json=None, content=None, timeout=None):
         encoded = base64.b64encode(
             json_module.dumps(
                 {
@@ -99,10 +99,10 @@ json_module = json
 
 async def main() -> None:
     original_get_client = x402.get_client
-    original_prepare_request = x402.prepare_request
+    original_pay_and_fetch = x402.pay_and_fetch
     try:
         x402.get_client = lambda: FakeClient()
-        async def fake_prepare_request(*, backend, url, method="GET", headers=None, query=None, json_body=None, text_body=None):
+        async def fake_pay_and_fetch(*, backend, url, method="GET", headers=None, query=None, json_body=None, text_body=None):
             return {
                 "asset_type": "x402-request",
                 "network": "devnet",
@@ -135,10 +135,16 @@ async def main() -> None:
                 },
                 "payment_required": True,
                 "execute_available": True,
-                "prepared": True,
+                "paid": True,
+                "broadcasted": True,
+                "confirmed": True,
+                "payment_settlement": {
+                    "success": True,
+                    "transaction": "solana-payment-tx",
+                },
             }
 
-        x402.prepare_request = fake_prepare_request
+        x402.pay_and_fetch = fake_pay_and_fetch
         adapter = OpenClawWalletAdapter(FakeBackend())
         tool_names = {tool.name for tool in adapter.list_tools()}
         assert "x402_search_services" in tool_names
@@ -160,23 +166,22 @@ async def main() -> None:
         assert preview.ok is True
         assert preview.data["payment_required"] is True
         assert preview.data["selected_payment"]["amount_display"] == "0.1"
-        assert preview.data["approval_hint"]["tool_name"] == "x402_pay_request"
+        assert preview.data["confirmation_requirements"]["execute_requires_approval_token"] is False
 
-        prepared = await adapter.invoke(
+        paid = await adapter.invoke(
             "x402_pay_request",
             {
                 "url": "https://paid.example.com/report",
-                "mode": "prepare",
                 "purpose": "buy a paid report",
-                "user_intent": True,
             },
         )
-        assert prepared.ok is True
-        assert prepared.data["prepared"] is True
-        assert prepared.data["confirmation_summary"]["x402_amount"] == "100000"
+        assert paid.ok is True
+        assert paid.data["paid"] is True
+        assert paid.data["confirmation_summary"]["x402_amount"] == "100000"
+        assert paid.data["confirmation_requirements"]["execute_requires_approval_token"] is False
     finally:
         x402.get_client = original_get_client
-        x402.prepare_request = original_prepare_request
+        x402.pay_and_fetch = original_pay_and_fetch
 
     print("smoke_x402_adapter: ok")
 
