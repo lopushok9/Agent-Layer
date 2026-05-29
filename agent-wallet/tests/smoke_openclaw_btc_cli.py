@@ -29,11 +29,11 @@ def _run(config: dict, *args: str, stdin_text: str | None = None) -> dict:
 
 
 def main() -> None:
-    with FakeWdkBtcWalletServer(network="testnet") as server:
+    with FakeWdkBtcWalletServer(network="bitcoin") as server:
         os.environ["WDK_BTC_LOCAL_TOKEN"] = server.auth_token
         config = {
             "backend": "wdk_btc_local",
-            "network": "testnet",
+            "network": "bitcoin",
             "wdkBtcServiceUrl": server.base_url,
             "wdkBtcAccountIndex": 0,
             "signOnly": False,
@@ -95,7 +95,7 @@ def main() -> None:
         )
         assert onboard["session"]["backend"] == "wdk_btc_local"
         assert onboard["session"]["chain"] == "bitcoin"
-        assert onboard["session"]["network"] == "testnet"
+        assert onboard["session"]["network"] == "bitcoin"
         assert "transfer_btc" in {tool["name"] for tool in onboard["tools"]}
         assert "transfer_sol" not in {tool["name"] for tool in onboard["tools"]}
 
@@ -112,7 +112,7 @@ def main() -> None:
             json.dumps(config),
         )
         assert result["ok"] is True
-        assert result["data"]["address"].startswith("tb1")
+        assert result["data"]["address"].startswith("bc1")
 
     print("smoke_openclaw_btc_cli: ok")
 

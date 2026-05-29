@@ -21,13 +21,11 @@ from agent_wallet.btc_user_wallets import (  # noqa: E402
     reveal_user_btc_wallet_seed_phrase,
     unlock_user_btc_wallet,
 )
+from agent_wallet.config import normalize_btc_network  # noqa: E402
 
 
 def _normalize_network(value: str) -> str:
-    network = str(value or "").strip().lower()
-    if network == "mainnet":
-        return "bitcoin"
-    return network or "bitcoin"
+    return normalize_btc_network(value)
 
 
 def _read_secret(

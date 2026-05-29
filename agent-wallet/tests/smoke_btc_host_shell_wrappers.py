@@ -31,7 +31,7 @@ def main() -> None:
     )
 
     config_path = temp_home / "openclaw.json"
-    with FakeWdkBtcWalletServer(network="testnet") as server:
+    with FakeWdkBtcWalletServer(network="bitcoin") as server:
         env = os.environ.copy()
         env["PYTHONPATH"] = str(ROOT)
         env["OPENCLAW_HOME"] = str(temp_home)
@@ -39,7 +39,7 @@ def main() -> None:
         env["WDK_BTC_LOCAL_TOKEN"] = server.auth_token
         env["OPENCLAW_BTC_CONFIG_PATH"] = str(config_path)
         env["OPENCLAW_BTC_USER_ID"] = "host-shell@example.com"
-        env["OPENCLAW_BTC_NETWORK"] = "testnet"
+        env["OPENCLAW_BTC_NETWORK"] = "mainnet"
         env["OPENCLAW_BTC_SERVICE_URL"] = server.base_url
 
         setup = subprocess.run(

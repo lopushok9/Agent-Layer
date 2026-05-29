@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from agent_wallet.config import normalize_btc_network
 from agent_wallet.providers.wdk_btc_local import WdkBtcLocalClient
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendError, WalletCapabilities
 
@@ -13,14 +14,7 @@ def _sats_to_btc(value: Any) -> float:
 
 
 def _normalize_btc_network(value: str | None) -> str:
-    network = str(value or "").strip().lower()
-    aliases = {
-        "mainnet": "bitcoin",
-    }
-    network = aliases.get(network, network)
-    if network not in {"bitcoin", "testnet", "regtest"}:
-        return "bitcoin"
-    return network
+    return normalize_btc_network(value)
 
 
 class WdkBtcLocalWalletBackend(AgentWalletBackend):

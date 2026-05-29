@@ -352,8 +352,11 @@ function normalizeBtcNetwork(value) {
     mainnet: "bitcoin",
   };
   const normalized = aliases[network] || network;
-  if (!["bitcoin", "testnet", "regtest"].includes(normalized)) {
-    throw new Error("Bitcoin network must be bitcoin, testnet, or regtest.");
+  if (["testnet", "regtest"].includes(normalized)) {
+    throw new Error("Bitcoin testnet/regtest are no longer supported. Use bitcoin.");
+  }
+  if (normalized !== "bitcoin") {
+    throw new Error("Bitcoin network must be bitcoin.");
   }
   return normalized;
 }
@@ -995,7 +998,7 @@ const walletSessionToolDefinitions = [
         },
         network: {
           type: "string",
-          description: "Optional network for the selected wallet. Examples: mainnet, ethereum, base, bitcoin, testnet.",
+          description: "Optional network for the selected wallet. Examples: mainnet, ethereum, base, bitcoin.",
         },
       },
       required: ["backend"],

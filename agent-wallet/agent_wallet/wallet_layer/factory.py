@@ -7,6 +7,7 @@ from pathlib import Path
 from agent_wallet.bootstrap import ensure_solana_wallet_ready, ensure_wallet_pin
 from agent_wallet.encrypted_storage import load_wallet_secret_material
 from agent_wallet.config import (
+    normalize_btc_network,
     normalize_solana_network,
     resolve_runtime_solana_rpc_config,
     resolve_runtime_solana_swap_config,
@@ -84,7 +85,7 @@ def create_wallet_backend() -> AgentWalletBackend | None:
         return WdkBtcLocalWalletBackend(
             service_url=settings.wdk_btc_service_url,
             wallet_id=settings.wdk_btc_wallet_id,
-            network=settings.solana_network,
+            network=normalize_btc_network(settings.solana_network),
             account_index=settings.wdk_btc_account_index,
             sign_only=settings.agent_wallet_sign_only,
         )

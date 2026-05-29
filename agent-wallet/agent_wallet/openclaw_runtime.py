@@ -7,7 +7,7 @@ from typing import Any
 
 from agent_wallet.approval import issue_approval_token
 from agent_wallet.btc_user_wallets import get_user_btc_wallet_binding
-from agent_wallet.config import normalize_evm_network, settings
+from agent_wallet.config import normalize_btc_network, normalize_evm_network, settings
 from agent_wallet.evm_user_wallets import ensure_user_evm_wallet_ready
 from agent_wallet.models import OpenClawWalletSessionMetadata
 from agent_wallet.openclaw_adapter import OpenClawWalletAdapter
@@ -105,8 +105,7 @@ def onboard_openclaw_user_wallet(
             if wdk_btc_account_index is None
             else int(wdk_btc_account_index)
         )
-        requested_network = (network or settings.solana_network).strip().lower() or "bitcoin"
-        effective_network = "bitcoin" if requested_network == "mainnet" else requested_network
+        effective_network = normalize_btc_network(network or settings.solana_network)
         binding: dict[str, Any] | None = None
         wallet_id = str(wdk_btc_wallet_id or settings.wdk_btc_wallet_id).strip()
         if not service_url:

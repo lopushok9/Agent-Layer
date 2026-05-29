@@ -17,6 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agent_wallet.file_ops import atomic_write_text, chmod_if_exists
+from agent_wallet.config import normalize_btc_network
 
 
 def _default_config_path() -> Path:
@@ -44,10 +45,7 @@ def _script_path(name: str) -> Path:
 
 
 def _normalize_network(value: str) -> str:
-    network = str(value or "").strip().lower()
-    if network == "mainnet":
-        return "bitcoin"
-    return network or "bitcoin"
+    return normalize_btc_network(value)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -55,7 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config-path", default=str(_default_config_path()))
     parser.add_argument("--plugin-id", default="agent-wallet")
     parser.add_argument("--user-id", default=_default_user_id())
-    parser.add_argument("--network", default="testnet")
+    parser.add_argument("--network", default="bitcoin")
     parser.add_argument("--service-url", default="http://127.0.0.1:8080")
     parser.add_argument("--wdk-wallet-root", default=str(_repo_root() / "wdk-btc-wallet"))
     parser.add_argument("--label", default="Agent BTC Wallet")

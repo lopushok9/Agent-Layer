@@ -65,12 +65,6 @@ normalize_network_value() {
     1|mainnet|bitcoin)
       printf "mainnet"
       ;;
-    2|testnet)
-      printf "testnet"
-      ;;
-    3|regtest)
-      printf "regtest"
-      ;;
     *)
       return 1
       ;;
@@ -84,18 +78,11 @@ prompt_network_choice() {
     return 0
   fi
 
-  case "$default_value" in
-    mainnet|bitcoin) default_hint="1" ;;
-    testnet) default_hint="2" ;;
-    regtest) default_hint="3" ;;
-    *) default_hint="1" ;;
-  esac
+  default_hint="1"
 
   while true; do
     printf "BTC network:\n" >&2
     printf "  1) mainnet\n" >&2
-    printf "  2) testnet\n" >&2
-    printf "  3) regtest\n" >&2
     printf "Choose network [%s]: " "$default_hint" >&2
     read -r choice
     if [ -z "${choice:-}" ]; then
@@ -105,12 +92,16 @@ prompt_network_choice() {
       printf "%s" "$network"
       return 0
     fi
-    printf "Invalid choice. Enter 1, 2, 3, mainnet, testnet, or regtest.\n" >&2
+    printf "Invalid choice. Enter 1, mainnet, or bitcoin.\n" >&2
   done
 }
 
 DEFAULT_USER_ID=${OPENCLAW_BTC_USER_ID:-${USER:-openclaw-user}-local}
-DEFAULT_NETWORK=${OPENCLAW_BTC_NETWORK:-mainnet}
+if DEFAULT_NETWORK=$(normalize_network_value "${OPENCLAW_BTC_NETWORK:-mainnet}" 2>/dev/null); then
+  :
+else
+  DEFAULT_NETWORK=mainnet
+fi
 DEFAULT_SERVICE_URL=${OPENCLAW_BTC_SERVICE_URL:-http://127.0.0.1:8080}
 
 if ! has_flag --user-id "$@"; then

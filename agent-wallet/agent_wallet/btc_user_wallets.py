@@ -6,19 +6,14 @@ import json
 from pathlib import Path
 from typing import Any
 
-from agent_wallet.config import resolve_openclaw_home, settings
+from agent_wallet.config import normalize_btc_network, resolve_openclaw_home, settings
 from agent_wallet.providers.wdk_btc_local import WdkBtcLocalClient
 from agent_wallet.user_wallets import normalize_user_id
 from agent_wallet.wallet_layer.base import WalletBackendError
 
 
 def _normalize_btc_network(value: str | None) -> str:
-    network = str(value or "").strip().lower()
-    aliases = {"mainnet": "bitcoin"}
-    network = aliases.get(network, network)
-    if network not in {"bitcoin", "testnet", "regtest"}:
-        return "bitcoin"
-    return network
+    return normalize_btc_network(value)
 
 
 def _resolve_service_url(service_url: str | None = None) -> str:

@@ -32,7 +32,7 @@ def _run(*args: str, stdin_text: str | None = None) -> dict:
 
 
 def main() -> None:
-    with FakeWdkBtcWalletServer(network="testnet") as server:
+    with FakeWdkBtcWalletServer(network="bitcoin") as server:
         temp_home = Path("/tmp/openclaw-btc-script-smoke")
         if temp_home.exists():
             shutil.rmtree(temp_home)
@@ -44,7 +44,7 @@ def main() -> None:
             "--user-id",
             "script-btc@example.com",
             "--network",
-            "testnet",
+            "bitcoin",
             "--service-url",
             server.base_url,
             "--password-stdin",
@@ -59,7 +59,7 @@ def main() -> None:
             "--user-id",
             "script-btc@example.com",
             "--network",
-            "testnet",
+            "bitcoin",
         )
         assert binding["wallet"]["wallet_id"] == server.wallet_id
 
@@ -68,7 +68,7 @@ def main() -> None:
             "--user-id",
             "script-btc@example.com",
             "--network",
-            "testnet",
+            "bitcoin",
             "--service-url",
             server.base_url,
         )
@@ -79,7 +79,7 @@ def main() -> None:
             "--user-id",
             "script-btc@example.com",
             "--network",
-            "testnet",
+            "bitcoin",
             "--service-url",
             server.base_url,
             "--password-stdin",
@@ -92,7 +92,7 @@ def main() -> None:
             "--user-id",
             "script-btc@example.com",
             "--network",
-            "testnet",
+            "bitcoin",
             "--service-url",
             server.base_url,
             "--password-stdin",
@@ -108,7 +108,7 @@ def main() -> None:
             "--user-id",
             "script-btc@example.com",
             "--network",
-            "testnet",
+            "bitcoin",
             "--service-url",
             server.base_url,
             "--password-stdin",

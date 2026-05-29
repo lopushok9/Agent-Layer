@@ -62,7 +62,7 @@ def main() -> None:
                 "--user-id",
                 "bootstrap-btc-autostart@example.com",
                 "--network",
-                "testnet",
+                "bitcoin",
                 "--service-url",
                 service_url,
                 "--wdk-wallet-root",

@@ -18,16 +18,16 @@ from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletCapabilitie
 class FakeBtcBackend(AgentWalletBackend):
     name = "wdk_btc_local"
     chain = "bitcoin"
-    network = "testnet"
+    network = "bitcoin"
     sign_only = False
 
     async def get_address(self) -> str | None:
-        return "tb1qadapter000000000000000000000000000000000"
+        return "bc1qadapter000000000000000000000000000000000"
 
     async def get_balance(self, address: str | None = None) -> dict:
         return {
             "chain": "bitcoin",
-            "network": "testnet",
+            "network": "bitcoin",
             "address": address or await self.get_address(),
             "balance_sats": 121140,
             "balance_native": 0.0012114,
@@ -44,7 +44,7 @@ class FakeBtcBackend(AgentWalletBackend):
     ) -> dict:
         return {
             "chain": "bitcoin",
-            "network": "testnet",
+            "network": "bitcoin",
             "address": await self.get_address(),
             "direction": direction,
             "limit": limit,
@@ -56,7 +56,7 @@ class FakeBtcBackend(AgentWalletBackend):
     async def get_btc_fee_rates(self) -> dict:
         return {
             "chain": "bitcoin",
-            "network": "testnet",
+            "network": "bitcoin",
             "fee_rates": {"slow": 1, "normal": 2, "fast": 3},
             "source": "fake",
         }
@@ -64,7 +64,7 @@ class FakeBtcBackend(AgentWalletBackend):
     async def get_btc_max_spendable(self, *, fee_rate: int | None = None) -> dict:
         return {
             "chain": "bitcoin",
-            "network": "testnet",
+            "network": "bitcoin",
             "address": await self.get_address(),
             "fee_rate": fee_rate,
             "amount_sats": 120699,
@@ -86,7 +86,7 @@ class FakeBtcBackend(AgentWalletBackend):
     ) -> dict:
         return {
             "chain": "bitcoin",
-            "network": "testnet",
+            "network": "bitcoin",
             "asset_type": "btc-transfer",
             "asset": "BTC",
             "wallet": "btc-wallet-123",
@@ -152,7 +152,7 @@ async def _main() -> None:
     preview = await adapter.invoke(
         "transfer_btc",
         {
-            "recipient": "tb1qdest000000000000000000000000000000000000",
+            "recipient": "bc1qdest000000000000000000000000000000000000",
             "amount_sats": 10_000,
             "mode": "preview",
             "purpose": "test btc transfer",
@@ -164,7 +164,7 @@ async def _main() -> None:
     prepared = await adapter.invoke(
         "transfer_btc",
         {
-            "recipient": "tb1qdest000000000000000000000000000000000000",
+            "recipient": "bc1qdest000000000000000000000000000000000000",
             "amount_sats": 10_000,
             "fee_rate": 3,
             "mode": "prepare",
@@ -177,15 +177,15 @@ async def _main() -> None:
 
     approval = issue_approval_token(
         tool_name="transfer_btc",
-        network="testnet",
+        network="bitcoin",
         summary=preview.data["confirmation_summary"],
-        mainnet_confirmed=False,
+        mainnet_confirmed=True,
         issued_by="test",
     )
     executed = await adapter.invoke(
         "transfer_btc",
         {
-            "recipient": "tb1qdest000000000000000000000000000000000000",
+            "recipient": "bc1qdest000000000000000000000000000000000000",
             "amount_sats": 10_000,
             "mode": "execute",
             "purpose": "test btc transfer",

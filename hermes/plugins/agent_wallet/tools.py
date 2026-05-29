@@ -271,7 +271,9 @@ def _normalize_network_for_backend(backend: str, raw_network: Any) -> str:
             "mainnet": "bitcoin",
         }
         normalized = aliases.get(network, network)
-        return normalized if normalized in {"bitcoin", "testnet", "regtest"} else "bitcoin"
+        if normalized in {"testnet", "regtest"}:
+            raise RuntimeError("Bitcoin testnet/regtest are no longer supported. Use bitcoin.")
+        return normalized if normalized == "bitcoin" else "bitcoin"
     aliases = {
         "solana": "mainnet",
         "solana-mainnet": "mainnet",

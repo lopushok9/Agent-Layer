@@ -33,7 +33,7 @@ def main() -> None:
     except WalletBackendError as exc:
         assert "token" in str(exc).lower()
 
-    with FakeWdkBtcWalletServer(network="testnet", auth_token="correct-token") as server:
+    with FakeWdkBtcWalletServer(network="bitcoin", auth_token="correct-token") as server:
         os.environ["WDK_BTC_LOCAL_TOKEN"] = "wrong-token"
         try:
             WdkBtcLocalClient(server.base_url).post_sync(

@@ -315,7 +315,7 @@ printf '%s\n' 'your-local-btc-password' | \
 python -m agent_wallet.openclaw_cli btc-wallet-create \
   --user-id alice@example.com \
   --password-stdin \
-  --config-json '{"backend":"wdk_btc_local","network":"testnet","wdkBtcServiceUrl":"http://127.0.0.1:8080"}'
+  --config-json '{"backend":"wdk_btc_local","network":"bitcoin","wdkBtcServiceUrl":"http://127.0.0.1:8080"}'
 ```
 
 If you want a friendlier host-shell flow, use:
@@ -323,7 +323,7 @@ If you want a friendlier host-shell flow, use:
 ```bash
 python scripts/manage_openclaw_btc_wallet.py setup \
   --user-id alice@example.com \
-  --network testnet \
+  --network bitcoin \
   --service-url http://127.0.0.1:8080
 ```
 
@@ -338,11 +338,11 @@ If you want a true one-command OpenClaw bootstrap, use:
 ```bash
 python agent-wallet/scripts/bootstrap_openclaw_btc.py \
   --user-id alice@example.com \
-  --network testnet \
+  --network bitcoin \
   --service-url http://127.0.0.1:8080
 ```
 
-For BTC mainnet, use the same bootstrap with `--network mainnet`. The script normalizes that to `bitcoin` in plugin config automatically.
+You can also pass `--network mainnet`; the bootstrap normalizes that alias to `bitcoin`.
 
 For the simplest host-side UX, use the shell wrapper instead:
 
@@ -354,7 +354,7 @@ That is the intended "agent/host installs, user only enters password" entrypoint
 
 - the script wraps the full BTC bootstrap
 - it auto-starts the local `wdk-btc-wallet` service for localhost URLs if needed
-- it asks for `user-id` and shows a small `mainnet / testnet / regtest` menu if you did not pass them as args or env
+- it asks for `user-id` and defaults BTC network to `mainnet` if you did not pass it explicitly
 - it prompts for the BTC wallet password interactively unless you explicitly pass `--password-stdin`
 - it prefers `/tmp/agent-wallet-venv/bin/python`, then `agent-wallet/.venv/bin/python`, and only then falls back to system `python3`
 - it creates or unlocks the BTC wallet binding and patches local OpenClaw config in one pass

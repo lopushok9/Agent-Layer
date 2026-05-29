@@ -134,7 +134,7 @@ For staking specifically, the normal agent flow should be:
 
 The extension is already network-aware:
 
-- `plugins.entries.agent-wallet.config.network` selects `mainnet` for Solana, `bitcoin/testnet/regtest` for BTC, or the supported EVM networks
+- `plugins.entries.agent-wallet.config.network` selects `mainnet` for Solana, `bitcoin` for BTC, or the supported EVM networks
 - Solana mainnet wallets keep the same per-user file layout
 - switching the configured backend network does not merge balances across chains
 

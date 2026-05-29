@@ -12,7 +12,7 @@ from _wdk_btc_test_server import FakeWdkBtcWalletServer  # noqa: E402
 
 
 def main() -> None:
-    with FakeWdkBtcWalletServer(network="testnet") as server:
+    with FakeWdkBtcWalletServer(network="bitcoin") as server:
         os.environ["AGENT_WALLET_BACKEND"] = "wdk_btc_local"
         os.environ["WDK_BTC_SERVICE_URL"] = server.base_url
         os.environ["WDK_BTC_LOCAL_TOKEN"] = server.auth_token
@@ -26,21 +26,21 @@ def main() -> None:
         created = create_user_btc_wallet(
             "runtime-btc@example.com",
             password="runtime-btc-password",
-            network="testnet",
+            network="bitcoin",
             service_url=server.base_url,
         )
         assert created["wallet_id"] == server.wallet_id
 
-        context = onboard_openclaw_user_wallet("runtime-btc@example.com", network="testnet")
+        context = onboard_openclaw_user_wallet("runtime-btc@example.com", network="bitcoin")
         session = context.session_metadata()
         bundle = context.serializable_bundle()
 
         assert context.created_now is False
         assert session.chain == "bitcoin"
         assert session.backend == "wdk_btc_local"
-        assert session.network == "testnet"
+        assert session.network == "bitcoin"
         assert session.storage_format == "local_vault"
-        assert session.address.startswith("tb1")
+        assert session.address.startswith("bc1")
         assert "transfer_btc" in session.tool_names
         assert "transfer_sol" not in session.tool_names
         assert bundle["session"]["address"] == session.address

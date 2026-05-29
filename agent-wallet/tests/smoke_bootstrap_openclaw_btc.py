@@ -30,7 +30,7 @@ def main() -> None:
     )
 
     config_path = temp_home / "openclaw.json"
-    with FakeWdkBtcWalletServer(network="testnet") as server:
+    with FakeWdkBtcWalletServer(network="bitcoin") as server:
         base_url = server.base_url
         env = os.environ.copy()
         env["PYTHONPATH"] = str(ROOT)
@@ -44,7 +44,7 @@ def main() -> None:
                 "--user-id",
                 "bootstrap-btc@example.com",
                 "--network",
-                "testnet",
+                "bitcoin",
                 "--service-url",
                 base_url,
                 "--password-stdin",
@@ -62,7 +62,7 @@ def main() -> None:
     assert payload["btc_setup"]["wallet"]["wallet_id"] == server.wallet_id
     plugin_config = config["plugins"]["entries"]["agent-wallet"]["config"]
     assert plugin_config["backend"] == "wdk_btc_local"
-    assert plugin_config["network"] == "testnet"
+    assert plugin_config["network"] == "bitcoin"
     assert plugin_config["wdkBtcServiceUrl"] == base_url
     assert plugin_config["wdkBtcAccountIndex"] == 0
     assert "transfer_btc" in config["tools"]["alsoAllow"]

@@ -14,7 +14,7 @@ class FakeWdkBtcWalletServer(AbstractContextManager["FakeWdkBtcWalletServer"]):
 
     def __init__(
         self,
-        network: str = "testnet",
+        network: str = "bitcoin",
         host: str = "127.0.0.1",
         port: int = 0,
         auth_token: str = "test-local-btc-token",
@@ -23,11 +23,7 @@ class FakeWdkBtcWalletServer(AbstractContextManager["FakeWdkBtcWalletServer"]):
         self.host = host
         self.port = int(port)
         self.auth_token = str(auth_token).strip()
-        self.address = (
-            "tb1qagentwallet000000000000000000000000000000"
-            if network == "testnet"
-            else "bc1qagentwallet000000000000000000000000000000"
-        )
+        self.address = "bc1qagentwallet000000000000000000000000000000"
         self.sent_payloads: list[dict[str, Any]] = []
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None

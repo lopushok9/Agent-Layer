@@ -435,8 +435,10 @@ def _normalize_btc_network(value: Any) -> str | None:
         "mainnet": "bitcoin",
     }
     normalized = aliases.get(network, network)
-    if normalized not in {"bitcoin", "testnet", "regtest"}:
-        raise RuntimeError("Bitcoin network must be bitcoin, testnet, or regtest.")
+    if normalized in {"testnet", "regtest"}:
+        raise RuntimeError("Bitcoin testnet/regtest are no longer supported. Use bitcoin.")
+    if normalized != "bitcoin":
+        raise RuntimeError("Bitcoin network must be bitcoin.")
     return normalized
 
 

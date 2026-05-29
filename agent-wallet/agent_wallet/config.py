@@ -130,6 +130,31 @@ def normalize_evm_network(network: str | None) -> str:
     return normalized
 
 
+def normalize_btc_network(network: str | None) -> str:
+    """Canonicalize supported BTC network names and reject non-mainnet chains."""
+    normalized = str(network or "").strip().lower() or "bitcoin"
+    aliases = {
+        "mainnet": "bitcoin",
+        "btc": "bitcoin",
+        "bitcoin-mainnet": "bitcoin",
+        "bitcoin_mainnet": "bitcoin",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized in {"testnet", "regtest"}:
+        from agent_wallet.wallet_layer.base import WalletBackendError
+
+        raise WalletBackendError(
+            "Bitcoin testnet/regtest are no longer supported by agent-wallet. Use bitcoin."
+        )
+    if normalized != "bitcoin":
+        from agent_wallet.wallet_layer.base import WalletBackendError
+
+        raise WalletBackendError(
+            f"Unsupported Bitcoin network: {normalized}. Only bitcoin is supported."
+        )
+    return "bitcoin"
+
+
 def _normalize_provider_mode(value: str | None) -> str:
     mode = (value or "").strip().lower()
     if not mode:
