@@ -30,7 +30,7 @@ def main() -> None:
     os.environ["OPENCLAW_HOME"] = str(temp_home)
 
     with FakeWdkEvmWalletServer(
-        network="sepolia",
+        network="ethereum",
         auth_token="correct-token",
         error_responses={
             "POST /v1/evm/transfer/quote": {
@@ -68,7 +68,7 @@ def main() -> None:
         try:
             client.post_sync(
                 "/v1/evm/transfer/quote",
-                {"walletId": server.wallet_id, "network": "sepolia", "to": server.address, "value": "1"},
+                {"walletId": server.wallet_id, "network": "ethereum", "to": server.address, "value": "1"},
             )
             raise AssertionError("Expected insufficient_funds to be raised.")
         except WalletBackendError as exc:
@@ -80,7 +80,7 @@ def main() -> None:
                 "/v1/evm/token-balance/get",
                 {
                     "walletId": server.wallet_id,
-                    "network": "sepolia",
+                    "network": "ethereum",
                     "tokenAddress": "0x2222222222222222222222222222222222222222",
                 },
             )
@@ -92,7 +92,7 @@ def main() -> None:
         try:
             client.post_sync(
                 "/v1/evm/address/resolve",
-                {"walletId": server.wallet_id, "network": "sepolia", "accountIndex": 0},
+                {"walletId": server.wallet_id, "network": "ethereum", "accountIndex": 0},
             )
             raise AssertionError("Expected wallet_locked to be raised.")
         except WalletBackendError as exc:

@@ -393,13 +393,14 @@ def _normalize_evm_network(value: Any) -> str:
         "eth": "ethereum",
         "eth-mainnet": "ethereum",
         "base-mainnet": "base",
-        "base_sepolia": "base-sepolia",
     }
     return aliases.get(normalized, normalized)
 
 
 def _normalize_selectable_evm_network(value: Any) -> str:
     network = _normalize_evm_network(value)
+    if network in {"sepolia", "base-sepolia", "base_sepolia"}:
+        raise RuntimeError("EVM testnets are no longer supported. Use ethereum or base.")
     if network not in {"ethereum", "base"}:
         raise RuntimeError("EVM network must be 'ethereum' or 'base'.")
     return network

@@ -2219,29 +2219,33 @@ async def main() -> None:
     async def fake_x402_prepare_request(*, backend, url, method="GET", headers=None, query=None, json_body=None, text_body=None):
         is_evm = str(getattr(backend, "chain", "")).strip().lower() == "evm"
         backend_network = str(getattr(backend, "network", "")).strip().lower()
-        is_mainnet = backend_network in {"mainnet", "base"}
+        is_solana_mainnet = backend_network == "mainnet"
+        evm_x402_network = "eip155:8453" if backend_network == "base" else "eip155:1"
+        evm_x402_asset = (
+            "0x833589fCD6EDb6E08f4c7C32D4f71b54bdA02913"
+            if backend_network == "base"
+            else "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+        )
+        amount = "250000" if (is_evm or is_solana_mainnet) else "100000"
+        amount_display = "0.25" if (is_evm or is_solana_mainnet) else "0.1"
         return {
             "asset_type": "x402-request",
             "network": backend_network or "mainnet",
             "x402_network": (
-                "eip155:8453"
-                if is_evm and is_mainnet
-                else "eip155:84532"
+                evm_x402_network
                 if is_evm
                 else "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
-                if is_mainnet
+                if is_solana_mainnet
                 else "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"
             ),
             "x402_scheme": "exact",
             "x402_asset": (
-                "0x833589fCD6EDb6E08f4c7C32D4f71b54bdA02913"
-                if is_evm and is_mainnet
-                else "0x036CbD53842c5426634e7929541ec2318f3dCf7e"
+                evm_x402_asset
                 if is_evm
                 else "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
             ),
-            "x402_amount": "250000" if is_mainnet else "100000",
-            "x402_amount_display": "0.25" if is_mainnet else "0.1",
+            "x402_amount": amount,
+            "x402_amount_display": amount_display,
             "x402_pay_to": (
                 "0x9999999999999999999999999999999999999999"
                 if is_evm
@@ -2266,23 +2270,19 @@ async def main() -> None:
             "selected_payment": {
                 "scheme": "exact",
                 "network": (
-                    "eip155:8453"
-                    if is_evm and is_mainnet
-                    else "eip155:84532"
+                    evm_x402_network
                     if is_evm
                     else "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
-                    if is_mainnet
+                    if is_solana_mainnet
                     else "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"
                 ),
                 "asset": (
-                    "0x833589fCD6EDb6E08f4c7C32D4f71b54bdA02913"
-                    if is_evm and is_mainnet
-                    else "0x036CbD53842c5426634e7929541ec2318f3dCf7e"
+                    evm_x402_asset
                     if is_evm
                     else "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
                 ),
-                "amount": "250000" if is_mainnet else "100000",
-                "amount_display": "0.25" if is_mainnet else "0.1",
+                "amount": amount,
+                "amount_display": amount_display,
                 "pay_to": (
                     "0x9999999999999999999999999999999999999999"
                     if is_evm

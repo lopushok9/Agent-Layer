@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 from urllib.request import urlopen
 
 from agent_wallet.config import (
+    normalize_evm_network,
     resolve_boot_key,
     resolve_evm_wallet_password,
     resolve_openclaw_home,
@@ -27,18 +28,7 @@ LOCAL_WDK_EVM_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
 def _normalize_evm_network(value: str | None) -> str:
-    network = str(value or "").strip().lower()
-    aliases = {
-        "mainnet": "ethereum",
-        "eth": "ethereum",
-        "eth-mainnet": "ethereum",
-        "base-mainnet": "base",
-        "base_sepolia": "base-sepolia",
-    }
-    network = aliases.get(network, network)
-    if network not in {"ethereum", "sepolia", "base", "base-sepolia"}:
-        return "ethereum"
-    return network
+    return normalize_evm_network(value)
 
 
 def _resolve_service_url(service_url: str | None = None) -> str:
@@ -52,8 +42,6 @@ def _paired_network(network: str) -> str | None:
     mapping = {
         "ethereum": "base",
         "base": "ethereum",
-        "sepolia": "base-sepolia",
-        "base-sepolia": "sepolia",
     }
     return mapping.get(_normalize_evm_network(network))
 

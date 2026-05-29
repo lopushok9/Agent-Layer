@@ -346,7 +346,7 @@ typed-data signing surface, нужный для x402 EIP-3009 / Permit2 payloads
 
 - добавить `X402EvmSignerAdapter`, который вызывает локальный WDK service
 - маппить Base в CAIP-2 `eip155:8453`
-- позже добавить Base Sepolia как `eip155:84532` для тестов
+- держать EVM x402 mainnet-only: `ethereum` и `base`
 
 #### Approval semantics
 

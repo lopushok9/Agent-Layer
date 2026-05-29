@@ -260,6 +260,8 @@ def _normalize_network_for_backend(backend: str, raw_network: Any) -> str:
             "base-mainnet": "base",
         }
         normalized = aliases.get(network, network)
+        if normalized in {"sepolia", "base-sepolia", "base_sepolia"}:
+            raise RuntimeError("EVM testnets are no longer supported. Use ethereum or base.")
         return normalized if normalized in {"ethereum", "base"} else "ethereum"
     if backend == "wdk_btc_local":
         aliases = {

@@ -308,13 +308,15 @@ function normalizeEvmNetwork(value) {
     eth: "ethereum",
     "eth-mainnet": "ethereum",
     "base-mainnet": "base",
-    base_sepolia: "base-sepolia",
   };
   return aliases[normalized] || normalized;
 }
 
 function normalizeSelectableEvmNetwork(value) {
   const network = normalizeEvmNetwork(value);
+  if (["sepolia", "base-sepolia", "base_sepolia"].includes(network)) {
+    throw new Error("EVM testnets are no longer supported. Use ethereum or base.");
+  }
   if (!["ethereum", "base"].includes(network)) {
     throw new Error("EVM network must be 'ethereum' or 'base'.");
   }

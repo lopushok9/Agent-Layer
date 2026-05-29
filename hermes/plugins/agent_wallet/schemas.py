@@ -149,7 +149,7 @@ AGENT_WALLET_EVM_STATUS = {
             },
             "network": {
                 "type": "string",
-                "description": "Optional EVM network hint, such as ethereum, base, sepolia, or base-sepolia.",
+                "description": "Optional EVM network hint, such as ethereum or base.",
             },
             "service_url": {
                 "type": "string",

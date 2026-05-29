@@ -20,13 +20,13 @@ def main() -> None:
     os.environ["OPENCLAW_HOME"] = str(temp_home)
     os.environ["OPENCLAW_EVM_WDK_WALLET_ROOT"] = str(Path(__file__).resolve().parents[2] / "wdk-evm-wallet")
 
-    with FakeWdkEvmWalletServer(network="base-sepolia") as server:
+    with FakeWdkEvmWalletServer(network="base") as server:
         os.environ["AGENT_WALLET_BACKEND"] = "wdk_evm_local"
         os.environ["WDK_EVM_SERVICE_URL"] = server.base_url
         os.environ["WDK_EVM_LOCAL_TOKEN"] = server.auth_token
         os.environ.pop("WDK_EVM_WALLET_ID", None)
         os.environ["WDK_EVM_ACCOUNT_INDEX"] = "0"
-        os.environ["SOLANA_NETWORK"] = "sepolia"
+        os.environ["SOLANA_NETWORK"] = "ethereum"
 
         from _secret_test_utils import install_test_sealed_secrets  # noqa: E402
         from agent_wallet.evm_user_wallets import (  # noqa: E402
@@ -44,26 +44,26 @@ def main() -> None:
         created = create_user_evm_wallet(
             "runtime-evm@example.com",
             password="runtime-evm-password",
-            network="sepolia",
+            network="ethereum",
             service_url=server.base_url,
         )
         assert created["wallet_id"] == server.wallet_id
 
         server.unlocked_wallet_ids.clear()
 
-        context = onboard_openclaw_user_wallet("runtime-evm@example.com", network="sepolia")
+        context = onboard_openclaw_user_wallet("runtime-evm@example.com", network="ethereum")
         session = context.session_metadata()
         bundle = context.serializable_bundle()
 
         assert context.created_now is False
         assert session.chain == "evm"
         assert session.backend == "wdk_evm_local"
-        assert session.network == "sepolia"
+        assert session.network == "ethereum"
         assert session.storage_format == "local_vault"
         assert session.address.startswith("0x")
         assert "get_evm_token_metadata" in session.tool_names
-        assert "get_evm_swap_quote" not in session.tool_names
-        assert "swap_evm_tokens" not in session.tool_names
+        assert "get_evm_swap_quote" in session.tool_names
+        assert "swap_evm_tokens" in session.tool_names
         assert "transfer_evm_native" in session.tool_names
         assert "transfer_sol" not in session.tool_names
         assert bundle["session"]["address"] == session.address
@@ -73,23 +73,23 @@ def main() -> None:
         created_autobind = create_user_evm_wallet(
             autobind_user,
             password="runtime-evm-password",
-            network="sepolia",
+            network="ethereum",
             service_url=server.base_url,
         )
         assert created_autobind["wallet_id"] == server.wallet_id
-        assert resolve_user_evm_wallet_path(autobind_user, network="base-sepolia").exists() is False
+        assert resolve_user_evm_wallet_path(autobind_user, network="base").exists() is False
 
-        autobind_context = onboard_openclaw_user_wallet(autobind_user, network="base-sepolia")
+        autobind_context = onboard_openclaw_user_wallet(autobind_user, network="base")
         autobind_session = autobind_context.session_metadata()
-        autobind_binding = get_user_evm_wallet_binding(autobind_user, network="base-sepolia")
+        autobind_binding = get_user_evm_wallet_binding(autobind_user, network="base")
 
-        assert autobind_session.network == "base-sepolia"
+        assert autobind_session.network == "base"
         assert "get_evm_token_metadata" in autobind_session.tool_names
-        assert "get_evm_swap_quote" not in autobind_session.tool_names
-        assert "swap_evm_tokens" not in autobind_session.tool_names
+        assert "get_evm_swap_quote" in autobind_session.tool_names
+        assert "swap_evm_tokens" in autobind_session.tool_names
         assert autobind_binding["wallet_id"] == created_autobind["wallet_id"]
         assert autobind_binding["address"] == created_autobind["address"]
-        assert resolve_user_evm_wallet_path(autobind_user, network="base-sepolia").exists() is True
+        assert resolve_user_evm_wallet_path(autobind_user, network="base").exists() is True
 
         autoprovision_user = "runtime-evm-autoprovision@example.com"
         autoprovision_context = onboard_openclaw_user_wallet(autoprovision_user, network="base")

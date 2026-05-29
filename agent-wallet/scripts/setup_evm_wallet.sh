@@ -68,12 +68,6 @@ normalize_network_value() {
     2|base)
       printf "base"
       ;;
-    3|sepolia)
-      printf "sepolia"
-      ;;
-    4|base-sepolia|base_sepolia)
-      printf "base-sepolia"
-      ;;
     *)
       return 1
       ;;
@@ -90,8 +84,6 @@ prompt_network_choice() {
   case "$default_value" in
     ethereum) default_hint="1" ;;
     base) default_hint="2" ;;
-    sepolia) default_hint="3" ;;
-    base-sepolia) default_hint="4" ;;
     *) default_hint="2" ;;
   esac
 
@@ -99,8 +91,6 @@ prompt_network_choice() {
     printf "EVM network:\n" >&2
     printf "  1) ethereum\n" >&2
     printf "  2) base\n" >&2
-    printf "  3) sepolia\n" >&2
-    printf "  4) base-sepolia\n" >&2
     printf "Choose network [%s]: " "$default_hint" >&2
     read -r choice
     if [ -z "${choice:-}" ]; then
@@ -110,7 +100,7 @@ prompt_network_choice() {
       printf "%s" "$network"
       return 0
     fi
-    printf "Invalid choice. Enter 1, 2, 3, 4, ethereum, base, sepolia, or base-sepolia.\n" >&2
+    printf "Invalid choice. Enter 1, 2, ethereum, or base.\n" >&2
   done
 }
 

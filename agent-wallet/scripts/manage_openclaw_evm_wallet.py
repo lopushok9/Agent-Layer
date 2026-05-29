@@ -15,7 +15,7 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
-from agent_wallet.config import settings  # noqa: E402
+from agent_wallet.config import normalize_evm_network, settings  # noqa: E402
 from agent_wallet.evm_user_wallets import (  # noqa: E402
     bind_user_evm_wallet,
     create_user_evm_wallet,
@@ -29,26 +29,13 @@ from agent_wallet.providers.wdk_evm_local import WdkEvmLocalClient  # noqa: E402
 
 
 def _normalize_network(value: str) -> str:
-    network = str(value or "").strip().lower()
-    aliases = {
-        "mainnet": "ethereum",
-        "eth": "ethereum",
-        "eth-mainnet": "ethereum",
-        "base-mainnet": "base",
-        "base_sepolia": "base-sepolia",
-    }
-    network = aliases.get(network, network)
-    if network not in {"ethereum", "sepolia", "base", "base-sepolia"}:
-        return "ethereum"
-    return network
+    return normalize_evm_network(value)
 
 
 def _paired_network(network: str) -> str | None:
     mapping = {
         "ethereum": "base",
         "base": "ethereum",
-        "sepolia": "base-sepolia",
-        "base-sepolia": "sepolia",
     }
     return mapping.get(_normalize_network(network))
 

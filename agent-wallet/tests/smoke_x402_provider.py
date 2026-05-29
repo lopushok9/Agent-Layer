@@ -44,7 +44,7 @@ class FakeBackend(AgentWalletBackend):
 class FakeEvmBackend(AgentWalletBackend):
     name = "fake_evm_wallet"
     chain = "evm"
-    network = "base-sepolia"
+    network = "ethereum"
 
     async def get_address(self) -> str | None:
         return "0x1111111111111111111111111111111111111111"
@@ -60,7 +60,7 @@ class FakeEvmBackend(AgentWalletBackend):
         primary_type: str,
         message: dict[str, object],
     ) -> bytes:
-        assert domain["chainId"] == 84532
+        assert domain["chainId"] == 1
         assert primary_type == "TransferWithAuthorization"
         assert message["from"] == "0x1111111111111111111111111111111111111111"
         return bytes.fromhex("33" * 65)
@@ -283,8 +283,8 @@ class FakeClient:
                         "accepts": [
                             {
                                 "scheme": "exact",
-                                "network": "eip155:84532",
-                                "asset": "0x036CbD53842c5426634e7929541ec2318f3dCf7e",
+                                "network": "eip155:8453",
+                                "asset": "0x833589fCD6EDb6E08f4c7C32D4f71b54bdA02913",
                                 "amount": "100000",
                                 "payTo": "0x9999999999999999999999999999999999999999",
                                 "maxTimeoutSeconds": 60,
@@ -402,7 +402,7 @@ async def main() -> None:
                 if getattr(backend, "network", "") == "base":
                     assert selected_payment["network"] == "eip155:8453"
                     return {"PAYMENT-SIGNATURE": "signed-evm-mainnet-payload"}
-                assert selected_payment["network"] == "eip155:84532"
+                assert selected_payment["network"] == "eip155:1"
                 return {"PAYMENT-SIGNATURE": "signed-evm-payload"}
             return {"PAYMENT-SIGNATURE": "signed-payload"}
 
@@ -421,7 +421,7 @@ async def main() -> None:
                 return {
                     "success": True,
                     "transaction": "evm-payment-tx",
-                    "network": "eip155:84532",
+                    "network": "eip155:1",
                     "payer": "0x1111111111111111111111111111111111111111",
                     "amount": "100000",
                 }
@@ -507,32 +507,10 @@ async def main() -> None:
             json_body={"depth": "full"},
         )
         assert evm_preview["payment_required"] is True
-        assert evm_preview["selected_payment"]["network"] == "eip155:84532"
-        assert evm_preview["accepted_payments"][0]["compatibility"]["wallet_network_matches"] is True
-        assert evm_preview["accepted_payments"][0]["compatibility"]["currently_executable"] is True
-        assert evm_preview["wallet"]["execution_modes"] == ["evm_exact"]
-
-        evm_prepared = await x402.prepare_request(
-            backend=FakeEvmBackend(),
-            url="https://paid-base.example.com/report",
-            method="POST",
-            query={"topic": "base"},
-            json_body={"depth": "full"},
-        )
-        assert evm_prepared["prepared"] is True
-        assert evm_prepared["x402_asset"] == "0x036CbD53842c5426634e7929541ec2318f3dCf7e"
-
-        evm_executed = await x402.execute_request(
-            backend=FakeEvmBackend(),
-            url="https://paid-base.example.com/report",
-            method="POST",
-            query={"topic": "base"},
-            json_body={"depth": "full"},
-        )
-        assert evm_executed["paid"] is True
-        assert evm_executed["confirmed"] is True
-        assert evm_executed["payment_settlement"]["transaction"] == "evm-payment-tx"
-        assert evm_executed["response_preview"]["result"] == "paid-evm"
+        assert evm_preview["selected_payment"]["network"] == "eip155:8453"
+        assert evm_preview["accepted_payments"][0]["compatibility"]["wallet_network_matches"] is False
+        assert evm_preview["accepted_payments"][0]["compatibility"]["currently_executable"] is False
+        assert evm_preview["wallet"]["execution_modes"] == []
 
         evm_mainnet_preview = await x402.preview_request(
             backend=MainnetFakeEvmBackend(),

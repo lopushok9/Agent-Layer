@@ -105,6 +105,31 @@ def normalize_solana_network(network: str | None) -> str:
     return "mainnet"
 
 
+def normalize_evm_network(network: str | None) -> str:
+    """Canonicalize supported EVM network names and reject testnets."""
+    normalized = str(network or "").strip().lower() or "ethereum"
+    aliases = {
+        "mainnet": "ethereum",
+        "eth": "ethereum",
+        "eth-mainnet": "ethereum",
+        "base-mainnet": "base",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized in {"sepolia", "base-sepolia", "base_sepolia"}:
+        from agent_wallet.wallet_layer.base import WalletBackendError
+
+        raise WalletBackendError(
+            "EVM testnets are no longer supported by agent-wallet. Use ethereum or base."
+        )
+    if normalized not in {"ethereum", "base"}:
+        from agent_wallet.wallet_layer.base import WalletBackendError
+
+        raise WalletBackendError(
+            f"Unsupported EVM network: {normalized}. Use ethereum or base."
+        )
+    return normalized
+
+
 def _normalize_provider_mode(value: str | None) -> str:
     mode = (value or "").strip().lower()
     if not mode:

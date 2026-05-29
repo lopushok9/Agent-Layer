@@ -17,6 +17,7 @@ from urllib.request import urlopen
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agent_wallet.file_ops import atomic_write_text, chmod_if_exists
+from agent_wallet.config import normalize_evm_network
 
 
 def _default_config_path() -> Path:
@@ -44,18 +45,7 @@ def _script_path(name: str) -> Path:
 
 
 def _normalize_network(value: str) -> str:
-    network = str(value or "").strip().lower()
-    aliases = {
-        "mainnet": "ethereum",
-        "eth": "ethereum",
-        "eth-mainnet": "ethereum",
-        "base-mainnet": "base",
-        "base_sepolia": "base-sepolia",
-    }
-    network = aliases.get(network, network)
-    if network not in {"ethereum", "sepolia", "base", "base-sepolia"}:
-        return "ethereum"
-    return network
+    return normalize_evm_network(value)
 
 
 def build_parser() -> argparse.ArgumentParser:

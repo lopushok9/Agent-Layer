@@ -15,7 +15,7 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
 
     def __init__(
         self,
-        network: str = "sepolia",
+        network: str = "ethereum",
         host: str = "127.0.0.1",
         port: int = 0,
         auth_token: str = "test-local-evm-token",
@@ -51,9 +51,7 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
     def chain_id_for(network: str) -> int:
         mapping = {
             "ethereum": 1,
-            "sepolia": 11155111,
             "base": 8453,
-            "base-sepolia": 84532,
         }
         return mapping[network]
 

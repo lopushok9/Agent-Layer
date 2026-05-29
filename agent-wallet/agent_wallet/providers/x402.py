@@ -23,8 +23,6 @@ SOLANA_CAIP_BY_NETWORK = {
 EVM_CAIP_BY_NETWORK = {
     "ethereum": "eip155:1",
     "base": "eip155:8453",
-    "sepolia": "eip155:11155111",
-    "base-sepolia": "eip155:84532",
 }
 _USDC_IDENTIFIERS = {
     "usdc",
@@ -368,7 +366,7 @@ def _solana_exact_execution_supported(backend: AgentWalletBackend) -> bool:
 def _evm_exact_execution_supported(backend: AgentWalletBackend) -> bool:
     return (
         _backend_chain(backend) == "evm"
-        and _backend_network(backend) in {"base", "base-sepolia"}
+        and _backend_network(backend) == "base"
         and callable(getattr(backend, "sign_x402_evm_exact_typed_data", None))
     )
 
@@ -387,7 +385,6 @@ def _wallet_x402_support_summary(backend: AgentWalletBackend) -> dict[str, Any]:
     supported_networks = _wallet_caip_networks(backend)
     planned_execution_networks = {
         "eip155:8453",
-        "eip155:84532",
         "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
     }
     execution_modes: list[str] = []

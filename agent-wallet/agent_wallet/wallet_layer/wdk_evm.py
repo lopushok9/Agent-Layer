@@ -5,6 +5,7 @@ from __future__ import annotations
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from typing import Any
 
+from agent_wallet.config import normalize_evm_network
 from agent_wallet.providers.evm_portfolio import build_portfolio_snapshot
 from agent_wallet.providers import lifi
 from agent_wallet.providers.wdk_evm_local import WdkEvmLocalClient
@@ -12,18 +13,7 @@ from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendErro
 
 
 def _normalize_evm_network(value: str | None) -> str:
-    network = str(value or "").strip().lower()
-    aliases = {
-        "mainnet": "ethereum",
-        "eth": "ethereum",
-        "eth-mainnet": "ethereum",
-        "base-mainnet": "base",
-        "base_sepolia": "base-sepolia",
-    }
-    network = aliases.get(network, network)
-    if network not in {"ethereum", "sepolia", "base", "base-sepolia"}:
-        return "ethereum"
-    return network
+    return normalize_evm_network(value)
 
 
 def _lifi_chain_id_for_evm_network(network: str) -> str:

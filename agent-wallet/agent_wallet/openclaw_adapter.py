@@ -101,9 +101,10 @@ class OpenClawWalletAdapter:
             "eth": "ethereum",
             "eth-mainnet": "ethereum",
             "base-mainnet": "base",
-            "base_sepolia": "base-sepolia",
         }
         network = aliases.get(network, network)
+        if network in {"sepolia", "base-sepolia", "base_sepolia"}:
+            raise WalletBackendError("EVM testnets are no longer supported. Use ethereum or base.")
         if network not in {"ethereum", "base"}:
             raise WalletBackendError("EVM network must be 'ethereum' or 'base'.")
         return network

@@ -7,7 +7,7 @@ from typing import Any
 
 from agent_wallet.approval import issue_approval_token
 from agent_wallet.btc_user_wallets import get_user_btc_wallet_binding
-from agent_wallet.config import settings
+from agent_wallet.config import normalize_evm_network, settings
 from agent_wallet.evm_user_wallets import ensure_user_evm_wallet_ready
 from agent_wallet.models import OpenClawWalletSessionMetadata
 from agent_wallet.openclaw_adapter import OpenClawWalletAdapter
@@ -164,15 +164,7 @@ def onboard_openclaw_user_wallet(
             if wdk_evm_account_index is None
             else int(wdk_evm_account_index)
         )
-        requested_network = (network or settings.solana_network).strip().lower() or "ethereum"
-        aliases = {
-            "mainnet": "ethereum",
-            "eth": "ethereum",
-            "eth-mainnet": "ethereum",
-            "base-mainnet": "base",
-            "base_sepolia": "base-sepolia",
-        }
-        effective_network = aliases.get(requested_network, requested_network)
+        effective_network = normalize_evm_network(network or settings.solana_network)
         wallet_id = str(wdk_evm_wallet_id or settings.wdk_evm_wallet_id).strip()
         if not service_url:
             raise WalletBackendError("wdk_evm_service_url is required for backend=wdk_evm_local.")

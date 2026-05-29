@@ -34,7 +34,7 @@ def main() -> None:
     except WalletBackendError as exc:
         assert "token" in str(exc).lower()
 
-    with FakeWdkEvmWalletServer(network="sepolia", auth_token="correct-token") as server:
+    with FakeWdkEvmWalletServer(network="ethereum", auth_token="correct-token") as server:
         os.environ["WDK_EVM_LOCAL_TOKEN"] = "wrong-token"
         try:
             WdkEvmLocalClient(server.base_url).post_sync(
@@ -74,18 +74,18 @@ def main() -> None:
         )
         assert sent["protocol"] == "velora"
 
-    with FakeWdkEvmWalletServer(network="base-sepolia", auth_token="correct-token") as server:
+    with FakeWdkEvmWalletServer(network="base", auth_token="correct-token") as server:
         os.environ["WDK_EVM_LOCAL_TOKEN"] = "correct-token"
         backend = WdkEvmLocalWalletBackend(
             service_url=server.base_url,
             wallet_id=server.wallet_id,
-            network="base-sepolia",
+            network="base",
         )
         signature = backend.sign_x402_evm_exact_typed_data(
             domain={
                 "name": "USD Coin",
                 "version": "2",
-                "chainId": 84532,
+                "chainId": 8453,
                 "verifyingContract": server.token,
             },
             types={
