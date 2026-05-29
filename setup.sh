@@ -75,6 +75,7 @@ require_path "$INSTALLER" "Python installer"
 require_path "${ROOT_DIR}/agent-wallet" "agent-wallet package"
 require_path "${ROOT_DIR}/.openclaw/extensions/agent-wallet" "OpenClaw extension"
 require_path "${ROOT_DIR}/codex/plugins/agent-wallet/.codex-plugin/plugin.json" "Codex plugin"
+require_path "${ROOT_DIR}/claude-code/plugins/agent-wallet/.claude-plugin/plugin.json" "Claude Code plugin"
 require_path "${ROOT_DIR}/wdk-btc-wallet/package.json" "wdk-btc-wallet package"
 require_path "${ROOT_DIR}/wdk-evm-wallet/package.json" "wdk-evm-wallet package"
 

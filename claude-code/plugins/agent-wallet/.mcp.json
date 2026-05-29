@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "agent-wallet": {
+      "command": "sh",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/scripts/run_mcp.sh"
+      ],
+      "env": {
+        "FASTMCP_SHOW_SERVER_BANNER": "false",
+        "FASTMCP_LOG_LEVEL": "ERROR"
+      }
+    }
+  }
+}

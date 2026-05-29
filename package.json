@@ -1,6 +1,6 @@
 {
   "name": "@agentlayer.tech/wallet",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "NPM installer for the OpenClaw Agent Wallet local runtime.",
   "type": "module",
   "repository": {
@@ -43,6 +43,7 @@
     ".openclaw/AGENTS.md",
     ".openclaw/extensions/agent-wallet/",
     "codex/plugins/agent-wallet/",
+    "claude-code/plugins/agent-wallet/",
     "hermes/plugins/agent_wallet/",
     "wdk-btc-wallet/src/",
     "wdk-btc-wallet/bootstrap.sh",

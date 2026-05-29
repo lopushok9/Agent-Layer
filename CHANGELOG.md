@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## v0.1.30 - 2026-05-30
+
+- Added a Claude Code plugin bridge under `claude-code/plugins/agent-wallet` so
+  the existing local wallet runtime can be used directly inside Claude Code
+  without creating a new wallet.
+- The Claude Code bridge connects to the current `~/.openclaw` runtime and
+  reuses the same Solana, Bitcoin, and EVM wallet surface already used by
+  OpenClaw, Hermes, and Codex.
+- Added `wallet claude-code install --yes`, which symlinks the bundled Claude
+  Code plugin into `~/.claude/plugins/agent-wallet` and attempts to register it
+  via the Claude Code CLI.
+- Fixed the `smoke_install_from_github` test, which was failing because
+  `setup.sh` checks for the Codex plugin manifest but the test bundle never
+  created that path.
+- Added the Claude Code plugin manifest check to `setup.sh` so bundle integrity
+  is validated for both the Codex and Claude Code plugin surfaces.
+
 ## v0.1.29 - 2026-05-29
 
 - Added a new `Codex` plugin bridge under `codex/plugins/agent-wallet` so the

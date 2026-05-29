@@ -23,6 +23,7 @@ Usage:
   openclaw-agent-wallet install [options]
   openclaw-agent-wallet hermes install [options]
   openclaw-agent-wallet codex install [options]
+  openclaw-agent-wallet claude-code install [options]
   openclaw-agent-wallet update [options]
   openclaw-agent-wallet status
   openclaw-agent-wallet rollback [--to <version>]
@@ -39,6 +40,7 @@ Examples:
   npx @agentlayer.tech/wallet install --yes
   npx @agentlayer.tech/wallet hermes install --yes
   npx @agentlayer.tech/wallet codex install --yes
+  npx @agentlayer.tech/wallet claude-code install --yes
   npx @agentlayer.tech/wallet install --backend none
   npx @agentlayer.tech/wallet update --yes
   npx @agentlayer.tech/wallet update --yes --dry-run
@@ -621,6 +623,7 @@ function runDoctor() {
     ["agent-wallet", path.join(packageRoot, "agent-wallet")],
     ["OpenClaw extension", path.join(packageRoot, ".openclaw", "extensions", "agent-wallet")],
     ["Codex plugin", path.join(packageRoot, "codex", "plugins", "agent-wallet", ".codex-plugin", "plugin.json")],
+    ["Claude Code plugin", path.join(packageRoot, "claude-code", "plugins", "agent-wallet", ".claude-plugin", "plugin.json")],
     ["wdk-btc-wallet", path.join(packageRoot, "wdk-btc-wallet", "package.json")],
     ["wdk-evm-wallet", path.join(packageRoot, "wdk-evm-wallet", "package.json")],
   ];
@@ -997,6 +1000,21 @@ function resolveCodexPluginSource() {
   throw new Error(`Missing Codex plugin bundle. Checked: ${candidates.join(", ")}`);
 }
 
+function resolveClaudeCodePluginSource() {
+  const currentRoot = resolvedCurrentRuntimeRoot();
+  const candidates = [];
+  if (currentRoot) {
+    candidates.push(path.join(currentRoot, "claude-code", "plugins", "agent-wallet"));
+  }
+  candidates.push(path.join(packageRoot, "claude-code", "plugins", "agent-wallet"));
+  for (const source of candidates) {
+    if (fs.existsSync(path.join(source, ".claude-plugin", "plugin.json"))) {
+      return source;
+    }
+  }
+  throw new Error(`Missing Claude Code plugin bundle. Checked: ${candidates.join(", ")}`);
+}
+
 function resolveCodexPluginInstallRoot(env = process.env) {
   return path.resolve(expandHome(env.AGENT_WALLET_CODEX_PLUGIN_ROOT || "~/plugins"));
 }
@@ -1250,6 +1268,79 @@ function runCodexInstall(args) {
   return add.skipped || add.ok ? 0 : 1;
 }
 
+function runClaudeCodeInstall(args) {
+  const pluginSource = resolveClaudeCodePluginSource();
+  const force = hasFlag(args, "--force");
+  const skipEnable = hasFlag(args, "--skip-enable");
+  const claudeBin = commandPath("claude");
+
+  // Symlink the plugin into ~/.claude/plugins/agent-wallet so Claude Code can load it.
+  const pluginInstallDir = path.join(os.homedir(), ".claude", "plugins");
+  const pluginTarget = path.join(pluginInstallDir, "agent-wallet");
+
+  fs.mkdirSync(pluginInstallDir, { recursive: true });
+  try {
+    const existing = fs.lstatSync(pluginTarget);
+    if (!existing.isSymbolicLink()) {
+      if (!force) {
+        throw new Error(`${pluginTarget} exists and is not a symlink. Pass --force to replace it.`);
+      }
+      fs.rmSync(pluginTarget, { recursive: true, force: true });
+    } else {
+      fs.unlinkSync(pluginTarget);
+    }
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  fs.symlinkSync(pluginSource, pluginTarget, "dir");
+
+  // Try `claude plugin install <path>` when the CLI is present.
+  let enable = { attempted: false, ok: false, skipped: skipEnable, error: "" };
+  if (!skipEnable) {
+    if (!claudeBin) {
+      enable = {
+        attempted: false,
+        ok: false,
+        skipped: false,
+        error:
+          "Claude Code CLI was not found on PATH. Load the plugin manually with: claude --plugin-dir " +
+          pluginTarget,
+      };
+    } else {
+      const result = spawnSync(claudeBin, ["plugin", "install", pluginTarget, "--scope", "user"], {
+        encoding: "utf8",
+        stdio: "pipe",
+      });
+      enable = {
+        attempted: true,
+        ok: result.status === 0,
+        skipped: false,
+        error: result.status === 0 ? "" : (result.stderr || result.stdout || "").trim(),
+      };
+    }
+  }
+
+  const pluginDirFlag = `claude --plugin-dir ${pluginTarget}`;
+  console.log(
+    JSON.stringify(
+      {
+        ok: enable.skipped || enable.ok,
+        plugin_source: pluginSource,
+        plugin_target: pluginTarget,
+        claude_code_install: enable,
+        manual_load: pluginDirFlag,
+        restart_required: true,
+        note: enable.ok
+          ? "Plugin registered. Restart Claude Code to activate."
+          : `If automatic registration failed, load the plugin with: ${pluginDirFlag}`,
+      },
+      null,
+      2,
+    ),
+  );
+  return enable.skipped || enable.ok ? 0 : 1;
+}
+
 const args = process.argv.slice(2);
 const command = args[0] || "install";
 
@@ -1300,6 +1391,16 @@ if (command === "codex") {
   }
   console.error(`Unknown codex command: ${subcommand}`);
   console.error("Run `openclaw-agent-wallet codex install --yes` to connect Codex.");
+  process.exit(2);
+}
+
+if (command === "claude-code") {
+  const subcommand = args[1] || "install";
+  if (subcommand === "install" || subcommand === "setup") {
+    process.exit(runClaudeCodeInstall(args.slice(2)));
+  }
+  console.error(`Unknown claude-code command: ${subcommand}`);
+  console.error("Run `openclaw-agent-wallet claude-code install --yes` to connect Claude Code.");
   process.exit(2);
 }
 
