@@ -1278,7 +1278,8 @@ const solanaToolDefinitions = [
   },
   {
     name: "get_kamino_open_positions",
-    description: "Get all open Kamino lending positions for a Solana wallet on mainnet, aggregated across markets with loan details, reserve APYs, and rewards.",
+    description:
+      "Get all open Kamino lending positions for a Solana wallet on mainnet, aggregated across markets with loan details, reserve APYs, and rewards.",
     parameters: {
       type: "object",
       properties: {

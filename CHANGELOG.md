@@ -2,15 +2,26 @@
 
 ## Unreleased
 
+## v0.1.29 - 2026-05-29
+
 - Added a new `Codex` plugin bridge under `codex/plugins/agent-wallet` so the
   existing local wallet runtime can be used directly inside Codex without
   creating a second wallet.
 - Kept the Codex bridge non-custodial and additive: it reuses the current
-  `agent-wallet` runtime, existing wallets, all supported networks, and the
-  current tool surface instead of replacing OpenClaw or Hermes.
+  `agent-wallet` runtime, existing wallets, and the current tool surface
+  instead of replacing OpenClaw or Hermes.
 - Added `wallet codex install --yes`, which links the bundled Codex plugin into
   the standard local plugin marketplace path and can ask Codex to install the
   plugin from that local marketplace.
+- Added `get_kamino_open_positions`, which aggregates the wallet's Kamino
+  positions across markets with loan details, reserve APYs, and rewards.
+- Removed Solana devnet/testnet support from the wallet runtime, host bridges,
+  and local helper scripts so the supported Solana surface is now mainnet-only.
+- Removed EVM testnet support from the wallet runtime and host bridges so the
+  supported EVM surface is now `ethereum` and `base` mainnet only.
+- Removed Bitcoin `testnet` and `regtest` support from the wallet runtime,
+  host bridges, and local helper scripts so the supported BTC surface is now
+  `bitcoin` mainnet only.
 
 ## v0.1.28 - 2026-05-28
 
