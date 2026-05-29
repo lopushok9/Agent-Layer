@@ -22,6 +22,7 @@ function printHelp() {
 Usage:
   openclaw-agent-wallet install [options]
   openclaw-agent-wallet hermes install [options]
+  openclaw-agent-wallet codex install [options]
   openclaw-agent-wallet update [options]
   openclaw-agent-wallet status
   openclaw-agent-wallet rollback [--to <version>]
@@ -37,6 +38,7 @@ Common install options:
 Examples:
   npx @agentlayer.tech/wallet install --yes
   npx @agentlayer.tech/wallet hermes install --yes
+  npx @agentlayer.tech/wallet codex install --yes
   npx @agentlayer.tech/wallet install --backend none
   npx @agentlayer.tech/wallet update --yes
   npx @agentlayer.tech/wallet update --yes --dry-run
@@ -88,6 +90,10 @@ function resolveRuntimeBase(env = process.env) {
 
 function resolveHermesHome(env = process.env) {
   return path.resolve(expandHome(env.HERMES_HOME || "~/.hermes"));
+}
+
+function resolveCodexHome(env = process.env) {
+  return path.resolve(expandHome(env.CODEX_HOME || "~/.codex"));
 }
 
 function releaseRootFor(version, env = process.env) {
@@ -545,6 +551,20 @@ function readEnvFile(pathname) {
   }
 }
 
+function readJsonFile(pathname) {
+  try {
+    return JSON.parse(fs.readFileSync(pathname, "utf8"));
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+function writeJsonFile(pathname, value) {
+  fs.mkdirSync(path.dirname(pathname), { recursive: true });
+  fs.writeFileSync(pathname, `${JSON.stringify(value, null, 2)}\n`);
+}
+
 function currentBootKey(env = process.env) {
   const currentRoot = resolvedCurrentRuntimeRoot(env);
   if (!currentRoot) return "";
@@ -600,6 +620,7 @@ function runDoctor() {
     ["setup.sh", setupPath],
     ["agent-wallet", path.join(packageRoot, "agent-wallet")],
     ["OpenClaw extension", path.join(packageRoot, ".openclaw", "extensions", "agent-wallet")],
+    ["Codex plugin", path.join(packageRoot, "codex", "plugins", "agent-wallet", ".codex-plugin", "plugin.json")],
     ["wdk-btc-wallet", path.join(packageRoot, "wdk-btc-wallet", "package.json")],
     ["wdk-evm-wallet", path.join(packageRoot, "wdk-evm-wallet", "package.json")],
   ];
@@ -961,6 +982,82 @@ function resolveHermesPluginSource() {
   throw new Error(`Missing Hermes plugin bundle. Checked: ${candidates.join(", ")}`);
 }
 
+function resolveCodexPluginSource() {
+  const currentRoot = resolvedCurrentRuntimeRoot();
+  const candidates = [];
+  if (currentRoot) {
+    candidates.push(path.join(currentRoot, "codex", "plugins", "agent-wallet"));
+  }
+  candidates.push(path.join(packageRoot, "codex", "plugins", "agent-wallet"));
+  for (const source of candidates) {
+    if (fs.existsSync(path.join(source, ".codex-plugin", "plugin.json"))) {
+      return source;
+    }
+  }
+  throw new Error(`Missing Codex plugin bundle. Checked: ${candidates.join(", ")}`);
+}
+
+function resolveCodexPluginInstallRoot(env = process.env) {
+  return path.resolve(expandHome(env.AGENT_WALLET_CODEX_PLUGIN_ROOT || "~/plugins"));
+}
+
+function resolveCodexMarketplacePath(env = process.env) {
+  return path.resolve(
+    expandHome(env.AGENT_WALLET_CODEX_MARKETPLACE_PATH || "~/.agents/plugins/marketplace.json"),
+  );
+}
+
+function ensureCodexMarketplaceEntry({ marketplacePath, pluginName }) {
+  const existing = readJsonFile(marketplacePath);
+  const payload = existing && typeof existing === "object"
+    ? existing
+    : {
+        name: "local",
+        interface: {
+          displayName: "Local Plugins",
+        },
+        plugins: [],
+      };
+
+  if (typeof payload.name !== "string" || !payload.name.trim()) {
+    payload.name = "local";
+  }
+  if (!payload.interface || typeof payload.interface !== "object") {
+    payload.interface = { displayName: "Local Plugins" };
+  }
+  if (typeof payload.interface.displayName !== "string" || !payload.interface.displayName.trim()) {
+    payload.interface.displayName = "Local Plugins";
+  }
+  if (!Array.isArray(payload.plugins)) {
+    payload.plugins = [];
+  }
+
+  const entry = {
+    name: pluginName,
+    source: {
+      source: "local",
+      path: `./plugins/${pluginName}`,
+    },
+    policy: {
+      installation: "AVAILABLE",
+      authentication: "ON_INSTALL",
+    },
+    category: "Coding",
+  };
+  const index = payload.plugins.findIndex((item) => item && item.name === pluginName);
+  if (index >= 0) {
+    payload.plugins[index] = entry;
+  } else {
+    payload.plugins.push(entry);
+  }
+  writeJsonFile(marketplacePath, payload);
+  return {
+    marketplace_name: payload.name,
+    marketplace_path: marketplacePath,
+    entry,
+  };
+}
+
 function resolveAgentWalletPackageRoot(env = process.env) {
   const currentRoot = resolvedCurrentRuntimeRoot(env);
   if (currentRoot) {
@@ -1072,6 +1169,87 @@ function runHermesInstall(args) {
   return enable.skipped || enable.ok ? 0 : 1;
 }
 
+function runCodexInstall(args) {
+  const codexHome = resolveCodexHome();
+  const pluginSource = resolveCodexPluginSource();
+  const pluginRoot = resolveCodexPluginInstallRoot();
+  const pluginTarget = path.join(pluginRoot, "agent-wallet");
+  const marketplacePath = resolveCodexMarketplacePath();
+  const force = hasFlag(args, "--force");
+  const skipEnable = hasFlag(args, "--skip-enable");
+  const codexBin = commandPath("codex");
+
+  fs.mkdirSync(pluginRoot, { recursive: true });
+  try {
+    const existing = fs.lstatSync(pluginTarget);
+    if (!existing.isSymbolicLink()) {
+      if (!force) {
+        throw new Error(`${pluginTarget} exists and is not a symlink. Pass --force to replace it.`);
+      }
+      fs.rmSync(pluginTarget, { recursive: true, force: true });
+    } else {
+      fs.unlinkSync(pluginTarget);
+    }
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  fs.symlinkSync(pluginSource, pluginTarget, "dir");
+
+  const marketplace = ensureCodexMarketplaceEntry({
+    marketplacePath,
+    pluginName: "agent-wallet",
+  });
+
+  let add = { attempted: false, ok: false, skipped: skipEnable, error: "" };
+  if (!skipEnable) {
+    if (!codexBin) {
+      add = {
+        attempted: false,
+        ok: false,
+        skipped: false,
+        error: "Codex CLI was not found on PATH. Run `codex plugin add agent-wallet@local` after installing Codex.",
+      };
+    } else {
+      const result = spawnSync(
+        codexBin,
+        ["plugin", "add", `agent-wallet@${marketplace.marketplace_name}`],
+        {
+          cwd: packageRoot,
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            CODEX_HOME: codexHome,
+          },
+        },
+      );
+      add = {
+        attempted: true,
+        ok: result.status === 0,
+        skipped: false,
+        error: result.status === 0 ? "" : (result.stderr || result.stdout || "").trim(),
+      };
+    }
+  }
+
+  console.log(
+    JSON.stringify(
+      {
+        ok: add.skipped || add.ok,
+        codex_home: codexHome,
+        plugin_source: pluginSource,
+        plugin_target: pluginTarget,
+        marketplace_path: marketplace.marketplace_path,
+        marketplace_name: marketplace.marketplace_name,
+        codex_add: add,
+        restart_required: true,
+      },
+      null,
+      2,
+    ),
+  );
+  return add.skipped || add.ok ? 0 : 1;
+}
+
 const args = process.argv.slice(2);
 const command = args[0] || "install";
 
@@ -1112,6 +1290,16 @@ if (command === "hermes") {
   }
   console.error(`Unknown hermes command: ${subcommand}`);
   console.error("Run `openclaw-agent-wallet hermes install --yes` to connect Hermes Agent.");
+  process.exit(2);
+}
+
+if (command === "codex") {
+  const subcommand = args[1] || "install";
+  if (subcommand === "install" || subcommand === "setup") {
+    process.exit(runCodexInstall(args.slice(2)));
+  }
+  console.error(`Unknown codex command: ${subcommand}`);
+  console.error("Run `openclaw-agent-wallet codex install --yes` to connect Codex.");
   process.exit(2);
 }
 

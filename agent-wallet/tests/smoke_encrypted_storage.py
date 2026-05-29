@@ -37,22 +37,22 @@ def main() -> None:
     derived_alice = _derive_user_scoped_key(
         master_key,
         user_id="alice@example.com",
-        network="devnet",
+        network="mainnet",
     )
     derived_bob = _derive_user_scoped_key(
         master_key,
         user_id="bob@example.com",
-        network="devnet",
+        network="mainnet",
     )
     assert derived_alice != derived_bob
     assert derived_alice == _derive_user_scoped_key(
         master_key,
         user_id="alice@example.com",
-        network="devnet",
+        network="mainnet",
     )
 
     path = Path("/tmp/openclaw-encrypted-wallet-smoke.json")
-    write_encrypted_wallet_file(path, secret_material, metadata={"network": "devnet"})
+    write_encrypted_wallet_file(path, secret_material, metadata={"network": "mainnet"})
     loaded, storage_format = load_wallet_secret_material(path)
     assert loaded == secret_material
     assert storage_format == "encrypted"

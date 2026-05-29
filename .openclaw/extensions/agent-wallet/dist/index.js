@@ -331,8 +331,11 @@ function normalizeSolanaNetwork(value) {
     "mainnet-beta": "mainnet",
   };
   const normalized = aliases[network] || network;
-  if (!["mainnet", "devnet", "testnet"].includes(normalized)) {
-    throw new Error("Solana network must be mainnet, devnet, or testnet.");
+  if (["devnet", "testnet"].includes(normalized)) {
+    throw new Error("Solana devnet/testnet are no longer supported. Use mainnet.");
+  }
+  if (normalized !== "mainnet") {
+    throw new Error("Solana network must be mainnet.");
   }
   return normalized;
 }
@@ -399,7 +402,6 @@ function inferBackendForTool(toolName) {
     toolName === "transfer_spl_token" ||
     toolName === "sign_wallet_message" ||
     toolName === "close_empty_token_accounts" ||
-    toolName === "request_devnet_airdrop" ||
     toolName === "get_wallet_portfolio" ||
     toolName === "get_solana_token_prices"
   ) {
@@ -991,7 +993,7 @@ const walletSessionToolDefinitions = [
         },
         network: {
           type: "string",
-          description: "Optional network for the selected wallet. Examples: mainnet, devnet, ethereum, base, bitcoin, testnet.",
+          description: "Optional network for the selected wallet. Examples: mainnet, ethereum, base, bitcoin, testnet.",
         },
       },
       required: ["backend"],
@@ -1258,6 +1260,20 @@ const solanaToolDefinitions = [
   {
     name: "get_kamino_lend_user_rewards",
     description: "Get Kamino rewards summary for a Solana wallet on mainnet.",
+    parameters: {
+      type: "object",
+      properties: {
+        user: {
+          type: "string",
+          description: "Optional Solana wallet address override.",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_kamino_open_positions",
+    description: "Get all open Kamino lending positions for a Solana wallet on mainnet, aggregated across markets with loan details, reserve APYs, and rewards.",
     parameters: {
       type: "object",
       properties: {
@@ -1680,19 +1696,6 @@ const solanaToolDefinitions = [
         purpose: { type: "string" },
       },
       required: ["limit", "mode", "purpose"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "request_devnet_airdrop",
-    description: "Request devnet or testnet SOL from the faucet.",
-    optional: true,
-    parameters: {
-      type: "object",
-      properties: {
-        amount: { type: "number" },
-      },
-      required: ["amount"],
       additionalProperties: false,
     },
   },

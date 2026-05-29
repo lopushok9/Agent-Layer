@@ -520,6 +520,9 @@ class AgentWalletBackend(ABC):
     async def get_kamino_lend_user_rewards(self, user: str | None = None) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Kamino rewards lookup.")
 
+    async def get_kamino_open_positions(self, user: str | None = None) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Kamino open position lookup.")
+
     async def preview_kamino_lend_deposit(
         self,
         market: str,
@@ -993,9 +996,6 @@ class AgentWalletBackend(ABC):
                 else None
             ),
         )
-
-    async def request_testnet_airdrop(self, amount_native: float) -> dict[str, Any]:
-        raise WalletBackendError(f"{self.name} does not support testnet airdrops.")
 
     async def preview_native_stake(
         self,

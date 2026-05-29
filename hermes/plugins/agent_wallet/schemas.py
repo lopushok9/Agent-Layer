@@ -48,7 +48,7 @@ AGENT_WALLET_INVOKE = {
             },
             "network": {
                 "type": "string",
-                "description": "Optional network override, such as devnet, mainnet, bitcoin, ethereum, or base.",
+                "description": "Optional network override, such as mainnet, bitcoin, ethereum, or base.",
             },
             "user_id": {
                 "type": "string",

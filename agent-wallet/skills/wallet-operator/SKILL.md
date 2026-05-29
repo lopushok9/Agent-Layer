@@ -116,7 +116,6 @@ Use this skill before calling OpenClaw wallet tools. It is the routing guide for
 - `claim_bags_fees`: `token_mint`, `mode`, `purpose`.
 - `launch_bags_token`: `name`, `symbol`, `description`, `base_mint`, `claimers`, `basis_points`, `initial_buy_sol`, `mode`, `purpose`; optional socials/image/config type.
 - `close_empty_token_accounts`: `limit`, `mode` (`preview` or `execute`), `purpose`.
-- `request_devnet_airdrop`: `amount`; only outside mainnet.
 
 ## Approval Flow Template
 

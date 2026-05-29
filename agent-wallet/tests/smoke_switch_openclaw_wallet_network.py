@@ -26,7 +26,7 @@ def main() -> None:
                             "config": {
                                 "userId": "switch-user@example.com",
                                 "backend": "solana_local",
-                                "network": "devnet",
+                                "network": "mainnet",
                                 "signOnly": False,
                                 "openclawHome": str(temp_dir / ".openclaw"),
                             },

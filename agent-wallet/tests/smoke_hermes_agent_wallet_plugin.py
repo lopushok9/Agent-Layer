@@ -95,7 +95,7 @@ def main() -> None:
                 {
                     "tool_name": "get_wallet_address",
                     "backend": "solana_local",
-                    "network": "devnet",
+                    "network": "mainnet",
                     "arguments": {},
                     "user_id": "hermes-test-user",
                 }
@@ -130,10 +130,10 @@ def main() -> None:
                 {
                     "tool_name": "transfer_sol",
                     "backend": "solana_local",
-                    "network": "devnet",
+                    "network": "mainnet",
                     "confirmation_summary": {
                         "operation": "transfer SOL",
-                        "network": "devnet",
+                        "network": "mainnet",
                         "amount_lamports": "1000",
                     },
                     "user_confirmed": True,

@@ -26,7 +26,7 @@ It provides:
 - runtime instructions for safe wallet usage
 - a single `invoke()` method for safe dispatch
 - OpenClaw-style plugin manifest and skill bundle
-- explicit network-aware results so the host and agent can see `devnet` vs `mainnet`
+- explicit network-aware results so the host and agent can see the active chain network
 
 ## Hermes integration
 
@@ -98,6 +98,7 @@ Current safe tools:
 - `get_kamino_lend_market_reserves`
 - `get_kamino_lend_user_obligations`
 - `get_kamino_lend_user_rewards`
+- `get_kamino_open_positions`
 - `jupiter_earn_deposit`
 - `jupiter_earn_withdraw`
 - `kamino_lend_deposit`
@@ -107,7 +108,6 @@ Current safe tools:
 - `close_empty_token_accounts`
 - `deactivate_solana_stake`
 - `withdraw_solana_stake`
-- `request_devnet_airdrop`
 - `x402_search_services`
 - `x402_get_service_details`
 - `x402_preview_request`
@@ -190,7 +190,7 @@ For production `mainnet`, prefer a dedicated RPC instead of the public Solana en
 
 - `SOLANA_RPC_URL` for one primary endpoint
 - `SOLANA_RPC_URLS` as a comma-separated ordered failover list
-- or just `ALCHEMY_API_KEY` / `HELIUS_API_KEY`, which auto-derive a primary Solana RPC for `mainnet` or `devnet`
+- or just `ALCHEMY_API_KEY` / `HELIUS_API_KEY`, which auto-derive a primary Solana RPC for `mainnet`
 
 Production recommendation: treat RPC as deployment-owned config, not wallet logic. Runtime env wins over `openclaw.json` plugin config, so keep `Alchemy/Helius/QuickNode` endpoints in deployment secrets or service env and use plugin `rpcUrl` / `rpcUrls` only as local fallback.
 
@@ -277,9 +277,7 @@ export AGENT_WALLET_BOOT_KEY='paste-generated-secret-here'
 In that mode, `agent-wallet` will auto-resolve:
 
 - `mainnet` -> `https://solana-mainnet.g.alchemy.com/v2/<ALCHEMY_API_KEY>`
-- `devnet` -> `https://solana-devnet.g.alchemy.com/v2/<ALCHEMY_API_KEY>`
 - `mainnet` -> `https://mainnet.helius-rpc.com/?api-key=<HELIUS_API_KEY>`
-- `devnet` -> `https://devnet.helius-rpc.com/?api-key=<HELIUS_API_KEY>`
 
 and still append the official Solana endpoint as fallback.
 
@@ -500,14 +498,13 @@ This keeps wallet creation and custody in the host/runtime layer while the agent
 
 The wallet backend is already network-scoped:
 
-- `devnet` and `mainnet` use different wallet files
-- per-user wallets are stored as `solana-<network>-agent.json`
-- switching networks does not mix balances or stake accounts across clusters
+- Solana stays on `mainnet`
+- per-user Solana wallets continue to use `solana-mainnet-agent.json`
+- switching BTC or EVM networks does not mix balances across chains
 
 For a local OpenClaw install, use:
 
 ```bash
-python agent-wallet/scripts/switch_openclaw_wallet_network.py --network devnet
 python agent-wallet/scripts/switch_openclaw_wallet_network.py --network mainnet
 ```
 
@@ -570,7 +567,7 @@ Operational notes:
 
 - this path uses Solana RPC and the Stake Program directly, without third-party DeFi APIs
 - stake creation allocates a new stake account controlled by the connected wallet as staker and withdrawer
-- preview and prepare were live-checked on devnet against a real wallet context
+- preview and prepare were live-checked against a real wallet context
 
 ## Official OpenClaw plugin
 
@@ -612,13 +609,13 @@ Public-safe helper scripts are available in `agent-wallet/scripts/`:
 Both scripts now use generic defaults instead of hardcoded local usernames or paths. Sensitive secrets must be supplied via protected environment variables, not config JSON or CLI arguments.
 When `~/.openclaw/agent-wallet-runtime/current` exists, the config installer now prefers that trusted runtime path over a workspace checkout for the plugin manifest, package root, and Python bridge launcher.
 
-Recommended devnet setup:
+Recommended Solana mainnet setup:
 
 ```bash
 AGENT_WALLET_BACKEND=solana_local
 AGENT_WALLET_BOOT_KEY=change-this-in-production
-SOLANA_NETWORK=devnet
-SOLANA_RPC_URLS=https://api.devnet.solana.com
+SOLANA_NETWORK=mainnet
+SOLANA_RPC_URLS=https://api.mainnet-beta.solana.com
 SOLANA_AUTO_CREATE_WALLET=true
 AGENT_WALLET_SIGN_ONLY=false
 ```
@@ -641,4 +638,3 @@ The package now supports:
 - Jupiter-based swap preview and execution on mainnet
 - compact swap `fee_summary` in preview/prepare/execute, including known network fees and route fee bps when Jupiter provides them
 - zero-balance token account cleanup
-- devnet/testnet faucet airdrop

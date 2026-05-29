@@ -236,7 +236,15 @@ def _infer_backend_for_tool(tool_name: str) -> str | None:
         or "jupiter" in tool_name
         or "kamino" in tool_name
         or "bags" in tool_name
-        or tool_name in {"transfer_sol", "transfer_spl_token", "sign_wallet_message", "close_empty_token_accounts", "request_devnet_airdrop", "get_wallet_portfolio", "get_solana_token_prices"}
+        or tool_name
+        in {
+            "transfer_sol",
+            "transfer_spl_token",
+            "sign_wallet_message",
+            "close_empty_token_accounts",
+            "get_wallet_portfolio",
+            "get_solana_token_prices",
+        }
     ):
         return "solana_local"
     return None
@@ -269,7 +277,9 @@ def _normalize_network_for_backend(backend: str, raw_network: Any) -> str:
         "mainnet-beta": "mainnet",
     }
     normalized = aliases.get(network, network)
-    return normalized if normalized in {"mainnet", "devnet", "testnet"} else "mainnet"
+    if normalized in {"devnet", "testnet"}:
+        raise RuntimeError("Solana devnet/testnet are no longer supported. Use mainnet.")
+    return normalized if normalized == "mainnet" else "mainnet"
 
 
 def _reject_secret_config(config: dict[str, Any]) -> None:

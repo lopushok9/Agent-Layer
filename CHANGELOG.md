@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Added a new `Codex` plugin bridge under `codex/plugins/agent-wallet` so the
+  existing local wallet runtime can be used directly inside Codex without
+  creating a second wallet.
+- Kept the Codex bridge non-custodial and additive: it reuses the current
+  `agent-wallet` runtime, existing wallets, all supported networks, and the
+  current tool surface instead of replacing OpenClaw or Hermes.
+- Added `wallet codex install --yes`, which links the bundled Codex plugin into
+  the standard local plugin marketplace path and can ask Codex to install the
+  plugin from that local marketplace.
+
 ## v0.1.28 - 2026-05-28
 
 - Simplified `x402_pay_request` into a single-shot paid execution flow while

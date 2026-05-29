@@ -5,8 +5,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agent_wallet.file_ops import atomic_write_text, chmod_if_exists
 from security_utils import write_redacted_backup
@@ -20,7 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config-path", default=str(_default_config_path()))
     parser.add_argument("--plugin-id", default="agent-wallet")
-    parser.add_argument("--network", required=True, choices=["mainnet", "devnet", "testnet"])
+    parser.add_argument("--network", required=True, choices=["mainnet"])
     parser.add_argument("--rpc-url", default="")
     parser.add_argument("--rpc-urls", default="")
     parser.add_argument("--sign-only", action=argparse.BooleanOptionalAction, default=None)

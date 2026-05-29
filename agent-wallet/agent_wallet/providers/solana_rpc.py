@@ -42,11 +42,6 @@ def _parse_gateway_url(rpc_url: str) -> tuple[str, str, str]:
 
 def _fallback_for_rpc_url(rpc_url: str) -> str:
     """Choose a cluster-appropriate official fallback URL."""
-    lowered = rpc_url.lower()
-    if "devnet" in lowered:
-        return "https://api.devnet.solana.com"
-    if "testnet" in lowered:
-        return "https://api.testnet.solana.com"
     return SOLANA_RPC_FALLBACK
 
 
@@ -411,24 +406,6 @@ async def simulate_transaction(
     return {
         "result": data.get("result"),
         "value": (data.get("result") or {}).get("value"),
-        "source": "solana-rpc",
-    }
-
-
-async def request_airdrop(
-    address: str,
-    lamports: int,
-    rpc_url: str,
-    commitment: str = "confirmed",
-) -> dict[str, Any]:
-    """Request a devnet or testnet SOL airdrop."""
-    data = await rpc_call(
-        "requestAirdrop",
-        [address, lamports, {"commitment": commitment}],
-        rpc_url=rpc_url,
-    )
-    return {
-        "signature": data.get("result"),
         "source": "solana-rpc",
     }
 

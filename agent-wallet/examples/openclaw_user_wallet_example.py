@@ -16,7 +16,7 @@ async def main() -> None:
     backend = create_wallet_backend_for_user(
         user_id,
         sign_only=False,
-        network="devnet",
+        network="mainnet",
     )
     adapter = OpenClawWalletAdapter(backend)
 

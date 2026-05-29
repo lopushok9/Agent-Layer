@@ -82,6 +82,29 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
+def normalize_solana_network(network: str | None) -> str:
+    """Canonicalize supported Solana network names and reject test clusters."""
+    normalized = str(network or "").strip().lower() or "mainnet"
+    aliases = {
+        "mainnet-beta": "mainnet",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized in {"devnet", "testnet"}:
+        from agent_wallet.wallet_layer.base import WalletBackendError
+
+        raise WalletBackendError(
+            "Solana devnet/testnet are no longer supported by agent-wallet. "
+            "Use mainnet or remove the Solana network override."
+        )
+    if normalized != "mainnet":
+        from agent_wallet.wallet_layer.base import WalletBackendError
+
+        raise WalletBackendError(
+            f"Unsupported Solana network: {normalized}. Only mainnet is supported."
+        )
+    return "mainnet"
+
+
 def _normalize_provider_mode(value: str | None) -> str:
     mode = (value or "").strip().lower()
     if not mode:
@@ -129,20 +152,20 @@ def resolve_openclaw_home() -> Path:
 
 def default_solana_wallet_path(network: str) -> Path:
     """Return the default keypair path for a Solana wallet."""
-    return resolve_openclaw_home() / "wallets" / f"solana-{network}-agent.json"
+    normalized_network = normalize_solana_network(network)
+    return resolve_openclaw_home() / "wallets" / f"solana-{normalized_network}-agent.json"
 
 
 def resolve_solana_rpc_url(network: str, configured: str) -> str:
     """Resolve the effective Solana RPC URL from network + optional override."""
+    normalized_network = normalize_solana_network(network)
     if configured.strip():
         return configured.strip()
 
     mapping = {
         "mainnet": "https://api.mainnet-beta.solana.com",
-        "devnet": "https://api.devnet.solana.com",
-        "testnet": "https://api.testnet.solana.com",
     }
-    return mapping.get(network.strip().lower(), mapping["mainnet"])
+    return mapping.get(normalized_network, mapping["mainnet"])
 
 
 def resolve_solana_rpc_urls(
@@ -151,17 +174,18 @@ def resolve_solana_rpc_urls(
     configured_list: str = "",
 ) -> list[str]:
     """Resolve the ordered list of Solana RPC URLs to try."""
+    normalized_network = normalize_solana_network(network)
     candidates: list[str] = []
     for raw in (configured_list or "").split(","):
         value = raw.strip()
         if value and value not in candidates:
             candidates.append(value)
 
-    primary = resolve_solana_rpc_url(network, configured)
+    primary = resolve_solana_rpc_url(normalized_network, configured)
     if primary and primary not in candidates:
         candidates.insert(0, primary)
 
-    official = resolve_solana_rpc_url(network, "")
+    official = resolve_solana_rpc_url(normalized_network, "")
     if official and official not in candidates:
         candidates.append(official)
 
@@ -169,7 +193,8 @@ def resolve_solana_rpc_urls(
 
 
 def _build_provider_gateway_rpc_url(base_url: str, provider: str, network: str) -> str:
-    return f"gateway::{provider}::{network.strip().lower()}::{base_url.rstrip('/')}/v1/rpc"
+    normalized_network = normalize_solana_network(network)
+    return f"gateway::{provider}::{normalized_network}::{base_url.rstrip('/')}/v1/rpc"
 
 
 def resolve_runtime_solana_rpc_config(
@@ -185,6 +210,7 @@ def resolve_runtime_solana_rpc_config(
     3. shared proxy gateway
     4. public official fallback
     """
+    normalized_network = normalize_solana_network(network)
     mode = _normalize_provider_mode(
         os.getenv("SOLANA_RPC_PROVIDER_MODE", settings.solana_rpc_provider_mode)
     )
@@ -200,10 +226,10 @@ def resolve_runtime_solana_rpc_config(
             "mode": "user_direct",
             "provider": "custom",
             "transport": "direct",
-            "rpc_urls": resolve_solana_rpc_urls(network, env_primary, env_list),
+            "rpc_urls": resolve_solana_rpc_urls(normalized_network, env_primary, env_list),
         }
     if env_list:
-        official = resolve_solana_rpc_url(network, "")
+        official = resolve_solana_rpc_url(normalized_network, "")
         candidates = [item.strip() for item in env_list.split(",") if item.strip()]
         if official and official not in candidates:
             candidates.append(official)
@@ -218,16 +244,15 @@ def resolve_runtime_solana_rpc_config(
     if alchemy_key:
         alchemy_base_by_network = {
             "mainnet": "https://solana-mainnet.g.alchemy.com/v2",
-            "devnet": "https://solana-devnet.g.alchemy.com/v2",
         }
-        alchemy_base = alchemy_base_by_network.get(network.strip().lower())
+        alchemy_base = alchemy_base_by_network.get(normalized_network)
         if alchemy_base:
             return {
                 "mode": "user_direct",
                 "provider": "alchemy",
                 "transport": "direct",
                 "rpc_urls": resolve_solana_rpc_urls(
-                    network,
+                    normalized_network,
                     f"{alchemy_base}/{alchemy_key}",
                     "",
                 ),
@@ -237,35 +262,40 @@ def resolve_runtime_solana_rpc_config(
     if helius_key:
         helius_base_by_network = {
             "mainnet": "https://mainnet.helius-rpc.com/",
-            "devnet": "https://devnet.helius-rpc.com/",
         }
-        helius_base = helius_base_by_network.get(network.strip().lower())
+        helius_base = helius_base_by_network.get(normalized_network)
         if helius_base:
             return {
                 "mode": "user_direct",
                 "provider": "helius",
                 "transport": "direct",
                 "rpc_urls": resolve_solana_rpc_urls(
-                    network,
+                    normalized_network,
                     f"{helius_base}?api-key={helius_key}",
                     "",
                 ),
             }
 
-    if network.strip().lower() == "mainnet" and (mode == "shared_proxy" or (mode == "auto" and gateway_url)):
+    if normalized_network == "mainnet" and (mode == "shared_proxy" or (mode == "auto" and gateway_url)):
         if gateway_url:
             return {
                 "mode": "shared_proxy",
                 "provider": gateway_provider,
                 "transport": "proxy",
-                "rpc_urls": [_build_provider_gateway_rpc_url(gateway_url, gateway_provider, network)],
+                "rpc_urls": [
+                    _build_provider_gateway_rpc_url(
+                        gateway_url,
+                        gateway_provider,
+                        normalized_network,
+                    )
+                ],
             }
 
     return {
         "mode": "public_fallback",
         "provider": "official",
         "transport": "direct",
-        "rpc_urls": resolve_solana_rpc_urls(network, configured, configured_list),
+        "rpc_urls": resolve_solana_rpc_urls(normalized_network, configured, configured_list),
     }
 
 
@@ -289,10 +319,7 @@ def resolve_runtime_solana_swap_config(network: str) -> dict[str, str]:
     requested = _normalize_swap_provider(
         os.getenv("SOLANA_SWAP_PROVIDER", settings.solana_swap_provider)
     )
-    normalized_network = network.strip().lower()
-
-    if normalized_network != "mainnet":
-        return {"provider": "jupiter", "transport": "direct"}
+    normalize_solana_network(network)
 
     if requested == "jupiter":
         return {"provider": "jupiter", "transport": "direct"}

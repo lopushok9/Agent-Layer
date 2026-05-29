@@ -79,7 +79,7 @@ If that runtime is not present, set `plugins.entries.agent-wallet.config.package
 
 That installs the Python backend, Node dependencies for the local BTC/EVM runtimes, patches the OpenClaw plugin config, and provisions the first encrypted per-user Solana mainnet wallet when no explicit signer is already configured. EVM readiness can still be auto-healed during normal wallet switching when the runtime has sealed local vault credentials.
 
-For self-hosted installs, prefer `SOLANA_RPC_URL` / `SOLANA_RPC_URLS` in local env and treat the plugin `rpcUrl` / `rpcUrls` fields as fallback only. If the local runtime exposes `ALCHEMY_API_KEY` or `HELIUS_API_KEY`, the wallet can derive the Solana RPC URL automatically for `mainnet` or `devnet`. Local env always takes precedence over `openclaw.json`.
+For self-hosted installs, prefer `SOLANA_RPC_URL` / `SOLANA_RPC_URLS` in local env and treat the plugin `rpcUrl` / `rpcUrls` fields as fallback only. If the local runtime exposes `ALCHEMY_API_KEY` or `HELIUS_API_KEY`, the wallet can derive the Solana RPC URL automatically for `mainnet`. Local env always takes precedence over `openclaw.json`.
 
 Provide only `AGENT_WALLET_BOOT_KEY` to the runtime. Provision `master_key`, `approval_secret`, and any signer `private_key` into `sealed_keys.json`, not `openclaw.json`.
 
@@ -134,14 +134,13 @@ For staking specifically, the normal agent flow should be:
 
 The extension is already network-aware:
 
-- `plugins.entries.agent-wallet.config.network` selects `mainnet`, `devnet`, or `testnet`
-- each network uses a separate wallet file for the same `userId`
-- switching networks does not merge balances across clusters
+- `plugins.entries.agent-wallet.config.network` selects `mainnet` for Solana, `bitcoin/testnet/regtest` for BTC, or the supported EVM networks
+- Solana mainnet wallets keep the same per-user file layout
+- switching the configured backend network does not merge balances across chains
 
 Recommended local switch helper:
 
 ```bash
-python agent-wallet/scripts/switch_openclaw_wallet_network.py --network devnet
 python agent-wallet/scripts/switch_openclaw_wallet_network.py --network mainnet
 ```
 

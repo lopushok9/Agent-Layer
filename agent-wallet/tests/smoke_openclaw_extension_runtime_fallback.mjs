@@ -42,7 +42,7 @@ async function main() {
         ok: true,
         data: {
           backend: "solana_local",
-          network: "devnet",
+          network: "mainnet",
         },
       }),
       stderr: "",
@@ -68,7 +68,7 @@ async function main() {
               config: {
                 userId: "openclaw-test-user",
                 backend: "solana_local",
-                network: "devnet",
+                network: "mainnet",
                 pythonBin: "/tmp/fake-python",
               },
             },

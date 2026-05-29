@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from agent_wallet.config import refuse_mainnet_wallet_recreation
+from agent_wallet.config import normalize_solana_network, refuse_mainnet_wallet_recreation
 from agent_wallet.file_ops import atomic_write_text
 from agent_wallet.wallet_layer.base import WalletBackendError
 from agent_wallet.wallet_layer.base58 import b58encode
@@ -79,11 +79,12 @@ def load_wallet_pin(path: Path) -> dict[str, str] | None:
 
 def write_wallet_pin(path: Path, *, address: str, network: str) -> dict[str, str]:
     """Persist the expected wallet address for later mismatch checks."""
+    normalized_network = normalize_solana_network(network)
     payload = {
         "kind": WALLET_ADDRESS_PIN_KIND,
         "version": WALLET_ADDRESS_PIN_VERSION,
         "address": address,
-        "network": network.strip().lower(),
+        "network": normalized_network,
         "wallet_file": path.name,
     }
     pin_path = resolve_wallet_pin_path(path)
@@ -97,7 +98,7 @@ def write_wallet_pin(path: Path, *, address: str, network: str) -> dict[str, str
 
 def ensure_wallet_pin(path: Path, *, address: str, network: str) -> dict[str, str]:
     """Ensure the wallet pin exists and matches the expected address."""
-    expected_network = network.strip().lower()
+    expected_network = normalize_solana_network(network)
     existing = load_wallet_pin(path)
     if existing is None:
         return write_wallet_pin(path, address=address, network=expected_network)
@@ -114,7 +115,7 @@ def ensure_wallet_pin(path: Path, *, address: str, network: str) -> dict[str, st
 
 def refuse_recreation_if_pinned(path: Path, *, network: str) -> None:
     """Refuse to recreate a wallet when a mainnet address is already pinned."""
-    expected_network = network.strip().lower()
+    expected_network = normalize_solana_network(network)
     if expected_network != "mainnet" or not refuse_mainnet_wallet_recreation():
         return
     existing = load_wallet_pin(path)
@@ -128,7 +129,11 @@ def refuse_recreation_if_pinned(path: Path, *, network: str) -> None:
 
 def ensure_solana_wallet_ready() -> dict[str, str] | None:
     """Ensure that a Solana wallet exists when auto-create is enabled."""
-    from agent_wallet.config import default_solana_wallet_path, resolve_solana_private_key, settings
+    from agent_wallet.config import (
+        default_solana_wallet_path,
+        resolve_solana_private_key,
+        settings,
+    )
 
     if settings.agent_wallet_backend.strip().lower() not in {"solana", "solana_local", "solana-local"}:
         return None
@@ -136,8 +141,13 @@ def ensure_solana_wallet_ready() -> dict[str, str] | None:
     if resolve_solana_private_key():
         return {"address": "", "path": ""}
 
+    normalized_network = normalize_solana_network(settings.solana_network)
     configured_path = settings.solana_agent_keypair_path.strip()
-    path = Path(configured_path).expanduser() if configured_path else default_solana_wallet_path(settings.solana_network)
+    path = (
+        Path(configured_path).expanduser()
+        if configured_path
+        else default_solana_wallet_path(normalized_network)
+    )
 
     if path.exists():
         return {"address": "", "path": str(path)}
@@ -145,9 +155,9 @@ def ensure_solana_wallet_ready() -> dict[str, str] | None:
     if not settings.solana_auto_create_wallet:
         return None
 
-    refuse_recreation_if_pinned(path, network=settings.solana_network)
+    refuse_recreation_if_pinned(path, network=normalized_network)
     created = create_solana_wallet_file(path)
-    write_wallet_pin(path, address=created["address"], network=settings.solana_network)
+    write_wallet_pin(path, address=created["address"], network=normalized_network)
     return created
 
 
@@ -155,22 +165,28 @@ def describe_bootstrap() -> dict[str, str | bool]:
     """Return the effective bootstrap configuration for installer/runtime usage."""
     from agent_wallet.config import (
         default_solana_wallet_path,
+        normalize_solana_network,
         resolve_solana_rpc_url,
         resolve_runtime_solana_rpc_urls,
         settings,
     )
 
+    normalized_network = normalize_solana_network(settings.solana_network)
     configured_path = settings.solana_agent_keypair_path.strip()
-    path = Path(configured_path).expanduser() if configured_path else default_solana_wallet_path(settings.solana_network)
+    path = (
+        Path(configured_path).expanduser()
+        if configured_path
+        else default_solana_wallet_path(normalized_network)
+    )
     rpc_urls = resolve_runtime_solana_rpc_urls(
-        settings.solana_network,
+        normalized_network,
         settings.solana_rpc_url,
         settings.solana_rpc_urls,
     )
     return {
         "backend": settings.agent_wallet_backend,
-        "network": settings.solana_network,
-        "rpc_url": rpc_urls[0] if rpc_urls else resolve_solana_rpc_url(settings.solana_network, ""),
+        "network": normalized_network,
+        "rpc_url": rpc_urls[0] if rpc_urls else resolve_solana_rpc_url(normalized_network, ""),
         "rpc_urls": rpc_urls,
         "auto_create_wallet": settings.solana_auto_create_wallet,
         "keypair_path": str(path),

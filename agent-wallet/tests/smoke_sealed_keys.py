@@ -85,9 +85,9 @@ def main() -> None:
 
     settings.agent_wallet_backend = "solana_local"
     settings.agent_wallet_sign_only = True
-    settings.solana_network = "devnet"
+    settings.solana_network = "mainnet"
     settings.solana_rpc_url = ""
-    settings.solana_rpc_urls = "https://api.devnet.solana.com"
+    settings.solana_rpc_urls = "https://api.mainnet-beta.solana.com"
     settings.solana_commitment = "confirmed"
     settings.solana_agent_public_key = material["address"]
     settings.solana_agent_keypair_path = ""

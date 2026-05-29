@@ -13,6 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agent_wallet.file_ops import atomic_write_text, chmod_if_exists
+from agent_wallet.config import normalize_solana_network
 from agent_wallet.sealed_keys import resolve_sealed_keys_path, seal_keys, unseal_keys
 from security_utils import write_redacted_backup
 
@@ -42,7 +43,6 @@ LEGACY_ALLOWLIST_TOOLS = [
     "transfer_spl_token",
     "swap_solana_tokens",
     "close_empty_token_accounts",
-    "request_devnet_airdrop",
     "get_flash_trade_markets",
     "get_flash_trade_positions",
     "flash_trade_open_position",
@@ -184,7 +184,7 @@ def _normalize_network(backend: str, network: str) -> str:
         if normalized == "mainnet":
             return "bitcoin"
         return normalized or "bitcoin"
-    return normalized or "devnet"
+    return normalize_solana_network(normalized or "mainnet")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -193,7 +193,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--plugin-id", default="agent-wallet")
     parser.add_argument("--user-id", default="")
     parser.add_argument("--backend", default="solana_local")
-    parser.add_argument("--network", default="devnet")
+    parser.add_argument("--network", default="mainnet")
     parser.add_argument("--rpc-url", default="")
     parser.add_argument("--rpc-urls", default="")
     parser.add_argument("--wdk-btc-service-url", default="")

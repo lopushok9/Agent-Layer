@@ -9,7 +9,7 @@ import logging
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from agent_wallet.config import resolve_solana_rpc_url
+from agent_wallet.config import normalize_solana_network, resolve_solana_rpc_url
 from agent_wallet.exceptions import ProviderError
 from agent_wallet.http_client import get_client
 from agent_wallet.wallet_layer.base import AgentWalletBackend
@@ -19,7 +19,6 @@ AGENTIC_MARKET_API_BASE_URL = "https://api.agentic.market/v1"
 X402_EXECUTE_TIMEOUT_SECONDS = 45.0
 SOLANA_CAIP_BY_NETWORK = {
     "mainnet": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
-    "devnet": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
 }
 EVM_CAIP_BY_NETWORK = {
     "ethereum": "eip155:1",
@@ -63,7 +62,7 @@ def _backend_solana_sdk_rpc_url(backend: AgentWalletBackend) -> str | None:
     if primary.startswith(("http://", "https://")):
         return primary
     network = _backend_network(backend)
-    fallback = resolve_solana_rpc_url(network or "mainnet", "")
+    fallback = resolve_solana_rpc_url(normalize_solana_network(network or "mainnet"), "")
     return _trim(fallback) or None
 
 
@@ -361,7 +360,7 @@ def _wallet_caip_networks(backend: AgentWalletBackend) -> list[str]:
 def _solana_exact_execution_supported(backend: AgentWalletBackend) -> bool:
     return (
         _backend_chain(backend) == "solana"
-        and _backend_network(backend) in {"mainnet", "devnet"}
+        and _backend_network(backend) == "mainnet"
         and getattr(backend, "signer", None) is not None
     )
 
@@ -390,7 +389,6 @@ def _wallet_x402_support_summary(backend: AgentWalletBackend) -> dict[str, Any]:
         "eip155:8453",
         "eip155:84532",
         "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
-        "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
     }
     execution_modes: list[str] = []
     if _solana_exact_execution_supported(backend):

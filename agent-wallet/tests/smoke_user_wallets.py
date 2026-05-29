@@ -32,33 +32,33 @@ def main() -> None:
     )
     os.environ["AGENT_WALLET_MIGRATE_PLAINTEXT_USER_WALLETS"] = "true"
 
-    first = ensure_user_solana_wallet("alice@example.com", network="devnet")
-    second = ensure_user_solana_wallet("bob@example.com", network="devnet")
+    first = ensure_user_solana_wallet("alice@example.com", network="mainnet")
+    second = ensure_user_solana_wallet("bob@example.com", network="mainnet")
 
     assert first["address"] != second["address"]
     assert Path(first["path"]).exists()
     assert Path(second["path"]).exists()
     assert normalize_user_id("alice@example.com") != normalize_user_id("bob@example.com")
-    assert resolve_user_wallet_path("alice@example.com", "devnet") != resolve_user_wallet_path(
+    assert resolve_user_wallet_path("alice@example.com", "mainnet") != resolve_user_wallet_path(
         "bob@example.com",
-        "devnet",
+        "mainnet",
     )
     assert first["storage_format"] == "encrypted"
     assert second["storage_format"] == "encrypted"
     assert is_encrypted_wallet_payload(Path(first["path"]).read_text(encoding="utf-8"))
     assert is_encrypted_wallet_payload(Path(second["path"]).read_text(encoding="utf-8"))
 
-    backend = create_wallet_backend_for_user("alice@example.com", sign_only=True, network="devnet")
+    backend = create_wallet_backend_for_user("alice@example.com", sign_only=True, network="mainnet")
     assert backend.address == first["address"]
     assert backend.sign_only is True
     assert "users" in first["path"]
     assert Path(f"{first['path']}.pin.json").exists()
 
-    legacy_path = resolve_user_wallet_path("legacy@example.com", "devnet")
+    legacy_path = resolve_user_wallet_path("legacy@example.com", "mainnet")
     legacy = create_solana_wallet_file(legacy_path)
     assert not is_encrypted_wallet_payload(legacy_path.read_text(encoding="utf-8"))
 
-    migrated = ensure_user_solana_wallet("legacy@example.com", network="devnet")
+    migrated = ensure_user_solana_wallet("legacy@example.com", network="mainnet")
     assert migrated["address"] == legacy["address"]
     assert migrated["storage_format"] == "encrypted"
     assert is_encrypted_wallet_payload(legacy_path.read_text(encoding="utf-8"))

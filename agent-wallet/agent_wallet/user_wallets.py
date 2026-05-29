@@ -14,6 +14,7 @@ from agent_wallet.bootstrap import (
 )
 from agent_wallet.config import (
     allow_plaintext_user_wallet_migration,
+    normalize_solana_network,
     resolve_openclaw_home,
     resolve_runtime_solana_rpc_config,
     resolve_runtime_solana_swap_config,
@@ -46,13 +47,13 @@ def normalize_user_id(user_id: str) -> str:
 
 def resolve_user_wallet_path(user_id: str, network: str | None = None) -> Path:
     """Resolve the wallet file path for a given OpenClaw user."""
-    effective_network = (network or settings.solana_network).strip().lower() or "mainnet"
+    effective_network = normalize_solana_network(network or settings.solana_network)
     user_dir = resolve_openclaw_home() / "users" / normalize_user_id(user_id) / "wallets"
     return user_dir / f"solana-{effective_network}-agent.json"
 
 
 def _user_wallet_metadata(user_id: str, address: str, network: str | None = None) -> dict[str, str]:
-    effective_network = (network or settings.solana_network).strip().lower() or "mainnet"
+    effective_network = normalize_solana_network(network or settings.solana_network)
     return {
         "address": address,
         "user_id": user_id,
@@ -61,7 +62,7 @@ def _user_wallet_metadata(user_id: str, address: str, network: str | None = None
 
 
 def _resolve_effective_network(network: str | None = None) -> str:
-    return (network or settings.solana_network).strip().lower() or "mainnet"
+    return normalize_solana_network(network or settings.solana_network)
 
 
 def _resolve_user_wallet_master_key(

@@ -21,7 +21,7 @@ from agent_wallet.wallet_layer.solana import SolanaWalletBackend
 
 class FakeBackend(AgentWalletBackend):
     name = "fake_wallet"
-    network = "devnet"
+    network = "mainnet"
 
     async def get_address(self) -> str | None:
         return "Fake11111111111111111111111111111111111111111"
@@ -54,7 +54,7 @@ class FakeBackend(AgentWalletBackend):
     async def get_portfolio(self, address: str | None = None) -> dict:
         return {
             "chain": "solana",
-            "network": "devnet",
+            "network": "mainnet",
             "address": address or "Fake11111111111111111111111111111111111111111",
             "native_balance": {
                 "address": address or "Fake11111111111111111111111111111111111111111",
@@ -345,7 +345,7 @@ class FakeBackend(AgentWalletBackend):
         ]
         return {
             "chain": "solana",
-            "network": "devnet",
+            "network": "mainnet",
             "limit": limit,
             "include_delinquent": include_delinquent,
             "validator_count": min(limit, len(validators)),
@@ -356,7 +356,7 @@ class FakeBackend(AgentWalletBackend):
     async def get_stake_account(self, stake_account: str) -> dict:
         return {
             "chain": "solana",
-            "network": "devnet",
+            "network": "mainnet",
             "stake_account": stake_account,
             "lamports": 1100000000,
             "balance_native": 1.1,
@@ -781,6 +781,68 @@ class FakeBackend(AgentWalletBackend):
             "source": "kamino",
         }
 
+    async def get_kamino_open_positions(self, user: str | None = None) -> dict:
+        owner = user or "Fake11111111111111111111111111111111111111111"
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "user": owner,
+            "market_count_scanned": 1,
+            "markets_with_positions_count": 1,
+            "markets_with_positions": [
+                {
+                    "market": "FakeKaminoMarket111111111111111111111111111111",
+                    "market_name": "Main Market",
+                    "obligation_count": 1,
+                }
+            ],
+            "discovered_obligation_count": 1,
+            "position_count": 1,
+            "positions": [
+                {
+                    "obligation_address": "FakeKaminoObligation11111111111111111111111",
+                    "market": "FakeKaminoMarket111111111111111111111111111111",
+                    "market_name": "Main Market",
+                    "user": owner,
+                    "position_type": "lend",
+                    "has_debt": False,
+                    "loan_info": {
+                        "collateral": {
+                            "deposit_count": 1,
+                            "total_value_usd": "10.00",
+                            "deposits": [
+                                {
+                                    "reserve": "FakeKaminoReserve1111111111111111111111111111",
+                                    "token_name": "USDC",
+                                    "token_amount": "10",
+                                    "token_value_usd": "10",
+                                    "reserve_supply_apy": "0.05",
+                                    "reward_count": 1,
+                                }
+                            ],
+                        },
+                        "debt": {
+                            "borrow_count": 0,
+                            "total_value_usd": "0.00",
+                            "borrows": [],
+                        },
+                    },
+                    "source": "kamino+klend-loans",
+                }
+            ],
+            "total_collateral_value_usd": "10.00",
+            "total_borrow_value_usd": "0.00",
+            "total_net_value_usd": "10.00",
+            "reward_summary": {
+                "reward_count": 1,
+                "avg_base_apy": "0.04",
+                "avg_boosted_apy": "0.05",
+                "avg_max_apy": "0.06",
+            },
+            "lookup_errors": [],
+            "source": "kamino+klend-loans",
+        }
+
     def get_capabilities(self) -> WalletCapabilities:
         return WalletCapabilities(
             backend=self.name,
@@ -866,7 +928,7 @@ class FakeBackend(AgentWalletBackend):
     ) -> dict:
         return {
             "chain": "solana",
-            "network": "devnet",
+            "network": "mainnet",
             "mode": "preview",
             "asset_type": "native-stake",
             "owner": "Fake11111111111111111111111111111111111111111",
@@ -895,7 +957,7 @@ class FakeBackend(AgentWalletBackend):
     ) -> dict:
         return {
             "chain": "solana",
-            "network": "devnet",
+            "network": "mainnet",
             "mode": "prepare",
             "asset_type": "native-stake",
             "owner": "Fake11111111111111111111111111111111111111111",
@@ -926,7 +988,7 @@ class FakeBackend(AgentWalletBackend):
     ) -> dict:
         return {
             "chain": "solana",
-            "network": "devnet",
+            "network": "mainnet",
             "mode": "execute",
             "asset_type": "native-stake",
             "owner": "Fake11111111111111111111111111111111111111111",
@@ -1355,7 +1417,7 @@ class FakeBackend(AgentWalletBackend):
     async def preview_deactivate_stake(self, stake_account: str) -> dict:
         return {
             "chain": "solana",
-            "network": "devnet",
+            "network": "mainnet",
             "mode": "preview",
             "asset_type": "deactivate-stake",
             "authority": "Fake11111111111111111111111111111111111111111",
@@ -1372,7 +1434,7 @@ class FakeBackend(AgentWalletBackend):
     async def prepare_deactivate_stake(self, stake_account: str) -> dict:
         return {
             "chain": "solana",
-            "network": "devnet",
+            "network": "mainnet",
             "mode": "prepare",
             "asset_type": "deactivate-stake",
             "authority": "Fake11111111111111111111111111111111111111111",
@@ -1392,7 +1454,7 @@ class FakeBackend(AgentWalletBackend):
     async def execute_deactivate_stake(self, stake_account: str) -> dict:
         return {
             "chain": "solana",
-            "network": "devnet",
+            "network": "mainnet",
             "mode": "execute",
             "asset_type": "deactivate-stake",
             "authority": "Fake11111111111111111111111111111111111111111",
@@ -1414,7 +1476,7 @@ class FakeBackend(AgentWalletBackend):
     ) -> dict:
         return {
             "chain": "solana",
-            "network": "devnet",
+            "network": "mainnet",
             "mode": "preview",
             "asset_type": "withdraw-stake",
             "authority": "Fake11111111111111111111111111111111111111111",
@@ -1439,7 +1501,7 @@ class FakeBackend(AgentWalletBackend):
     ) -> dict:
         return {
             "chain": "solana",
-            "network": "devnet",
+            "network": "mainnet",
             "mode": "prepare",
             "asset_type": "withdraw-stake",
             "authority": "Fake11111111111111111111111111111111111111111",
@@ -1467,7 +1529,7 @@ class FakeBackend(AgentWalletBackend):
     ) -> dict:
         return {
             "chain": "solana",
-            "network": "devnet",
+            "network": "mainnet",
             "mode": "execute",
             "asset_type": "withdraw-stake",
             "authority": "Fake11111111111111111111111111111111111111111",
@@ -1923,7 +1985,7 @@ class FakeBackend(AgentWalletBackend):
     async def request_testnet_airdrop(self, amount_native: float) -> dict:
         return {
             "chain": "solana",
-            "network": "devnet",
+            "network": "mainnet",
             "mode": "airdrop",
             "address": "Fake11111111111111111111111111111111111111111",
             "amount_native": amount_native,
@@ -2126,17 +2188,20 @@ def _issue_execute_approval(
     tool_name: str,
     preview: dict,
     network: str,
-    mainnet_confirmed: bool = False,
+    mainnet_confirmed: bool | None = None,
     bind_preview_digest: bool = False,
 ) -> str:
     summary = dict(preview["confirmation_summary"])
     if bind_preview_digest:
         summary["_preview_digest"] = preview_payload_digest(preview)
+    effective_mainnet_confirmed = (
+        network == "mainnet" if mainnet_confirmed is None else mainnet_confirmed
+    )
     return issue_approval_token(
         tool_name=tool_name,
         network=network,
         summary=summary,
-        mainnet_confirmed=mainnet_confirmed,
+        mainnet_confirmed=effective_mainnet_confirmed,
         ttl_seconds=300,
         issued_by="smoke-test",
     )
@@ -2157,7 +2222,7 @@ async def main() -> None:
         is_mainnet = backend_network in {"mainnet", "base"}
         return {
             "asset_type": "x402-request",
-            "network": backend_network or "devnet",
+            "network": backend_network or "mainnet",
             "x402_network": (
                 "eip155:8453"
                 if is_evm and is_mainnet
@@ -2189,7 +2254,7 @@ async def main() -> None:
             "content_type": None,
             "wallet": {
                 "chain": "evm" if is_evm else "solana",
-                "network": backend_network or "devnet",
+                "network": backend_network or "mainnet",
                 "wallet_type_supported": True,
                 "execution_available": True,
                 "address": (
@@ -2295,6 +2360,7 @@ async def main() -> None:
     assert "flash_trade_open_position" in tool_names
     assert "flash_trade_close_position" in tool_names
     assert "get_kamino_lend_markets" in tool_names
+    assert "get_kamino_open_positions" in tool_names
     assert "kamino_lend_deposit" in tool_names
     assert "kamino_lend_borrow" in tool_names
     assert "get_bags_claimable_positions" in tool_names
@@ -2304,6 +2370,7 @@ async def main() -> None:
     assert "get_jupiter_portfolio" not in bundle_tool_names
     assert "jupiter_earn_deposit" in bundle_tool_names
     assert "kamino_lend_deposit" in bundle_tool_names
+    assert "get_kamino_open_positions" in bundle_tool_names
     assert "claim_bags_fees" in bundle_tool_names
     assert "launch_bags_token" in bundle_tool_names
     assert "swap_solana_privately" in bundle_tool_names
@@ -2315,12 +2382,12 @@ async def main() -> None:
 
     capabilities = await adapter.invoke("get_wallet_capabilities")
     assert capabilities.ok and capabilities.data["backend"] == "fake_wallet"
-    assert capabilities.data["network"] == "devnet"
-    assert capabilities.data["is_mainnet"] is False
+    assert capabilities.data["network"] == "mainnet"
+    assert capabilities.data["is_mainnet"] is True
 
     address = await adapter.invoke("get_wallet_address")
     assert address.ok and address.data["configured"] is True
-    assert address.data["network"] == "devnet"
+    assert address.data["network"] == "mainnet"
 
     balance = await adapter.invoke("get_wallet_balance")
     assert balance.ok and balance.data["balance_native"] == 1.25
@@ -2447,7 +2514,7 @@ async def main() -> None:
             "approval_token": _issue_execute_approval(
                 tool_name="flash_trade_open_position",
                 preview=flash_open_preview.data,
-                network="devnet",
+                network="mainnet",
                 mainnet_confirmed=True,
             ),
         },
@@ -2477,7 +2544,7 @@ async def main() -> None:
             "approval_token": _issue_execute_approval(
                 tool_name="flash_trade_close_position",
                 preview=flash_close_preview.data,
-                network="devnet",
+                network="mainnet",
                 mainnet_confirmed=True,
             ),
         },
@@ -2501,6 +2568,10 @@ async def main() -> None:
 
     kamino_rewards = await adapter.invoke("get_kamino_lend_user_rewards")
     assert kamino_rewards.ok and kamino_rewards.data["reward_count"] == 1
+
+    kamino_positions = await adapter.invoke("get_kamino_open_positions")
+    assert kamino_positions.ok and kamino_positions.data["position_count"] == 1
+    assert kamino_positions.data["positions"][0]["position_type"] == "lend"
 
     validators = await adapter.invoke("get_solana_staking_validators")
     assert validators.ok and validators.data["validator_count"] == 1
@@ -2583,7 +2654,7 @@ async def main() -> None:
             "approval_token": _issue_execute_approval(
                 tool_name="transfer_sol",
                 preview=preview.data,
-                network="devnet",
+                network="mainnet",
             ),
         },
     )
@@ -2628,7 +2699,7 @@ async def main() -> None:
             "approval_token": _issue_execute_approval(
                 tool_name="kamino_lend_deposit",
                 preview=kamino_preview.data,
-                network="devnet",
+                network="mainnet",
             ),
         },
     )
@@ -2688,7 +2759,7 @@ async def main() -> None:
             "approval_token": _issue_execute_approval(
                 tool_name="kamino_lend_withdraw",
                 preview=selected_kamino_preview.data,
-                network="devnet",
+                network="mainnet",
                 bind_preview_digest=True,
             ),
             "_approved_preview": selected_kamino_preview.data,
@@ -2732,7 +2803,7 @@ async def main() -> None:
             "approval_token": _issue_execute_approval(
                 tool_name="stake_sol_native",
                 preview=stake_preview.data,
-                network="devnet",
+                network="mainnet",
             ),
         },
     )
@@ -2788,7 +2859,7 @@ async def main() -> None:
             "approval_token": _issue_execute_approval(
                 tool_name="transfer_spl_token",
                 preview=spl_preview.data,
-                network="devnet",
+                network="mainnet",
             ),
         },
     )
@@ -2854,7 +2925,7 @@ async def main() -> None:
             "approval_token": _issue_execute_approval(
                 tool_name="swap_solana_tokens",
                 preview=swap_preview.data,
-                network="devnet",
+                network="mainnet",
             ),
         },
     )
@@ -2894,7 +2965,7 @@ async def main() -> None:
             "approval_token": _issue_execute_approval(
                 tool_name="swap_solana_tokens",
                 preview=intent_swap_preview.data,
-                network="devnet",
+                network="mainnet",
             ),
         },
     )
@@ -3160,7 +3231,7 @@ async def main() -> None:
             "approval_token": _issue_execute_approval(
                 tool_name="swap_solana_tokens",
                 preview=route_only_drifting_preview.data,
-                network="devnet",
+                network="mainnet",
             ),
         },
     )
@@ -3193,7 +3264,7 @@ async def main() -> None:
             "approval_token": _issue_execute_approval(
                 tool_name="swap_solana_tokens",
                 preview=no_repreview_preview.data,
-                network="devnet",
+                network="mainnet",
                 bind_preview_digest=True,
             ),
             "_approved_preview": no_repreview_preview.data,
@@ -3219,7 +3290,7 @@ async def main() -> None:
             "approval_token": _issue_execute_approval(
                 tool_name="swap_solana_tokens",
                 preview=no_repreview_legacy_summary_preview,
-                network="devnet",
+                network="mainnet",
                 bind_preview_digest=True,
             ),
             "_approved_preview": no_repreview_legacy_summary_preview,
@@ -3258,7 +3329,7 @@ async def main() -> None:
             "approval_token": _issue_execute_approval(
                 tool_name="flash_trade_open_position",
                 preview=no_repreview_flash_preview.data,
-                network="devnet",
+                network="mainnet",
                 bind_preview_digest=True,
             ),
             "_approved_preview": no_repreview_flash_preview.data,
@@ -3291,7 +3362,7 @@ async def main() -> None:
             "approval_token": _issue_execute_approval(
                 tool_name="kamino_lend_deposit",
                 preview=no_repreview_kamino_preview.data,
-                network="devnet",
+                network="mainnet",
                 bind_preview_digest=True,
             ),
             "_approved_preview": no_repreview_kamino_preview.data,
@@ -3326,7 +3397,7 @@ async def main() -> None:
             "approval_token": _issue_execute_approval(
                 tool_name="swap_solana_tokens",
                 preview=drifting_swap_preview.data,
-                network="devnet",
+                network="mainnet",
             ),
         },
     )
@@ -3361,7 +3432,7 @@ async def main() -> None:
             "approval_token": _issue_execute_approval(
                 tool_name="close_empty_token_accounts",
                 preview=close_preview.data,
-                network="devnet",
+                network="mainnet",
             ),
         },
     )
@@ -3399,7 +3470,7 @@ async def main() -> None:
             "approval_token": _issue_execute_approval(
                 tool_name="deactivate_solana_stake",
                 preview=deactivate_preview.data,
-                network="devnet",
+                network="mainnet",
             ),
         },
     )
@@ -3440,14 +3511,11 @@ async def main() -> None:
             "approval_token": _issue_execute_approval(
                 tool_name="withdraw_solana_stake",
                 preview=withdraw_preview.data,
-                network="devnet",
+                network="mainnet",
             ),
         },
     )
     assert withdraw_execute.ok and withdraw_execute.data["confirmed"] is True
-
-    airdrop = await adapter.invoke("request_devnet_airdrop", {"amount": 1.0})
-    assert airdrop.ok and airdrop.data["mode"] == "airdrop"
 
     print("smoke_openclaw_adapter: ok")
 

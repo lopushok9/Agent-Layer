@@ -16,6 +16,12 @@ For Hermes:
 npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet hermes install --yes
 ```
 
+For Codex:
+
+```bash
+npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet codex install --yes
+```
+
 AgentLayer is a beta local-first wallet and finance stack for agents.
 
 The repository includes:
@@ -23,6 +29,7 @@ The repository includes:
 - `agent-wallet/` - the main wallet backend for AgentLayer
 - `.openclaw/` - the local AgentLayer bridge layer for the OpenClaw wallet integration
 - `hermes/` - optional Hermes Agent plugin bridge for the same wallet backend
+- `codex/` - optional Codex plugin bridge for the same wallet backend
 - `wdk-btc-wallet/` - the local Bitcoin wallet service
 - `wdk-evm-wallet/` - the local EVM wallet service
 - `provider-gateway/` - shared provider access for Solana RPC, Bags, and related finance reads
@@ -84,6 +91,7 @@ Useful npm CLI commands:
 wallet status
 wallet doctor
 wallet hermes install --yes
+wallet codex install --yes
 wallet update --yes
 wallet update --yes --dry-run
 wallet rollback
@@ -200,6 +208,7 @@ Kamino integration gives the wallet a structured Solana lending surface:
 - `get_kamino_lend_market_reserves` - inspect reserve metrics for one Kamino market.
 - `get_kamino_lend_user_obligations` - inspect the wallet's obligations inside a Kamino market.
 - `get_kamino_lend_user_rewards` - fetch the wallet's Kamino rewards summary.
+- `get_kamino_open_positions` - aggregate all open Kamino positions across markets with loan details, reserve APYs, and rewards.
 - `kamino_lend_deposit` - preview, prepare, or execute a lending deposit.
 - `kamino_lend_withdraw` - preview, prepare, or execute a lending withdrawal.
 - `kamino_lend_borrow` - preview, prepare, or execute a borrow.

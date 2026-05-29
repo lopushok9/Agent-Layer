@@ -11,6 +11,7 @@ import time
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from agent_wallet.config import normalize_solana_network
 from agent_wallet.models import AgentWalletCapabilities, SolanaWalletState
 from agent_wallet.providers import bags, flash, flash_sdk_bridge, houdini, jupiter, kamino, lifi, solana_rpc
 from agent_wallet.solana_stake import (
@@ -51,6 +52,7 @@ STAKE_PROGRAM_ID = "Stake11111111111111111111111111111111111111"
 HOUDINI_PRIVATE_OUTPUT_DRIFT_BPS = 600
 SOLANA_SWAP_DEFAULT_SLIPPAGE_BPS = 300
 SOLANA_SWAP_INTENT_DEFAULT_MAX_FEE_LAMPORTS = 6_000_000
+KAMINO_OPEN_POSITIONS_SCAN_CONCURRENCY = 6
 
 
 def _load_signing_key():
@@ -275,7 +277,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         self.rpc_urls = rpc_url if isinstance(rpc_url, list) else [rpc_url]
         self.rpc_url = self.rpc_urls[0]
         self.commitment = commitment
-        self.network = network
+        self.network = normalize_solana_network(network)
         self.signer = signer
         self.address = final_address
         self.sign_only = sign_only
@@ -3217,6 +3219,440 @@ class SolanaWalletBackend(AgentWalletBackend):
             "source": "kamino",
         }
 
+    async def get_kamino_open_positions(self, user: str | None = None) -> dict[str, Any]:
+        self._require_mainnet_kamino("Kamino lending")
+        wallet_address = user or self.address
+        if not wallet_address:
+            raise WalletBackendError("A wallet address is required for Kamino position lookup.")
+        wallet_address = validate_solana_address(wallet_address)
+
+        markets_snapshot = await self.get_kamino_lend_markets()
+        markets = markets_snapshot.get("markets")
+        if not isinstance(markets, list):
+            markets = []
+
+        lookup_errors: list[dict[str, Any]] = []
+        semaphore = asyncio.Semaphore(KAMINO_OPEN_POSITIONS_SCAN_CONCURRENCY)
+
+        def _market_address(entry: Any) -> str:
+            return _kamino_entry_address(entry, "lendingMarket", "market", "address")
+
+        def _market_name(entry: Any) -> str | None:
+            if isinstance(entry, dict):
+                value = entry.get("name")
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+            return None
+
+        async def _fetch_market_obligations(
+            market_entry: dict[str, Any],
+        ) -> tuple[dict[str, Any], dict[str, Any]] | None:
+            market_address = _market_address(market_entry)
+            if not market_address:
+                return None
+            try:
+                async with semaphore:
+                    obligations_snapshot = await self.get_kamino_lend_user_obligations(
+                        market=market_address,
+                        user=wallet_address,
+                    )
+            except (ProviderError, WalletBackendError) as exc:
+                lookup_errors.append(
+                    {
+                        "stage": "market_obligations",
+                        "market": market_address,
+                        "market_name": _market_name(market_entry),
+                        "error": str(exc),
+                    }
+                )
+                return None
+            if int(obligations_snapshot.get("obligation_count") or 0) <= 0:
+                return None
+            return market_entry, obligations_snapshot
+
+        market_results = await asyncio.gather(
+            *[
+                _fetch_market_obligations(market_entry)
+                for market_entry in markets
+                if isinstance(market_entry, dict)
+            ]
+        )
+        active_markets = [result for result in market_results if result is not None]
+        discovered_obligation_count = sum(
+            int(obligations_snapshot.get("obligation_count") or 0)
+            for _, obligations_snapshot in active_markets
+        )
+
+        try:
+            reward_snapshot = await self.get_kamino_lend_user_rewards(user=wallet_address)
+        except (ProviderError, WalletBackendError) as exc:
+            lookup_errors.append(
+                {
+                    "stage": "rewards",
+                    "user": wallet_address,
+                    "error": str(exc),
+                }
+            )
+            reward_snapshot = {
+                "chain": "solana",
+                "network": self.network,
+                "user": wallet_address,
+                "reward_count": 0,
+                "rewards": [],
+                "avg_base_apy": None,
+                "avg_boosted_apy": None,
+                "avg_max_apy": None,
+                "source": "kamino",
+            }
+        reward_items = reward_snapshot.get("rewards")
+        if not isinstance(reward_items, list):
+            reward_items = []
+
+        positions: list[dict[str, Any]] = []
+        markets_with_positions: list[dict[str, Any]] = []
+        total_collateral_value = Decimal("0")
+        total_borrow_value = Decimal("0")
+
+        for market_entry, obligations_snapshot in active_markets:
+            market_address = _market_address(market_entry)
+            market_name = _market_name(market_entry)
+            market_description = (
+                market_entry.get("description")
+                if isinstance(market_entry, dict) and isinstance(market_entry.get("description"), str)
+                else None
+            )
+            markets_with_positions.append(
+                {
+                    "market": market_address,
+                    "market_name": market_name,
+                    "obligation_count": int(obligations_snapshot.get("obligation_count") or 0),
+                }
+            )
+
+            try:
+                reserve_snapshot = await self.get_kamino_lend_market_reserves(market=market_address)
+            except (ProviderError, WalletBackendError) as exc:
+                lookup_errors.append(
+                    {
+                        "stage": "market_reserves",
+                        "market": market_address,
+                        "market_name": market_name,
+                        "error": str(exc),
+                    }
+                )
+                reserve_snapshot = {
+                    "chain": "solana",
+                    "network": self.network,
+                    "market": market_address,
+                    "reserve_count": 0,
+                    "reserves": [],
+                    "source": "kamino",
+                }
+            reserves = reserve_snapshot.get("reserves")
+            if not isinstance(reserves, list):
+                reserves = []
+            reserve_by_address = {
+                address: reserve
+                for reserve in reserves
+                if isinstance(reserve, dict)
+                and (address := _kamino_entry_address(reserve, "reserve"))
+            }
+            reserve_by_mint = {
+                mint: reserve
+                for reserve in reserves
+                if isinstance(reserve, dict)
+                and isinstance((mint := reserve.get("liquidityTokenMint")), str)
+                and mint.strip()
+            }
+            reserve_by_symbol = {
+                symbol.upper(): reserve
+                for reserve in reserves
+                if isinstance(reserve, dict)
+                and isinstance((symbol := reserve.get("liquidityToken")), str)
+                and symbol.strip()
+            }
+
+            def _reward_metrics_for_reserve(
+                *,
+                reserve_address: str | None,
+                side: str,
+            ) -> list[dict[str, Any]]:
+                if not reserve_address:
+                    return []
+                reserve_key = "depositReserve" if side == "deposit" else "borrowReserve"
+                metrics: list[dict[str, Any]] = []
+                for reward in reward_items:
+                    if not isinstance(reward, dict):
+                        continue
+                    reward_market = _kamino_entry_address(reward, "market")
+                    if reward_market and reward_market != market_address:
+                        continue
+                    reward_reserve = _kamino_entry_address(reward, reserve_key)
+                    if reward_reserve != reserve_address:
+                        continue
+                    metrics.append(
+                        {
+                            "reward_mint": _kamino_entry_address(reward, "rewardMint", "rewardToken"),
+                            "tokens_earned": reward.get("tokensEarned"),
+                            "tokens_per_second": reward.get("tokensPerSecond"),
+                            "base_apy": reward.get("baseApy"),
+                            "boosted_apy": reward.get("boostedApy"),
+                            "max_apy": reward.get("maxApy"),
+                            "usd_amount": reward.get("usdAmount"),
+                            "usd_amount_boosted": reward.get("usdAmountBoosted"),
+                            "staking_boost": reward.get("stakingBoost"),
+                            "effective_staking_boost": reward.get("effectiveStakingBoost"),
+                            "last_calculated": reward.get("lastCalculated"),
+                        }
+                    )
+                return metrics
+
+            obligations = obligations_snapshot.get("obligations")
+            if not isinstance(obligations, list):
+                obligations = []
+            for obligation in obligations:
+                if not isinstance(obligation, dict):
+                    continue
+                obligation_address = _kamino_entry_address(
+                    obligation,
+                    "obligationAddress",
+                    "loanId",
+                    "address",
+                )
+                if not obligation_address:
+                    continue
+                try:
+                    loan_data = await kamino.fetch_lend_loan_info(
+                        obligation=obligation_address,
+                        network=self.network,
+                    )
+                except ProviderError as exc:
+                    lookup_errors.append(
+                        {
+                            "stage": "loan_info",
+                            "market": market_address,
+                            "market_name": market_name,
+                            "obligation_address": obligation_address,
+                            "error": str(exc),
+                        }
+                    )
+                    continue
+
+                loan_info = loan_data.get("loanInfo")
+                if not isinstance(loan_info, dict):
+                    loan_info = {}
+                collateral = loan_info.get("collateral")
+                if not isinstance(collateral, dict):
+                    collateral = {}
+                debt = loan_info.get("debt")
+                if not isinstance(debt, dict):
+                    debt = {}
+                deposit_entries = collateral.get("deposits")
+                if not isinstance(deposit_entries, list):
+                    deposit_entries = []
+                borrow_entries = debt.get("borrows")
+                if not isinstance(borrow_entries, list):
+                    borrow_entries = []
+
+                state = obligation.get("state")
+                if not isinstance(state, dict):
+                    state = {}
+                state_deposits = [
+                    entry
+                    for entry in state.get("deposits", [])
+                    if isinstance(entry, dict)
+                    and (_coerce_decimal(entry.get("depositedAmount")) or Decimal("0")) > 0
+                ]
+                state_borrows = [
+                    entry
+                    for entry in state.get("borrows", [])
+                    if isinstance(entry, dict)
+                    and (
+                        (_coerce_decimal(entry.get("borrowedAmountSf")) or Decimal("0")) > 0
+                        or (_coerce_decimal(entry.get("marketValueSf")) or Decimal("0")) > 0
+                    )
+                ]
+
+                def _match_reserve(
+                    *,
+                    token_mint: str | None,
+                    token_name: str | None,
+                    fallback_entry: Any,
+                    reserve_key: str,
+                ) -> tuple[str | None, dict[str, Any] | None]:
+                    fallback_address = _kamino_entry_address(fallback_entry, reserve_key)
+                    if fallback_address and fallback_address in reserve_by_address:
+                        return fallback_address, reserve_by_address[fallback_address]
+                    if token_mint and token_mint in reserve_by_mint:
+                        reserve_entry = reserve_by_mint[token_mint]
+                        return _kamino_entry_address(reserve_entry, "reserve") or None, reserve_entry
+                    symbol = token_name.strip().upper() if isinstance(token_name, str) and token_name.strip() else None
+                    if symbol and symbol in reserve_by_symbol:
+                        reserve_entry = reserve_by_symbol[symbol]
+                        return _kamino_entry_address(reserve_entry, "reserve") or None, reserve_entry
+                    return fallback_address or None, None
+
+                def _enrich_position_entries(
+                    *,
+                    entries: list[dict[str, Any]],
+                    state_entries: list[dict[str, Any]],
+                    side: str,
+                ) -> list[dict[str, Any]]:
+                    enriched: list[dict[str, Any]] = []
+                    reserve_key = "depositReserve" if side == "deposit" else "borrowReserve"
+                    for index, entry in enumerate(entries):
+                        if not isinstance(entry, dict):
+                            continue
+                        token_mint = entry.get("tokenMint")
+                        token_name = entry.get("tokenName")
+                        fallback_entry = state_entries[index] if index < len(state_entries) else None
+                        reserve_address, reserve_metrics = _match_reserve(
+                            token_mint=token_mint if isinstance(token_mint, str) else None,
+                            token_name=token_name if isinstance(token_name, str) else None,
+                            fallback_entry=fallback_entry,
+                            reserve_key=reserve_key,
+                        )
+                        reward_metrics = _reward_metrics_for_reserve(
+                            reserve_address=reserve_address,
+                            side=side,
+                        )
+                        enriched.append(
+                            {
+                                "reserve": reserve_address,
+                                "token_mint": token_mint,
+                                "token_name": token_name,
+                                "token_amount": entry.get("tokenAmount"),
+                                "token_value_usd": entry.get("tokenValue"),
+                                "token_price_usd": entry.get("tokenPrice"),
+                                "max_ltv": entry.get("maxLtv"),
+                                "liquidation_ltv": entry.get("liquidationLtv"),
+                                "max_withdrawable_amount": entry.get("maxWithdrawableAmount"),
+                                "max_withdrawable_value_usd": entry.get("maxWithdrawableValue"),
+                                "max_borrowable_amount": entry.get("maxBorrowableAmount"),
+                                "max_borrowable_value_usd": entry.get("maxBorrowableValue"),
+                                "borrow_factor": entry.get("borrowFactor"),
+                                "reserve_supply_apy": (
+                                    reserve_metrics.get("supplyApy")
+                                    if isinstance(reserve_metrics, dict)
+                                    else None
+                                ),
+                                "reserve_borrow_apy": (
+                                    reserve_metrics.get("borrowApy")
+                                    if isinstance(reserve_metrics, dict)
+                                    else None
+                                ),
+                                "reserve_max_ltv": (
+                                    reserve_metrics.get("maxLtv")
+                                    if isinstance(reserve_metrics, dict)
+                                    else None
+                                ),
+                                "reward_metrics": reward_metrics,
+                                "reward_count": len(reward_metrics),
+                            }
+                        )
+                    return enriched
+
+                enriched_deposits = _enrich_position_entries(
+                    entries=deposit_entries,
+                    state_entries=state_deposits,
+                    side="deposit",
+                )
+                enriched_borrows = _enrich_position_entries(
+                    entries=borrow_entries,
+                    state_entries=state_borrows,
+                    side="borrow",
+                )
+
+                collateral_value = sum(
+                    (
+                        _coerce_decimal(entry.get("token_value_usd")) or Decimal("0")
+                        for entry in enriched_deposits
+                    ),
+                    Decimal("0"),
+                )
+                borrow_value = sum(
+                    (
+                        _coerce_decimal(entry.get("token_value_usd")) or Decimal("0")
+                        for entry in enriched_borrows
+                    ),
+                    Decimal("0"),
+                )
+                total_collateral_value += collateral_value
+                total_borrow_value += borrow_value
+                refreshed_stats = obligation.get("refreshedStats")
+                if not isinstance(refreshed_stats, dict):
+                    refreshed_stats = {}
+                position_type = "borrow-lend"
+                if enriched_deposits and not enriched_borrows:
+                    position_type = "lend"
+                elif enriched_borrows and not enriched_deposits:
+                    position_type = "borrow"
+
+                positions.append(
+                    {
+                        "obligation_address": obligation_address,
+                        "market": market_address,
+                        "market_name": market_name,
+                        "market_description": market_description,
+                        "user": wallet_address,
+                        "position_type": position_type,
+                        "has_debt": bool(enriched_borrows),
+                        "timestamp": loan_data.get("timestamp"),
+                        "solana_slot": loan_data.get("solanaSlot"),
+                        "elevation_group": loan_data.get("elevationGroup"),
+                        "leverage": loan_data.get("leverage"),
+                        "collateral_value_usd": _format_decimal(collateral_value),
+                        "borrow_value_usd": _format_decimal(borrow_value),
+                        "net_value_usd": _format_decimal(collateral_value - borrow_value),
+                        "loan_info": {
+                            "current_ltv": loan_info.get("currentLtv"),
+                            "max_ltv": loan_info.get("maxLtv"),
+                            "liquidation_ltv": loan_info.get("liquidationLtv"),
+                            "close_factor": loan_info.get("closeFactor"),
+                            "collateral": {
+                                "deposit_count": len(enriched_deposits),
+                                "total_value_usd": _format_decimal(collateral_value),
+                                "deposits": enriched_deposits,
+                            },
+                            "debt": {
+                                "borrow_count": len(enriched_borrows),
+                                "total_value_usd": _format_decimal(borrow_value),
+                                "borrows": enriched_borrows,
+                            },
+                        },
+                        "refreshed_stats": {
+                            "borrow_limit": refreshed_stats.get("borrowLimit"),
+                            "borrow_liquidation_limit": refreshed_stats.get("borrowLiquidationLimit"),
+                            "borrow_utilization": refreshed_stats.get("borrowUtilization"),
+                            "net_account_value": refreshed_stats.get("netAccountValue"),
+                        },
+                        "source": "kamino+klend-loans",
+                    }
+                )
+
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "user": wallet_address,
+            "market_count_scanned": len(markets),
+            "markets_with_positions_count": len(markets_with_positions),
+            "markets_with_positions": markets_with_positions,
+            "discovered_obligation_count": discovered_obligation_count,
+            "position_count": len(positions),
+            "positions": positions,
+            "total_collateral_value_usd": _format_decimal(total_collateral_value),
+            "total_borrow_value_usd": _format_decimal(total_borrow_value),
+            "total_net_value_usd": _format_decimal(total_collateral_value - total_borrow_value),
+            "reward_summary": {
+                "reward_count": int(reward_snapshot.get("reward_count") or 0),
+                "avg_base_apy": reward_snapshot.get("avg_base_apy"),
+                "avg_boosted_apy": reward_snapshot.get("avg_boosted_apy"),
+                "avg_max_apy": reward_snapshot.get("avg_max_apy"),
+            },
+            "lookup_errors": lookup_errors,
+            "source": "kamino+klend-loans",
+        }
+
     async def get_state(self) -> SolanaWalletState:
         balance_native = None
         if self.address:
@@ -4806,49 +5242,6 @@ class SolanaWalletBackend(AgentWalletBackend):
             "confirmed": False,
             "latest_blockhash": blockhash,
             "sign_only": self.sign_only,
-            "source": "solana-rpc",
-        }
-
-    async def request_testnet_airdrop(self, amount_native: float) -> dict[str, Any]:
-        if self.network not in {"devnet", "testnet"}:
-            raise WalletBackendError("Airdrop is only available on Solana devnet or testnet.")
-        if amount_native <= 0:
-            raise WalletBackendError("amount must be greater than zero.")
-
-        address = await self.get_address()
-        if not address:
-            raise WalletBackendError(
-                "No Solana wallet address configured. Set SOLANA_AGENT_PUBLIC_KEY or a signer."
-            )
-
-        lamports = int(round(amount_native * solana_rpc.LAMPORTS_PER_SOL))
-        submitted = await solana_rpc.request_airdrop(
-            address=address,
-            lamports=lamports,
-            rpc_url=self.rpc_urls,
-            commitment=self.commitment,
-        )
-        signature = submitted.get("signature")
-        status = None
-        confirmed = False
-        if isinstance(signature, str) and signature:
-            status = await solana_rpc.wait_for_confirmation(
-                signature=signature,
-                rpc_url=self.rpc_urls,
-            )
-            confirmed = status is not None
-
-        return {
-            "chain": "solana",
-            "network": self.network,
-            "mode": "airdrop",
-            "address": address,
-            "amount_native": amount_native,
-            "amount_lamports": lamports,
-            "signature": signature,
-            "confirmed": confirmed,
-            "confirmation_status": status.get("confirmationStatus") if status else None,
-            "slot": status.get("slot") if status else None,
             "source": "solana-rpc",
         }
 

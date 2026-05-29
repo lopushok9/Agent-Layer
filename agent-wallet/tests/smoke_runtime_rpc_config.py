@@ -15,6 +15,20 @@ from agent_wallet.config import (  # noqa: E402
     resolve_runtime_solana_swap_config,
 )
 from agent_wallet.openclaw_cli import _apply_config_overrides  # noqa: E402
+from agent_wallet.wallet_layer.base import WalletBackendError  # noqa: E402
+
+
+def _assert_sol_network_rejected(network: str) -> None:
+    try:
+        resolve_runtime_solana_rpc_urls(
+            network,
+            "https://plugin-primary.example",
+            "https://plugin-secondary.example",
+        )
+    except WalletBackendError as exc:
+        assert "no longer supported" in str(exc)
+    else:
+        raise AssertionError(f"Expected Solana network {network} to be rejected.")
 
 
 def main() -> None:
@@ -63,18 +77,19 @@ def main() -> None:
         os.environ.pop("SOLANA_RPC_URLS", None)
         os.environ["SOLANA_RPC_URL"] = "https://single-env.example"
         resolved_single = resolve_runtime_solana_rpc_urls(
-            "devnet",
+            "mainnet",
             "https://plugin-primary.example",
             "https://plugin-secondary.example",
         )
         assert resolved_single == [
             "https://single-env.example",
-            "https://api.devnet.solana.com",
+            "https://api.mainnet-beta.solana.com",
         ]
 
         os.environ.pop("SOLANA_RPC_URL", None)
+        os.environ["PROVIDER_GATEWAY_URL"] = ""
         fallback = resolve_runtime_solana_rpc_urls(
-            "devnet",
+            "mainnet",
             "https://plugin-primary.example",
             "https://plugin-secondary.example,https://plugin-tertiary.example",
         )
@@ -82,8 +97,9 @@ def main() -> None:
             "https://plugin-primary.example",
             "https://plugin-secondary.example",
             "https://plugin-tertiary.example",
-            "https://api.devnet.solana.com",
+            "https://api.mainnet-beta.solana.com",
         ]
+        os.environ.pop("PROVIDER_GATEWAY_URL", None)
         assert resolve_runtime_solana_swap_config("mainnet") == {
             "provider": "jupiter",
             "transport": "direct",
@@ -127,15 +143,7 @@ def main() -> None:
             "https://api.mainnet-beta.solana.com",
         ]
 
-        alchemy_devnet = resolve_runtime_solana_rpc_urls(
-            "devnet",
-            "https://plugin-primary.example",
-            "https://plugin-secondary.example",
-        )
-        assert alchemy_devnet == [
-            "https://solana-devnet.g.alchemy.com/v2/test-alchemy-key",
-            "https://api.devnet.solana.com",
-        ]
+        _assert_sol_network_rejected("devnet")
 
         os.environ.pop("ALCHEMY_API_KEY", None)
         os.environ["HELIUS_API_KEY"] = "test-helius-key"
@@ -149,15 +157,7 @@ def main() -> None:
             "https://api.mainnet-beta.solana.com",
         ]
 
-        helius_devnet = resolve_runtime_solana_rpc_urls(
-            "devnet",
-            "https://plugin-primary.example",
-            "https://plugin-secondary.example",
-        )
-        assert helius_devnet == [
-            "https://devnet.helius-rpc.com/?api-key=test-helius-key",
-            "https://api.devnet.solana.com",
-        ]
+        _assert_sol_network_rejected("testnet")
 
         os.environ.pop("HELIUS_API_KEY", None)
         os.environ["SOLANA_RPC_PROVIDER_MODE"] = "shared_proxy"
@@ -184,22 +184,6 @@ def main() -> None:
         assert resolve_runtime_solana_swap_config("mainnet") == {
             "provider": "jupiter",
             "transport": "direct",
-        }
-
-        devnet_proxy_config = resolve_runtime_solana_rpc_config(
-            "devnet",
-            "https://plugin-primary.example",
-            "https://plugin-secondary.example",
-        )
-        assert devnet_proxy_config == {
-            "mode": "public_fallback",
-            "provider": "official",
-            "transport": "direct",
-            "rpc_urls": [
-                "https://plugin-primary.example",
-                "https://plugin-secondary.example",
-                "https://api.devnet.solana.com",
-            ],
         }
 
         os.environ["HELIUS_API_KEY"] = "user-owned-helius"

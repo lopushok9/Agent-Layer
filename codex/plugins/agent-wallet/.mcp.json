@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "agent-wallet": {
+      "command": "sh",
+      "args": [
+        "-lc",
+        "exec \"${AGENT_WALLET_CODEX_PLUGIN_ROOT:-$HOME/plugins}/agent-wallet/scripts/run_mcp.sh\""
+      ],
+      "env": {
+        "FASTMCP_SHOW_SERVER_BANNER": "false",
+        "FASTMCP_LOG_LEVEL": "ERROR"
+      }
+    }
+  }
+}

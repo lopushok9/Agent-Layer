@@ -1,0 +1,38 @@
+{
+  "name": "agent-wallet",
+  "version": "0.1.0",
+  "description": "Codex plugin bridge for the AgentLayer wallet runtime.",
+  "author": {
+    "name": "AgentLayer"
+  },
+  "homepage": "https://github.com/lopushok9/Agent-Layer",
+  "repository": "https://github.com/lopushok9/Agent-Layer",
+  "license": "SEE LICENSE IN ../../../LICENSE",
+  "keywords": [
+    "codex",
+    "wallet",
+    "solana",
+    "bitcoin",
+    "evm",
+    "agentlayer"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Agent Wallet",
+    "shortDescription": "Use the local AgentLayer wallet runtime directly in Codex",
+    "longDescription": "Agent Wallet adds the existing local AgentLayer wallet runtime to Codex without creating a new wallet. It reuses the current OpenClaw runtime, keeps secrets local, and exposes the same Solana, Bitcoin, EVM, x402, Jupiter, Kamino, LI.FI, Bags, and Flash Trade tool surface through a Codex-native MCP bridge.",
+    "developerName": "AgentLayer",
+    "category": "Coding",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/lopushok9/Agent-Layer",
+    "privacyPolicyURL": "https://openai.com/policies/privacy-policy/",
+    "termsOfServiceURL": "https://openai.com/policies/terms-of-use/",
+    "defaultPrompt": "Use my existing AgentLayer wallet here in Codex, preview wallet writes first, and execute only after explicit confirmation.",
+    "brandColor": "#0F766E"
+  }
+}

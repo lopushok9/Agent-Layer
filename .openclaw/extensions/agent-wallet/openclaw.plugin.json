@@ -35,6 +35,7 @@
       "get_jupiter_earn_tokens",
       "get_kamino_lend_market_reserves",
       "get_kamino_lend_markets",
+      "get_kamino_open_positions",
       "get_kamino_lend_user_obligations",
       "get_kamino_lend_user_rewards",
       "get_lifi_quote",
@@ -57,7 +58,6 @@
       "manage_evm_aave_position",
       "manage_evm_lido_position",
       "manage_evm_lido_withdrawal",
-      "request_devnet_airdrop",
       "set_evm_network",
       "set_wallet_backend",
       "sign_wallet_message",
@@ -92,7 +92,7 @@
       },
       "network": {
         "type": "string",
-        "description": "Backend network selector. Solana uses mainnet/devnet/testnet. BTC uses bitcoin/testnet/regtest. EVM uses ethereum/sepolia/base/base-sepolia."
+        "description": "Backend network selector. Solana uses mainnet. BTC uses bitcoin/testnet/regtest. EVM uses ethereum/sepolia/base/base-sepolia."
       },
       "wdkBtcServiceUrl": {
         "type": "string",

@@ -26,14 +26,14 @@ def main() -> None:
 
     first = onboard_openclaw_user_wallet(
         "runtime-user@example.com",
-        network="devnet",
+        network="mainnet",
     )
     first_session = first.session_metadata()
     first_bundle = first.serializable_bundle()
 
     assert first.created_now is True
     assert first_session.user_id == "runtime-user@example.com"
-    assert first_session.network == "devnet"
+    assert first_session.network == "mainnet"
     assert first_session.sign_only is False
     assert first_session.storage_format == "encrypted"
     assert "get_wallet_address" in first_session.tool_names
@@ -44,7 +44,7 @@ def main() -> None:
 
     second = onboard_openclaw_user_wallet(
         "runtime-user@example.com",
-        network="devnet",
+        network="mainnet",
     )
     second_session = second.session_metadata()
 

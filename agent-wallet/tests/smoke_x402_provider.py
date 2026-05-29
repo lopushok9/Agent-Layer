@@ -18,9 +18,9 @@ from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletCapabilitie
 class FakeBackend(AgentWalletBackend):
     name = "fake_wallet"
     chain = "solana"
-    network = "devnet"
+    network = "mainnet"
     signer = object()
-    rpc_url = "gateway::auto::devnet::https://agent-layer.example.com/v1/rpc"
+    rpc_url = "gateway::auto::mainnet::https://agent-layer.example.com/v1/rpc"
     rpc_urls = [rpc_url]
 
     async def get_address(self) -> str | None:
@@ -168,7 +168,7 @@ class FakeClient:
                             "accepts": [
                                 {
                                     "scheme": "exact",
-                                    "network": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+                                    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
                                     "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
                                     "amount": "100000",
                                     "payTo": "Merchant11111111111111111111111111111111111",
@@ -196,7 +196,7 @@ class FakeClient:
                             "accepts": [
                                 {
                                     "scheme": "exact",
-                                    "network": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+                                    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
                                     "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
                                     "amount": "100000",
                                     "payTo": "Merchant11111111111111111111111111111111111",
@@ -257,7 +257,7 @@ class FakeClient:
                         "accepts": [
                             {
                                 "scheme": "exact",
-                                "network": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+                                "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
                                 "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
                                 "amount": "100000",
                                 "payTo": "Merchant11111111111111111111111111111111111",
@@ -345,7 +345,7 @@ async def main() -> None:
     try:
         raw_requirement = {
             "scheme": "exact",
-            "network": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+            "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
             "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
             "amount": "100000",
             "payTo": "Merchant11111111111111111111111111111111111",
@@ -369,7 +369,7 @@ async def main() -> None:
         def fake_register_exact_svm_client(client, signer, networks, rpc_url=None):
             assert networks == raw_requirement["network"]
             assert signer is not None
-            assert rpc_url == "https://api.devnet.solana.com"
+            assert rpc_url == "https://api.mainnet-beta.solana.com"
 
         x402._load_x402_solana_sdk = lambda: {
             "decode_payment_required_header": fake_decode_payment_required_header,
@@ -428,7 +428,7 @@ async def main() -> None:
             return {
                 "success": True,
                 "transaction": "solana-payment-tx",
-                "network": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+                "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
                 "payer": "Fake11111111111111111111111111111111111111111",
                 "amount": "100000",
             }
@@ -459,7 +459,7 @@ async def main() -> None:
             json_body={"depth": "full"},
         )
         assert preview["payment_required"] is True
-        assert preview["selected_payment"]["network"] == "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"
+        assert preview["selected_payment"]["network"] == "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
         assert preview["wallet"]["wallet_type_supported"] is True
         assert preview["accepted_payments"][0]["compatibility"]["wallet_network_matches"] is True
         assert preview["accepted_payments"][0]["compatibility"]["currently_executable"] is True

@@ -40,24 +40,24 @@ def main() -> None:
     second_master_key = "test-master-key-two"
     backup_master_key = "test-backup-master-key"
 
-    created = ensure_user_solana_wallet("ops@example.com", network="devnet")
-    path = resolve_user_wallet_path("ops@example.com", network="devnet")
+    created = ensure_user_solana_wallet("ops@example.com", network="mainnet")
+    path = resolve_user_wallet_path("ops@example.com", network="mainnet")
 
-    info = get_user_wallet_storage_info("ops@example.com", network="devnet")
+    info = get_user_wallet_storage_info("ops@example.com", network="mainnet")
     assert info["storage_format"] == "encrypted"
     assert info["address"] == created["address"]
 
     first_derived_key = _derive_user_scoped_key(
         first_master_key,
         user_id="ops@example.com",
-        network="devnet",
+        network="mainnet",
     )
     original_secret, original_format = load_wallet_secret_material(path, master_key=first_derived_key)
     assert original_format == "encrypted"
 
     backup = export_user_wallet_backup(
         "ops@example.com",
-        network="devnet",
+        network="mainnet",
         current_master_key=first_master_key,
         export_master_key=backup_master_key,
     )
@@ -69,7 +69,7 @@ def main() -> None:
 
     rotated = rotate_user_wallet_encryption(
         "ops@example.com",
-        network="devnet",
+        network="mainnet",
         current_master_key=first_master_key,
         new_master_key=second_master_key,
     )
@@ -85,7 +85,7 @@ def main() -> None:
     second_derived_key = _derive_user_scoped_key(
         second_master_key,
         user_id="ops@example.com",
-        network="devnet",
+        network="mainnet",
     )
     rotated_secret, rotated_format = load_wallet_secret_material(path, master_key=second_derived_key)
     assert rotated_format == "encrypted"

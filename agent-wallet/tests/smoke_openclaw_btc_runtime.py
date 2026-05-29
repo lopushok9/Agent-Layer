@@ -18,7 +18,7 @@ def main() -> None:
         os.environ["WDK_BTC_LOCAL_TOKEN"] = server.auth_token
         os.environ.pop("WDK_BTC_WALLET_ID", None)
         os.environ["WDK_BTC_ACCOUNT_INDEX"] = "0"
-        os.environ["SOLANA_NETWORK"] = "testnet"
+        os.environ["SOLANA_NETWORK"] = "mainnet"
 
         from agent_wallet.btc_user_wallets import create_user_btc_wallet  # noqa: E402
         from agent_wallet.openclaw_runtime import onboard_openclaw_user_wallet  # noqa: E402

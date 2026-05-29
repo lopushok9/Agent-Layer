@@ -13,7 +13,7 @@ def main() -> None:
     context = onboard_openclaw_user_wallet(
         user_id,
         sign_only=False,
-        network="devnet",
+        network="mainnet",
     )
 
     print("Session metadata:")

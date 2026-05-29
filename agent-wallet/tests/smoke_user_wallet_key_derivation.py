@@ -37,7 +37,7 @@ def main() -> None:
     )
     os.environ["AGENT_WALLET_MIGRATE_PLAINTEXT_USER_WALLETS"] = "true"
 
-    legacy_path = resolve_user_wallet_path("legacy@example.com", network="devnet")
+    legacy_path = resolve_user_wallet_path("legacy@example.com", network="mainnet")
     legacy_material = generate_solana_wallet_material()
     write_encrypted_wallet_file(
         legacy_path,
@@ -46,21 +46,21 @@ def main() -> None:
         metadata={
             "address": legacy_material["address"],
             "user_id": "legacy@example.com",
-            "network": "devnet",
+            "network": "mainnet",
         },
     )
 
     original_secret, original_format = load_wallet_secret_material(legacy_path, master_key=raw_master_key)
     assert original_format == "encrypted"
 
-    migrated = ensure_user_solana_wallet("legacy@example.com", network="devnet")
+    migrated = ensure_user_solana_wallet("legacy@example.com", network="mainnet")
     assert migrated["address"] == legacy_material["address"]
     assert migrated["key_scope"] == "per-user-derived"
 
     derived_legacy_key = _derive_user_scoped_key(
         raw_master_key,
         user_id="legacy@example.com",
-        network="devnet",
+        network="mainnet",
     )
     migrated_secret, migrated_format = load_wallet_secret_material(
         legacy_path,
@@ -75,17 +75,17 @@ def main() -> None:
     else:
         raise AssertionError("Raw master key unexpectedly decrypted a derived-key wallet")
 
-    alice = ensure_user_solana_wallet("alice@example.com", network="devnet")
-    bob = ensure_user_solana_wallet("bob@example.com", network="devnet")
-    alice_info = get_user_wallet_storage_info("alice@example.com", network="devnet")
-    bob_info = get_user_wallet_storage_info("bob@example.com", network="devnet")
+    alice = ensure_user_solana_wallet("alice@example.com", network="mainnet")
+    bob = ensure_user_solana_wallet("bob@example.com", network="mainnet")
+    alice_info = get_user_wallet_storage_info("alice@example.com", network="mainnet")
+    bob_info = get_user_wallet_storage_info("bob@example.com", network="mainnet")
     assert alice["key_scope"] == "per-user-derived"
     assert bob["key_scope"] == "per-user-derived"
     assert alice_info["key_scope"] == "per-user-derived"
     assert bob_info["key_scope"] == "per-user-derived"
 
-    alice_key = _derive_user_scoped_key(raw_master_key, user_id="alice@example.com", network="devnet")
-    bob_key = _derive_user_scoped_key(raw_master_key, user_id="bob@example.com", network="devnet")
+    alice_key = _derive_user_scoped_key(raw_master_key, user_id="alice@example.com", network="mainnet")
+    bob_key = _derive_user_scoped_key(raw_master_key, user_id="bob@example.com", network="mainnet")
     assert alice_key != bob_key
 
     alice_secret, _ = load_wallet_secret_material(Path(alice["path"]), master_key=alice_key)

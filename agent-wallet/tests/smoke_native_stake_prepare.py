@@ -15,8 +15,8 @@ from agent_wallet.wallet_layer.solana import SolanaLocalKeypairSigner, SolanaWal
 async def main() -> None:
     signer = SolanaLocalKeypairSigner.from_secret_material(json.dumps([1] * 32))
     backend = SolanaWalletBackend(
-        rpc_url="https://api.devnet.solana.com",
-        network="devnet",
+        rpc_url="https://api.mainnet-beta.solana.com",
+        network="mainnet",
         signer=signer,
         address=signer.address,
         sign_only=False,
@@ -25,7 +25,7 @@ async def main() -> None:
     async def fake_preview_native_stake(vote_account: str, amount_native: float) -> dict:
         return {
             "chain": "solana",
-            "network": "devnet",
+            "network": "mainnet",
             "mode": "preview",
             "asset_type": "native-stake",
             "owner": signer.address,

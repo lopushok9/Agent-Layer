@@ -18,7 +18,7 @@ from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletCapabilitie
 class FakeBackend(AgentWalletBackend):
     name = "fake_wallet"
     chain = "solana"
-    network = "devnet"
+    network = "mainnet"
     signer = object()
 
     async def get_address(self) -> str | None:
@@ -80,7 +80,7 @@ class FakeClient:
                     "accepts": [
                         {
                             "scheme": "exact",
-                            "network": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+                            "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
                             "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
                             "amount": "100000",
                             "payTo": "Merchant11111111111111111111111111111111111",
@@ -105,8 +105,8 @@ async def main() -> None:
         async def fake_pay_and_fetch(*, backend, url, method="GET", headers=None, query=None, json_body=None, text_body=None):
             return {
                 "asset_type": "x402-request",
-                "network": "devnet",
-                "x402_network": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+                "network": "mainnet",
+                "x402_network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
                 "x402_scheme": "exact",
                 "x402_asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
                 "x402_amount": "100000",
@@ -119,7 +119,7 @@ async def main() -> None:
                 "content_type": None,
                 "wallet": {
                     "chain": "solana",
-                    "network": "devnet",
+                    "network": "mainnet",
                     "wallet_type_supported": True,
                     "execution_available": True,
                     "address": "Fake11111111111111111111111111111111111111111",
@@ -127,7 +127,7 @@ async def main() -> None:
                 "status_code": 402,
                 "selected_payment": {
                     "scheme": "exact",
-                    "network": "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1",
+                    "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
                     "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
                     "amount": "100000",
                     "amount_display": "0.1",

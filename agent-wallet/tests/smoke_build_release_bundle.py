@@ -39,6 +39,10 @@ def main() -> None:
 
     _write(source_root / "agent-wallet" / "scripts" / "install_agent_wallet.py", "print('ok')\n")
     _write(source_root / "agent-wallet" / "graphify-out" / "cache.json", "{}\n")
+    _write(
+        source_root / "codex" / "plugins" / "agent-wallet" / ".codex-plugin" / "plugin.json",
+        '{"name":"agent-wallet"}\n',
+    )
     _write(source_root / "wdk-btc-wallet" / "package.json", '{"name":"wdk-btc-wallet"}\n')
     _write(source_root / "wdk-btc-wallet" / "node_modules" / "ignored.txt", "ignored\n")
     _write(source_root / "wdk-evm-wallet" / "package.json", '{"name":"wdk-evm-wallet"}\n')
@@ -79,6 +83,7 @@ def main() -> None:
     bundle_root = "openclaw-agent-wallet-bundle-smoke-test"
     assert f"{bundle_root}/setup.sh" in names
     assert f"{bundle_root}/agent-wallet/scripts/install_agent_wallet.py" in names
+    assert f"{bundle_root}/codex/plugins/agent-wallet/.codex-plugin/plugin.json" in names
     assert f"{bundle_root}/wdk-btc-wallet/package.json" in names
     assert f"{bundle_root}/wdk-evm-wallet/package.json" in names
     assert f"{bundle_root}/.openclaw/extensions/agent-wallet/index.ts" in names

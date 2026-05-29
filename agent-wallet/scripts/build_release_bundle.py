@@ -24,6 +24,7 @@ INCLUDED_ROOT_FILES = [
     "setup.sh",
 ]
 INCLUDED_TOP_LEVEL_DIRS = [
+    "codex",
     ".openclaw",
     "agent-a2a-gateway",
     "agent-wallet",

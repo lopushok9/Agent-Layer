@@ -2314,6 +2314,25 @@ class OpenClawWalletAdapter:
                 read_only=True,
                 risk_level="low",
             ),
+            AgentToolSpec(
+                name="get_kamino_open_positions",
+                description=(
+                    "Get all open Kamino lending positions for a Solana wallet on mainnet, "
+                    "aggregated across markets with loan details, reserve APYs, and rewards."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "user": {
+                            "type": "string",
+                            "description": "Optional Solana wallet address override. If omitted, use the configured wallet.",
+                        },
+                    },
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
         ]
 
         if capabilities.can_sign_message:
@@ -3218,30 +3237,6 @@ class OpenClawWalletAdapter:
                     read_only=False,
                     requires_explicit_user_intent=True,
                     risk_level="high",
-                )
-            )
-
-            tools.append(
-                AgentToolSpec(
-                    name="request_devnet_airdrop",
-                    description=(
-                        "Request SOL from the Solana faucet on devnet or testnet. "
-                        "Only available outside mainnet."
-                    ),
-                    input_schema={
-                        "type": "object",
-                        "properties": {
-                            "amount": {
-                                "type": "number",
-                                "description": "Amount of SOL to request from faucet.",
-                            }
-                        },
-                        "required": ["amount"],
-                        "additionalProperties": False,
-                    },
-                    read_only=False,
-                    requires_explicit_user_intent=True,
-                    risk_level="low",
                 )
             )
 
@@ -4637,6 +4632,13 @@ class OpenClawWalletAdapter:
                 data = await self.backend.get_kamino_lend_user_rewards(user=user)
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
 
+            if tool_name == "get_kamino_open_positions":
+                user = args.get("user")
+                if user is not None and not isinstance(user, str):
+                    raise WalletBackendError("user must be a string when provided.")
+                data = await self.backend.get_kamino_open_positions(user=user)
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
             if tool_name == "sign_wallet_message":
                 user_confirmed = args.get("user_confirmed")
                 if user_confirmed is not True:
@@ -5198,13 +5200,6 @@ class OpenClawWalletAdapter:
                         mode="execute",
                     ),
                 )
-
-            if tool_name == "request_devnet_airdrop":
-                amount = args.get("amount")
-                if not isinstance(amount, (int, float)) or amount <= 0:
-                    raise WalletBackendError("amount must be a positive number.")
-                result = await self.backend.request_testnet_airdrop(float(amount))
-                return AgentToolResult(tool=tool_name, ok=True, data=result)
 
             if tool_name == "transfer_spl_token":
                 recipient = args.get("recipient")

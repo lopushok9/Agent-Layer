@@ -7,6 +7,7 @@ from pathlib import Path
 from agent_wallet.bootstrap import ensure_solana_wallet_ready, ensure_wallet_pin
 from agent_wallet.encrypted_storage import load_wallet_secret_material
 from agent_wallet.config import (
+    normalize_solana_network,
     resolve_runtime_solana_rpc_config,
     resolve_runtime_solana_swap_config,
     resolve_solana_private_key,
@@ -44,6 +45,7 @@ def create_wallet_backend() -> AgentWalletBackend | None:
         return None
 
     if backend in {"solana", "solana_local", "solana-local"}:
+        solana_network = normalize_solana_network(settings.solana_network)
         secret_material = _load_keypair_material()
         signer = (
             SolanaLocalKeypairSigner.from_secret_material(secret_material)
@@ -55,19 +57,19 @@ def create_wallet_backend() -> AgentWalletBackend | None:
             ensure_wallet_pin(
                 Path(keypair_path).expanduser(),
                 address=signer.address,
-                network=settings.solana_network,
+                network=solana_network,
             )
         configured_address = settings.solana_agent_public_key.strip() or None
         rpc_config = resolve_runtime_solana_rpc_config(
-            settings.solana_network,
+            solana_network,
             settings.solana_rpc_url,
             settings.solana_rpc_urls,
         )
-        swap_config = resolve_runtime_solana_swap_config(settings.solana_network)
+        swap_config = resolve_runtime_solana_swap_config(solana_network)
         return SolanaWalletBackend(
             rpc_url=rpc_config["rpc_urls"],
             commitment=settings.solana_commitment,
-            network=settings.solana_network,
+            network=solana_network,
             signer=signer,
             address=configured_address,
             sign_only=settings.agent_wallet_sign_only,

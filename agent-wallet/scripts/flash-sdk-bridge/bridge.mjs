@@ -264,15 +264,12 @@ function createReadOnlyWallet(web3, owner) {
 }
 
 function resolveClusterName(network) {
-  return network === "mainnet" ? "mainnet-beta" : network;
+  return "mainnet-beta";
 }
 
 function defaultRpcUrlForNetwork(network) {
   if (network === "mainnet") {
     return "https://api.mainnet-beta.solana.com";
-  }
-  if (network === "devnet") {
-    return "https://api.devnet.solana.com";
   }
   return "";
 }

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent_wallet.config import settings
+from agent_wallet.config import normalize_solana_network, settings
 from agent_wallet.exceptions import ProviderError
 from agent_wallet.http_client import get_client
 
@@ -42,9 +42,7 @@ def _normalized_tx_response(data: Any, *, provider_name: str) -> dict[str, Any]:
 
 
 def _env_name(network: str) -> str:
-    normalized = str(network).strip().lower()
-    if normalized == "devnet":
-        return "devnet"
+    normalize_solana_network(network)
     return "mainnet-beta"
 
 
@@ -122,6 +120,25 @@ async def fetch_lend_user_rewards(*, user: str) -> dict[str, Any]:
         data["rewards"] = []
     elif not isinstance(rewards, list):
         raise ProviderError("kamino", "Unexpected rewards response from Kamino.")
+    return data
+
+
+async def fetch_lend_loan_info(
+    *,
+    obligation: str,
+    network: str,
+) -> dict[str, Any]:
+    """Fetch a detailed Kamino loan report for one obligation."""
+    client = get_client()
+    response = await client.get(
+        f"{_normalized_api_base()}/klend/loans/{obligation}",
+        params={"env": _env_name(network)},
+    )
+    if response.status_code != 200:
+        raise ProviderError("kamino", f"HTTP {response.status_code}: {response.text[:300]}")
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ProviderError("kamino", "Unexpected loan info response from Kamino.")
     return data
 
 

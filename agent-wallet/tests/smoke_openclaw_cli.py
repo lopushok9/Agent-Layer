@@ -50,8 +50,8 @@ def main() -> None:
 
     config = {
         "backend": "solana_local",
-        "network": "devnet",
-        "rpcUrls": ["https://primary.devnet.invalid", "https://api.devnet.solana.com"],
+        "network": "mainnet",
+        "rpcUrls": ["https://primary.mainnet.invalid", "https://api.mainnet-beta.solana.com"],
         "signOnly": False,
         "encryptUserWallets": True,
         "migratePlaintextUserWallets": True,

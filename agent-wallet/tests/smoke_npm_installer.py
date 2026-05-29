@@ -68,6 +68,7 @@ def main() -> None:
     assert (runtime_root / "setup.sh").exists()
     assert (runtime_root / "agent-wallet").exists()
     assert (runtime_root / ".openclaw" / "extensions" / "agent-wallet").exists()
+    assert (runtime_root / "codex" / "plugins" / "agent-wallet" / ".codex-plugin" / "plugin.json").exists()
     assert (runtime_root / "hermes" / "plugins" / "agent_wallet" / "plugin.yaml").exists()
     assert (runtime_root / "agent-wallet" / "scripts" / "manage_openclaw_evm_wallet.py").exists()
     assert (runtime_root / "agent-wallet" / "scripts" / "bootstrap_openclaw_evm.py").exists()
@@ -92,10 +93,22 @@ def main() -> None:
         encoding="utf-8",
     )
     fake_hermes.chmod(0o755)
+    fake_codex = fake_bin / "codex"
+    fake_codex.write_text(
+        "#!/bin/sh\n"
+        "echo \"$@\" >> \"$OPENCLAW_HOME/codex-calls.log\"\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(0o755)
     hermes_home = temp_root / "hermes-home"
     hermes_env = dict(env)
     hermes_env["PATH"] = f"{fake_bin}{os.pathsep}{env.get('PATH', '')}"
     hermes_env["HERMES_HOME"] = str(hermes_home)
+    hermes_env["AGENT_WALLET_CODEX_PLUGIN_ROOT"] = str(temp_root / "codex-plugins")
+    hermes_env["AGENT_WALLET_CODEX_MARKETPLACE_PATH"] = str(
+        temp_root / "agents" / "plugins" / "marketplace.json"
+    )
     hermes_result = subprocess.run(
         ["node", str(cli), "hermes", "install", "--yes"],
         capture_output=True,
@@ -115,6 +128,25 @@ def main() -> None:
     assert f"AGENT_WALLET_PACKAGE_ROOT={runtime_root / 'agent-wallet'}" in hermes_env_file
     assert f"AGENT_WALLET_BOOT_KEY_FILE={hermes_payload['boot_key_file']}" in hermes_env_file
     assert (temp_root / "hermes-calls.log").read_text(encoding="utf-8").strip() == "plugins enable agent-wallet"
+
+    codex_result = subprocess.run(
+        ["node", str(cli), "codex", "install", "--yes"],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=hermes_env,
+    )
+    codex_payload = json.loads(codex_result.stdout)
+    assert codex_payload["ok"] is True
+    assert Path(codex_payload["plugin_target"]).is_symlink()
+    assert Path(codex_payload["plugin_target"]).resolve() == (
+        runtime_root / "codex" / "plugins" / "agent-wallet"
+    ).resolve()
+    marketplace = json.loads(Path(codex_payload["marketplace_path"]).read_text(encoding="utf-8"))
+    assert marketplace["plugins"][0]["name"] == "agent-wallet"
+    assert (
+        temp_root / "codex-calls.log"
+    ).read_text(encoding="utf-8").strip() == f"plugin add agent-wallet@{codex_payload['marketplace_name']}"
 
     status = subprocess.run(
         ["node", str(cli), "status"],
