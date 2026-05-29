@@ -1268,71 +1268,138 @@ function runCodexInstall(args) {
   return add.skipped || add.ok ? 0 : 1;
 }
 
+const CLAUDE_CODE_MARKETPLACE_NAME = "agentlayer-local";
+
+function resolveClaudeCodeMarketplaceDir(env = process.env) {
+  return path.resolve(
+    expandHome(env.AGENT_WALLET_CLAUDE_CODE_MARKETPLACE_DIR || "~/.claude/agentlayer-local"),
+  );
+}
+
+function ensureClaudeCodeMarketplace(marketplaceDir, pluginSource, force) {
+  const pluginsDir = path.join(marketplaceDir, "plugins");
+  const pluginLink = path.join(pluginsDir, "agent-wallet");
+  const manifestDir = path.join(marketplaceDir, ".claude-plugin");
+  const manifestPath = path.join(manifestDir, "marketplace.json");
+
+  fs.mkdirSync(pluginsDir, { recursive: true });
+  fs.mkdirSync(manifestDir, { recursive: true });
+
+  // Symlink plugin source into marketplace plugins dir.
+  try {
+    const existing = fs.lstatSync(pluginLink);
+    if (!existing.isSymbolicLink()) {
+      if (!force) {
+        throw new Error(
+          `${pluginLink} exists and is not a symlink. Pass --force to replace it.`,
+        );
+      }
+      fs.rmSync(pluginLink, { recursive: true, force: true });
+    } else {
+      fs.unlinkSync(pluginLink);
+    }
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  fs.symlinkSync(pluginSource, pluginLink, "dir");
+
+  // Write marketplace manifest (Claude Code requires owner + plugins[].source as relative path).
+  const manifest = {
+    name: CLAUDE_CODE_MARKETPLACE_NAME,
+    description: "Local AgentLayer plugins",
+    owner: { name: "AgentLayer" },
+    plugins: [
+      {
+        name: "agent-wallet",
+        displayName: "Agent Wallet",
+        description:
+          "Bridge to the existing local AgentLayer wallet runtime (Solana, Bitcoin, EVM).",
+        category: "development",
+        source: "./plugins/agent-wallet",
+      },
+    ],
+  };
+  writeJsonFile(manifestPath, manifest);
+  return { pluginLink, manifestPath };
+}
+
 function runClaudeCodeInstall(args) {
   const pluginSource = resolveClaudeCodePluginSource();
   const force = hasFlag(args, "--force");
   const skipEnable = hasFlag(args, "--skip-enable");
   const claudeBin = commandPath("claude");
+  const marketplaceDir = resolveClaudeCodeMarketplaceDir();
 
-  // Symlink the plugin into ~/.claude/plugins/agent-wallet so Claude Code can load it.
-  const pluginInstallDir = path.join(os.homedir(), ".claude", "plugins");
-  const pluginTarget = path.join(pluginInstallDir, "agent-wallet");
+  const { pluginLink } = ensureClaudeCodeMarketplace(marketplaceDir, pluginSource, force);
 
-  fs.mkdirSync(pluginInstallDir, { recursive: true });
-  try {
-    const existing = fs.lstatSync(pluginTarget);
-    if (!existing.isSymbolicLink()) {
-      if (!force) {
-        throw new Error(`${pluginTarget} exists and is not a symlink. Pass --force to replace it.`);
-      }
-      fs.rmSync(pluginTarget, { recursive: true, force: true });
-    } else {
-      fs.unlinkSync(pluginTarget);
-    }
-  } catch (error) {
-    if (error?.code !== "ENOENT") throw error;
-  }
-  fs.symlinkSync(pluginSource, pluginTarget, "dir");
+  const pluginDirFlag = `claude --plugin-dir ${pluginLink}`;
 
-  // Try `claude plugin install <path>` when the CLI is present.
+  // Without the Claude CLI we can only set up the files; the user must register manually.
+  let marketplaceAdd = { attempted: false, ok: false, skipped: skipEnable, error: "" };
   let enable = { attempted: false, ok: false, skipped: skipEnable, error: "" };
+
   if (!skipEnable) {
     if (!claudeBin) {
-      enable = {
-        attempted: false,
-        ok: false,
-        skipped: false,
-        error:
-          "Claude Code CLI was not found on PATH. Load the plugin manually with: claude --plugin-dir " +
-          pluginTarget,
-      };
+      const msg =
+        "Claude Code CLI was not found on PATH. Load the plugin manually with: " + pluginDirFlag;
+      marketplaceAdd = { attempted: false, ok: false, skipped: false, error: msg };
+      enable = { attempted: false, ok: false, skipped: false, error: msg };
     } else {
-      const result = spawnSync(claudeBin, ["plugin", "install", pluginTarget, "--scope", "user"], {
-        encoding: "utf8",
-        stdio: "pipe",
-      });
-      enable = {
+      // Register the local marketplace (idempotent — safe to re-run).
+      const addResult = spawnSync(
+        claudeBin,
+        ["plugin", "marketplace", "add", marketplaceDir, "--scope", "user"],
+        { encoding: "utf8", stdio: "pipe" },
+      );
+      marketplaceAdd = {
         attempted: true,
-        ok: result.status === 0,
+        ok: addResult.status === 0,
         skipped: false,
-        error: result.status === 0 ? "" : (result.stderr || result.stdout || "").trim(),
+        error: addResult.status === 0 ? "" : (addResult.stderr || addResult.stdout || "").trim(),
       };
+
+      if (marketplaceAdd.ok) {
+        // Install plugin from the now-registered local marketplace.
+        const installResult = spawnSync(
+          claudeBin,
+          ["plugin", "install", `agent-wallet@${CLAUDE_CODE_MARKETPLACE_NAME}`, "--scope", "user"],
+          { encoding: "utf8", stdio: "pipe" },
+        );
+        enable = {
+          attempted: true,
+          ok: installResult.status === 0,
+          skipped: false,
+          error:
+            installResult.status === 0
+              ? ""
+              : (installResult.stderr || installResult.stdout || "").trim(),
+        };
+      } else {
+        enable = {
+          attempted: false,
+          ok: false,
+          skipped: false,
+          error: "Skipped plugin install because marketplace registration failed.",
+        };
+      }
     }
   }
 
-  const pluginDirFlag = `claude --plugin-dir ${pluginTarget}`;
+  const ok = enable.skipped || enable.ok;
+  const pluginDirFlagFull = `claude --plugin-dir ${pluginSource}`;
   console.log(
     JSON.stringify(
       {
-        ok: enable.skipped || enable.ok,
+        ok,
         plugin_source: pluginSource,
-        plugin_target: pluginTarget,
+        marketplace_dir: marketplaceDir,
+        marketplace_add: marketplaceAdd,
         claude_code_install: enable,
-        manual_load: pluginDirFlag,
+        manual_load: pluginDirFlagFull,
         restart_required: true,
-        note: enable.ok
+        note: ok
           ? "Plugin registered. Restart Claude Code to activate."
-          : `If automatic registration failed, load the plugin with: ${pluginDirFlag}`,
+          : `If automatic registration failed, load the plugin with: ${pluginDirFlagFull}`,
       },
       null,
       2,
