@@ -10,6 +10,7 @@ const DEFAULTS = {
   unlockTimeoutSeconds: 0,
 };
 const DEFAULT_PROVIDER_GATEWAY_URL = "https://agent-layer-production.up.railway.app";
+const ENFORCED_GATEWAY_MAINNETS = new Set(["ethereum", "base"]);
 
 const DEFAULT_NETWORK_PROFILES = {
   ethereum: {
@@ -191,6 +192,20 @@ export function loadConfig(env = process.env) {
 
   function resolveProviderUrl(networkKey, envValue, fallbackUrl) {
     const direct = String(envValue ?? "").trim();
+    if (ENFORCED_GATEWAY_MAINNETS.has(networkKey)) {
+      const enforcedGatewayUrl = buildGatewayEvmRpcUrl(
+        providerGatewayUrl,
+        networkKey,
+        "alchemy",
+        providerGatewayToken
+      );
+      if (!enforcedGatewayUrl) {
+        throw new Error(
+          `PROVIDER_GATEWAY_URL is required for ${networkKey} mainnet RPC routing.`
+        );
+      }
+      return enforcedGatewayUrl;
+    }
     if (direct) {
       return direct;
     }

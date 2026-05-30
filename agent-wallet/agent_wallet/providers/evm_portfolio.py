@@ -14,11 +14,6 @@ COINGECKO_API_URL = "https://api.coingecko.com/api/v3"
 PORTFOLIO_TOKEN_CACHE_TTL_SECONDS = 30.0
 PORTFOLIO_PRICE_CACHE_TTL_SECONDS = 60.0
 
-ALCHEMY_RPC_URLS = {
-    "ethereum": "https://eth-mainnet.g.alchemy.com/v2",
-    "base": "https://base-mainnet.g.alchemy.com/v2",
-}
-
 TOKEN_METADATA: dict[str, dict[str, dict[str, Any]]] = {
     "ethereum": {
         "0xdac17f958d2ee523a2206206994597c13d831ec7": {
@@ -204,51 +199,32 @@ def _to_decimal(value: Any) -> Decimal | None:
         return None
 
 
-async def _gateway_or_alchemy_rpc_call(network: str, method: str, params: list[Any]) -> dict[str, Any]:
+async def _gateway_rpc_call(network: str, method: str, params: list[Any]) -> dict[str, Any]:
     client = get_client()
     payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
     gateway_url = str(settings.provider_gateway_url or "").strip()
     bearer = str(settings.provider_gateway_bearer_token or "").strip()
-    gateway_error: Exception | None = None
-
-    if gateway_url:
-        try:
-            response = await client.post(
-                f"{gateway_url.rstrip('/')}/v1/evm/rpc/{network}?provider=alchemy",
-                json=payload,
-                headers={"Authorization": f"Bearer {bearer}"} if bearer else None,
-            )
-            if response.status_code == 200:
-                data = response.json()
-                if isinstance(data, dict) and "error" not in data:
-                    return data
-                gateway_error = ProviderError("evm-portfolio", f"Gateway RPC error: {data}")
-            else:
-                gateway_error = ProviderError(
-                    "evm-portfolio",
-                    f"Gateway returned HTTP {response.status_code} for {method}",
-                )
-        except Exception as exc:  # pragma: no cover - network path
-            gateway_error = exc
-
-    alchemy_key = str(settings.alchemy_api_key or "").strip()
-    if not alchemy_key:
-        if gateway_error is not None:
-            raise ProviderError("evm-portfolio", f"No fallback Alchemy key available after gateway failure: {gateway_error}")
-        raise ProviderError("evm-portfolio", "No gateway URL or Alchemy API key configured for EVM portfolio lookup.")
-
-    base_url = ALCHEMY_RPC_URLS.get(network)
-    if not base_url:
-        raise ProviderError("evm-portfolio", f"No Alchemy RPC URL configured for {network}.")
+    if not gateway_url:
+        raise ProviderError(
+            "evm-portfolio",
+            "Provider gateway URL is required for EVM portfolio lookup on ethereum/base.",
+        )
     try:
-        response = await client.post(f"{base_url}/{alchemy_key}", json=payload)
+        response = await client.post(
+            f"{gateway_url.rstrip('/')}/v1/evm/rpc/{network}?provider=alchemy",
+            json=payload,
+            headers={"Authorization": f"Bearer {bearer}"} if bearer else None,
+        )
     except Exception as exc:  # pragma: no cover - network path
-        raise ProviderError("evm-portfolio", f"Alchemy request failed: {exc}") from exc
+        raise ProviderError("evm-portfolio", f"Provider gateway request failed: {exc}") from exc
     if response.status_code != 200:
-        raise ProviderError("evm-portfolio", f"Alchemy returned HTTP {response.status_code} for {method}.")
+        raise ProviderError(
+            "evm-portfolio",
+            f"Provider gateway returned HTTP {response.status_code} for {method}.",
+        )
     data = response.json()
     if "error" in data:
-        raise ProviderError("evm-portfolio", f"Alchemy RPC error: {data['error']}")
+        raise ProviderError("evm-portfolio", f"Provider gateway RPC error: {data['error']}")
     return data
 
 
@@ -259,7 +235,7 @@ async def fetch_token_balances(address: str, network: str) -> list[dict[str, Any
     if cached is not None:
         return cached
 
-    data = await _gateway_or_alchemy_rpc_call(
+    data = await _gateway_rpc_call(
         normalized_network,
         "alchemy_getTokenBalances",
         [address, "erc20"],

@@ -205,7 +205,7 @@ curl "http://localhost:8000/v1/houdini/quotes/private?from=sol-token-id&to=sol-t
 
 - simplicity first: one process, one app file, narrow endpoint surface
 - security first: no raw generic Bags proxy, no raw unrestricted RPC passthrough
-- user friendly: good default shared mode, while future `agent-wallet` integration can switch to direct user RPC when user keys are configured
+- user friendly: good default shared mode, with production EVM mainnet routing expected to stay on the gateway path
 - launch flow stays non-custodial: gateway prepares metadata/config/launch tx, user wallet still signs and broadcasts
 - EVM shared RPC remains allowlisted. It is intended for wallet reads, simulation, fee estimation, and raw tx broadcast from the local signer, not as a generic public Ethereum proxy.
 - Houdini private swap routing stays non-custodial: the gateway owns partner secrets and compliance headers, but the local wallet still constructs the exact funding transfer locally, signs it, and broadcasts it.
@@ -219,7 +219,7 @@ curl "http://localhost:8000/v1/houdini/quotes/private?from=sol-token-id&to=sol-t
 - explicit Bags launch / fees mode via the gateway-backed Bags client
 - explicit Jupiter Earn mode via the gateway-backed Earn client
 - explicit Houdini mode via the gateway-backed private payout client
-- `wdk-evm-wallet` can also use this service as its upstream RPC transport for `ethereum` / `base`
+- `wdk-evm-wallet` uses this service as its upstream RPC transport for `ethereum` / `base` mainnet
 
 Default Jupiter swap routing stays direct regardless of whether RPC is shared or user-owned. The gateway is used here for Bags launch/fees and Jupiter Earn, not for ordinary swaps.
 

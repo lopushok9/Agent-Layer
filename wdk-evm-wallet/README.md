@@ -165,9 +165,10 @@ Gateway mode:
 - `PROVIDER_GATEWAY_URL` defaults to `https://agent-layer-production.up.railway.app`
 - set `PROVIDER_GATEWAY_URL=https://...` only when overriding the hosted default
 - `PROVIDER_GATEWAY_BEARER_TOKEN` is optional and only needed when the gateway is protected
-- optionally set `WDK_EVM_RPC_GATEWAY_PROVIDER=alchemy|shared|auto`
-- in gateway mode, `ethereum` and `base` use the provider gateway raw EVM RPC route
-- explicit `WDK_EVM_<NETWORK>_RPC_URL` values still override gateway mode per network
+- `ethereum` and `base` mainnet are always routed through the provider gateway raw EVM RPC route
+- `ethereum` and `base` mainnet are pinned to the gateway `provider=alchemy` path
+- direct `WDK_EVM_ETHEREUM_RPC_URL` and `WDK_EVM_BASE_RPC_URL` values no longer override mainnet routing
+- `WDK_EVM_SEPOLIA_RPC_URL` and `WDK_EVM_BASE_SEPOLIA_RPC_URL` remain direct per-network testnet overrides
 
 Local security note:
 
