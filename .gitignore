@@ -21,10 +21,22 @@ dist/
 __pycache__/
 **/__pycache__/
 *.pyc
+.pytest_cache/
+**/.pytest_cache/
+.ruff_cache/
+**/.ruff_cache/
+.mypy_cache/
+**/.mypy_cache/
 .venv/
 **/.venv/
 .runtime-venv/
 **/.runtime-venv/
+*.egg-info/
+**/*.egg-info/
+htmlcov/
+**/htmlcov/
+.coverage
+.coverage.*
 agent-wallet/requirements.txt
 
 # Local environment files
@@ -42,6 +54,9 @@ agent-a2a-gateway/.env.*
 # OS files
 .DS_Store
 *.tgz
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Local private application materials
 
