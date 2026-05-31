@@ -7,7 +7,6 @@
     "tools": [
       "claim_bags_fees",
       "close_empty_token_accounts",
-      "continue_solana_private_swap",
       "flash_trade_close_position",
       "flash_trade_open_position",
       "get_active_wallet_backend",
@@ -38,7 +37,6 @@
       "get_lifi_quote",
       "get_lifi_supported_chains",
       "get_lifi_transfer_status",
-      "get_solana_private_swap_status",
       "get_solana_token_prices",
       "get_wallet_address",
       "get_wallet_balance",
@@ -49,7 +47,6 @@
       "kamino_lend_repay",
       "kamino_lend_withdraw",
       "launch_bags_token",
-      "list_pending_solana_private_swaps",
       "manage_evm_aave_position",
       "manage_evm_lido_position",
       "manage_evm_lido_withdrawal",
@@ -59,7 +56,6 @@
       "swap_evm_lifi_cross_chain_tokens",
       "swap_evm_tokens",
       "swap_solana_lifi_cross_chain_tokens",
-      "swap_solana_privately",
       "swap_solana_tokens",
       "transfer_btc",
       "transfer_evm_native",
@@ -239,36 +235,6 @@
         "uiHints": {
           "sensitive": true
         }
-      },
-      "houdiniBaseUrl": {
-        "type": "string",
-        "description": "Optional Houdini Partner API base URL for private Solana payouts."
-      },
-      "houdiniApiKey": {
-        "type": "string",
-        "description": "Optional Houdini Partner API key.",
-        "uiHints": {
-          "sensitive": true
-        }
-      },
-      "houdiniApiSecret": {
-        "type": "string",
-        "description": "Optional Houdini Partner API secret.",
-        "uiHints": {
-          "sensitive": true
-        }
-      },
-      "houdiniUserIp": {
-        "type": "string",
-        "description": "Required Houdini compliance header: end-user IP address."
-      },
-      "houdiniUserAgent": {
-        "type": "string",
-        "description": "Required Houdini compliance header: end-user agent string."
-      },
-      "houdiniUserTimezone": {
-        "type": "string",
-        "description": "Required Houdini compliance header: end-user timezone, for example Europe/Moscow."
       },
       "kaminoBaseUrl": {
         "type": "string",

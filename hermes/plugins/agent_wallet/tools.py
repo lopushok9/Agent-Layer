@@ -15,7 +15,7 @@ from typing import Any
 
 SECRET_CONFIG_KEYS = {"privateKey", "masterKey", "approvalSecret"}
 BACKENDS = ("solana_local", "wdk_btc_local", "wdk_evm_local")
-PREVIEW_BOUND_SWAP_TOOLS = {"swap_solana_tokens", "swap_solana_privately"}
+PREVIEW_BOUND_SWAP_TOOLS = {"swap_solana_tokens"}
 
 
 def _json(data: dict[str, Any]) -> str:

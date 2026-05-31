@@ -102,12 +102,6 @@ def _apply_config_overrides(config: dict[str, Any]) -> None:
             True,
         ),
         "jupiterApiKey": ("JUPITER_API_KEY", config.get("jupiterApiKey"), True),
-        "houdiniBaseUrl": ("HOUDINI_API_BASE_URL", config.get("houdiniBaseUrl"), True),
-        "houdiniApiKey": ("HOUDINI_API_KEY", config.get("houdiniApiKey"), True),
-        "houdiniApiSecret": ("HOUDINI_API_SECRET", config.get("houdiniApiSecret"), True),
-        "houdiniUserIp": ("HOUDINI_USER_IP", config.get("houdiniUserIp"), True),
-        "houdiniUserAgent": ("HOUDINI_USER_AGENT", config.get("houdiniUserAgent"), True),
-        "houdiniUserTimezone": ("HOUDINI_USER_TIMEZONE", config.get("houdiniUserTimezone"), True),
         "kaminoBaseUrl": ("KAMINO_API_BASE_URL", config.get("kaminoBaseUrl"), True),
         "kaminoProgramId": ("KAMINO_PROGRAM_ID", config.get("kaminoProgramId"), True),
     }

@@ -13,16 +13,12 @@ let selectedSolanaNetwork = null;
 let selectedEvmNetwork = null;
 let selectedBtcNetwork = null;
 const PREVIEW_CACHE_TTL_MS = 15 * 60 * 1000;
-const PRIVATE_SWAP_CACHE_TTL_MS = 35 * 60 * 1000;
 const PREVIEW_BOUND_SWAP_TOOLS = new Set([
   "swap_solana_tokens",
-  "swap_solana_privately",
   "flash_trade_open_position",
   "flash_trade_close_position",
 ]);
-const PRIVATE_SWAP_APPROVAL_TOOL_NAME = "swap_solana_privately";
 const approvalPreviewCache = new Map();
-const privateSwapOrderCache = new Map();
 const WALLET_TOOL_ONLY_GUIDANCE =
   "Use this wallet tool instead of shelling out to solana CLI, spl-token CLI, curl, or exec. If it fails, surface the wallet-tool error and stop rather than falling back to terminal commands.";
 const OPENCLAW_EXECUTE_APPROVAL_GUIDANCE =
@@ -82,16 +78,10 @@ function cachePreviewForApproval(userId, toolName, payload) {
   const digest = previewDigest(approvalSource);
   approvalPreviewCache.set(approvalCacheKey(userId, cacheToolName), {
     digest,
-    expiresAt:
-      cacheToolName === "swap_solana_privately"
-        ? Date.now() + PRIVATE_SWAP_CACHE_TTL_MS
-        : Date.now() + PREVIEW_CACHE_TTL_MS,
+    expiresAt: Date.now() + PREVIEW_CACHE_TTL_MS,
     preview: approvalSource,
     summary: approvalSource.confirmation_summary,
   });
-  if (cacheToolName === "swap_solana_privately") {
-    privateSwapOrderCache.delete(approvalCacheKey(userId, cacheToolName));
-  }
 }
 
 function latestCachedPreview(userId, toolName) {
@@ -158,93 +148,6 @@ function normalizeApprovalContextError(error) {
   return wrapped;
 }
 
-function cachePendingPrivateSwapOrder(userId, toolName, preview, details) {
-  if (toolName !== "swap_solana_privately") return;
-  if (!preview || typeof preview !== "object") return;
-  if (!details || typeof details !== "object") return;
-  const houdiniId = typeof details.houdini_id === "string" ? details.houdini_id.trim() : "";
-  const depositAddress =
-    typeof details.deposit_address === "string" ? details.deposit_address.trim() : "";
-  if (!houdiniId || !depositAddress) return;
-  privateSwapOrderCache.set(approvalCacheKey(userId, toolName), {
-    digest: previewDigest(preview),
-    expiresAt: Date.now() + PRIVATE_SWAP_CACHE_TTL_MS,
-    order: {
-      multi_id: typeof details.multi_id === "string" ? details.multi_id.trim() : null,
-      houdini_id: houdiniId,
-      deposit_address: depositAddress,
-      order: details.order && typeof details.order === "object" ? details.order : {},
-    },
-  });
-}
-
-function latestPendingPrivateSwapOrder(userId, toolName, preview) {
-  if (toolName !== "swap_solana_privately") return null;
-  const cached = privateSwapOrderCache.get(approvalCacheKey(userId, toolName));
-  if (!cached || typeof cached !== "object") return null;
-  if (Number(cached.expiresAt || 0) <= Date.now()) {
-    privateSwapOrderCache.delete(approvalCacheKey(userId, toolName));
-    return null;
-  }
-  if (!preview || typeof preview !== "object") return null;
-  if (cached.digest !== previewDigest(preview)) return null;
-  return cached.order && typeof cached.order === "object" ? cached.order : null;
-}
-
-function clearPendingPrivateSwapOrder(userId, toolName) {
-  if (toolName !== "swap_solana_privately") return;
-  privateSwapOrderCache.delete(approvalCacheKey(userId, toolName));
-}
-
-function formatPrivateSwapPendingOrderError(details) {
-  const houdiniId = typeof details?.houdini_id === "string" ? details.houdini_id.trim() : "";
-  const multiId = typeof details?.multi_id === "string" ? details.multi_id.trim() : "";
-  const depositAddress =
-    typeof details?.deposit_address === "string" ? details.deposit_address.trim() : "";
-  const orderStatus =
-    typeof details?.order_status === "string" ? details.order_status.trim() : "";
-  const parts = [
-    "Houdini order was created, but the Solana deposit account is not ready yet.",
-  ];
-  if (houdiniId) parts.push(`houdini_id=${houdiniId}`);
-  if (multiId) parts.push(`multi_id=${multiId}`);
-  if (depositAddress) parts.push(`deposit_address=${depositAddress}`);
-  if (orderStatus) parts.push(`status=${orderStatus}`);
-  parts.push("Retry execute for this existing order instead of generating a new preview.");
-  return parts.join(" ");
-}
-
-function formatPrivateSwapRateLimitError(details) {
-  const retryAfter =
-    typeof details?.retry_after === "number"
-      ? details.retry_after
-      : typeof details?.retry_after === "string"
-        ? details.retry_after
-        : "";
-  const quoteId = typeof details?.quote_id === "string" ? details.quote_id.trim() : "";
-  const parts = [
-    "Houdini exchange create is rate-limited right now.",
-  ];
-  if (retryAfter !== "") parts.push(`retry_after=${retryAfter}s`);
-  if (quoteId) parts.push(`quote_id=${quoteId}`);
-  parts.push("Do not generate a new preview yet; wait, then retry execute.");
-  return parts.join(" ");
-}
-
-function listPendingPrivateSwapOrders(userId) {
-  const key = approvalCacheKey(userId, PRIVATE_SWAP_APPROVAL_TOOL_NAME);
-  const pending = privateSwapOrderCache.get(key);
-  if (!pending || typeof pending !== "object" || Number(pending.expiresAt || 0) <= Date.now()) {
-    privateSwapOrderCache.delete(key);
-    return [];
-  }
-  return [
-    {
-      ...(pending.order && typeof pending.order === "object" ? pending.order : {}),
-      expires_at_ms: Number(pending.expiresAt || 0),
-    },
-  ];
-}
 
 function resolvePluginConfig(api) {
   const globalConfig = api?.config ?? {};
@@ -569,9 +472,6 @@ async function issueApprovalToken(api, config, userId, toolName, previewPayload)
   if (previewPayload?.is_mainnet === true) {
     extraArgs.push("--mainnet-confirmed");
   }
-  if (toolName === "swap_solana_privately") {
-    extraArgs.push("--ttl-seconds", "1800");
-  }
   const payload = await callWalletCli(api, "issue-approval", extraArgs, config);
   const token = String(payload?.approval_token || "").trim();
   if (!token) {
@@ -733,12 +633,6 @@ function registerTool(api, definition) {
         });
       }
 
-      if (definition.name === "list_pending_solana_private_swaps") {
-        return asContent({
-          orders: listPendingPrivateSwapOrders(resolveUserId(api, resolvePluginConfig(api))),
-        });
-      }
-
       const effectiveParams = { ...(params ?? {}) };
       const activeBackend = activeBackendForTool(api, definition.name);
       const userId = resolveUserId(api, resolvePluginConfig(api));
@@ -754,43 +648,7 @@ function registerTool(api, definition) {
       if (activeBackend === "wdk_evm_local" && effectiveParams.network !== undefined) {
         configOverride.network = normalizeSelectableEvmNetwork(effectiveParams.network);
       }
-      if (definition.name !== "continue_solana_private_swap") {
-        await attachApprovalForExecute(api, configOverride, userId, definition.name, effectiveParams);
-      }
-      if (definition.name === "continue_solana_private_swap") {
-        const cached = latestCachedPreview(userId, PRIVATE_SWAP_APPROVAL_TOOL_NAME);
-        if (cached?.preview) {
-          effectiveParams._approved_preview = cached.preview;
-        }
-        if (cached?.preview && cached?.summary) {
-          effectiveParams.approval_token = await issueApprovalToken(
-            api,
-            configOverride,
-            userId,
-            PRIVATE_SWAP_APPROVAL_TOOL_NAME,
-            cached.preview
-          );
-        } else if (!effectiveParams.approval_token) {
-          throw new Error(APPROVAL_CONTEXT_MISSING_MESSAGE);
-        }
-        if (effectiveParams._resume_private_swap_order === undefined && cached?.preview) {
-          const pendingOrder = latestPendingPrivateSwapOrder(
-            userId,
-            PRIVATE_SWAP_APPROVAL_TOOL_NAME,
-            cached.preview
-          );
-          if (pendingOrder) {
-            if (
-              effectiveParams.houdini_id &&
-              pendingOrder.houdini_id &&
-              String(effectiveParams.houdini_id).trim() !== String(pendingOrder.houdini_id).trim()
-            ) {
-              throw new Error("The requested houdini_id does not match the cached pending private swap order.");
-            }
-            effectiveParams._resume_private_swap_order = pendingOrder;
-          }
-        }
-      }
+      await attachApprovalForExecute(api, configOverride, userId, definition.name, effectiveParams);
       const executeWalletTool = async () =>
         callWalletCli(api, "invoke", [
           "--tool",
@@ -800,75 +658,10 @@ function registerTool(api, definition) {
         ], configOverride);
 
       let payload;
-      if (definition.name === "swap_solana_privately" && String(effectiveParams.mode || "") === "execute") {
-        const approvedPreview =
-          effectiveParams._approved_preview && typeof effectiveParams._approved_preview === "object"
-            ? effectiveParams._approved_preview
-            : null;
-        const pendingOrder = approvedPreview
-          ? latestPendingPrivateSwapOrder(userId, definition.name, approvedPreview)
-          : null;
-        if (pendingOrder && effectiveParams._resume_private_swap_order === undefined) {
-          effectiveParams._resume_private_swap_order = pendingOrder;
-        }
-
-        let remainingRetries = 3;
-        while (true) {
-          try {
-            payload = await executeWalletTool();
-            const executionState = payload?.data?.execution_state;
-            if (executionState === "awaiting_deposit_funding" && approvedPreview) {
-              cachePendingPrivateSwapOrder(userId, definition.name, approvedPreview, payload.data);
-            } else {
-              clearPendingPrivateSwapOrder(userId, definition.name);
-            }
-            break;
-          } catch (error) {
-            const errorCode = typeof error?.code === "string" ? error.code : "";
-            const errorDetails =
-              error?.details && typeof error.details === "object" ? error.details : null;
-            if (
-              (errorCode === "houdini_deposit_not_ready" ||
-                errorCode === "houdini_order_initializing_timeout") &&
-              approvedPreview &&
-              errorDetails &&
-              remainingRetries > 0
-            ) {
-              cachePendingPrivateSwapOrder(userId, definition.name, approvedPreview, errorDetails);
-              effectiveParams._resume_private_swap_order =
-                latestPendingPrivateSwapOrder(userId, definition.name, approvedPreview) || undefined;
-              remainingRetries -= 1;
-              continue;
-            }
-            if (
-              (errorCode === "houdini_deposit_not_ready" ||
-                errorCode === "houdini_order_initializing_timeout") &&
-              errorDetails
-            ) {
-              cachePendingPrivateSwapOrder(userId, definition.name, approvedPreview, errorDetails);
-              throw new Error(formatPrivateSwapPendingOrderError(errorDetails));
-            }
-            if (errorCode === "houdini_exchange_rate_limited" && errorDetails) {
-              throw new Error(formatPrivateSwapRateLimitError(errorDetails));
-            }
-            throw normalizeApprovalContextError(error);
-          }
-        }
-      } else if (definition.name === "continue_solana_private_swap") {
-        try {
-          payload = await executeWalletTool();
-        } catch (error) {
-          throw normalizeApprovalContextError(error);
-        }
-        if (payload?.data?.execution_state === "funding_submitted") {
-          clearPendingPrivateSwapOrder(userId, PRIVATE_SWAP_APPROVAL_TOOL_NAME);
-        }
-      } else {
-        try {
-          payload = await executeWalletTool();
-        } catch (error) {
-          throw normalizeApprovalContextError(error);
-        }
+      try {
+        payload = await executeWalletTool();
+      } catch (error) {
+        throw normalizeApprovalContextError(error);
       }
       cachePreviewForApproval(userId, definition.name, payload);
       if (payload?.ok === false) {
@@ -1008,12 +801,6 @@ const walletSessionToolDefinitions = [
 ];
 
 const solanaToolDefinitions = [
-  {
-    name: "list_pending_solana_private_swaps",
-    description:
-      "List cached pending Houdini private Solana orders from this OpenClaw session, including houdini_id, multi_id, deposit_address, and the last known order payload.",
-    parameters: { type: "object", properties: {}, additionalProperties: false },
-  },
   {
     name: "get_wallet_capabilities",
     description: "Describe the connected wallet backend, chain, and safety limits.",
@@ -1322,53 +1109,6 @@ const solanaToolDefinitions = [
         user_intent: { type: "boolean" },
       },
       required: ["input_mint", "output_mint", "amount", "mode", "purpose"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "swap_solana_privately",
-    description: `Preview or create a Solana private payout through Houdini's anonymous routing. The initial implementation supports same-token private payouts only, such as SOL->SOL or USDC->USDC. Use preview first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically. The first execute creates the Houdini order and returns its deposit address; use continue_solana_private_swap to submit the funding transfer. ${WALLET_TOOL_ONLY_GUIDANCE}`,
-    optional: true,
-    parameters: {
-      type: "object",
-      properties: {
-        input_token: { type: "string" },
-        output_token: { type: "string" },
-        destination_address: { type: "string" },
-        amount: { type: "number" },
-        use_xmr: { type: "boolean" },
-        mode: { type: "string", enum: ["preview", "execute"] },
-        purpose: { type: "string" },
-        user_intent: { type: "boolean" },
-      },
-      required: ["input_token", "output_token", "destination_address", "amount", "mode", "purpose"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "continue_solana_private_swap",
-    description:
-      "Continue a previously created Houdini private Solana payout and submit the funding transfer to the cached deposit address. Use this after swap_solana_privately execute has returned a pending order; the OpenClaw plugin reuses the cached confirmation context automatically.",
-    optional: true,
-    parameters: {
-      type: "object",
-      properties: {
-        houdini_id: { type: "string" },
-      },
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "get_solana_private_swap_status",
-    description: "Check Houdini status for a Solana private payout created by swap_solana_privately. Prefer houdini_id from the execute result; multi_id is only needed for legacy multi-order flows.",
-    optional: true,
-    parameters: {
-      type: "object",
-      properties: {
-        multi_id: { type: "string" },
-        houdini_id: { type: "string" },
-      },
-      anyOf: [{ required: ["multi_id"] }, { required: ["houdini_id"] }],
       additionalProperties: false,
     },
   },

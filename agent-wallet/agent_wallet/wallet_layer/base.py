@@ -328,46 +328,6 @@ class AgentWalletBackend(ABC):
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Solana-origin LI.FI swap previews.")
 
-    async def preview_solana_private_swap(
-        self,
-        *,
-        input_token: str,
-        output_token: str,
-        destination_address: str,
-        amount_ui: float,
-        use_xmr: bool = False,
-    ) -> dict[str, Any]:
-        raise WalletBackendError(f"{self.name} does not support Solana private swap previews.")
-
-    async def execute_solana_private_swap(
-        self,
-        *,
-        input_token: str,
-        output_token: str,
-        destination_address: str,
-        amount_ui: float,
-        use_xmr: bool = False,
-        approved_preview: dict[str, Any] | None = None,
-        existing_order: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        raise WalletBackendError(f"{self.name} does not support Solana private swaps.")
-
-    async def get_solana_private_swap_status(
-        self,
-        *,
-        multi_id: str | None = None,
-        houdini_id: str | None = None,
-    ) -> dict[str, Any]:
-        raise WalletBackendError(f"{self.name} does not support Solana private swap status lookup.")
-
-    async def continue_solana_private_swap(
-        self,
-        *,
-        approved_preview: dict[str, Any],
-        existing_order: dict[str, Any],
-    ) -> dict[str, Any]:
-        raise WalletBackendError(f"{self.name} does not support continuing Solana private swaps.")
-
     async def execute_solana_lifi_cross_chain_swap(
         self,
         *,

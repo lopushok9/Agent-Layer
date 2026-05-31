@@ -120,10 +120,6 @@ def main() -> None:
     assert "swap_evm_tokens" in also_allow
     assert "transfer_evm_native" in also_allow
     assert "transfer_evm_token" in also_allow
-    assert "swap_solana_privately" in also_allow
-    assert "continue_solana_private_swap" in also_allow
-    assert "list_pending_solana_private_swaps" in also_allow
-    assert "get_solana_private_swap_status" in also_allow
     assert "kamino_lend_deposit" in also_allow
     assert "kamino_lend_repay" in also_allow
     assert "pay_status" not in also_allow

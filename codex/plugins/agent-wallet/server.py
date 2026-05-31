@@ -47,25 +47,16 @@ HOST_DEFAULT_CONFIG_KEYS = {
     "jupiterPriceBaseUrl",
     "jupiterPortfolioBaseUrl",
     "jupiterApiKey",
-    "houdiniBaseUrl",
-    "houdiniApiKey",
-    "houdiniApiSecret",
-    "houdiniUserIp",
-    "houdiniUserAgent",
-    "houdiniUserTimezone",
     "kaminoBaseUrl",
     "kaminoProgramId",
 }
 BACKENDS = ("solana_local", "wdk_btc_local", "wdk_evm_local")
 PREVIEW_CACHE_TTL_SECONDS = 15 * 60
-PRIVATE_SWAP_CACHE_TTL_SECONDS = 35 * 60
 PREVIEW_BOUND_SWAP_TOOLS = {
     "swap_solana_tokens",
-    "swap_solana_privately",
     "flash_trade_open_position",
     "flash_trade_close_position",
 }
-PRIVATE_SWAP_APPROVAL_TOOL_NAME = "swap_solana_privately"
 APPROVAL_PREVIEW_TOOL_ALIASES = {
     "x402_pay_request": "x402_preview_request",
 }
@@ -80,7 +71,6 @@ selected_solana_network: str | None = None
 selected_evm_network: str | None = None
 selected_btc_network: str | None = None
 approval_preview_cache: dict[str, dict[str, Any]] = {}
-private_swap_order_cache: dict[str, dict[str, Any]] = {}
 
 
 class WalletCliError(RuntimeError):
@@ -244,17 +234,10 @@ def _cache_preview_for_approval(user_id: str, tool_name: str, payload: dict[str,
     _prune_approval_preview_cache()
     approval_preview_cache[_approval_cache_key(user_id, cache_tool_name)] = {
         "digest": _preview_digest(data),
-        "expires_at": time.time()
-        + (
-            PRIVATE_SWAP_CACHE_TTL_SECONDS
-            if cache_tool_name == PRIVATE_SWAP_APPROVAL_TOOL_NAME
-            else PREVIEW_CACHE_TTL_SECONDS
-        ),
+        "expires_at": time.time() + PREVIEW_CACHE_TTL_SECONDS,
         "preview": data,
         "summary": summary,
     }
-    if cache_tool_name == PRIVATE_SWAP_APPROVAL_TOOL_NAME:
-        private_swap_order_cache.pop(_approval_cache_key(user_id, cache_tool_name), None)
 
 
 def _latest_cached_preview(user_id: str, tool_name: str) -> dict[str, Any] | None:
@@ -292,64 +275,6 @@ def _cached_preview_for_token(user_id: str, tool_name: str, token: str) -> dict[
 def _cache_pending_private_swap_order(
     user_id: str,
     tool_name: str,
-    preview: dict[str, Any],
-    details: dict[str, Any],
-) -> None:
-    if tool_name != PRIVATE_SWAP_APPROVAL_TOOL_NAME:
-        return
-    houdini_id = str(details.get("houdini_id") or "").strip()
-    deposit_address = str(details.get("deposit_address") or "").strip()
-    if not houdini_id or not deposit_address:
-        return
-    private_swap_order_cache[_approval_cache_key(user_id, tool_name)] = {
-        "digest": _preview_digest(preview),
-        "expires_at": time.time() + PRIVATE_SWAP_CACHE_TTL_SECONDS,
-        "order": {
-            "multi_id": str(details.get("multi_id") or "").strip() or None,
-            "houdini_id": houdini_id,
-            "deposit_address": deposit_address,
-            "order": details.get("order") if isinstance(details.get("order"), dict) else {},
-        },
-    }
-
-
-def _latest_pending_private_swap_order(
-    user_id: str,
-    tool_name: str,
-    preview: dict[str, Any],
-) -> dict[str, Any] | None:
-    if tool_name != PRIVATE_SWAP_APPROVAL_TOOL_NAME:
-        return None
-    cached = private_swap_order_cache.get(_approval_cache_key(user_id, tool_name))
-    if not cached:
-        return None
-    if float(cached.get("expires_at") or 0) <= time.time():
-        private_swap_order_cache.pop(_approval_cache_key(user_id, tool_name), None)
-        return None
-    if cached.get("digest") != _preview_digest(preview):
-        return None
-    order = cached.get("order")
-    return order if isinstance(order, dict) else None
-
-
-def _clear_pending_private_swap_order(user_id: str, tool_name: str) -> None:
-    if tool_name == PRIVATE_SWAP_APPROVAL_TOOL_NAME:
-        private_swap_order_cache.pop(_approval_cache_key(user_id, tool_name), None)
-
-
-def _list_pending_private_swap_orders(user_id: str) -> list[dict[str, Any]]:
-    key = _approval_cache_key(user_id, PRIVATE_SWAP_APPROVAL_TOOL_NAME)
-    pending = private_swap_order_cache.get(key)
-    if not pending or float(pending.get("expires_at") or 0) <= time.time():
-        private_swap_order_cache.pop(key, None)
-        return []
-    order = pending.get("order")
-    if not isinstance(order, dict):
-        return []
-    return [{**order, "expires_at_ms": int(float(pending["expires_at"]) * 1000)}]
-
-
-def _normalize_wallet_backend(value: Any) -> str:
     normalized = str(value or "").strip().lower()
     aliases = {
         "sol": "solana_local",
@@ -650,8 +575,6 @@ def _issue_approval_token(
     ]
     if preview_payload.get("is_mainnet") is True:
         extra_args.append("--mainnet-confirmed")
-    if tool_name == PRIVATE_SWAP_APPROVAL_TOOL_NAME:
-        extra_args.extend(["--ttl-seconds", "1800"])
     payload = _call_wallet_cli("issue-approval", extra_args)
     token = str(payload.get("approval_token") or "").strip()
     if not token:
@@ -965,9 +888,6 @@ async def _handle_set_evm_network(params: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _handle_wallet_tool(tool_name: str, params: dict[str, Any]) -> dict[str, Any]:
-    if tool_name == "list_pending_solana_private_swaps":
-        return {"orders": _list_pending_private_swap_orders(_user_id())}
-
     config = _base_config(params, tool_name=tool_name)
     backend = _normalize_wallet_backend(config.get("backend"))
     if backend == "wdk_evm_local" and params.get("network") is None and selected_evm_network:
@@ -975,24 +895,7 @@ async def _handle_wallet_tool(tool_name: str, params: dict[str, Any]) -> dict[st
         config["network"] = selected_evm_network
 
     effective_params = dict(params)
-    if tool_name != "continue_solana_private_swap":
-        _attach_approval_for_execute(tool_name, config, effective_params)
-    else:
-        cached = _latest_cached_preview(_user_id(), PRIVATE_SWAP_APPROVAL_TOOL_NAME)
-        if cached and isinstance(cached.get("preview"), dict):
-            effective_params["_approved_preview"] = cached["preview"]
-            effective_params["approval_token"] = _issue_approval_token(
-                PRIVATE_SWAP_APPROVAL_TOOL_NAME,
-                config,
-                cached["preview"],
-            )
-            pending = _latest_pending_private_swap_order(
-                _user_id(), PRIVATE_SWAP_APPROVAL_TOOL_NAME, cached["preview"]
-            )
-            if pending and effective_params.get("_resume_private_swap_order") is None:
-                effective_params["_resume_private_swap_order"] = pending
-        elif not effective_params.get("approval_token"):
-            raise RuntimeError(APPROVAL_CONTEXT_MISSING_MESSAGE)
+    _attach_approval_for_execute(tool_name, config, effective_params)
 
     try:
         payload = _invoke_tool(tool_name, effective_params, config)
@@ -1000,22 +903,6 @@ async def _handle_wallet_tool(tool_name: str, params: dict[str, Any]) -> dict[st
         raise _normalize_approval_context_error(exc) from exc
 
     _cache_preview_for_approval(_user_id(), tool_name, payload)
-    if tool_name == "swap_solana_privately" and payload.get("ok") is True:
-        data = payload.get("data")
-        approved_preview = effective_params.get("_approved_preview")
-        if (
-            isinstance(data, dict)
-            and data.get("execution_state") == "awaiting_deposit_funding"
-            and isinstance(approved_preview, dict)
-        ):
-            _cache_pending_private_swap_order(_user_id(), tool_name, approved_preview, data)
-        elif isinstance(data, dict):
-            _clear_pending_private_swap_order(_user_id(), tool_name)
-    if tool_name == "continue_solana_private_swap" and payload.get("ok") is True:
-        data = payload.get("data")
-        if isinstance(data, dict) and data.get("execution_state") == "funding_submitted":
-            _clear_pending_private_swap_order(_user_id(), PRIVATE_SWAP_APPROVAL_TOOL_NAME)
-
     if payload.get("ok") is False:
         raise RuntimeError(str(payload.get("error") or f"{tool_name} failed"))
     return payload.get("data", {})

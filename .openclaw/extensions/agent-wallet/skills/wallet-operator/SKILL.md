@@ -14,7 +14,6 @@ Safety rules:
 - Solana swap intent defaults to at least 300 bps (3%) slippage, 120 seconds validity, and 3 fresh execution attempts. The backend computes the approved minimum output from the indicative output and slippage, clamps hand-tightened minimums to that floor, then executes through Jupiter Swap API V2 `/order` + `/execute` when available.
 - Metis `/swap` fallback builds use Jupiter dynamic slippage and a bounded `veryHigh` priority fee instead of the old `"auto"` priority mode.
 - Do not use legacy `execute` for Solana Jupiter swaps in OpenClaw. Exact quote-bound approval is too fragile for active markets and will be rejected by the bridge.
-- For `swap_solana_privately`, use `preview` and then `execute` after explicit user approval. Do not use `prepare` for this tool.
 - Use `prepare` only when the user clearly intends to produce an execution plan.
 - Use `execute` only after the user explicitly confirms the shown summary in chat. OpenClaw handles the internal approval token; do not ask for `/approve`, buttons, popups, or a manual token. For Solana swap intents, the token is bound to the approved intent limits instead of one fragile quote.
 - On `mainnet`, require an approval token that includes explicit mainnet confirmation before any execution.
