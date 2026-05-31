@@ -60,6 +60,8 @@ yarn-error.log*
 
 # Local private application materials
 
+WDK_WALLET_SECURITY_NOTES.md
+WDK_WALLET_NEW_MODEL_IN_PRACTICE.md
 .claude/settings.json
 agent-wallet/SOLANA_SWAP_RELIABILITY_PLAN.md
 agent-wallet/KAMINO_DEFI_RELIABILITY_PLAN.md
@@ -71,3 +73,6 @@ telegram-mvp-bot/
 RELEASE_BUNDLE_PROCESS.md
 INSTALLER_NEXT_STEPS.md
 video_install_scenario.md
+
+# Local npm cache (sandbox installs)
+npm-cache/

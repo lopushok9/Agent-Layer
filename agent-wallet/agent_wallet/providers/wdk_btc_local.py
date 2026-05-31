@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from agent_wallet.config import resolve_openclaw_home
+from agent_wallet.config import resolve_btc_wallet_password, resolve_openclaw_home
 from agent_wallet.wallet_layer.base import WalletBackendError
 
 LOCAL_WDK_BTC_HOSTS = {"127.0.0.1", "localhost", "::1"}
@@ -72,6 +72,30 @@ class WdkBtcLocalClient:
             "Accept": "application/json",
             "Authorization": f"Bearer {_load_local_token()}",
         }
+        self._wallet_password: str | None = None
+
+    def _resolve_wallet_password(self) -> str:
+        """Resolve the sealed local BTC vault password once per client instance.
+
+        The decrypt-on-demand vault needs the password on every signing request;
+        resolving it once per client keeps the Argon2id unseal off the per-request
+        path. The agent already holds the boot key, so caching adds no extra exposure.
+        """
+        if self._wallet_password is None:
+            try:
+                self._wallet_password = resolve_btc_wallet_password() or ""
+            except Exception:
+                self._wallet_password = ""
+        return self._wallet_password
+
+    def _with_credentials(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Attach the sealed vault password unless the caller supplied one."""
+        if not isinstance(payload, dict) or payload.get("password"):
+            return payload
+        password = self._resolve_wallet_password()
+        if not password:
+            return payload
+        return {**payload, "password": password}
 
     async def post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         async with httpx.AsyncClient(
@@ -80,7 +104,9 @@ class WdkBtcLocalClient:
             follow_redirects=False,
             trust_env=False,
         ) as client:
-            response = await client.post(f"{self.base_url}{path}", json=payload)
+            response = await client.post(
+                f"{self.base_url}{path}", json=self._with_credentials(payload)
+            )
         return _unwrap_payload(response)
 
     async def get(self, path: str) -> dict[str, Any]:
@@ -100,7 +126,9 @@ class WdkBtcLocalClient:
             follow_redirects=False,
             trust_env=False,
         ) as client:
-            response = client.post(f"{self.base_url}{path}", json=payload)
+            response = client.post(
+                f"{self.base_url}{path}", json=self._with_credentials(payload)
+            )
         return _unwrap_payload(response)
 
     def get_sync(self, path: str) -> dict[str, Any]:

@@ -13,7 +13,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agent_wallet.file_ops import atomic_write_text, chmod_if_exists
-from agent_wallet.config import normalize_btc_network, normalize_solana_network
+from agent_wallet.config import (
+    normalize_btc_network,
+    normalize_evm_network,
+    normalize_solana_network,
+)
 from agent_wallet.sealed_keys import resolve_sealed_keys_path, seal_keys, unseal_keys
 from security_utils import write_redacted_backup
 
@@ -178,6 +182,8 @@ def _normalize_network(backend: str, network: str) -> str:
     normalized = network.strip().lower()
     if backend_name in {"wdk_btc_local", "wdk-btc-local", "btc_local", "btc-local"}:
         return normalize_btc_network(normalized or "bitcoin")
+    if backend_name in {"wdk_evm_local", "wdk-evm-local", "evm_local", "evm-local"}:
+        return normalize_evm_network(normalized or "ethereum")
     return normalize_solana_network(normalized or "mainnet")
 
 

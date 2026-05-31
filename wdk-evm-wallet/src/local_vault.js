@@ -26,14 +26,6 @@ function assertPositiveInteger(value, fieldName) {
   return parsed;
 }
 
-function assertNonNegativeInteger(value, fieldName) {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 0) {
-    throw new Error(`${fieldName} must be a non-negative integer.`);
-  }
-  return parsed;
-}
-
 function sanitizeLabel(label) {
   const normalized = String(label ?? "").trim();
   return normalized || "EVM Wallet";
@@ -67,6 +59,7 @@ async function encryptSeedPhrase({ seedPhrase, password, walletId }) {
     cipher.final(),
   ]);
   const tag = cipher.getAuthTag();
+  key.fill(0);
   return {
     version: VAULT_VERSION,
     kdf: {
@@ -95,7 +88,12 @@ async function decryptSeedPhrase({ encrypted, password, walletId }) {
   decipher.setAAD(Buffer.from(`wdk-evm-wallet:${walletId}:v${VAULT_VERSION}`, "utf8"));
   decipher.setAuthTag(tag);
   const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-  return plaintext.toString("utf8");
+  key.fill(0);
+  // The returned string is an unavoidable transient (V8 strings are immutable);
+  // the derived key and plaintext buffers are zeroized so no zeroizable secret lingers.
+  const seedPhrase = plaintext.toString("utf8");
+  plaintext.fill(0);
+  return seedPhrase;
 }
 
 async function decryptSeedPhraseWithPasswordCheck(args) {
@@ -117,7 +115,6 @@ async function decryptSeedPhraseWithPasswordCheck(args) {
 export class LocalEvmVault {
   constructor(config) {
     this.config = config;
-    this._unlocked = new Map();
   }
 
   async createWallet({
@@ -139,10 +136,9 @@ export class LocalEvmVault {
       source: "created",
       network,
     });
-    await this.unlockWallet({ walletId: wallet.walletId, password, timeoutSeconds: 0 });
     return {
       ...wallet,
-      unlocked: true,
+      unlocked: false,
       unlockExpiresAt: null,
       ...(revealSeedPhrase ? { seedPhrase } : {}),
     };
@@ -160,39 +156,35 @@ export class LocalEvmVault {
       source: "imported",
       network,
     });
-    await this.unlockWallet({ walletId: wallet.walletId, password, timeoutSeconds: 0 });
     return {
       ...wallet,
-      unlocked: true,
+      unlocked: false,
       unlockExpiresAt: null,
     };
   }
 
   async listWallets() {
-    this.#sweepExpiredUnlocked();
     const registry = await this.#loadRegistry();
-    return registry.wallets.map((wallet) => {
-      const unlocked = this._unlocked.get(wallet.walletId);
-      return {
-        ...wallet,
-        unlocked: Boolean(unlocked),
-        unlockExpiresAt: unlocked ? unlocked.expiresAt : null,
-      };
-    });
+    return registry.wallets.map((wallet) => ({
+      ...wallet,
+      unlocked: false,
+      unlockExpiresAt: null,
+    }));
   }
 
   async getWallet({ walletId }) {
-    this.#sweepExpiredUnlocked();
     const wallet = await this.#getWalletMetadata(assertNonEmptyString(walletId, "walletId"));
-    const unlocked = this._unlocked.get(wallet.walletId);
     return {
       ...wallet,
-      unlocked: Boolean(unlocked),
-      unlockExpiresAt: unlocked ? unlocked.expiresAt : null,
+      unlocked: false,
+      unlockExpiresAt: null,
     };
   }
 
-  async unlockWallet({ walletId, password, timeoutSeconds }) {
+  // Deprecated: the wallet now uses a decrypt-on-demand model and never holds a
+  // plaintext seed in memory between requests. This endpoint only verifies the
+  // password so callers get feedback; it does not persist any unlocked state.
+  async unlockWallet({ walletId, password }) {
     const metadata = await this.#getWalletMetadata(assertNonEmptyString(walletId, "walletId"));
     const encrypted = await this.#loadEncryptedWallet(walletId);
     const secret = await decryptSeedPhraseWithPasswordCheck({
@@ -203,28 +195,21 @@ export class LocalEvmVault {
     if (!WDK.isValidSeed(secret)) {
       throw new Error("Decrypted wallet seed phrase is invalid.");
     }
-    const ttl =
-      timeoutSeconds === undefined || timeoutSeconds === null
-        ? this.config.unlockTimeoutSeconds
-        : assertNonNegativeInteger(timeoutSeconds, "timeoutSeconds");
-    const expiresAt = ttl === 0 ? null : new Date(Date.now() + ttl * 1000).toISOString();
-    this._unlocked.set(walletId, {
-      seedPhrase: secret,
-      expiresAt,
-    });
     return {
       walletId,
       label: metadata.label,
-      unlocked: true,
-      unlockExpiresAt: expiresAt,
+      unlocked: false,
+      unlockExpiresAt: null,
+      deprecated: true,
     };
   }
 
+  // Deprecated no-op: the wallet is always sealed at rest in the decrypt-on-demand model.
   async lockWallet({ walletId }) {
-    this._unlocked.delete(assertNonEmptyString(walletId, "walletId"));
     return {
-      walletId,
+      walletId: assertNonEmptyString(walletId, "walletId"),
       unlocked: false,
+      deprecated: true,
     };
   }
 
@@ -283,25 +268,19 @@ export class LocalEvmVault {
     };
     await this.#saveRegistry(registry);
 
-    const unlocked = this._unlocked.get(id);
-    if (unlocked) {
-      this._unlocked.set(id, {
-        seedPhrase,
-        expiresAt: unlocked.expiresAt,
-      });
-    }
-
     return {
       walletId: id,
       label: metadata.label,
       passwordChanged: true,
       updatedAt,
-      unlocked: Boolean(this._unlocked.get(id)),
-      unlockExpiresAt: this._unlocked.get(id)?.expiresAt ?? null,
+      unlocked: false,
+      unlockExpiresAt: null,
     };
   }
 
-  async resolveSeedPhrase({ walletId, seedPhrase }) {
+  // Decrypt-on-demand: the seed is decrypted just-in-time for a single signing
+  // request from the supplied password, never persisted between requests.
+  async resolveSeedPhrase({ walletId, seedPhrase, password }) {
     if (typeof seedPhrase === "string" && seedPhrase.trim()) {
       if (!WDK.isValidSeed(seedPhrase.trim())) {
         throw new Error("seedPhrase must be a valid BIP-39 seed phrase.");
@@ -313,16 +292,23 @@ export class LocalEvmVault {
       };
     }
     const id = assertNonEmptyString(walletId, "walletId");
-    this.#sweepExpiredUnlocked();
-    const unlocked = this._unlocked.get(id);
-    if (!unlocked) {
-      throw new Error("Wallet is locked. Unlock it first or provide seedPhrase explicitly.");
+    if (typeof password !== "string" || !password.trim()) {
+      throw new Error("Wallet is locked. Provide password or seedPhrase explicitly.");
+    }
+    await this.#getWalletMetadata(id);
+    const encrypted = await this.#loadEncryptedWallet(id);
+    const secret = await decryptSeedPhraseWithPasswordCheck({
+      encrypted,
+      password: password.trim(),
+      walletId: id,
+    });
+    if (!WDK.isValidSeed(secret)) {
+      throw new Error("Decrypted wallet seed phrase is invalid.");
     }
     return {
-      seedPhrase: unlocked.seedPhrase,
-      source: "local-vault",
+      seedPhrase: secret,
+      source: "local-vault-jit",
       walletId: id,
-      unlockExpiresAt: unlocked.expiresAt,
     };
   }
 
@@ -417,14 +403,5 @@ export class LocalEvmVault {
 
   #registryPath() {
     return path.join(this.config.dataDir, REGISTRY_FILE);
-  }
-
-  #sweepExpiredUnlocked() {
-    const now = Date.now();
-    for (const [walletId, state] of this._unlocked.entries()) {
-      if (state.expiresAt && Date.parse(state.expiresAt) <= now) {
-        this._unlocked.delete(walletId);
-      }
-    }
   }
 }

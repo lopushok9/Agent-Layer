@@ -227,6 +227,7 @@ async function withResolvedSeed(body = {}) {
   const resolved = await vault.resolveSeedPhrase({
     walletId: body.walletId,
     seedPhrase: body.seedPhrase,
+    password: body.password,
   });
   return {
     ...body,

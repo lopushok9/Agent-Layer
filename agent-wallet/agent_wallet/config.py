@@ -450,6 +450,17 @@ def resolve_evm_wallet_password() -> str:
     )
 
 
+def resolve_btc_wallet_password() -> str:
+    """Resolve the local BTC vault password from env or the sealed secret store."""
+    direct = os.getenv("WDK_BTC_WALLET_PASSWORD", "").strip()
+    if direct:
+        return direct
+    return _resolve_sealed_secret(
+        "wdk_btc_wallet_password",
+        "btc_wallet_password",
+    )
+
+
 def use_encrypted_user_wallets() -> bool:
     """Per-user wallet files are always encrypted in the hardened runtime."""
     return True

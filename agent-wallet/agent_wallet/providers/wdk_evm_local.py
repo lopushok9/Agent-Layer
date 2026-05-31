@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from agent_wallet.config import resolve_openclaw_home, settings
+from agent_wallet.config import resolve_evm_wallet_password, resolve_openclaw_home, settings
 from agent_wallet.wallet_layer.base import WalletBackendError
 
 LOCAL_WDK_EVM_HOSTS = {"127.0.0.1", "localhost", "::1"}
@@ -140,6 +140,36 @@ class WdkEvmLocalClient:
             "Accept": "application/json",
             "Authorization": f"Bearer {_load_local_token()}",
         }
+        self._wallet_password: str | None = None
+
+    def _resolve_wallet_password(self) -> str:
+        """Resolve the sealed local EVM vault password once per client instance.
+
+        The decrypt-on-demand vault needs the password on every signing request.
+        Resolving (and unsealing) it once per client keeps the Argon2id unseal off
+        the per-request path. The agent already holds the boot key, so caching the
+        derived password here adds no exposure beyond what the boot key grants.
+        """
+        if self._wallet_password is None:
+            try:
+                self._wallet_password = resolve_evm_wallet_password() or ""
+            except Exception:
+                self._wallet_password = ""
+        return self._wallet_password
+
+    def _with_credentials(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Attach the sealed vault password unless the caller supplied one.
+
+        Read endpoints that resolve via a stored address ignore the field; only
+        seed-requiring (signing) endpoints consume it. Injecting it uniformly means
+        no signing path can accidentally be missed.
+        """
+        if not isinstance(payload, dict) or payload.get("password"):
+            return payload
+        password = self._resolve_wallet_password()
+        if not password:
+            return payload
+        return {**payload, "password": password}
 
     async def post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -149,7 +179,9 @@ class WdkEvmLocalClient:
                 follow_redirects=False,
                 trust_env=False,
             ) as client:
-                response = await client.post(f"{self.base_url}{path}", json=payload)
+                response = await client.post(
+                    f"{self.base_url}{path}", json=self._with_credentials(payload)
+                )
         except httpx.TimeoutException as exc:
             raise WalletBackendError(
                 "wdk-evm-wallet request timed out.",
@@ -195,7 +227,9 @@ class WdkEvmLocalClient:
                 follow_redirects=False,
                 trust_env=False,
             ) as client:
-                response = client.post(f"{self.base_url}{path}", json=payload)
+                response = client.post(
+                    f"{self.base_url}{path}", json=self._with_credentials(payload)
+                )
         except httpx.TimeoutException as exc:
             raise WalletBackendError(
                 "wdk-evm-wallet request timed out.",

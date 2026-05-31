@@ -529,6 +529,7 @@ def create_user_evm_wallet(
             "walletId": created["walletId"],
             "accountIndex": effective_account_index,
             "network": effective_network,
+            "password": password,
         },
     )
     binding = {
@@ -581,6 +582,7 @@ def import_user_evm_wallet(
             "walletId": created["walletId"],
             "accountIndex": effective_account_index,
             "network": effective_network,
+            "password": password,
         },
     )
     binding = {

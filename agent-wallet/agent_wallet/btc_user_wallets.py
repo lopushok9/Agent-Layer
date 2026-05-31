@@ -6,7 +6,12 @@ import json
 from pathlib import Path
 from typing import Any
 
-from agent_wallet.config import normalize_btc_network, resolve_openclaw_home, settings
+from agent_wallet.config import (
+    normalize_btc_network,
+    resolve_boot_key,
+    resolve_openclaw_home,
+    settings,
+)
 from agent_wallet.providers.wdk_btc_local import WdkBtcLocalClient
 from agent_wallet.user_wallets import normalize_user_id
 from agent_wallet.wallet_layer.base import WalletBackendError
@@ -14,6 +19,28 @@ from agent_wallet.wallet_layer.base import WalletBackendError
 
 def _normalize_btc_network(value: str | None) -> str:
     return normalize_btc_network(value)
+
+
+def _maybe_store_btc_wallet_password(password: str) -> bool:
+    """Seal the BTC vault password so signing can decrypt-on-demand without re-entry.
+
+    Mirrors the EVM flow: once sealed under the boot key, the local BTC client
+    injects it automatically on each signing request.
+    """
+    value = str(password or "").strip()
+    if not value:
+        return False
+    boot_key = resolve_boot_key()
+    if not boot_key:
+        return False
+    from agent_wallet.sealed_keys import resolve_sealed_keys_path, seal_keys, unseal_keys
+
+    sealed_path = resolve_sealed_keys_path()
+    existing = unseal_keys(boot_key) if sealed_path.exists() else {}
+    if existing.get("wdk_btc_wallet_password") == value:
+        return False
+    seal_keys(boot_key, {**existing, "wdk_btc_wallet_password": value})
+    return True
 
 
 def _resolve_service_url(service_url: str | None = None) -> str:
@@ -72,6 +99,7 @@ def create_user_btc_wallet(
             "walletId": created["walletId"],
             "accountIndex": effective_account_index,
             "network": effective_network,
+            "password": password,
         },
     )
     binding = {
@@ -87,6 +115,7 @@ def create_user_btc_wallet(
         "updated_at": created.get("updatedAt"),
     }
     _write_wallet_binding(resolve_user_btc_wallet_path(user_id, effective_network), binding)
+    _maybe_store_btc_wallet_password(password)
     return {
         **binding,
         "unlocked": bool(created.get("unlocked", True)),
@@ -123,6 +152,7 @@ def import_user_btc_wallet(
             "walletId": created["walletId"],
             "accountIndex": effective_account_index,
             "network": effective_network,
+            "password": password,
         },
     )
     binding = {
@@ -162,6 +192,7 @@ def unlock_user_btc_wallet(
             "timeoutSeconds": 0,
         },
     )
+    _maybe_store_btc_wallet_password(password)
     return {
         **binding,
         "unlocked": bool(payload.get("unlocked", True)),
