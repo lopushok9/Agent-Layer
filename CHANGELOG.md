@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## v0.1.31 - 2026-05-31
+
+- Hardened the WDK EVM/BTC local vaults with a decrypt-on-demand key model: the
+  decrypted seed is no longer held in process memory between requests. Each
+  signing request decrypts the seed just-in-time from the sealed password and
+  zeroizes the key/plaintext buffers afterward; `unlock`/`lock` are now
+  deprecated no-ops. The at-rest format is unchanged, so existing wallets keep
+  working without migration.
+- EVM wallets are now provisioned automatically at install, alongside Solana.
+  Every install creates both wallets; `--backend` only selects the active one.
+  EVM provisioning auto-generates and seals the vault password and binds both
+  base and ethereum. It is best-effort: an install-time failure does not abort
+  the install, and the wallet is created lazily on first EVM use instead.
+- Fixed the local config installer to validate EVM networks with the EVM
+  normalizer (previously an EVM backend was rejected as a Solana network).
+
 ## v0.1.30 - 2026-05-30
 
 - Added a Claude Code plugin bridge under `claude-code/plugins/agent-wallet` so
