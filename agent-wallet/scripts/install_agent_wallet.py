@@ -182,6 +182,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--extension-path", default=str(_extension_path()))
     parser.add_argument("--wdk-btc-root", default=str(_default_wdk_btc_root()))
     parser.add_argument("--wdk-evm-root", default=str(_default_wdk_evm_root()))
+    parser.add_argument("--wdk-evm-service-url", default=EVM_DEFAULT_SERVICE_URL)
     parser.add_argument("--runtime-root", default=str(_default_runtime_root()))
     parser.add_argument("--npm-bin", default=_default_npm_bin())
     parser.add_argument("--plugin-id", default="agent-wallet")
@@ -665,6 +666,9 @@ def _build_next_steps(
     command.extend(["--extension-path", str(effective_extension_path)])
     command.extend(["--package-root", str(effective_package_root)])
     command.extend(["--python-bin", str(python_bin)])
+    if _is_evm_backend(args.backend):
+        service_url = str(getattr(args, "wdk_evm_service_url", "") or EVM_DEFAULT_SERVICE_URL).strip()
+        command.extend(["--wdk-evm-service-url", service_url or EVM_DEFAULT_SERVICE_URL])
     return command
 
 
@@ -672,18 +676,51 @@ def _is_solana_backend(backend: str) -> bool:
     return backend.strip().lower() in {"solana", "solana_local", "solana-local"}
 
 
+def _is_evm_backend(backend: str) -> bool:
+    return backend.strip().lower() in {
+        "wdk_evm_local",
+        "wdk-evm-local",
+        "evm_local",
+        "evm-local",
+    }
+
+
+EVM_DEFAULT_SERVICE_URL = "http://127.0.0.1:8081"
+
+
+def _build_evm_onboard_config(args: argparse.Namespace) -> dict[str, object]:
+    # The EVM wallet is provisioned on every install (best-effort). Seed creation
+    # with a valid EVM network; ensure_user_evm_wallet_ready binds BOTH base and
+    # ethereum (one address), so the active --network only matters when EVM is the
+    # active backend.
+    network = args.network.strip().lower() if _is_evm_backend(args.backend) else "base"
+    if network not in {"base", "ethereum"}:
+        network = "base"
+    service_url = str(getattr(args, "wdk_evm_service_url", "") or EVM_DEFAULT_SERVICE_URL).strip()
+    return {
+        "backend": "wdk_evm_local",
+        "network": network,
+        "signOnly": bool(args.sign_only),
+        "wdkEvmServiceUrl": service_url or EVM_DEFAULT_SERVICE_URL,
+    }
+
+
 def _build_solana_onboard_config(args: argparse.Namespace) -> dict[str, object]:
+    # Solana is provisioned on every install (both wallets are created), so force
+    # the Solana backend/network here -- this must work even when the active
+    # backend chosen by the user is EVM or BTC.
+    solana_active = _is_solana_backend(args.backend)
     config: dict[str, object] = {
-        "backend": args.backend,
-        "network": args.network,
+        "backend": "solana_local",
+        "network": "mainnet",
         "signOnly": bool(args.sign_only),
         "encryptUserWallets": True,
         "migratePlaintextUserWallets": True,
         "refuseMainnetWalletRecreation": True,
     }
-    if args.rpc_url.strip():
+    if solana_active and args.rpc_url.strip():
         config["rpcUrl"] = args.rpc_url.strip()
-    if args.rpc_urls.strip():
+    if solana_active and args.rpc_urls.strip():
         config["rpcUrls"] = [item.strip() for item in args.rpc_urls.split(",") if item.strip()]
     return config
 
@@ -708,8 +745,6 @@ def _bootstrap_solana_wallet(
     package_root: Path,
     args: argparse.Namespace,
 ) -> dict[str, object] | None:
-    if not _is_solana_backend(args.backend):
-        return None
     result = subprocess.run(
         [
             str(python_bin),
@@ -737,6 +772,60 @@ def _bootstrap_solana_wallet(
         "wallet_path": session.get("wallet_path"),
         "storage_format": session.get("storage_format"),
         "created_now": bool(session.get("created_now")),
+        "backend": session.get("backend"),
+    }
+
+
+def _bootstrap_evm_wallet(
+    python_bin: Path,
+    package_root: Path,
+    args: argparse.Namespace,
+    wdk_evm_root: Path,
+) -> dict[str, object]:
+    """Provision the local EVM wallet (best-effort).
+
+    Mirrors _bootstrap_solana_wallet but for wdk_evm_local. Runs the onboard CLI,
+    which calls ensure_user_evm_wallet_ready: auto-starts the local Node service,
+    creates and seals the wallet password, and binds both base and ethereum.
+    Failures here never abort the install -- the lazy runtime path (ensure_ready on
+    first EVM use) remains the safety net.
+    """
+    env = _runtime_env_for_onboard(package_root)
+    env["OPENCLAW_EVM_WDK_WALLET_ROOT"] = str(wdk_evm_root)
+    try:
+        result = subprocess.run(
+            [
+                str(python_bin),
+                "-m",
+                "agent_wallet.openclaw_cli",
+                "onboard",
+                "--user-id",
+                args.user_id,
+                "--config-json",
+                json.dumps(_build_evm_onboard_config(args)),
+            ],
+            cwd=package_root,
+            capture_output=True,
+            text=True,
+            check=True,
+            env=env,
+        )
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or str(exc)).strip()
+        return {"ok": False, "error": detail[-2000:]}
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return {"ok": False, "error": "EVM onboard returned non-JSON output."}
+    session = dict(payload.get("session") or {})
+    wallet_path = str(session.get("wallet_path") or "")
+    wallet_id = wallet_path.split("walletId=", 1)[-1] if "walletId=" in wallet_path else None
+    return {
+        "ok": True,
+        "user_id": session.get("user_id") or args.user_id,
+        "address": session.get("address"),
+        "wallet_id": wallet_id,
+        "networks": ["base", "ethereum"],
         "backend": session.get("backend"),
     }
 
@@ -873,6 +962,7 @@ def main() -> None:
     configured = False
     configure_stdout = ""
     solana_onboard_result: dict[str, object] | None = None
+    evm_onboard_result: dict[str, object] | None = None
     if backend_enabled and not pending_env and not args.dry_run:
         result = subprocess.run(
             _build_next_steps(
@@ -893,6 +983,22 @@ def main() -> None:
             package_root,
             args,
         )
+        # Both wallets are provisioned on every install. EVM provisioning is
+        # best-effort: a failure here must not abort the install, since the lazy
+        # runtime path will create the wallet on first EVM use.
+        evm_onboard_result = _bootstrap_evm_wallet(
+            python_bin,
+            package_root,
+            args,
+            wdk_evm_root,
+        )
+        if isinstance(evm_onboard_result, dict) and not evm_onboard_result.get("ok"):
+            print(
+                "warning: the EVM wallet was not provisioned during install; it will "
+                "be created automatically on first EVM use. Details: "
+                + str(evm_onboard_result.get("error") or "unknown"),
+                file=sys.stderr,
+            )
 
     print(
         json.dumps(
@@ -918,6 +1024,7 @@ def main() -> None:
                 "configured": configured,
                 "pending_env": pending_env,
                 "solana_wallet": solana_onboard_result,
+                "evm_wallet": evm_onboard_result,
                 "next_configure_command": _build_next_steps(
                     python_bin,
                     install_config_script,

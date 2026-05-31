@@ -21,6 +21,7 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
         auth_token: str = "test-local-evm-token",
         error_responses: dict[str, dict[str, Any]] | None = None,
         response_delays: dict[str, float] | None = None,
+        start_empty: bool = False,
     ):
         self.network = network
         self.host = host
@@ -34,6 +35,9 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
         self.token = "0x2222222222222222222222222222222222222222"
         self.sent_payloads: list[dict[str, Any]] = []
         self.unlocked_wallet_ids: set[str] = set()
+        # When start_empty is True the vault reports no wallets until one is created,
+        # so the auto-provision (create + auto-generate password) path is exercised.
+        self.wallet_exists = not bool(start_empty)
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -114,16 +118,20 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                         200,
                         {
                             "ok": True,
-                            "data": [
-                                {
-                                    "walletId": outer.wallet_id,
-                                    "label": "Agent EVM Wallet",
-                                    "network": outer.network,
-                                    "source": "created",
-                                    "unlocked": outer.wallet_id in outer.unlocked_wallet_ids,
-                                    "unlockExpiresAt": None if outer.wallet_id in outer.unlocked_wallet_ids else None,
-                                }
-                            ],
+                            "data": (
+                                [
+                                    {
+                                        "walletId": outer.wallet_id,
+                                        "label": "Agent EVM Wallet",
+                                        "network": outer.network,
+                                        "source": "created",
+                                        "unlocked": outer.wallet_id in outer.unlocked_wallet_ids,
+                                        "unlockExpiresAt": None,
+                                    }
+                                ]
+                                if outer.wallet_exists
+                                else []
+                            ),
                         },
                     )
                     return
@@ -219,6 +227,7 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                     return
 
                 if self.path == "/v1/evm/wallets/create":
+                    outer.wallet_exists = True
                     outer.unlocked_wallet_ids.add(outer.wallet_id)
                     self._send(
                         200,
