@@ -46,7 +46,6 @@ HOST_DEFAULT_CONFIG_KEYS = {
     "jupiterUltraBaseUrl",
     "jupiterPriceBaseUrl",
     "jupiterPortfolioBaseUrl",
-    "jupiterLendBaseUrl",
     "jupiterApiKey",
     "houdiniBaseUrl",
     "houdiniApiKey",

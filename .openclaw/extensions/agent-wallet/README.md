@@ -18,7 +18,6 @@ In practice this means the agent works through explicit tools for:
 - wallet address, balances, and portfolio reads
 - native SOL and SPL token transfers
 - Jupiter swap and price lookup, including Solana swap intent execution that refreshes quotes inside user-approved limits
-- Jupiter Earn read/deposit/withdraw flows
 - Kamino lending read/deposit/withdraw/borrow/repay flows
 - native Solana staking, stake deactivation, and stake withdrawal
 
@@ -103,7 +102,7 @@ Important:
 - `get_wallet_balance` returns an enriched wallet overview for Solana and EVM: native balance, discovered token balances, per-asset USD values when pricing is available, and `total_value_usd`.
 - Solana wallet overview uses Solana RPC only for balance and token-account discovery. Token prices come from Jupiter, not RPC, and internal transfer/staking checks continue to use native-only balance reads.
 - If the user needs to recover the mnemonic later, host-side reveal stays outside the agent tool surface via `agent-wallet/scripts/manage_openclaw_btc_wallet.py reveal-seed`.
-- Optional Jupiter overrides are available via `jupiterBaseUrl`, `jupiterUltraBaseUrl`, `jupiterPriceBaseUrl`, `jupiterPortfolioBaseUrl`, `jupiterLendBaseUrl`, and `jupiterApiKey`.
+- Optional Jupiter overrides are available via `jupiterBaseUrl`, `jupiterUltraBaseUrl`, `jupiterPriceBaseUrl`, `jupiterPortfolioBaseUrl`, and `jupiterApiKey`.
 - Optional Kamino overrides are available via `kaminoBaseUrl` and `kaminoProgramId`.
 - Jupiter `Portfolio` implementation remains in the backend, but those agent-facing tools are temporarily disabled for now.
 - Mainnet wallets are pinned by address. If a pinned mainnet wallet file disappears, the runtime refuses to silently create a replacement wallet.

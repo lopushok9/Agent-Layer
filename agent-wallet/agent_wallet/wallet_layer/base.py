@@ -410,22 +410,6 @@ class AgentWalletBackend(ABC):
     async def get_jupiter_staked_jup(self, address: str | None = None) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Jupiter staked JUP lookup.")
 
-    async def get_jupiter_earn_tokens(self) -> dict[str, Any]:
-        raise WalletBackendError(f"{self.name} does not support Jupiter Earn token lookup.")
-
-    async def get_jupiter_earn_positions(
-        self,
-        users: list[str] | None = None,
-    ) -> dict[str, Any]:
-        raise WalletBackendError(f"{self.name} does not support Jupiter Earn positions.")
-
-    async def get_jupiter_earn_earnings(
-        self,
-        user: str | None = None,
-        positions: list[str] | None = None,
-    ) -> dict[str, Any]:
-        raise WalletBackendError(f"{self.name} does not support Jupiter Earn earnings.")
-
     async def get_flash_trade_markets(
         self,
         pool_name: str | None = None,
@@ -638,50 +622,6 @@ class AgentWalletBackend(ABC):
         approved_preview: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Kamino repays.")
-
-    async def preview_jupiter_earn_deposit(
-        self,
-        asset: str,
-        amount_raw: str,
-    ) -> dict[str, Any]:
-        raise WalletBackendError(f"{self.name} does not support Jupiter Earn deposit previews.")
-
-    async def prepare_jupiter_earn_deposit(
-        self,
-        asset: str,
-        amount_raw: str,
-    ) -> dict[str, Any]:
-        raise WalletBackendError(f"{self.name} does not support Jupiter Earn deposit preparation.")
-
-    async def execute_jupiter_earn_deposit(
-        self,
-        asset: str,
-        amount_raw: str,
-    ) -> dict[str, Any]:
-        raise WalletBackendError(f"{self.name} does not support Jupiter Earn deposits.")
-
-    async def preview_jupiter_earn_withdraw(
-        self,
-        asset: str,
-        amount_raw: str,
-    ) -> dict[str, Any]:
-        raise WalletBackendError(f"{self.name} does not support Jupiter Earn withdraw previews.")
-
-    async def prepare_jupiter_earn_withdraw(
-        self,
-        asset: str,
-        amount_raw: str,
-    ) -> dict[str, Any]:
-        raise WalletBackendError(
-            f"{self.name} does not support Jupiter Earn withdraw preparation."
-        )
-
-    async def execute_jupiter_earn_withdraw(
-        self,
-        asset: str,
-        amount_raw: str,
-    ) -> dict[str, Any]:
-        raise WalletBackendError(f"{self.name} does not support Jupiter Earn withdrawals.")
 
     async def preview_close_empty_token_accounts(
         self,

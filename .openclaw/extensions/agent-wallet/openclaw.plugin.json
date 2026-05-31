@@ -30,9 +30,6 @@
       "get_evm_transaction_receipt",
       "get_flash_trade_markets",
       "get_flash_trade_positions",
-      "get_jupiter_earn_earnings",
-      "get_jupiter_earn_positions",
-      "get_jupiter_earn_tokens",
       "get_kamino_lend_market_reserves",
       "get_kamino_lend_markets",
       "get_kamino_open_positions",
@@ -47,8 +44,6 @@
       "get_wallet_balance",
       "get_wallet_capabilities",
       "get_wallet_portfolio",
-      "jupiter_earn_deposit",
-      "jupiter_earn_withdraw",
       "kamino_lend_borrow",
       "kamino_lend_deposit",
       "kamino_lend_repay",
@@ -237,10 +232,6 @@
       "jupiterPortfolioBaseUrl": {
         "type": "string",
         "description": "Optional Jupiter Portfolio API base URL."
-      },
-      "jupiterLendBaseUrl": {
-        "type": "string",
-        "description": "Optional Jupiter Lend API base URL."
       },
       "jupiterApiKey": {
         "type": "string",

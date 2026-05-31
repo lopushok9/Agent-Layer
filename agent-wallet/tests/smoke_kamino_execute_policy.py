@@ -75,13 +75,13 @@ async def main() -> None:
             },
             source="kamino",
         )
-        jupiter_result = await backend._execute_prepared_provider_transaction(
+        generic_result = await backend._execute_prepared_provider_transaction(
             {
                 "transaction_base64": "AQ==",
-                "asset_type": "jupiter-earn-deposit",
+                "asset_type": "bags-claim",
                 "owner": backend.address,
             },
-            source="jupiter-lend",
+            source="bags",
         )
     finally:
         solana_rpc.send_transaction = original_send_transaction
@@ -90,7 +90,7 @@ async def main() -> None:
     assert kamino_result["confirmed"] is True
     assert kamino_result["simulation"] == {"logs": ["ok"]}
     assert kamino_result["kamino_safety"] == {"verified": True}
-    assert jupiter_result["confirmed"] is True
+    assert generic_result["confirmed"] is True
     assert send_calls[0]["skip_preflight"] is True
     assert send_calls[1]["skip_preflight"] is False
     assert wait_calls[0]["timeout_seconds"] == 60.0

@@ -57,8 +57,8 @@ async def main() -> None:
 
     assert "get_jupiter_portfolio" not in tool_names
     assert "get_jupiter_staked_jup" not in tool_names
-    assert "get_jupiter_earn_tokens" in tool_names
-    assert "jupiter_earn_deposit" in tool_names
+    assert "get_jupiter_earn_tokens" not in tool_names
+    assert "jupiter_earn_deposit" not in tool_names
 
     blocked_read = await adapter.invoke("get_jupiter_portfolio", {})
     assert blocked_read.ok is False

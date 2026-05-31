@@ -91,16 +91,11 @@ Current safe tools:
 - `swap_solana_tokens` - Solana Jupiter swaps; prefer `intent_preview` -> chat confirmation -> `intent_execute` so execution refreshes the quote inside approved limits.
 - `swap_solana_privately` - Houdini-backed private Solana payout flow for same-token `SOL->SOL` or `USDC->USDC` transfers to a destination wallet.
 - `get_solana_private_swap_status`
-- `get_jupiter_earn_tokens`
-- `get_jupiter_earn_positions`
-- `get_jupiter_earn_earnings`
 - `get_kamino_lend_markets`
 - `get_kamino_lend_market_reserves`
 - `get_kamino_lend_user_obligations`
 - `get_kamino_lend_user_rewards`
 - `get_kamino_open_positions`
-- `jupiter_earn_deposit`
-- `jupiter_earn_withdraw`
 - `kamino_lend_deposit`
 - `kamino_lend_withdraw`
 - `kamino_lend_borrow`
@@ -223,8 +218,6 @@ For OpenClaw onboarding, `agent-wallet` now ships with a hosted default provider
 - `https://agent-layer-production.up.railway.app`
 
 So users do not need to enter `PROVIDER_GATEWAY_URL` manually for the default Bags launch/fees flows or shared mainnet RPC path. You only need to set `PROVIDER_GATEWAY_URL` yourself if you want to override that hosted default with your own deployment.
-
-That same provider gateway path can now also cover Jupiter Earn reads and transaction-building. Ordinary Jupiter swap routing remains direct.
 
 For a self-hosted install where each operator brings their own RPC key, a minimal Solana setup can be just:
 

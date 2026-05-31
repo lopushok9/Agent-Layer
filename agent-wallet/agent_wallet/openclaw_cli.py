@@ -101,7 +101,6 @@ def _apply_config_overrides(config: dict[str, Any]) -> None:
             config.get("jupiterPortfolioBaseUrl"),
             True,
         ),
-        "jupiterLendBaseUrl": ("JUPITER_LEND_API_BASE_URL", config.get("jupiterLendBaseUrl"), True),
         "jupiterApiKey": ("JUPITER_API_KEY", config.get("jupiterApiKey"), True),
         "houdiniBaseUrl": ("HOUDINI_API_BASE_URL", config.get("houdiniBaseUrl"), True),
         "houdiniApiKey": ("HOUDINI_API_KEY", config.get("houdiniApiKey"), True),

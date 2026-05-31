@@ -30,7 +30,6 @@ from agent_wallet.transaction_policy import (
     verify_provider_bags_transaction,
     verify_provider_flash_transaction,
     verify_provider_kamino_lend_transaction,
-    verify_provider_lend_transaction,
     verify_provider_swap_simulation_result,
     verify_provider_swap_transaction,
 )
@@ -2459,76 +2458,6 @@ class SolanaWalletBackend(AgentWalletBackend):
             "source": "jupiter-portfolio",
         }
 
-    async def get_jupiter_earn_tokens(self) -> dict[str, Any]:
-        self._require_mainnet_jupiter("Jupiter Earn")
-        data = await jupiter.fetch_earn_tokens()
-        tokens = data.get("tokens")
-        if not isinstance(tokens, list):
-            tokens = []
-        return {
-            "chain": "solana",
-            "network": self.network,
-            "token_count": len(tokens),
-            "tokens": tokens,
-            "raw": data,
-            "source": "jupiter-lend",
-        }
-
-    async def get_jupiter_earn_positions(
-        self,
-        users: list[str] | None = None,
-    ) -> dict[str, Any]:
-        self._require_mainnet_jupiter("Jupiter Earn")
-        resolved_users = users or [self.address]
-        if not resolved_users or any(user is None for user in resolved_users):
-            raise WalletBackendError("At least one wallet address is required for Earn positions.")
-        normalized_users = [validate_solana_address(str(user)) for user in resolved_users]
-        data = await jupiter.fetch_earn_positions(users=normalized_users)
-        positions = data.get("positions")
-        if not isinstance(positions, list):
-            positions = []
-        return {
-            "chain": "solana",
-            "network": self.network,
-            "users": normalized_users,
-            "position_count": len(positions),
-            "positions": positions,
-            "raw": data,
-            "source": "jupiter-lend",
-        }
-
-    async def get_jupiter_earn_earnings(
-        self,
-        user: str | None = None,
-        positions: list[str] | None = None,
-    ) -> dict[str, Any]:
-        self._require_mainnet_jupiter("Jupiter Earn")
-        wallet_address = user or self.address
-        if not wallet_address:
-            raise WalletBackendError(
-                "A wallet address is required for Jupiter Earn earnings lookup."
-            )
-        if not positions:
-            raise WalletBackendError("positions must include at least one Earn position address.")
-        wallet_address = validate_solana_address(wallet_address)
-        normalized_positions = [validate_solana_address(str(position)) for position in positions]
-        data = await jupiter.fetch_earn_earnings(
-            user=wallet_address,
-            positions=normalized_positions,
-        )
-        earnings = data.get("earnings")
-        if not isinstance(earnings, list):
-            earnings = []
-        return {
-            "chain": "solana",
-            "network": self.network,
-            "user": wallet_address,
-            "positions": normalized_positions,
-            "earnings": earnings,
-            "raw": data,
-            "source": "jupiter-lend",
-        }
-
     async def get_flash_trade_markets(
         self,
         pool_name: str | None = None,
@@ -4226,53 +4155,6 @@ class SolanaWalletBackend(AgentWalletBackend):
         )
         return encode_transaction_base64(bytes(signed_transaction))
 
-    async def _prepare_jupiter_lend_transaction(
-        self,
-        *,
-        transaction_base64: str,
-        action: str,
-        asset: str,
-        amount_raw: str,
-    ) -> dict[str, Any]:
-        if not self.signer:
-            raise WalletBackendError("Solana signer is not configured.")
-        try:
-            from solders.transaction import VersionedTransaction
-        except ImportError as exc:
-            raise WalletBackendError(
-                "solana and solders packages are required for Jupiter Earn transaction signing."
-            ) from exc
-        unsigned_transaction = VersionedTransaction.from_bytes(base64.b64decode(transaction_base64))
-        owner = await self.get_address()
-        verification = verify_provider_lend_transaction(
-            unsigned_transaction.message,
-            wallet_address=str(owner),
-            asset_mint=asset,
-            action=f"Jupiter Earn {action}",
-        )
-        signed_transaction_base64 = await self._sign_versioned_provider_transaction(
-            transaction_base64=transaction_base64,
-            wallet_signer_index=int(verification.get("wallet_signer_index") or 0),
-        )
-        return {
-            "chain": "solana",
-            "network": self.network,
-            "mode": "prepare",
-            "asset_type": f"jupiter-earn-{action}",
-            "owner": owner,
-            "asset": asset,
-            "amount_raw": amount_raw,
-            "transaction_base64": signed_transaction_base64,
-            "transaction_encoding": "base64",
-            "transaction_format": "versioned",
-            "signed": True,
-            "broadcasted": False,
-            "confirmed": False,
-            "verification": verification,
-            "sign_only": self.sign_only,
-            "source": "jupiter-lend",
-        }
-
     async def _execute_prepared_provider_transaction(
         self,
         prepared: dict[str, Any],
@@ -4318,12 +4200,6 @@ class SolanaWalletBackend(AgentWalletBackend):
             "simulation": prepared.get("simulation"),
             "kamino_safety": prepared.get("kamino_safety"),
         }
-
-    async def _execute_prepared_jupiter_lend_transaction(self, prepared: dict[str, Any]) -> dict[str, Any]:
-        return await self._execute_prepared_provider_transaction(
-            prepared,
-            source="jupiter-lend",
-        )
 
     def _find_kamino_reserve_entry(
         self,
@@ -4962,143 +4838,6 @@ class SolanaWalletBackend(AgentWalletBackend):
             approved_preview=approved_preview,
         )
         result = await self._execute_prepared_provider_transaction(prepared, source="kamino")
-        result["build_response"] = prepared.get("build_response")
-        return result
-
-    async def preview_jupiter_earn_deposit(
-        self,
-        asset: str,
-        amount_raw: str,
-    ) -> dict[str, Any]:
-        self._require_mainnet_jupiter("Jupiter Earn")
-        owner = await self.get_address()
-        if not owner:
-            raise WalletBackendError(
-                "No Solana wallet address configured. Set SOLANA_AGENT_PUBLIC_KEY or a signer."
-            )
-        amount_raw = _require_positive_integer_string(amount_raw, field_name="amount_raw")
-        asset = validate_solana_mint(asset)
-        tokens = await self.get_jupiter_earn_tokens()
-        token_entry = next(
-            (
-                item
-                for item in tokens["tokens"]
-                if isinstance(item, dict)
-                and str(item.get("asset") or item.get("mint") or "").strip() == asset
-            ),
-            None,
-        )
-        if token_entry is None:
-            raise WalletBackendError("Requested asset is not currently available in Jupiter Earn.")
-        return {
-            "chain": "solana",
-            "network": self.network,
-            "mode": "preview",
-            "asset_type": "jupiter-earn-deposit",
-            "owner": owner,
-            "asset": asset,
-            "amount_raw": amount_raw,
-            "token": token_entry,
-            "sign_only": self.sign_only,
-            "can_send": self.get_capabilities().can_send_transaction,
-            "source": "jupiter-lend",
-        }
-
-    async def prepare_jupiter_earn_deposit(
-        self,
-        asset: str,
-        amount_raw: str,
-    ) -> dict[str, Any]:
-        preview = await self.preview_jupiter_earn_deposit(asset=asset, amount_raw=amount_raw)
-        owner = str(preview["owner"])
-        build = await jupiter.build_earn_deposit_transaction(
-            asset=str(preview["asset"]),
-            user_address=owner,
-            amount_raw=str(preview["amount_raw"]),
-        )
-        prepared = await self._prepare_jupiter_lend_transaction(
-            transaction_base64=str(build["transaction"]),
-            action="deposit",
-            asset=str(preview["asset"]),
-            amount_raw=str(preview["amount_raw"]),
-        )
-        prepared["build_response"] = build
-        return prepared
-
-    async def execute_jupiter_earn_deposit(
-        self,
-        asset: str,
-        amount_raw: str,
-    ) -> dict[str, Any]:
-        prepared = await self.prepare_jupiter_earn_deposit(asset=asset, amount_raw=amount_raw)
-        result = await self._execute_prepared_jupiter_lend_transaction(prepared)
-        result["build_response"] = prepared.get("build_response")
-        return result
-
-    async def preview_jupiter_earn_withdraw(
-        self,
-        asset: str,
-        amount_raw: str,
-    ) -> dict[str, Any]:
-        self._require_mainnet_jupiter("Jupiter Earn")
-        owner = await self.get_address()
-        if not owner:
-            raise WalletBackendError(
-                "No Solana wallet address configured. Set SOLANA_AGENT_PUBLIC_KEY or a signer."
-            )
-        amount_raw = _require_positive_integer_string(amount_raw, field_name="amount_raw")
-        asset = validate_solana_mint(asset)
-        positions = await self.get_jupiter_earn_positions(users=[owner])
-        matching_positions = [
-            item
-            for item in positions["positions"]
-            if isinstance(item, dict)
-            and str(item.get("asset") or item.get("mint") or "").strip() == asset
-        ]
-        if not matching_positions:
-            raise WalletBackendError("No Jupiter Earn position found for the requested asset.")
-        return {
-            "chain": "solana",
-            "network": self.network,
-            "mode": "preview",
-            "asset_type": "jupiter-earn-withdraw",
-            "owner": owner,
-            "asset": asset,
-            "amount_raw": amount_raw,
-            "positions": matching_positions,
-            "sign_only": self.sign_only,
-            "can_send": self.get_capabilities().can_send_transaction,
-            "source": "jupiter-lend",
-        }
-
-    async def prepare_jupiter_earn_withdraw(
-        self,
-        asset: str,
-        amount_raw: str,
-    ) -> dict[str, Any]:
-        preview = await self.preview_jupiter_earn_withdraw(asset=asset, amount_raw=amount_raw)
-        owner = str(preview["owner"])
-        build = await jupiter.build_earn_withdraw_transaction(
-            asset=str(preview["asset"]),
-            user_address=owner,
-            amount_raw=str(preview["amount_raw"]),
-        )
-        prepared = await self._prepare_jupiter_lend_transaction(
-            transaction_base64=str(build["transaction"]),
-            action="withdraw",
-            asset=str(preview["asset"]),
-            amount_raw=str(preview["amount_raw"]),
-        )
-        prepared["build_response"] = build
-        return prepared
-
-    async def execute_jupiter_earn_withdraw(
-        self,
-        asset: str,
-        amount_raw: str,
-    ) -> dict[str, Any]:
-        prepared = await self.prepare_jupiter_earn_withdraw(asset=asset, amount_raw=amount_raw)
-        result = await self._execute_prepared_jupiter_lend_transaction(prepared)
         result["build_response"] = prepared.get("build_response")
         return result
 

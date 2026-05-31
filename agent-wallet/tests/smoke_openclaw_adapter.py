@@ -427,53 +427,6 @@ class FakeBackend(AgentWalletBackend):
             "source": "jupiter-portfolio",
         }
 
-    async def get_jupiter_earn_tokens(self) -> dict:
-        return {
-            "chain": "solana",
-            "network": "mainnet",
-            "token_count": 1,
-            "tokens": [
-                {
-                    "asset": "So11111111111111111111111111111111111111112",
-                    "symbol": "SOL",
-                    "decimals": 9,
-                }
-            ],
-            "raw": {"tokens": [{"asset": "So11111111111111111111111111111111111111112"}]},
-            "source": "jupiter-lend",
-        }
-
-    async def get_jupiter_earn_positions(self, users: list[str] | None = None) -> dict:
-        return {
-            "chain": "solana",
-            "network": "mainnet",
-            "users": users or ["Fake11111111111111111111111111111111111111111"],
-            "position_count": 1,
-            "positions": [
-                {
-                    "address": "FakeEarnPosition1111111111111111111111111111111",
-                    "asset": "So11111111111111111111111111111111111111112",
-                    "valueUsd": 100.0,
-                }
-            ],
-            "raw": {"positions": [{"address": "FakeEarnPosition1111111111111111111111111111111"}]},
-            "source": "jupiter-lend",
-        }
-
-    async def get_jupiter_earn_earnings(
-        self,
-        user: str | None = None,
-        positions: list[str] | None = None,
-    ) -> dict:
-        return {
-            "chain": "solana",
-            "network": "mainnet",
-            "user": user or "Fake11111111111111111111111111111111111111111",
-            "positions": positions or [],
-            "raw": {"totalEarningsUsd": 1.23},
-            "source": "jupiter-lend",
-        }
-
     async def get_flash_trade_markets(self, pool_name: str | None = None) -> dict:
         return {
             "chain": "solana",
@@ -1677,110 +1630,6 @@ class FakeBackend(AgentWalletBackend):
             "source": "fake",
         }
 
-    async def preview_jupiter_earn_deposit(self, asset: str, amount_raw: str) -> dict:
-        return {
-            "chain": "solana",
-            "network": "mainnet",
-            "mode": "preview",
-            "asset_type": "jupiter-earn-deposit",
-            "owner": "Fake11111111111111111111111111111111111111111",
-            "asset": asset,
-            "amount_raw": amount_raw,
-            "token": {"asset": asset, "symbol": "SOL"},
-            "sign_only": False,
-            "can_send": True,
-            "source": "jupiter-lend",
-        }
-
-    async def prepare_jupiter_earn_deposit(self, asset: str, amount_raw: str) -> dict:
-        return {
-            "chain": "solana",
-            "network": "mainnet",
-            "mode": "prepare",
-            "asset_type": "jupiter-earn-deposit",
-            "owner": "Fake11111111111111111111111111111111111111111",
-            "asset": asset,
-            "amount_raw": amount_raw,
-            "transaction_base64": "ZmFrZS1lYXJuLWRlcG9zaXQtdHg=",
-            "transaction_encoding": "base64",
-            "transaction_format": "versioned",
-            "signed": True,
-            "broadcasted": False,
-            "confirmed": False,
-            "sign_only": False,
-            "source": "jupiter-lend",
-        }
-
-    async def execute_jupiter_earn_deposit(self, asset: str, amount_raw: str) -> dict:
-        return {
-            "chain": "solana",
-            "network": "mainnet",
-            "mode": "execute",
-            "asset_type": "jupiter-earn-deposit",
-            "owner": "Fake11111111111111111111111111111111111111111",
-            "asset": asset,
-            "amount_raw": amount_raw,
-            "signature": "fake-earn-deposit-signature",
-            "broadcasted": True,
-            "confirmed": True,
-            "confirmation_status": "confirmed",
-            "slot": 1200,
-            "sign_only": False,
-            "source": "jupiter-lend",
-        }
-
-    async def preview_jupiter_earn_withdraw(self, asset: str, amount_raw: str) -> dict:
-        return {
-            "chain": "solana",
-            "network": "mainnet",
-            "mode": "preview",
-            "asset_type": "jupiter-earn-withdraw",
-            "owner": "Fake11111111111111111111111111111111111111111",
-            "asset": asset,
-            "amount_raw": amount_raw,
-            "positions": [{"address": "FakeEarnPosition1111111111111111111111111111111"}],
-            "sign_only": False,
-            "can_send": True,
-            "source": "jupiter-lend",
-        }
-
-    async def prepare_jupiter_earn_withdraw(self, asset: str, amount_raw: str) -> dict:
-        return {
-            "chain": "solana",
-            "network": "mainnet",
-            "mode": "prepare",
-            "asset_type": "jupiter-earn-withdraw",
-            "owner": "Fake11111111111111111111111111111111111111111",
-            "asset": asset,
-            "amount_raw": amount_raw,
-            "transaction_base64": "ZmFrZS1lYXJuLXdpdGhkcmF3LXR4",
-            "transaction_encoding": "base64",
-            "transaction_format": "versioned",
-            "signed": True,
-            "broadcasted": False,
-            "confirmed": False,
-            "sign_only": False,
-            "source": "jupiter-lend",
-        }
-
-    async def execute_jupiter_earn_withdraw(self, asset: str, amount_raw: str) -> dict:
-        return {
-            "chain": "solana",
-            "network": "mainnet",
-            "mode": "execute",
-            "asset_type": "jupiter-earn-withdraw",
-            "owner": "Fake11111111111111111111111111111111111111111",
-            "asset": asset,
-            "amount_raw": amount_raw,
-            "signature": "fake-earn-withdraw-signature",
-            "broadcasted": True,
-            "confirmed": True,
-            "confirmation_status": "confirmed",
-            "slot": 1300,
-            "sign_only": False,
-            "source": "jupiter-lend",
-        }
-
     async def preview_kamino_lend_deposit(
         self,
         market: str,
@@ -2336,9 +2185,9 @@ async def main() -> None:
     tool_names = {tool.name for tool in adapter.list_tools()}
     bundle_tool_names = {tool["name"] for tool in bundle["tools"]}
 
-    assert len(tool_names) == 48
+    assert len(tool_names) == 43
     assert bundle["manifest"]["id"] == "agent-wallet"
-    assert len(bundle_tool_names) == 48
+    assert len(bundle_tool_names) == 43
     assert "Wallet Operator" in bundle["instructions"]
     assert "get_lifi_supported_chains" in tool_names
     assert "get_lifi_quote" in tool_names
@@ -2352,9 +2201,9 @@ async def main() -> None:
     assert "continue_solana_private_swap" in tool_names
     assert "get_solana_private_swap_status" in tool_names
     assert "get_jupiter_portfolio" not in tool_names
-    assert "get_jupiter_earn_tokens" in tool_names
-    assert "jupiter_earn_deposit" in tool_names
-    assert "jupiter_earn_withdraw" in tool_names
+    assert "get_jupiter_earn_tokens" not in tool_names
+    assert "jupiter_earn_deposit" not in tool_names
+    assert "jupiter_earn_withdraw" not in tool_names
     assert "get_flash_trade_markets" in tool_names
     assert "get_flash_trade_positions" in tool_names
     assert "flash_trade_open_position" in tool_names
@@ -2368,7 +2217,7 @@ async def main() -> None:
     assert "claim_bags_fees" in tool_names
     assert "launch_bags_token" in tool_names
     assert "get_jupiter_portfolio" not in bundle_tool_names
-    assert "jupiter_earn_deposit" in bundle_tool_names
+    assert "jupiter_earn_deposit" not in bundle_tool_names
     assert "kamino_lend_deposit" in bundle_tool_names
     assert "get_kamino_open_positions" in bundle_tool_names
     assert "claim_bags_fees" in bundle_tool_names
@@ -3617,19 +3466,6 @@ async def main() -> None:
         },
     )
     assert denied_mainnet_swap.ok is False
-
-    denied_mainnet_earn_deposit = await mainnet_adapter.invoke(
-        "jupiter_earn_deposit",
-        {
-            "asset": "So11111111111111111111111111111111111111112",
-            "amount_raw": "1000000",
-            "mode": "execute",
-            "purpose": "mainnet earn deposit execute without extra confirm",
-            "user_confirmed": True,
-            "mainnet_confirmed": False,
-        },
-    )
-    assert denied_mainnet_earn_deposit.ok is False
 
     mainnet_native_stake_preview = await mainnet_adapter.invoke(
         "stake_sol_native",

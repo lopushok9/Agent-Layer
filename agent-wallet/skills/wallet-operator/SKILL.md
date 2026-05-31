@@ -1,6 +1,6 @@
 ---
 name: wallet-operator
-description: Use when operating OpenClaw wallet tools: balances, transfers, swaps, LI.FI cross-chain swaps, Jupiter swaps, Velora EVM swaps, BTC transfers, staking, Jupiter Earn, Kamino lending, Bags claims/launches, and wallet execution safety.
+description: Use when operating OpenClaw wallet tools: balances, transfers, swaps, LI.FI cross-chain swaps, Jupiter swaps, Velora EVM swaps, BTC transfers, staking, Kamino lending, Bags claims/launches, and wallet execution safety.
 ---
 
 # Wallet Operator
@@ -29,7 +29,6 @@ Use this skill before calling OpenClaw wallet tools. It is the routing guide for
 - EVM transfers: `transfer_evm_native`, `transfer_evm_token`.
 - BTC transfer: `transfer_btc`.
 - Solana staking: `stake_sol_native`, `deactivate_solana_stake`, `withdraw_solana_stake`.
-- Jupiter Earn: `jupiter_earn_deposit`, `jupiter_earn_withdraw`.
 - Kamino: `kamino_lend_deposit`, `kamino_lend_withdraw`, `kamino_lend_borrow`, `kamino_lend_repay`.
 - Bags: `claim_bags_fees`, `launch_bags_token`.
 
@@ -107,9 +106,6 @@ Use this skill before calling OpenClaw wallet tools. It is the routing guide for
 - `stake_sol_native`: `vote_account`, `amount` in SOL, `mode`, `purpose`.
 - `deactivate_solana_stake`: `stake_account`, `mode`, `purpose`.
 - `withdraw_solana_stake`: `stake_account`, `amount` in SOL, optional `recipient`, `mode`, `purpose`.
-- Before Jupiter Earn writes, use `get_jupiter_earn_tokens`, `get_jupiter_earn_positions`, and `get_jupiter_earn_earnings`.
-- `jupiter_earn_deposit`: `asset` mint, `amount_raw`, `mode`, `purpose`.
-- `jupiter_earn_withdraw`: `asset` mint, `amount_raw`, `mode`, `purpose`.
 - Before Kamino writes, use `get_kamino_lend_markets`, `get_kamino_lend_market_reserves`, `get_kamino_lend_user_obligations`, and `get_kamino_lend_user_rewards`.
 - Kamino write params: `market`, `reserve`, `amount_ui` decimal string, `mode`, `purpose`.
 - Bags reads: `get_bags_claimable_positions`, `get_bags_fee_analytics`.

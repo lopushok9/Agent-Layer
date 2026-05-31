@@ -117,10 +117,6 @@
         "type": "string",
         "description": "Optional Jupiter Portfolio API base URL for Jupiter-specific positions and staking data."
       },
-      "jupiterLendBaseUrl": {
-        "type": "string",
-        "description": "Optional Jupiter Lend API base URL for Earn read and deposit/withdraw flows."
-      },
       "jupiterApiKey": {
         "type": "string",
         "description": "Optional Jupiter API key if your deployment uses a keyed endpoint."

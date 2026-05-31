@@ -1152,46 +1152,6 @@ const solanaToolDefinitions = [
     },
   },
   {
-    name: "get_jupiter_earn_tokens",
-    description: "List Jupiter Earn vault tokens currently supported on Solana mainnet.",
-    parameters: { type: "object", properties: {}, additionalProperties: false },
-  },
-  {
-    name: "get_jupiter_earn_positions",
-    description: "Get Jupiter Earn positions for one or more Solana wallet addresses on mainnet.",
-    parameters: {
-      type: "object",
-      properties: {
-        users: {
-          type: "array",
-          items: { type: "string" },
-          description: "Optional list of Solana wallet addresses. If omitted, use the configured wallet address.",
-        },
-      },
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "get_jupiter_earn_earnings",
-    description: "Get Jupiter Earn earnings for a wallet and one or more position addresses on mainnet.",
-    parameters: {
-      type: "object",
-      properties: {
-        user: {
-          type: "string",
-          description: "Optional Solana wallet address override.",
-        },
-        positions: {
-          type: "array",
-          items: { type: "string" },
-          description: "List of Jupiter Earn position addresses.",
-        },
-      },
-      required: ["positions"],
-      additionalProperties: false,
-    },
-  },
-  {
     name: "get_flash_trade_markets",
     description: "List Flash Trade perpetual markets currently available on Solana mainnet.",
     parameters: {
@@ -1501,40 +1461,6 @@ const solanaToolDefinitions = [
         "mode",
         "purpose",
       ],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "jupiter_earn_deposit",
-    description: "Preview, prepare, or execute a Jupiter Earn deposit using a raw base-unit amount. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
-    optional: true,
-    parameters: {
-      type: "object",
-      properties: {
-        asset: { type: "string" },
-        amount_raw: { type: "string" },
-        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
-        purpose: { type: "string" },
-        user_intent: { type: "boolean" },
-      },
-      required: ["asset", "amount_raw", "mode", "purpose"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "jupiter_earn_withdraw",
-    description: "Preview, prepare, or execute a Jupiter Earn withdraw using a raw base-unit amount. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
-    optional: true,
-    parameters: {
-      type: "object",
-      properties: {
-        asset: { type: "string" },
-        amount_raw: { type: "string" },
-        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
-        purpose: { type: "string" },
-        user_intent: { type: "boolean" },
-      },
-      required: ["asset", "amount_raw", "mode", "purpose"],
       additionalProperties: false,
     },
   },
