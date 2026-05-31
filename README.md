@@ -16,11 +16,6 @@ For Hermes:
 npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet hermes install --yes
 ```
 
-For Codex:
-
-```bash
-npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet codex install --yes
-```
 
 AgentLayer is a beta local-first wallet and finance stack for agents.
 
