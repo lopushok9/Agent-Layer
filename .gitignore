@@ -8,8 +8,9 @@ ARCHITECTURE_NOTES.md
 **/AGENTS.md
 
 # Dependencies
-node_modules/
-**/node_modules/
+# No trailing slash so symlinked node_modules (e.g. runtime shared-store links) are ignored too.
+node_modules
+**/node_modules
 dist/
 **/dist/
 !.openclaw/extensions/agent-wallet/dist/
