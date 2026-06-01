@@ -38,7 +38,14 @@ fi
 
 # Fail loudly (not -32000) if the resolved server cannot even be parsed.
 if ! "$PYTHON_BIN" -m py_compile "$SERVER_PY" 2>/dev/null; then
-  printf '{"error":"agent-wallet server.py failed to parse — runtime likely broken.","server_py":"%s","fix":"npx @agentlayer.tech/wallet install --yes (or: npx @agentlayer.tech/wallet rollback)"}\n' "$SERVER_PY" >&2
+  "$PYTHON_BIN" - "$SERVER_PY" >&2 <<'PY'
+import json, sys
+print(json.dumps({
+    "error": "agent-wallet server.py failed to parse — runtime likely broken.",
+    "server_py": sys.argv[1],
+    "fix": "npx @agentlayer.tech/wallet install --yes (or: npx @agentlayer.tech/wallet rollback)",
+}))
+PY
   exit 1
 fi
 

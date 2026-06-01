@@ -18,9 +18,21 @@ else
   PYTHON_BIN=python3
 fi
 
+if [ ! -f "$PLUGIN_ROOT/server.py" ]; then
+  printf '{"error":"agent-wallet server.py not found in codex plugin.","fix":"npx @agentlayer.tech/wallet install --yes"}\n' >&2
+  exit 1
+fi
+
 # Fail loudly (not -32000) if the resolved server cannot even be parsed.
 if ! "$PYTHON_BIN" -m py_compile "$PLUGIN_ROOT/server.py" 2>/dev/null; then
-  printf '{"error":"agent-wallet server.py failed to parse — runtime likely broken.","server_py":"%s","fix":"npx @agentlayer.tech/wallet install --yes (or: npx @agentlayer.tech/wallet rollback)"}\n' "$PLUGIN_ROOT/server.py" >&2
+  "$PYTHON_BIN" - "$PLUGIN_ROOT/server.py" >&2 <<'PY'
+import json, sys
+print(json.dumps({
+    "error": "agent-wallet server.py failed to parse — runtime likely broken.",
+    "server_py": sys.argv[1],
+    "fix": "npx @agentlayer.tech/wallet install --yes (or: npx @agentlayer.tech/wallet rollback)",
+}))
+PY
   exit 1
 fi
 
