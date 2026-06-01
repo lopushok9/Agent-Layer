@@ -654,7 +654,12 @@ function verifyRuntime(releaseRoot, env = process.env) {
   if (!fs.existsSync(serverPy)) {
     return { ok: false, error: `server.py missing at ${serverPy}`, category: "local_env" };
   }
-  const python = resolveVenvPython(releaseRoot) || commandPath("python3") || "python3";
+  const python =
+    env.AGENT_WALLET_PYTHON ||
+    env.OPENCLAW_AGENT_WALLET_PYTHON ||
+    resolveVenvPython(releaseRoot) ||
+    commandPath("python3") ||
+    "python3";
   const initLine = JSON.stringify({
     jsonrpc: "2.0",
     id: 1,
@@ -668,7 +673,12 @@ function verifyRuntime(releaseRoot, env = process.env) {
     env: { ...env, FASTMCP_SHOW_SERVER_BANNER: "false", FASTMCP_LOG_LEVEL: "ERROR" },
   });
   if (probe.error) {
-    return { ok: false, error: `handshake spawn failed: ${probe.error.message}`, category: "local_env" };
+    const isTimeout = String(probe.error.message || "").includes("ETIMEDOUT");
+    return {
+      ok: false,
+      error: `handshake ${isTimeout ? "timed out (server did not respond)" : "spawn failed"}: ${probe.error.message}`,
+      category: isTimeout ? "broken_release" : "local_env",
+    };
   }
   const out = String(probe.stdout || "");
   if (out.includes('"serverInfo"')) {
@@ -1494,7 +1504,7 @@ if (command === "--self-verify") {
   const releaseRoot = args[1] ? path.resolve(expandHome(args[1])) : resolvedCurrentRuntimeRoot();
   const result = releaseRoot
     ? verifyRuntime(releaseRoot)
-    : { ok: false, error: "no runtime to verify" };
+    : { ok: false, error: "no runtime to verify", category: "local_env" };
   console.log(JSON.stringify(result));
   process.exit(result.ok ? 0 : 1);
 }

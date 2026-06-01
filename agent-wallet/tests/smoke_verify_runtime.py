@@ -33,27 +33,30 @@ def main() -> None:
 
     env = dict(os.environ)
 
-    # Good server -> ok true.
-    (codex_dir / "server.py").write_text(SERVER_STUB, encoding="utf-8")
-    res = subprocess.run(
-        ["node", str(cli), "--self-verify", str(release)],
-        capture_output=True, text=True, env=env, timeout=40,
-    )
-    payload = json.loads(res.stdout.strip().splitlines()[-1])
-    assert payload["ok"] is True, payload
-    assert res.returncode == 0
+    try:
+        # Good server -> ok true.
+        (codex_dir / "server.py").write_text(SERVER_STUB, encoding="utf-8")
+        res = subprocess.run(
+            ["node", str(cli), "--self-verify", str(release)],
+            capture_output=True, text=True, env=env, timeout=40,
+        )
+        payload = json.loads(res.stdout.strip().splitlines()[-1])
+        assert payload["ok"] is True, payload
+        assert res.returncode == 0
 
-    # Broken server -> ok false, exit 1.
-    (codex_dir / "server.py").write_text("def broken(\n", encoding="utf-8")
-    res = subprocess.run(
-        ["node", str(cli), "--self-verify", str(release)],
-        capture_output=True, text=True, env=env, timeout=40,
-    )
-    payload = json.loads(res.stdout.strip().splitlines()[-1])
-    assert payload["ok"] is False, payload
-    assert res.returncode == 1
+        # Broken server -> ok false, exit 1.
+        (codex_dir / "server.py").write_text("def broken(\n", encoding="utf-8")
+        res = subprocess.run(
+            ["node", str(cli), "--self-verify", str(release)],
+            capture_output=True, text=True, env=env, timeout=40,
+        )
+        payload = json.loads(res.stdout.strip().splitlines()[-1])
+        assert payload["ok"] is False, payload
+        assert res.returncode == 1
 
-    print("OK smoke_verify_runtime")
+        print("OK smoke_verify_runtime")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":
