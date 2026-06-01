@@ -77,6 +77,28 @@ def main() -> None:
         after = os.readlink(current)
         assert after == good_target, f"current not rolled back: {after} != {good_target}"
 
+        # 3) FIRST install (no prior current) with forced verify failure ->
+        #    no current left active, and previous NOT pointed at the broken release.
+        fresh = Path("/tmp/openclaw-install-rollback-fresh")
+        if fresh.exists():
+            shutil.rmtree(fresh)
+        fresh.mkdir(parents=True)
+        try:
+            fenv = {**env, "OPENCLAW_HOME": str(fresh), "AGENT_WALLET_VERIFY_FORCE_FAIL": "1"}
+            res = _install(cli, fenv)
+            assert res.returncode != 0, res.stderr
+            payload = _last_json(res.stderr)
+            assert payload["rolled_back"] is False, payload
+            assert payload["category"] == "broken_release", payload
+            assert payload["kept_version"] is None, payload
+            assert "Nothing is active" in payload["message"], payload
+            fcurrent = fresh / "agent-wallet-runtime/current"
+            fprevious = fresh / "agent-wallet-runtime/previous"
+            assert not os.path.lexists(fcurrent), "current should be removed after first-install failure"
+            assert not os.path.lexists(fprevious), "previous must not point at a broken release"
+        finally:
+            shutil.rmtree(fresh, ignore_errors=True)
+
         print("OK smoke_install_verify_rollback")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

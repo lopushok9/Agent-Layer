@@ -392,6 +392,9 @@ function switchSymlink(linkPath, targetPath) {
   fs.renameSync(tempLink, linkPath);
 }
 
+// Remove a runtime pointer symlink (current/previous). recursive+force tolerate
+// a stray directory in that slot; on a symlink this unlinks the pointer only and
+// never deletes the release directory it targets.
 function removeRuntimePointer(pointerPath) {
   try {
     fs.rmSync(pointerPath, { recursive: true, force: true });
@@ -952,6 +955,9 @@ function runInstall(args, { commandName = "install" } = {}) {
   }
   switchSymlink(currentPath, releaseRoot);
 
+  // Installs that pass --skip-python-setup may have no venv, so this handshake
+  // would fail and trigger a spurious rollback; such flows must set
+  // AGENT_WALLET_VERIFY_DISABLE=1 (verifyRuntime then skips).
   const verification = verifyRuntime(releaseRoot, env);
   if (!verification.ok && !verification.skipped) {
     const rollbackTarget = currentTarget; // pre-switch target captured before the switch, if any
@@ -966,11 +972,11 @@ function runInstall(args, { commandName = "install" } = {}) {
     let human;
     let fix;
     if (!rolledBack) {
-      // First install / no good fallback — do not leave a broken current active.
-      if (existingRuntimePointerTarget(currentPath)) {
-        switchSymlink(previousPath, releaseRoot); // park broken release under previous for inspection
-      }
-      removeRuntimePointer(currentPath); // leave no active runtime rather than a broken one
+      // First install / no good fallback — leave no active runtime rather than a
+      // broken one. Deliberately do NOT point `previous` at the broken release,
+      // so a later `rollback` cannot reactivate it; the release stays under
+      // releases/<version> for inspection via `install --version`.
+      removeRuntimePointer(currentPath);
       human =
         verification.category === "broken_release"
           ? `Release ${packageVersion} is broken and there is no previous working version to fall back to. Nothing is active. This is a bad release — please report it; a patched version will follow.`
