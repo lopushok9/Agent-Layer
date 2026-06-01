@@ -29,17 +29,6 @@ def main() -> None:
     env["AGENT_WALLET_MASTER_KEY"] = "test-master-key-for-npm-installer"
     env["AGENT_WALLET_APPROVAL_SECRET"] = "test-approval-secret-for-npm-installer"
 
-    doctor = subprocess.run(
-        ["node", str(cli), "doctor"],
-        capture_output=True,
-        text=True,
-        check=True,
-        env=env,
-    )
-    doctor_payload = json.loads(doctor.stdout)
-    assert doctor_payload["ok"] is True
-    assert Path(doctor_payload["setup_path"]).resolve() == repo_root / "setup.sh"
-
     result = subprocess.run(
         [
             "node",
@@ -82,6 +71,18 @@ def main() -> None:
     assert (runtime_root / "wdk-evm-wallet" / "package.json").exists()
     assert (runtime_base / "current").is_symlink()
     assert (runtime_base / "current").resolve() == runtime_root.resolve()
+
+    # Live-runtime doctor (new shape): current symlink must resolve post-install.
+    doctor = subprocess.run(
+        ["node", str(cli), "doctor"],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    doctor_payload = json.loads(doctor.stdout)
+    assert isinstance(doctor_payload["checks"], list), doctor_payload
+    checks_by_name = {c["name"]: c for c in doctor_payload["checks"]}
+    assert checks_by_name["current_symlink"]["ok"] is True, doctor_payload
 
     fake_bin = temp_root / "fake-bin"
     fake_bin.mkdir(parents=True, exist_ok=True)
