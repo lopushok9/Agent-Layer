@@ -28,6 +28,7 @@ def main() -> None:
     env["AGENT_WALLET_BOOT_KEY"] = "test-boot-key-for-npm-installer"
     env["AGENT_WALLET_MASTER_KEY"] = "test-master-key-for-npm-installer"
     env["AGENT_WALLET_APPROVAL_SECRET"] = "test-approval-secret-for-npm-installer"
+    env["AGENT_WALLET_VERIFY_DISABLE"] = "1"
 
     result = subprocess.run(
         [

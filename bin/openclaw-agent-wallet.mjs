@@ -392,6 +392,14 @@ function switchSymlink(linkPath, targetPath) {
   fs.renameSync(tempLink, linkPath);
 }
 
+function removeRuntimePointer(pointerPath) {
+  try {
+    fs.rmSync(pointerPath, { recursive: true, force: true });
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+}
+
 function parseFlagValue(args, name) {
   const prefix = `${name}=`;
   for (let index = 0; index < args.length; index += 1) {
@@ -943,6 +951,65 @@ function runInstall(args, { commandName = "install" } = {}) {
     switchSymlink(previousPath, currentTarget);
   }
   switchSymlink(currentPath, releaseRoot);
+
+  const verification = verifyRuntime(releaseRoot, env);
+  if (!verification.ok && !verification.skipped) {
+    const rollbackTarget = currentTarget; // pre-switch target captured before the switch, if any
+    const rolledBack = Boolean(rollbackTarget);
+    if (rolledBack) {
+      switchSymlink(currentPath, rollbackTarget);
+    }
+    const previousVersion = rolledBack
+      ? path.basename(path.resolve(path.dirname(currentPath), rollbackTarget))
+      : null;
+
+    let human;
+    let fix;
+    if (!rolledBack) {
+      // First install / no good fallback — do not leave a broken current active.
+      if (existingRuntimePointerTarget(currentPath)) {
+        switchSymlink(previousPath, releaseRoot); // park broken release under previous for inspection
+      }
+      removeRuntimePointer(currentPath); // leave no active runtime rather than a broken one
+      human =
+        verification.category === "broken_release"
+          ? `Release ${packageVersion} is broken and there is no previous working version to fall back to. Nothing is active. This is a bad release — please report it; a patched version will follow.`
+          : `Release ${packageVersion} failed to verify and there is no previous version. Your local environment looks incomplete: ${verification.error}.`;
+      fix =
+        verification.category === "local_env"
+          ? "Ensure python>=3.10 with venv is installed, then: npx @agentlayer.tech/wallet install --yes"
+          : "npx @agentlayer.tech/wallet install --version <known-good-version> --yes";
+    } else if (verification.category === "broken_release") {
+      human = `Release ${packageVersion} is broken; kept you on the working version ${previousVersion}. This is on our side — you are safe. Re-run update when a patched release ships.`;
+      fix = "npx @agentlayer.tech/wallet update --yes";
+    } else if (verification.category === "local_env") {
+      human = `Release ${packageVersion} could not start on this machine; kept you on ${previousVersion}. This looks fixable locally: ${verification.error}.`;
+      fix = "Fix python>=3.10/venv, then: npx @agentlayer.tech/wallet install --yes";
+    } else {
+      human = `Release ${packageVersion} failed verification; kept you on ${previousVersion}.`;
+      fix = "npx @agentlayer.tech/wallet doctor --deep  (then install --yes once resolved)";
+    }
+
+    console.error(
+      JSON.stringify(
+        {
+          ok: false,
+          command: commandName,
+          version: packageVersion,
+          category: verification.category || "unknown",
+          error: `runtime verification failed: ${verification.error}`,
+          rolled_back: rolledBack,
+          kept_version: previousVersion,
+          current_runtime_target: readLinkOrNull(currentPath),
+          message: human,
+          fix,
+        },
+        null,
+        2,
+      ),
+    );
+    return 1;
+  }
 
   if (env.AGENT_WALLET_BOOT_KEY) {
     envFileSet(path.join(releaseRoot, "agent-wallet", ".env"), {
