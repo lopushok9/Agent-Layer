@@ -1217,6 +1217,8 @@ function resolveHermesPluginSource() {
 }
 
 function resolveCodexPluginSource() {
+  const override = String(process.env.AGENT_WALLET_CODEX_PLUGIN_SOURCE || "").trim();
+  if (override) return path.resolve(expandHome(override));
   const currentRoot = resolvedCurrentRuntimeRoot();
   const candidates = [];
   if (currentRoot) {
@@ -1232,6 +1234,8 @@ function resolveCodexPluginSource() {
 }
 
 function resolveClaudeCodePluginSource() {
+  const override = String(process.env.AGENT_WALLET_CLAUDE_CODE_PLUGIN_SOURCE || "").trim();
+  if (override) return path.resolve(expandHome(override));
   const currentRoot = resolvedCurrentRuntimeRoot();
   const candidates = [];
   if (currentRoot) {
@@ -1421,6 +1425,7 @@ function runHermesInstall(args) {
 function runCodexInstall(args) {
   const codexHome = resolveCodexHome();
   const pluginSource = resolveCodexPluginSource();
+  const pinnedEnv = pinEditorMcpEnv(pluginSource);
   const pluginRoot = resolveCodexPluginInstallRoot();
   const pluginTarget = path.join(pluginRoot, "agent-wallet");
   const marketplacePath = resolveCodexMarketplacePath();
@@ -1491,6 +1496,7 @@ function runCodexInstall(args) {
         marketplace_name: marketplace.marketplace_name,
         codex_add: add,
         restart_required: true,
+        pinned_env: pinnedEnv,
       },
       null,
       2,
@@ -1505,6 +1511,28 @@ function resolveClaudeCodeMarketplaceDir(env = process.env) {
   return path.resolve(
     expandHome(env.AGENT_WALLET_CLAUDE_CODE_MARKETPLACE_DIR || "~/.claude/agentlayer-local"),
   );
+}
+
+function pinEditorMcpEnv(pluginSource, env = process.env) {
+  const mcpPath = path.join(pluginSource, ".mcp.json");
+  if (!fs.existsSync(mcpPath)) return { pinned: false, reason: "no .mcp.json" };
+  let doc;
+  try {
+    doc = JSON.parse(fs.readFileSync(mcpPath, "utf8"));
+  } catch (error) {
+    return { pinned: false, reason: `unreadable .mcp.json: ${error.message}` };
+  }
+  const entry = (doc.mcpServers || {})["agent-wallet"];
+  if (!entry) return { pinned: false, reason: "no agent-wallet server entry" };
+  const currentRoot = resolvedCurrentRuntimeRoot(env);
+  const venvPython = currentRoot ? resolveVenvPython(currentRoot) : null;
+  entry.env = {
+    ...(entry.env || {}),
+    OPENCLAW_HOME: resolveOpenclawHome(env),
+    ...(venvPython ? { AGENT_WALLET_PYTHON: venvPython } : {}),
+  };
+  writeJsonFile(mcpPath, doc);
+  return { pinned: true, openclaw_home: resolveOpenclawHome(env), python: venvPython };
 }
 
 function ensureClaudeCodeMarketplace(marketplaceDir, pluginSource, force) {
@@ -1556,6 +1584,7 @@ function ensureClaudeCodeMarketplace(marketplaceDir, pluginSource, force) {
 
 function runClaudeCodeInstall(args) {
   const pluginSource = resolveClaudeCodePluginSource();
+  const pinnedEnv = pinEditorMcpEnv(pluginSource);
   const force = hasFlag(args, "--force");
   const skipEnable = hasFlag(args, "--skip-enable");
   const claudeBin = commandPath("claude");
@@ -1628,6 +1657,7 @@ function runClaudeCodeInstall(args) {
         claude_code_install: enable,
         manual_load: pluginDirFlagFull,
         restart_required: true,
+        pinned_env: pinnedEnv,
         note: ok
           ? "Plugin registered. Restart Claude Code to activate."
           : `If automatic registration failed, load the plugin with: ${pluginDirFlagFull}`,
