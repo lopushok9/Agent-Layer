@@ -692,56 +692,132 @@ function verifyRuntime(releaseRoot, env = process.env) {
   };
 }
 
-function runDoctor() {
-  const requiredPaths = [
-    ["setup.sh", setupPath],
-    ["agent-wallet", path.join(packageRoot, "agent-wallet")],
-    ["OpenClaw extension", path.join(packageRoot, ".openclaw", "extensions", "agent-wallet")],
-    ["Codex plugin", path.join(packageRoot, "codex", "plugins", "agent-wallet", ".codex-plugin", "plugin.json")],
-    ["Claude Code plugin", path.join(packageRoot, "claude-code", "plugins", "agent-wallet", ".claude-plugin", "plugin.json")],
-    ["wdk-btc-wallet", path.join(packageRoot, "wdk-btc-wallet", "package.json")],
-    ["wdk-evm-wallet", path.join(packageRoot, "wdk-evm-wallet", "package.json")],
-  ];
-  const commands = ["node", "npm"];
-  const missing = [];
+function resolveEditorServerChecks(env = process.env) {
+  const checks = [];
+  // Claude Code cache copies resolve server.py from the runtime package.
+  const root = resolvedCurrentRuntimeRoot(env);
+  const runtimeCodex = root ? path.join(root, "codex", "plugins", "agent-wallet", "server.py") : null;
+  const claudeCacheRoot = expandHome("~/.claude/plugins/cache");
+  if (fs.existsSync(claudeCacheRoot)) {
+    const reachable = Boolean(runtimeCodex && fs.existsSync(runtimeCodex));
+    checks.push({
+      name: "editor:claude-code",
+      ok: reachable,
+      error: reachable ? "" : "Claude cache copy cannot resolve server.py from runtime",
+      fix: reachable ? "" : "npx @agentlayer.tech/wallet claude-code install --yes",
+    });
+  }
+  // Codex: plugin symlink target under the codex plugin install root.
+  const codexInstallRoot = resolveCodexPluginInstallRoot(env);
+  const codexTarget = path.join(codexInstallRoot, "agent-wallet", "server.py");
+  if (fs.existsSync(codexInstallRoot)) {
+    const ok = fs.existsSync(codexTarget);
+    checks.push({
+      name: "editor:codex",
+      ok,
+      error: ok ? "" : `codex plugin server.py missing at ${codexTarget}`,
+      fix: ok ? "" : "npx @agentlayer.tech/wallet codex install --yes",
+    });
+  }
+  return checks;
+}
+
+function runDoctor(args = []) {
+  const deep = hasFlag(args, "--deep");
+  const env = process.env;
+  const checks = [];
+  const fixInstall = "npx @agentlayer.tech/wallet install --yes";
+
+  for (const command of ["node", "npm"]) {
+    const ok = hasCommand(command);
+    checks.push({
+      name: `command:${command}`,
+      ok,
+      error: ok ? "" : `${command} not found on PATH`,
+      fix: ok ? "" : `install ${command}`,
+    });
+  }
   const python = selectedPythonProbe();
+  const pythonOk = Boolean(python.path && python.version_ok && python.venv_ok);
+  checks.push({
+    name: "python>=3.10",
+    ok: pythonOk,
+    error: !python.path ? "python3 not found"
+      : !python.version_ok ? `selected python ${python.version} < 3.10`
+      : !python.venv_ok ? `python ${python.version} lacks venv/ensurepip` : "",
+    fix: pythonOk ? "" : "install python>=3.10 with venv",
+  });
 
-  for (const command of commands) {
-    if (!hasCommand(command)) missing.push(`command:${command}`);
+  const currentPath = currentRuntimePath(env);
+  const currentRoot = resolvedCurrentRuntimeRoot(env);
+  const symlinkOk = Boolean(currentRoot && fs.existsSync(currentRoot));
+  checks.push({
+    name: "current_symlink",
+    ok: symlinkOk,
+    target: readLinkOrNull(currentPath),
+    error: symlinkOk ? "" : `current does not resolve to an existing release (${currentPath})`,
+    fix: symlinkOk ? "" : fixInstall,
+  });
+
+  const venvPython = currentRoot ? resolveVenvPython(currentRoot) : null;
+  checks.push({
+    name: "runtime_venv_python",
+    ok: Boolean(venvPython),
+    path: venvPython,
+    error: venvPython ? "" : "runtime .runtime-venv/bin/python missing",
+    fix: venvPython ? "" : fixInstall,
+  });
+
+  const serverPy = currentRoot
+    ? path.join(currentRoot, "codex", "plugins", "agent-wallet", "server.py")
+    : null;
+  const serverExists = Boolean(serverPy && fs.existsSync(serverPy));
+  let parseOk = false;
+  if (serverExists && venvPython) {
+    const compiled = spawnSync(venvPython, ["-m", "py_compile", serverPy], { encoding: "utf8" });
+    parseOk = compiled.status === 0;
   }
-  if (!python.path) {
-    missing.push("command:python3.10-or-python3");
-  } else if (!python.version_ok) {
-    missing.push(`python>=3.10:selected:${python.version || "unknown"}`);
-  } else if (!python.venv_ok) {
-    missing.push(`python-venv-ensurepip:selected:${python.version || "unknown"}`);
-  }
-  for (const [label, target] of requiredPaths) {
-    if (!fs.existsSync(target)) missing.push(`${label}:${target}`);
+  checks.push({
+    name: "server_py_parses",
+    ok: parseOk,
+    error: !serverExists ? "runtime codex server.py missing"
+      : parseOk ? "" : "server.py present but failed to parse",
+    fix: parseOk ? "" : fixInstall,
+  });
+
+  if (deep && currentRoot) {
+    const verify = verifyRuntime(currentRoot, env);
+    checks.push({
+      name: "mcp_initialize_handshake",
+      ok: verify.ok,
+      error: verify.ok ? "" : verify.error,
+      fix: verify.ok ? "" : `${fixInstall} (or: npx @agentlayer.tech/wallet rollback)`,
+    });
   }
 
+  for (const editorCheck of resolveEditorServerChecks(env)) {
+    checks.push(editorCheck);
+  }
+
+  const ok = checks.every((c) => c.ok);
   console.log(
     JSON.stringify(
       {
-        ok: missing.length === 0,
+        ok,
         package_name: packageJson.name,
         package_version: packageVersion,
-        package_root: packageRoot,
-        setup_path: setupPath,
         openclaw_home: resolveOpenclawHome(),
-        runtime_base: resolveRuntimeBase(),
-        current_runtime: currentRuntimePath(),
+        current_runtime: currentPath,
         active_version: activeVersion(),
         releases: listReleases(),
-        python,
-        commands: Object.fromEntries(commands.map((command) => [command, hasCommand(command)])),
-        missing,
+        deep,
+        checks,
       },
       null,
       2,
     ),
   );
-  return missing.length === 0 ? 0 : 1;
+  return ok ? 0 : 1;
 }
 
 function runStatus(args = []) {
@@ -1497,7 +1573,7 @@ if (command === "--version" || command === "-v" || command === "version") {
 }
 
 if (command === "doctor") {
-  process.exit(runDoctor());
+  process.exit(runDoctor(args.slice(1)));
 }
 
 if (command === "--self-verify") {
