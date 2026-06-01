@@ -12,6 +12,14 @@
   agent-wallet MCP server from starting in both runtimes (JSON-RPC `-32000` /
   "failed to reconnect"). Restored the `_normalize_wallet_backend` definition;
   the server now starts and completes the MCP `initialize` handshake.
+- Fixed Claude Code agent-wallet MCP failing to start (`-32000` / "failed to
+  reconnect"). When Claude Code copies the plugin into its plugin cache, the
+  launcher's relative `../../codex/...` and local `server.py` paths no longer
+  resolve, so it reported "server.py not found". `run_mcp.sh` now falls back to
+  the codex `server.py` inside the installed runtime package
+  (`~/.openclaw/agent-wallet-runtime/current/codex/plugins/agent-wallet`), which
+  is always present after install. Codex was unaffected (its launcher is
+  self-contained).
 
 ## v0.1.31 - 2026-05-31
 
