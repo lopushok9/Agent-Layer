@@ -617,6 +617,71 @@ function ensureBootKeyFile(env = process.env) {
   return { path: keyFile, status: "created" };
 }
 
+function resolveVenvPython(releaseRoot) {
+  const candidates = [
+    path.join(releaseRoot, "agent-wallet", ".venv", "bin", "python"),
+    path.join(releaseRoot, "agent-wallet", ".runtime-venv", "bin", "python"),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+// Classify a verification failure so the caller can route the right guidance:
+//   broken_release -> our shipped code is bad; user cannot fix, stay on previous.
+//   local_env      -> user's machine/runtime is fixable (python/venv/corrupt unpack).
+//   unknown        -> fall back to generic guidance.
+function classifyVerifyError(detail) {
+  const text = String(detail || "");
+  if (/SyntaxError|IndentationError|ImportError|ModuleNotFoundError|TabError|NameError/.test(text)) {
+    return "broken_release";
+  }
+  if (/ENOENT|python|venv|ensurepip|not found|No such file|Permission denied|spawn/i.test(text)) {
+    return "local_env";
+  }
+  return "unknown";
+}
+
+function verifyRuntime(releaseRoot, env = process.env) {
+  if (String(env.AGENT_WALLET_VERIFY_DISABLE || "") === "1") {
+    return { ok: true, skipped: true };
+  }
+  if (String(env.AGENT_WALLET_VERIFY_FORCE_FAIL || "") === "1") {
+    return { ok: false, error: "verify forced to fail (AGENT_WALLET_VERIFY_FORCE_FAIL)", category: "broken_release" };
+  }
+  const serverPy = path.join(releaseRoot, "codex", "plugins", "agent-wallet", "server.py");
+  if (!fs.existsSync(serverPy)) {
+    return { ok: false, error: `server.py missing at ${serverPy}`, category: "local_env" };
+  }
+  const python = resolveVenvPython(releaseRoot) || commandPath("python3") || "python3";
+  const initLine = JSON.stringify({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "initialize",
+    params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "verify", version: "0" } },
+  });
+  const probe = spawnSync(python, [serverPy], {
+    input: initLine + "\n",
+    encoding: "utf8",
+    timeout: Number(env.AGENT_WALLET_VERIFY_TIMEOUT_MS || 25000),
+    env: { ...env, FASTMCP_SHOW_SERVER_BANNER: "false", FASTMCP_LOG_LEVEL: "ERROR" },
+  });
+  if (probe.error) {
+    return { ok: false, error: `handshake spawn failed: ${probe.error.message}`, category: "local_env" };
+  }
+  const out = String(probe.stdout || "");
+  if (out.includes('"serverInfo"')) {
+    return { ok: true };
+  }
+  const detail = (probe.stderr || out || "").trim().split("\n").slice(-3).join(" ");
+  return {
+    ok: false,
+    error: `MCP initialize handshake failed: ${detail || "no serverInfo in response"}`,
+    category: classifyVerifyError(detail),
+  };
+}
+
 function runDoctor() {
   const requiredPaths = [
     ["setup.sh", setupPath],
@@ -1423,6 +1488,15 @@ if (command === "--version" || command === "-v" || command === "version") {
 
 if (command === "doctor") {
   process.exit(runDoctor());
+}
+
+if (command === "--self-verify") {
+  const releaseRoot = args[1] ? path.resolve(expandHome(args[1])) : resolvedCurrentRuntimeRoot();
+  const result = releaseRoot
+    ? verifyRuntime(releaseRoot)
+    : { ok: false, error: "no runtime to verify" };
+  console.log(JSON.stringify(result));
+  process.exit(result.ok ? 0 : 1);
 }
 
 if (command === "status") {
