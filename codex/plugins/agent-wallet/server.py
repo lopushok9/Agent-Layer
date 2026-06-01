@@ -272,9 +272,7 @@ def _cached_preview_for_token(user_id: str, tool_name: str, token: str) -> dict[
     return preview if isinstance(preview, dict) else None
 
 
-def _cache_pending_private_swap_order(
-    user_id: str,
-    tool_name: str,
+def _normalize_wallet_backend(value: Any) -> str:
     normalized = str(value or "").strip().lower()
     aliases = {
         "sol": "solana_local",

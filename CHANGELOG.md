@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## v0.1.32 - 2026-06-01
+
+- Fixed a `SyntaxError` in `codex/plugins/agent-wallet/server.py` introduced by
+  the Houdini private-swap removal in v0.1.31: the deletion left the orphaned
+  `_cache_pending_private_swap_order` signature fused onto the body of
+  `_normalize_wallet_backend`, leaving an unclosed parenthesis. The Codex and
+  Claude Code plugins share this `server.py`, so the broken file prevented the
+  agent-wallet MCP server from starting in both runtimes (JSON-RPC `-32000` /
+  "failed to reconnect"). Restored the `_normalize_wallet_backend` definition;
+  the server now starts and completes the MCP `initialize` handshake.
+
 ## v0.1.31 - 2026-05-31
 
 - Hardened the WDK EVM/BTC local vaults with a decrypt-on-demand key model: the
