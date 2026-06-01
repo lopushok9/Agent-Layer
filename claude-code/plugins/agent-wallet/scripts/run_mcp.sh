@@ -20,7 +20,7 @@ elif [ -f "$CODEX_SERVER" ]; then
 elif [ -f "$RUNTIME_CODEX_DIR/server.py" ]; then
   SERVER_PY=$(CDPATH= cd -- "$RUNTIME_CODEX_DIR" && pwd)/server.py
 else
-  printf '{"error":"agent-wallet server.py not found. Run: npx @agentlayer.tech/wallet install --yes"}\n' >&2
+  printf '{"error":"agent-wallet server.py not found in plugin, codex sibling, or runtime package.","fix":"npx @agentlayer.tech/wallet install --yes"}\n' >&2
   exit 1
 fi
 
@@ -34,6 +34,12 @@ elif [ -x "$PACKAGE_ROOT/.runtime-venv/bin/python" ]; then
   PYTHON_BIN=$PACKAGE_ROOT/.runtime-venv/bin/python
 else
   PYTHON_BIN=python3
+fi
+
+# Fail loudly (not -32000) if the resolved server cannot even be parsed.
+if ! "$PYTHON_BIN" -m py_compile "$SERVER_PY" 2>/dev/null; then
+  printf '{"error":"agent-wallet server.py failed to parse — runtime likely broken.","server_py":"%s","fix":"npx @agentlayer.tech/wallet install --yes (or: npx @agentlayer.tech/wallet rollback)"}\n' "$SERVER_PY" >&2
+  exit 1
 fi
 
 exec "$PYTHON_BIN" "$SERVER_PY"
