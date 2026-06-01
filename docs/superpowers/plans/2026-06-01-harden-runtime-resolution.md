@@ -269,16 +269,31 @@ function resolveVenvPython(releaseRoot) {
   return null;
 }
 
+// Classify a verification failure so the caller can route the right guidance:
+//   broken_release -> our shipped code is bad; user cannot fix, stay on previous.
+//   local_env      -> user's machine/runtime is fixable (python/venv/corrupt unpack).
+//   unknown        -> fall back to generic guidance.
+function classifyVerifyError(detail) {
+  const text = String(detail || "");
+  if (/SyntaxError|IndentationError|ImportError|ModuleNotFoundError|TabError|NameError/.test(text)) {
+    return "broken_release";
+  }
+  if (/ENOENT|python|venv|ensurepip|not found|No such file|Permission denied|spawn/i.test(text)) {
+    return "local_env";
+  }
+  return "unknown";
+}
+
 function verifyRuntime(releaseRoot, env = process.env) {
   if (String(env.AGENT_WALLET_VERIFY_DISABLE || "") === "1") {
     return { ok: true, skipped: true };
   }
   if (String(env.AGENT_WALLET_VERIFY_FORCE_FAIL || "") === "1") {
-    return { ok: false, error: "verify forced to fail (AGENT_WALLET_VERIFY_FORCE_FAIL)" };
+    return { ok: false, error: "verify forced to fail (AGENT_WALLET_VERIFY_FORCE_FAIL)", category: "broken_release" };
   }
   const serverPy = path.join(releaseRoot, "codex", "plugins", "agent-wallet", "server.py");
   if (!fs.existsSync(serverPy)) {
-    return { ok: false, error: `server.py missing at ${serverPy}` };
+    return { ok: false, error: `server.py missing at ${serverPy}`, category: "local_env" };
   }
   const python = resolveVenvPython(releaseRoot) || commandPath("python3") || "python3";
   const initLine = JSON.stringify({
@@ -294,14 +309,18 @@ function verifyRuntime(releaseRoot, env = process.env) {
     env: { ...env, FASTMCP_SHOW_SERVER_BANNER: "false", FASTMCP_LOG_LEVEL: "ERROR" },
   });
   if (probe.error) {
-    return { ok: false, error: `handshake spawn failed: ${probe.error.message}` };
+    return { ok: false, error: `handshake spawn failed: ${probe.error.message}`, category: "local_env" };
   }
   const out = String(probe.stdout || "");
   if (out.includes('"serverInfo"')) {
     return { ok: true };
   }
   const detail = (probe.stderr || out || "").trim().split("\n").slice(-3).join(" ");
-  return { ok: false, error: `MCP initialize handshake failed: ${detail || "no serverInfo in response"}` };
+  return {
+    ok: false,
+    error: `MCP initialize handshake failed: ${detail || "no serverInfo in response"}`,
+    category: classifyVerifyError(detail),
+  };
 }
 ```
 
@@ -623,11 +642,40 @@ def main() -> None:
     env2 = {**env, "AGENT_WALLET_VERIFY_FORCE_FAIL": "1"}
     res = _install(cli, env2)
     assert res.returncode != 0, "install should fail when verify fails"
-    assert "rolled back" in (res.stderr + res.stdout).lower(), res.stderr
+    # The failure payload is the last JSON object printed to stderr.
+    payload = _last_json(res.stderr)
+    assert payload["ok"] is False, payload
+    assert payload["rolled_back"] is True, payload
+    assert payload["category"] == "broken_release", payload
+    assert version in (payload["kept_version"] or ""), payload
+    assert "message" in payload and "fix" in payload, payload
     after = os.readlink(current)
     assert after == good_target, f"current not rolled back: {after} != {good_target}"
 
     print("OK smoke_install_verify_rollback")
+
+
+def _last_json(text: str) -> dict:
+    # Extract the last top-level JSON object from mixed stderr output.
+    depth = 0
+    start = None
+    chunks = []
+    for i, ch in enumerate(text):
+        if ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start is not None:
+                chunks.append(text[start:i + 1])
+                start = None
+    for chunk in reversed(chunks):
+        try:
+            return json.loads(chunk)
+        except json.JSONDecodeError:
+            continue
+    raise AssertionError(f"no JSON object found in: {text!r}")
 
 
 if __name__ == "__main__":
@@ -646,20 +694,56 @@ In `runInstall`, immediately after the symlink switch block (after line 787 `swi
 ```js
   const verification = verifyRuntime(releaseRoot, env);
   if (!verification.ok && !verification.skipped) {
-    const rollbackTarget = currentTarget; // pre-switch target, if any
-    if (rollbackTarget && existingRuntimePointerTarget(currentPath)) {
+    const rollbackTarget = currentTarget; // pre-switch target captured at line 783, if any
+    const rolledBack = Boolean(rollbackTarget);
+    if (rolledBack) {
       switchSymlink(currentPath, rollbackTarget);
     }
+    const previousVersion = rolledBack
+      ? path.basename(path.resolve(path.dirname(currentPath), rollbackTarget))
+      : null;
+
+    // Tailor guidance to who can actually fix it.
+    let human;
+    let fix;
+    if (!rolledBack) {
+      // First install / no good fallback exists — do not leave a broken current active.
+      if (existingRuntimePointerTarget(currentPath)) {
+        switchSymlink(previousPath, releaseRoot); // park the broken release under previous for inspection
+      }
+      removeRuntimePointer(currentPath); // leave no active runtime rather than a broken one
+      human =
+        verification.category === "broken_release"
+          ? `Release ${packageVersion} is broken and there is no previous working version to fall back to. Nothing is active. This is a bad release — please report it; a patched version will follow.`
+          : `Release ${packageVersion} failed to verify and there is no previous version. Your local environment looks incomplete: ${verification.error}.`;
+      fix =
+        verification.category === "local_env"
+          ? "Ensure python>=3.10 with venv is installed, then: npx @agentlayer.tech/wallet install --yes"
+          : "npx @agentlayer.tech/wallet install --version <known-good-version> --yes";
+    } else if (verification.category === "broken_release") {
+      human = `Release ${packageVersion} is broken; kept you on the working version ${previousVersion}. This is on our side — you are safe. Re-run update when a patched release ships.`;
+      fix = "npx @agentlayer.tech/wallet update --yes";
+    } else if (verification.category === "local_env") {
+      human = `Release ${packageVersion} could not start on this machine; kept you on ${previousVersion}. This looks fixable locally: ${verification.error}.`;
+      fix = "Fix python>=3.10/venv, then: npx @agentlayer.tech/wallet install --yes";
+    } else {
+      human = `Release ${packageVersion} failed verification; kept you on ${previousVersion}.`;
+      fix = "npx @agentlayer.tech/wallet doctor --deep  (then install --yes once resolved)";
+    }
+
     console.error(
       JSON.stringify(
         {
           ok: false,
           command: commandName,
           version: packageVersion,
+          category: verification.category || "unknown",
           error: `runtime verification failed: ${verification.error}`,
-          rolled_back: Boolean(rollbackTarget),
+          rolled_back: rolledBack,
+          kept_version: previousVersion,
           current_runtime_target: readLinkOrNull(currentPath),
-          fix: "npx @agentlayer.tech/wallet rollback",
+          message: human,
+          fix,
         },
         null,
         2,
@@ -669,7 +753,7 @@ In `runInstall`, immediately after the symlink switch block (after line 787 `swi
   }
 ```
 
-Note: `currentTarget` is already captured at line 783 (`const currentTarget = existingRuntimePointerTarget(currentPath);`) before the switch, so it holds the previous good target.
+Note: `currentTarget` is already captured at line 783 (`const currentTarget = existingRuntimePointerTarget(currentPath);`) before the switch, so it holds the previous good target. This block references one helper not yet present, `removeRuntimePointer(currentPath)` — add it next to `switchSymlink` (it should `fs.rmSync`/`fs.unlinkSync` the symlink/dir at `currentPath` if it exists, ignoring `ENOENT`). Add a one-line implementation as part of Step 3.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -868,12 +952,12 @@ git commit -m "docs: changelog for runtime-resolution hardening"
 **Spec coverage:**
 - Layer 1 (actionable errors) → Task 1 (launcher self-check + structured error). ✓
 - Layer 2 (smart doctor: current/venv/parse/handshake/per-editor + fix) → Task 2 (`verifyRuntime`) + Task 3 (`runDoctor` rewrite, `resolveEditorServerChecks`). ✓
-- Layer 3a (post-install verify + auto-rollback) → Task 4. ✓
+- Layer 3a (post-install verify + auto-rollback, **classified** as `broken_release` / `local_env` / `unknown`, with tailored human message + fix, and an explicit no-previous branch that parks the broken release under `previous` and leaves no active `current`) → Task 4. ✓
 - Layer 3b/Layer 4 (pin OPENCLAW_HOME, kill divergence) → Task 5. ✓
 - Docs/changelog + regression sweep → Task 6. ✓
 
 **Placeholder scan:** No TBD/"handle errors"/"similar to" — every code step shows full code. ✓
 
-**Type/name consistency:** `verifyRuntime(releaseRoot, env)` returns `{ ok, skipped?, error? }` and is called identically in Task 3 (doctor `--deep`), Task 4 (install gate), and the `--self-verify` command. `resolveVenvPython(releaseRoot)` defined in Task 2 and reused in Tasks 3 and 5. `resolvedCurrentRuntimeRoot`, `currentRuntimePath`, `existingRuntimePointerTarget`, `switchSymlink`, `readLinkOrNull`, `resolveOpenclawHome`, `writeJsonFile`, `resolveCodexPluginInstallRoot`, `hasFlag`, `expandHome`, `commandPath`, `spawnSync`, `selectedPythonProbe`, `hasCommand` are all pre-existing helpers in `bin/openclaw-agent-wallet.mjs`. Test seam env vars `AGENT_WALLET_VERIFY_DISABLE` / `AGENT_WALLET_VERIFY_FORCE_FAIL` are honored only inside `verifyRuntime`. ✓
+**Type/name consistency:** `verifyRuntime(releaseRoot, env)` returns `{ ok, skipped?, error?, category? }` (category one of `broken_release` | `local_env` | `unknown`, set by `classifyVerifyError`) and is called identically in Task 3 (doctor `--deep`), Task 4 (install gate, which branches on `category`), and the `--self-verify` command. Task 4 also adds `removeRuntimePointer(currentPath)` next to `switchSymlink` (unlink the symlink/dir at `currentPath`, ignore `ENOENT`). `resolveVenvPython(releaseRoot)` defined in Task 2 and reused in Tasks 3 and 5. `resolvedCurrentRuntimeRoot`, `currentRuntimePath`, `existingRuntimePointerTarget`, `switchSymlink`, `readLinkOrNull`, `resolveOpenclawHome`, `writeJsonFile`, `resolveCodexPluginInstallRoot`, `hasFlag`, `expandHome`, `commandPath`, `spawnSync`, `selectedPythonProbe`, `hasCommand` are all pre-existing helpers in `bin/openclaw-agent-wallet.mjs`. Test seam env vars `AGENT_WALLET_VERIFY_DISABLE` / `AGENT_WALLET_VERIFY_FORCE_FAIL` are honored only inside `verifyRuntime`. ✓
 
 **Known risk:** `runCodexInstall`/`runClaudeCodeInstall` symlink the plugin from the bundle; pinning rewrites the bundle's `.mcp.json` (per-user, per-release) — safe on single-user machines. If a future multi-user layout shares a release bundle read-only, Task 5 must switch from rewriting the bundle to copying the plugin per-user. Noted for the executor.
