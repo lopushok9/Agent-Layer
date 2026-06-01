@@ -57,6 +57,7 @@ def main() -> None:
         names = {c["name"]: c for c in payload["checks"]}
         assert names["server_py_parses"]["ok"] is False, payload
         assert "install --yes" in names["server_py_parses"]["fix"], payload
+        assert names["mcp_initialize_handshake"]["ok"] is False, payload
         assert payload["ok"] is False and code == 1, payload
 
         print("OK smoke_doctor_runtime_checks")

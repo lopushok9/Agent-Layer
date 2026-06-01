@@ -694,7 +694,11 @@ function verifyRuntime(releaseRoot, env = process.env) {
 
 function resolveEditorServerChecks(env = process.env) {
   const checks = [];
-  // Claude Code cache copies resolve server.py from the runtime package.
+  // Claude Code's launcher (run_mcp.sh) falls back to the runtime codex
+  // server.py when its own plugin-cache copy lacks one, so a present runtime
+  // server.py is exactly what that launcher will exec. We check its presence
+  // as the proxy for "Claude can resolve a server" (we do not inspect the
+  // version-specific cache copy directly).
   const root = resolvedCurrentRuntimeRoot(env);
   const runtimeCodex = root ? path.join(root, "codex", "plugins", "agent-wallet", "server.py") : null;
   const claudeCacheRoot = expandHome("~/.claude/plugins/cache");
@@ -740,7 +744,7 @@ function runDoctor(args = []) {
   const python = selectedPythonProbe();
   const pythonOk = Boolean(python.path && python.version_ok && python.venv_ok);
   checks.push({
-    name: "python>=3.10",
+    name: "python_version",
     ok: pythonOk,
     error: !python.path ? "python3 not found"
       : !python.version_ok ? `selected python ${python.version} < 3.10`
@@ -781,12 +785,15 @@ function runDoctor(args = []) {
     name: "server_py_parses",
     ok: parseOk,
     error: !serverExists ? "runtime codex server.py missing"
+      : !venvPython ? "server.py parse skipped (runtime venv missing)"
       : parseOk ? "" : "server.py present but failed to parse",
     fix: parseOk ? "" : fixInstall,
   });
 
-  if (deep && currentRoot) {
-    const verify = verifyRuntime(currentRoot, env);
+  if (deep) {
+    const verify = currentRoot
+      ? verifyRuntime(currentRoot, env)
+      : { ok: false, error: "no runtime to handshake", category: "local_env" };
     checks.push({
       name: "mcp_initialize_handshake",
       ok: verify.ok,
