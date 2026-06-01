@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- Hardened runtime resolution end-to-end so a broken or stale runtime can no
+  longer surface as an opaque MCP `-32000`.
+  - `run_mcp.sh` (Codex + Claude Code) now self-checks the resolved `server.py`
+    with `py_compile` and emits a structured, actionable JSON error (with a
+    `fix` command) when the server is missing or fails to parse, instead of
+    silently handing a broken file to Python. JSON errors are emitted safely so
+    arbitrary paths cannot produce invalid JSON.
+  - `doctor` / `doctor --deep` now validate the live `current` runtime — symlink
+    integrity, venv python, `server.py` parse, a real MCP `initialize` handshake
+    (under `--deep`), and per-editor resolution — and attach a `fix` command to
+    every failing check (output is a structured `checks[]` array).
+  - `install` / `update` now verify the newly-activated release via an MCP
+    handshake and auto-rollback `current → previous` on failure, with guidance
+    classified as `broken_release` (our side — you stay safe on the previous
+    version) vs `local_env` (fixable locally). A first install with no previous
+    version leaves no broken runtime active and does not park the broken release
+    under `previous`.
+  - `codex install` / `claude-code install` pin the resolved `OPENCLAW_HOME`
+    into the editor `.mcp.json` env (bundle and, for Claude Code, existing
+    version-keyed cache copies), eliminating launcher/installer home divergence.
+    The venv python is intentionally not pinned so it stays correct across
+    runtime upgrades.
+
 ## v0.1.32 - 2026-06-01
 
 - Fixed a `SyntaxError` in `codex/plugins/agent-wallet/server.py` introduced by
