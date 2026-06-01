@@ -1217,6 +1217,7 @@ function resolveHermesPluginSource() {
 }
 
 function resolveCodexPluginSource() {
+  // test/CI override: inject a staged bundle dir
   const override = String(process.env.AGENT_WALLET_CODEX_PLUGIN_SOURCE || "").trim();
   if (override) return path.resolve(expandHome(override));
   const currentRoot = resolvedCurrentRuntimeRoot();
@@ -1234,6 +1235,7 @@ function resolveCodexPluginSource() {
 }
 
 function resolveClaudeCodePluginSource() {
+  // test/CI override: inject a staged bundle dir
   const override = String(process.env.AGENT_WALLET_CLAUDE_CODE_PLUGIN_SOURCE || "").trim();
   if (override) return path.resolve(expandHome(override));
   const currentRoot = resolvedCurrentRuntimeRoot();
@@ -1513,26 +1515,51 @@ function resolveClaudeCodeMarketplaceDir(env = process.env) {
   );
 }
 
-function pinEditorMcpEnv(pluginSource, env = process.env) {
-  const mcpPath = path.join(pluginSource, ".mcp.json");
-  if (!fs.existsSync(mcpPath)) return { pinned: false, reason: "no .mcp.json" };
+// Pin OPENCLAW_HOME into one .mcp.json so run_mcp.sh uses the install-time home
+// instead of re-deriving the ~/.openclaw default. We deliberately do NOT pin
+// AGENT_WALLET_PYTHON: the launcher resolves the venv from OPENCLAW_HOME->current
+// dynamically, so a pinned python would go stale (and wrongly win) after upgrade.
+function pinHomeIntoMcpFile(mcpPath, env = process.env) {
+  if (!fs.existsSync(mcpPath)) return { pinned: false, reason: "no .mcp.json", path: mcpPath };
   let doc;
   try {
     doc = JSON.parse(fs.readFileSync(mcpPath, "utf8"));
   } catch (error) {
-    return { pinned: false, reason: `unreadable .mcp.json: ${error.message}` };
+    return { pinned: false, reason: `unreadable .mcp.json: ${error.message}`, path: mcpPath };
   }
   const entry = (doc.mcpServers || {})["agent-wallet"];
-  if (!entry) return { pinned: false, reason: "no agent-wallet server entry" };
-  const currentRoot = resolvedCurrentRuntimeRoot(env);
-  const venvPython = currentRoot ? resolveVenvPython(currentRoot) : null;
-  entry.env = {
-    ...(entry.env || {}),
-    OPENCLAW_HOME: resolveOpenclawHome(env),
-    ...(venvPython ? { AGENT_WALLET_PYTHON: venvPython } : {}),
-  };
+  if (!entry) return { pinned: false, reason: "no agent-wallet server entry", path: mcpPath };
+  const home = resolveOpenclawHome(env);
+  entry.env = { ...(entry.env || {}), OPENCLAW_HOME: home };
   writeJsonFile(mcpPath, doc);
-  return { pinned: true, openclaw_home: resolveOpenclawHome(env), python: venvPython };
+  return { pinned: true, openclaw_home: home, path: mcpPath };
+}
+
+function pinEditorMcpEnv(pluginSource, env = process.env) {
+  return pinHomeIntoMcpFile(path.join(pluginSource, ".mcp.json"), env);
+}
+
+// Claude Code copies the plugin into a version-keyed cache and reads THAT copy,
+// so the bundle pin alone is ineffective once a cache exists. Pin every cached
+// copy too. Cache root is overridable for tests.
+function pinClaudeCacheCopies(env = process.env) {
+  const cacheRoot = path.resolve(
+    expandHome(env.AGENT_WALLET_CLAUDE_CODE_CACHE_ROOT || "~/.claude/plugins/cache"),
+  );
+  const pluginCacheDir = path.join(cacheRoot, CLAUDE_CODE_MARKETPLACE_NAME, "agent-wallet");
+  const results = [];
+  if (!fs.existsSync(pluginCacheDir)) return results;
+  let versions;
+  try {
+    versions = fs.readdirSync(pluginCacheDir);
+  } catch {
+    return results;
+  }
+  for (const version of versions) {
+    const mcpPath = path.join(pluginCacheDir, version, ".mcp.json");
+    if (fs.existsSync(mcpPath)) results.push(pinHomeIntoMcpFile(mcpPath, env));
+  }
+  return results;
 }
 
 function ensureClaudeCodeMarketplace(marketplaceDir, pluginSource, force) {
@@ -1585,6 +1612,7 @@ function ensureClaudeCodeMarketplace(marketplaceDir, pluginSource, force) {
 function runClaudeCodeInstall(args) {
   const pluginSource = resolveClaudeCodePluginSource();
   const pinnedEnv = pinEditorMcpEnv(pluginSource);
+  const pinnedCache = pinClaudeCacheCopies();
   const force = hasFlag(args, "--force");
   const skipEnable = hasFlag(args, "--skip-enable");
   const claudeBin = commandPath("claude");
@@ -1658,6 +1686,7 @@ function runClaudeCodeInstall(args) {
         manual_load: pluginDirFlagFull,
         restart_required: true,
         pinned_env: pinnedEnv,
+        pinned_cache: pinnedCache,
         note: ok
           ? "Plugin registered. Restart Claude Code to activate."
           : `If automatic registration failed, load the plugin with: ${pluginDirFlagFull}`,
