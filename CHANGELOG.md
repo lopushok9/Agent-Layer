@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.1.33 - 2026-06-01
+
 - Hardened runtime resolution end-to-end so a broken or stale runtime can no
   longer surface as an opaque MCP `-32000`.
   - `run_mcp.sh` (Codex + Claude Code) now self-checks the resolved `server.py`
