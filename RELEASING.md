@@ -29,17 +29,42 @@ example `v0.1.10`.
 The same tag workflow also creates a GitHub Release on the repository's
 Releases page after npm publish succeeds.
 
-The tag version must match both source version files:
+## Version Single Source of Truth
+
+The canonical version lives in **one** file at the repo root:
 
 ```text
-package.json
-agent-wallet/pyproject.toml
+VERSION
 ```
 
-If those versions do not match the tag, the workflow fails before publishing.
-The same `v*` tag can also trigger the ClawHub plugin publish workflow, so keep
-the root installer versions aligned with the ClawHub plugin package versions
-when you want one GitHub release to ship both surfaces together.
+Every other manifest (npm `package.json`, `agent-wallet/pyproject.toml`, the
+Python `__version__`, the OpenClaw extension, and the Codex / Claude Code /
+Hermes / wdk plugin manifests) is a *derived* target. Do not edit them by hand —
+stamp them from `VERSION`:
+
+```bash
+npm run version:sync          # stamp VERSION into all manifests
+# or bump + stamp in one step:
+node scripts/sync_version.mjs 0.1.34
+```
+
+`npm run check:release-version` verifies that `VERSION`, every derived manifest,
+and (on a tag) the `v*` tag all agree. It runs on every PR/push, so drift cannot
+be merged. The `v*` tag also triggers the ClawHub plugin publish workflow; since
+all manifests are stamped from `VERSION`, one tag ships every surface in lockstep.
+
+### Local release (install into all frameworks)
+
+To make your own OpenClaw / Codex / Claude Code editors run a freshly bumped
+version from the working tree (bump → stamp → verify → reinstall everywhere):
+
+```bash
+npm run release:local -- 0.1.34            # do it
+npm run release:local -- 0.1.34 --dry-run  # preview the steps, change nothing
+```
+
+`wallet doctor` and `wallet status` report `runtime_in_sync`, flagging when the
+installed runtime lags the repo version (i.e. you bumped but forgot to reinstall).
 
 ## Stable Release
 
@@ -47,36 +72,31 @@ Use a stable release when users should get it from the default install command.
 
 Example: publish `0.1.10` as npm `latest`.
 
-1. Update `package.json`:
+1. Bump the canonical version and stamp every manifest:
 
-```json
-"version": "0.1.10"
+```bash
+node scripts/sync_version.mjs 0.1.10
 ```
 
-2. Update `agent-wallet/pyproject.toml`:
-
-```toml
-version = "0.1.10"
-```
-
-3. Run local checks:
+2. Run local checks:
 
 ```bash
 npm run check
 GITHUB_REF_NAME=v0.1.10 npm run check:release-version
 python3 agent-wallet/tests/smoke_npm_installer.py
 python3 agent-wallet/tests/smoke_install_agent_wallet.py
+python3 agent-wallet/tests/smoke_version_consistency.py
 npm --cache /tmp/npm-cache pack --dry-run
 ```
 
-4. Commit the version change:
+3. Commit the version change (VERSION + all stamped manifests):
 
 ```bash
-git add package.json agent-wallet/pyproject.toml
+git add -A
 git commit -m "Release npm installer 0.1.10"
 ```
 
-5. Create and push the release tag:
+4. Create and push the release tag:
 
 ```bash
 git tag -a v0.1.10 -m "v0.1.10"
@@ -84,7 +104,7 @@ git push origin main
 git push origin v0.1.10
 ```
 
-6. Check npm after GitHub Actions finishes:
+5. Check npm after GitHub Actions finishes:
 
 ```bash
 npm view @agentlayer.tech/wallet dist-tags
@@ -104,16 +124,16 @@ The GitHub Releases page should also contain a new release named `v0.1.10`.
 Use a beta release when you want to test npm publishing without changing the
 default user install command.
 
+Beta is the "earlier than users" channel: it publishes a real artifact to the
+npm `beta` dist-tag (and a GitHub prerelease) without moving `latest`, so you can
+test exactly what users would get before promoting it.
+
 Example: publish `0.1.11-beta.1` as npm `beta`.
 
-1. Set both version files to the beta version:
+1. Bump + stamp the beta version:
 
-```json
-"version": "0.1.11-beta.1"
-```
-
-```toml
-version = "0.1.11-beta.1"
+```bash
+node scripts/sync_version.mjs 0.1.11-beta.1
 ```
 
 2. Run checks:
@@ -127,7 +147,7 @@ npm --cache /tmp/npm-cache pack --dry-run
 3. Commit, tag, and push:
 
 ```bash
-git add package.json agent-wallet/pyproject.toml
+git add -A
 git commit -m "Release npm installer 0.1.11-beta.1"
 git tag -a v0.1.11-beta.1 -m "v0.1.11-beta.1"
 git push origin main
@@ -143,6 +163,13 @@ npx @agentlayer.tech/wallet@beta doctor
 
 The GitHub Releases page should contain a new prerelease named
 `v0.1.11-beta.1`.
+
+### Promote a beta to stable
+
+Once a beta checks out, ship the same version as a stable `latest` release by
+following the **Stable Release** steps with the promoted version number (e.g.
+`0.1.11`). The update notice that runtimes show to agents reads the `latest`
+dist-tag, so users are only nudged toward promoted releases, never betas.
 
 ## What Ships
 
