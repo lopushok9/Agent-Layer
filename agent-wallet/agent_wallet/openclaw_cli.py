@@ -96,11 +96,6 @@ def _apply_config_overrides(config: dict[str, Any]) -> None:
         "jupiterSwapV2BaseUrl": ("JUPITER_SWAP_V2_API_BASE_URL", config.get("jupiterSwapV2BaseUrl"), True),
         "jupiterUltraBaseUrl": ("JUPITER_ULTRA_API_BASE_URL", config.get("jupiterUltraBaseUrl"), True),
         "jupiterPriceBaseUrl": ("JUPITER_PRICE_API_BASE_URL", config.get("jupiterPriceBaseUrl"), True),
-        "jupiterPortfolioBaseUrl": (
-            "JUPITER_PORTFOLIO_API_BASE_URL",
-            config.get("jupiterPortfolioBaseUrl"),
-            True,
-        ),
         "jupiterApiKey": ("JUPITER_API_KEY", config.get("jupiterApiKey"), True),
         "kaminoBaseUrl": ("KAMINO_API_BASE_URL", config.get("kaminoBaseUrl"), True),
         "kaminoProgramId": ("KAMINO_PROGRAM_ID", config.get("kaminoProgramId"), True),

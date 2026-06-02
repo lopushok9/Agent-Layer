@@ -15,10 +15,11 @@ def main() -> None:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     declared = manifest.get("contracts", {}).get("tools")
     assert isinstance(declared, list) and declared, "contracts.tools must be a non-empty array"
+    assert len(declared) == len(set(declared)), "contracts.tools must not contain duplicate names"
 
     text = index_path.read_text(encoding="utf-8")
     registered = sorted(set(re.findall(r'name:\s*"([^"]+)"', text)))
-    assert declared == registered, (
+    assert sorted(declared) == registered, (
         "contracts.tools must match the registered tool names in index.ts.\n"
         f"declared_only={sorted(set(declared) - set(registered))}\n"
         f"registered_only={sorted(set(registered) - set(declared))}"

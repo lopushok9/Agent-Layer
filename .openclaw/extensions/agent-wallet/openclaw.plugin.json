@@ -5,13 +5,10 @@
   "version": "0.1.0",
   "contracts": {
     "tools": [
-      "claim_bags_fees",
       "close_empty_token_accounts",
       "flash_trade_close_position",
       "flash_trade_open_position",
       "get_active_wallet_backend",
-      "get_bags_claimable_positions",
-      "get_bags_fee_analytics",
       "get_btc_fee_rates",
       "get_btc_max_spendable",
       "get_btc_transfer_history",

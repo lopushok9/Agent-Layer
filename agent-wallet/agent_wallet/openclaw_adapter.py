@@ -42,12 +42,6 @@ network argument to EVM tools. Do not edit code, plugin config, or environment v
 just to switch the active EVM network.
 """.strip()
 
-# Keep the backend implementation in place, but hide these agent-facing tools for now.
-TEMPORARILY_DISABLED_TOOLS = {
-    "get_jupiter_portfolio_platforms",
-    "get_jupiter_portfolio",
-    "get_jupiter_staked_jup",
-}
 EVM_NATIVE_TOKEN_ADDRESS = "0x0000000000000000000000000000000000000000"
 SOLANA_NATIVE_TOKEN_ADDRESS = "11111111111111111111111111111111"
 LIFI_CHAIN_ALIASES = {
@@ -561,29 +555,6 @@ class OpenClawWalletAdapter:
                 "initial_buy_sol": payload.get("initial_buy_sol"),
                 "initial_buy_lamports": payload.get("initial_buy_lamports"),
                 "launch_fingerprint": launch_fingerprint,
-            }
-
-        if asset_type == "bags-fee-claim":
-            claim_binding = {
-                "token_mint": payload.get("token_mint"),
-                "claimable_positions": payload.get("claimable_positions"),
-                "claimable_position_count": payload.get("claimable_position_count"),
-            }
-            claim_fingerprint = hashlib.sha256(
-                json.dumps(
-                    claim_binding,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ).encode("utf-8")
-            ).hexdigest()
-            return {
-                "operation": action_label,
-                "network": str(payload.get("network") or getattr(self.backend, "network", "unknown")),
-                "owner": payload.get("owner"),
-                "fee_claimer": payload.get("fee_claimer"),
-                "token_mint": payload.get("token_mint"),
-                "claimable_position_count": payload.get("claimable_position_count"),
-                "claim_fingerprint": claim_fingerprint,
             }
 
         if asset_type in {"flash-trade-open-position", "flash-trade-close-position"}:
@@ -1880,64 +1851,6 @@ class OpenClawWalletAdapter:
                 risk_level="low",
             ),
             AgentToolSpec(
-                name="get_bags_claimable_positions",
-                description="Get claimable Bags fee-share positions for a Solana wallet on mainnet.",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "wallet": {
-                            "type": "string",
-                            "description": "Optional wallet address override. If omitted, use the configured wallet address.",
-                        }
-                    },
-                    "additionalProperties": False,
-                },
-                read_only=True,
-                risk_level="low",
-            ),
-            AgentToolSpec(
-                name="get_bags_fee_analytics",
-                description="Get Bags fee analytics for a launched token, with optional claim event history.",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "token_mint": {
-                            "type": "string",
-                            "description": "Launched token mint address.",
-                        },
-                        "include_claim_events": {
-                            "type": "boolean",
-                            "description": "If true, also fetch claim event history.",
-                        },
-                        "mode": {
-                            "type": "string",
-                            "enum": ["offset", "time"],
-                            "description": "Claim event pagination mode when include_claim_events is true.",
-                        },
-                        "limit": {
-                            "type": "integer",
-                            "description": "Optional event page size.",
-                        },
-                        "offset": {
-                            "type": "integer",
-                            "description": "Optional event offset when mode=offset.",
-                        },
-                        "from_ts": {
-                            "type": "integer",
-                            "description": "Optional unix timestamp start when mode=time.",
-                        },
-                        "to_ts": {
-                            "type": "integer",
-                            "description": "Optional unix timestamp end when mode=time.",
-                        },
-                    },
-                    "required": ["token_mint"],
-                    "additionalProperties": False,
-                },
-                read_only=True,
-                risk_level="low",
-            ),
-            AgentToolSpec(
                 name="get_solana_staking_validators",
                 description="List native Solana staking validators by vote account, commission, and activated stake.",
                 input_schema={
@@ -1969,56 +1882,6 @@ class OpenClawWalletAdapter:
                         }
                     },
                     "required": ["stake_account"],
-                    "additionalProperties": False,
-                },
-                read_only=True,
-                risk_level="low",
-            ),
-            AgentToolSpec(
-                name="get_jupiter_portfolio_platforms",
-                description="List the Jupiter Portfolio platforms available for filtering position queries.",
-                input_schema={
-                    "type": "object",
-                    "properties": {},
-                    "additionalProperties": False,
-                },
-                read_only=True,
-                risk_level="low",
-            ),
-            AgentToolSpec(
-                name="get_jupiter_portfolio",
-                description=(
-                    "Get Jupiter Portfolio positions for a Solana wallet address on mainnet."
-                ),
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "address": {
-                            "type": "string",
-                            "description": "Optional Solana wallet address override. If omitted, use the configured wallet.",
-                        },
-                        "platforms": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Optional list of Jupiter platform ids to filter positions.",
-                        },
-                    },
-                    "additionalProperties": False,
-                },
-                read_only=True,
-                risk_level="low",
-            ),
-            AgentToolSpec(
-                name="get_jupiter_staked_jup",
-                description="Get Jupiter staked JUP information for a Solana wallet address on mainnet.",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "address": {
-                            "type": "string",
-                            "description": "Optional Solana wallet address override. If omitted, use the configured wallet.",
-                        }
-                    },
                     "additionalProperties": False,
                 },
                 read_only=True,
@@ -2515,48 +2378,6 @@ class OpenClawWalletAdapter:
 
             tools.append(
                 AgentToolSpec(
-                    name="claim_bags_fees",
-                    description=(
-                        "Preview, prepare, or execute a Bags fee-share claim for the connected wallet on mainnet. "
-                        "Use preview first, then execute only after explicit user approval."
-                    ),
-                    input_schema={
-                        "type": "object",
-                        "properties": {
-                            "token_mint": {
-                                "type": "string",
-                                "description": "Launched token mint address whose fees should be claimed.",
-                            },
-                            "mode": {
-                                "type": "string",
-                                "enum": ["preview", "prepare", "execute"],
-                                "description": "preview returns claimable positions, prepare returns an execution plan without signed transaction bytes, execute attempts to claim fees.",
-                            },
-                            "purpose": {
-                                "type": "string",
-                                "description": "Short explanation of why the fee claim is being made.",
-                            },
-                            "user_intent": {
-                                "type": "boolean",
-                                "description": "Must be true for prepare mode.",
-                            },
-                            "approval_token": {
-                                "type": "string",
-                                "description": "Host-issued approval token required for execute mode.",
-                            },
-                        },
-                        "required": ["token_mint", "mode", "purpose"],
-                        "additionalProperties": False,
-                    },
-                    read_only=False,
-                    requires_explicit_user_intent=True,
-                    risk_level="high",
-                )
-            )
-
-
-            tools.append(
-                AgentToolSpec(
                     name="swap_solana_lifi_cross_chain_tokens",
                     description=(
                         "Preview, prepare, or execute a Solana-origin cross-chain swap through LI.FI. "
@@ -2976,7 +2797,7 @@ class OpenClawWalletAdapter:
             )
 
         tools.extend(self._x402_tool_specs())
-        return [tool for tool in tools if tool.name not in TEMPORARILY_DISABLED_TOOLS]
+        return tools
 
     def get_runtime_instructions(self) -> str:
         """Return the instruction block to inject into the agent runtime."""
@@ -2987,10 +2808,6 @@ class OpenClawWalletAdapter:
         args = arguments or {}
         try:
             active_backend = self._resolve_backend_for_args(args)
-            if tool_name in TEMPORARILY_DISABLED_TOOLS:
-                raise WalletBackendError(
-                    f"{tool_name} is temporarily disabled. The implementation remains in the repo but this tool is currently turned off."
-                )
 
             if tool_name == "x402_search_services":
                 query = args.get("query")
@@ -3938,46 +3755,6 @@ class OpenClawWalletAdapter:
                 data = await self.backend.get_token_prices(mints=mints)
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
 
-            if tool_name == "get_bags_claimable_positions":
-                wallet = args.get("wallet")
-                if wallet is not None and not isinstance(wallet, str):
-                    raise WalletBackendError("wallet must be a string when provided.")
-                data = await self.backend.get_bags_claimable_positions(wallet=wallet)
-                return AgentToolResult(tool=tool_name, ok=True, data=data)
-
-            if tool_name == "get_bags_fee_analytics":
-                token_mint = args.get("token_mint")
-                include_claim_events = args.get("include_claim_events", False)
-                mode = args.get("mode", "offset")
-                limit = args.get("limit")
-                offset = args.get("offset")
-                from_ts = args.get("from_ts")
-                to_ts = args.get("to_ts")
-                if not isinstance(token_mint, str) or not token_mint.strip():
-                    raise WalletBackendError("token_mint is required.")
-                if not isinstance(include_claim_events, bool):
-                    raise WalletBackendError("include_claim_events must be a boolean.")
-                if not isinstance(mode, str) or mode not in {"offset", "time"}:
-                    raise WalletBackendError("mode must be 'offset' or 'time'.")
-                for field_name, value in (
-                    ("limit", limit),
-                    ("offset", offset),
-                    ("from_ts", from_ts),
-                    ("to_ts", to_ts),
-                ):
-                    if value is not None and not isinstance(value, int):
-                        raise WalletBackendError(f"{field_name} must be an integer when provided.")
-                data = await self.backend.get_bags_fee_analytics(
-                    token_mint=token_mint.strip(),
-                    include_claim_events=include_claim_events,
-                    mode=mode,
-                    limit=limit,
-                    offset=offset,
-                    from_ts=from_ts,
-                    to_ts=to_ts,
-                )
-                return AgentToolResult(tool=tool_name, ok=True, data=data)
-
             if tool_name == "get_solana_staking_validators":
                 limit = args.get("limit", 20)
                 include_delinquent = args.get("include_delinquent", False)
@@ -3996,33 +3773,6 @@ class OpenClawWalletAdapter:
                 if not isinstance(stake_account, str) or not stake_account.strip():
                     raise WalletBackendError("stake_account is required.")
                 data = await self.backend.get_stake_account(stake_account.strip())
-                return AgentToolResult(tool=tool_name, ok=True, data=data)
-
-            if tool_name == "get_jupiter_portfolio_platforms":
-                data = await self.backend.get_jupiter_portfolio_platforms()
-                return AgentToolResult(tool=tool_name, ok=True, data=data)
-
-            if tool_name == "get_jupiter_portfolio":
-                address = args.get("address")
-                platforms = args.get("platforms")
-                if address is not None and not isinstance(address, str):
-                    raise WalletBackendError("address must be a string when provided.")
-                if platforms is not None:
-                    if not isinstance(platforms, list) or not all(
-                        isinstance(item, str) for item in platforms
-                    ):
-                        raise WalletBackendError("platforms must be an array of strings.")
-                data = await self.backend.get_jupiter_portfolio(
-                    address=address,
-                    platforms=platforms,
-                )
-                return AgentToolResult(tool=tool_name, ok=True, data=data)
-
-            if tool_name == "get_jupiter_staked_jup":
-                address = args.get("address")
-                if address is not None and not isinstance(address, str):
-                    raise WalletBackendError("address must be a string when provided.")
-                data = await self.backend.get_jupiter_staked_jup(address=address)
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
 
             if tool_name == "get_flash_trade_markets":
@@ -5428,69 +5178,6 @@ class OpenClawWalletAdapter:
                     data=self._annotate_sensitive_payload(
                         result,
                         action_label="Solana LI.FI cross-chain swap",
-                        mode="execute",
-                    ),
-                )
-
-            if tool_name == "claim_bags_fees":
-                token_mint = args.get("token_mint")
-                mode = args.get("mode")
-                purpose = args.get("purpose")
-                user_intent = args.get("user_intent", False)
-                approval_token = args.get("approval_token")
-
-                if not isinstance(token_mint, str) or not token_mint.strip():
-                    raise WalletBackendError("token_mint is required.")
-                if mode not in {"preview", "prepare", "execute"}:
-                    raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
-                if not isinstance(purpose, str) or not purpose.strip():
-                    raise WalletBackendError("purpose is required.")
-
-                if mode == "preview":
-                    preview = await self.backend.preview_bags_fee_claim(token_mint.strip())
-                    return AgentToolResult(
-                        tool=tool_name,
-                        ok=True,
-                        data=self._annotate_sensitive_payload(
-                            preview,
-                            action_label="Bags fee claim",
-                            mode="preview",
-                        ),
-                    )
-
-                if mode == "prepare":
-                    self._require_prepare_intent(user_intent)
-                    preview = await self.backend.preview_bags_fee_claim(token_mint.strip())
-                    return AgentToolResult(
-                        tool=tool_name,
-                        ok=True,
-                        data=self._annotate_sensitive_payload(
-                            self._build_prepare_plan(
-                                preview_payload=preview,
-                                action_label="Bags fee claim",
-                            ),
-                            action_label="Bags fee claim",
-                            mode="prepare",
-                        ),
-                    )
-
-                execute_preview = await self.backend.preview_bags_fee_claim(token_mint.strip())
-                self._require_execute_approval(
-                    approval_token=approval_token,
-                    tool_name=tool_name,
-                    summary=self._build_confirmation_summary(
-                        action_label="Bags fee claim",
-                        payload=execute_preview,
-                    ),
-                    action_label="Bags fee claim",
-                )
-                result = await self.backend.execute_bags_fee_claim_from_preview(execute_preview)
-                return AgentToolResult(
-                    tool=tool_name,
-                    ok=True,
-                    data=self._annotate_sensitive_payload(
-                        result,
-                        action_label="Bags fee claim",
                         mode="execute",
                     ),
                 )

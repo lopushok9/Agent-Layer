@@ -274,61 +274,6 @@ class FakeBackend(AgentWalletBackend):
             "source": "lifi",
         }
 
-    async def get_bags_claimable_positions(self, wallet: str | None = None) -> dict:
-        owner = wallet or "Fake11111111111111111111111111111111111111111"
-        return {
-            "chain": "solana",
-            "network": "mainnet",
-            "wallet": owner,
-            "position_count": 1,
-            "positions": [
-                {
-                    "tokenMint": "FakeMint1111111111111111111111111111111111111",
-                    "wallet": owner,
-                    "claimableAmount": "12345",
-                }
-            ],
-            "raw": {"positions": [{"tokenMint": "FakeMint1111111111111111111111111111111111111"}]},
-            "source": "bags",
-        }
-
-    async def get_bags_fee_analytics(
-        self,
-        token_mint: str,
-        *,
-        include_claim_events: bool = False,
-        mode: str = "offset",
-        limit: int | None = None,
-        offset: int | None = None,
-        from_ts: int | None = None,
-        to_ts: int | None = None,
-    ) -> dict:
-        return {
-            "chain": "solana",
-            "network": "mainnet",
-            "token_mint": token_mint,
-            "lifetime_fees": {"totalFees": "42"},
-            "claim_stats": [{"wallet": "Fake11111111111111111111111111111111111111111"}],
-            "claim_events": (
-                {
-                    "events": [
-                        {
-                            "wallet": "Fake11111111111111111111111111111111111111111",
-                            "mode": mode,
-                            "limit": limit,
-                            "offset": offset,
-                            "from": from_ts,
-                            "to": to_ts,
-                        }
-                    ]
-                }
-                if include_claim_events
-                else None
-            ),
-            "include_claim_events": include_claim_events,
-            "source": "bags",
-        }
-
     async def get_staking_validators(
         self,
         limit: int = 20,
@@ -379,52 +324,6 @@ class FakeBackend(AgentWalletBackend):
             },
             "raw_account": {"owner": "Stake11111111111111111111111111111111111111"},
             "source": "solana-rpc",
-        }
-
-    async def get_jupiter_portfolio_platforms(self) -> dict:
-        return {
-            "chain": "solana",
-            "network": "mainnet",
-            "platform_count": 2,
-            "platforms": [
-                {"id": "jupiter", "name": "Jupiter"},
-                {"id": "sanctum", "name": "Sanctum"},
-            ],
-            "raw": {"platforms": [{"id": "jupiter"}, {"id": "sanctum"}]},
-            "source": "jupiter-portfolio",
-        }
-
-    async def get_jupiter_portfolio(
-        self,
-        address: str | None = None,
-        platforms: list[str] | None = None,
-    ) -> dict:
-        owner = address or "Fake11111111111111111111111111111111111111111"
-        return {
-            "chain": "solana",
-            "network": "mainnet",
-            "address": owner,
-            "platforms": platforms or [],
-            "position_count": 1,
-            "positions": [
-                {
-                    "owner": owner,
-                    "platform": "sanctum",
-                    "positionType": "staking",
-                }
-            ],
-            "raw": {"positions": [{"owner": owner, "platform": "sanctum"}]},
-            "source": "jupiter-portfolio",
-        }
-
-    async def get_jupiter_staked_jup(self, address: str | None = None) -> dict:
-        owner = address or "Fake11111111111111111111111111111111111111111"
-        return {
-            "chain": "solana",
-            "network": "mainnet",
-            "address": owner,
-            "raw": {"address": owner, "stakedAmount": "123456"},
-            "source": "jupiter-portfolio",
         }
 
     async def get_flash_trade_markets(self, pool_name: str | None = None) -> dict:
@@ -1087,46 +986,6 @@ class FakeBackend(AgentWalletBackend):
             "source": "fake",
         }
 
-
-    async def preview_bags_fee_claim(self, token_mint: str) -> dict:
-        return {
-            "chain": "solana",
-            "network": "mainnet",
-            "mode": "preview",
-            "asset_type": "bags-fee-claim",
-            "owner": "Fake11111111111111111111111111111111111111111",
-            "fee_claimer": "Fake11111111111111111111111111111111111111111",
-            "token_mint": token_mint,
-            "claimable_position_count": 1,
-            "claimable_positions": [
-                {
-                    "tokenMint": token_mint,
-                    "claimableAmount": "12345",
-                }
-            ],
-            "sign_only": False,
-            "can_send": True,
-            "source": "bags",
-        }
-
-    async def execute_bags_fee_claim(self, token_mint: str) -> dict:
-        return {
-            "chain": "solana",
-            "network": "mainnet",
-            "mode": "execute",
-            "asset_type": "bags-fee-claim",
-            "owner": "Fake11111111111111111111111111111111111111111",
-            "fee_claimer": "Fake11111111111111111111111111111111111111111",
-            "token_mint": token_mint,
-            "claimable_position_count": 1,
-            "signatures": ["fake-bags-claim-signature"],
-            "signature": "fake-bags-claim-signature",
-            "broadcasted": True,
-            "confirmed": True,
-            "confirmation_statuses": ["confirmed"],
-            "slots": [1400],
-            "source": "bags",
-        }
 
     async def preview_bags_token_launch(
         self,
@@ -2064,9 +1923,9 @@ async def main() -> None:
     tool_names = {tool.name for tool in adapter.list_tools()}
     bundle_tool_names = {tool["name"] for tool in bundle["tools"]}
 
-    assert len(tool_names) == 40
+    assert len(tool_names) == 37
     assert bundle["manifest"]["id"] == "agent-wallet"
-    assert len(bundle_tool_names) == 40
+    assert len(bundle_tool_names) == 37
     assert "Wallet Operator" in bundle["instructions"]
     assert "get_lifi_supported_chains" in tool_names
     assert "get_lifi_quote" in tool_names
@@ -2088,15 +1947,11 @@ async def main() -> None:
     assert "get_kamino_open_positions" in tool_names
     assert "kamino_lend_deposit" in tool_names
     assert "kamino_lend_borrow" in tool_names
-    assert "get_bags_claimable_positions" in tool_names
-    assert "get_bags_fee_analytics" in tool_names
-    assert "claim_bags_fees" in tool_names
     assert "launch_bags_token" in tool_names
     assert "get_jupiter_portfolio" not in bundle_tool_names
     assert "jupiter_earn_deposit" not in bundle_tool_names
     assert "kamino_lend_deposit" in bundle_tool_names
     assert "get_kamino_open_positions" in bundle_tool_names
-    assert "claim_bags_fees" in bundle_tool_names
     assert "launch_bags_token" in bundle_tool_names
     assert "get_flash_trade_markets" in bundle_tool_names
     assert "get_flash_trade_positions" in bundle_tool_names
@@ -2149,22 +2004,6 @@ async def main() -> None:
         {"tx_hash": "0xsourcehash", "from_chain": "base", "to_chain": "solana"},
     )
     assert lifi_status.ok and lifi_status.data["status"] == "DONE"
-
-    bags_positions = await mainnet_adapter.invoke("get_bags_claimable_positions")
-    assert bags_positions.ok and bags_positions.data["position_count"] == 1
-
-    bags_analytics = await mainnet_adapter.invoke(
-        "get_bags_fee_analytics",
-        {
-            "token_mint": "FakeMint1111111111111111111111111111111111111",
-            "include_claim_events": True,
-            "mode": "time",
-            "from_ts": 10,
-            "to_ts": 20,
-        },
-    )
-    assert bags_analytics.ok and bags_analytics.data["lifetime_fees"]["totalFees"] == "42"
-    assert bags_analytics.data["claim_events"]["events"][0]["mode"] == "time"
 
     flash_markets = await adapter.invoke("get_flash_trade_markets")
     assert flash_markets.ok and flash_markets.data["market_count"] == 2
@@ -2755,44 +2594,6 @@ async def main() -> None:
     )
     assert lifi_cross_chain_execute.ok and lifi_cross_chain_execute.data["confirmed"] is True
     assert lifi_cross_chain_execute.data["swap_provider"] == "lifi"
-
-    bags_claim_preview = await mainnet_adapter.invoke(
-        "claim_bags_fees",
-        {
-            "token_mint": "FakeMint1111111111111111111111111111111111111",
-            "mode": "preview",
-            "purpose": "test Bags fee claim preview",
-        },
-    )
-    assert bags_claim_preview.ok and bags_claim_preview.data["asset_type"] == "bags-fee-claim"
-
-    bags_claim_prepare = await mainnet_adapter.invoke(
-        "claim_bags_fees",
-        {
-            "token_mint": "FakeMint1111111111111111111111111111111111111",
-            "mode": "prepare",
-            "purpose": "test Bags fee claim prepare",
-            "user_intent": True,
-        },
-    )
-    assert bags_claim_prepare.ok and bags_claim_prepare.data["execution_plan_only"] is True
-    assert "signatures" not in bags_claim_prepare.data
-
-    bags_claim_execute = await mainnet_adapter.invoke(
-        "claim_bags_fees",
-        {
-            "token_mint": "FakeMint1111111111111111111111111111111111111",
-            "mode": "execute",
-            "purpose": "test Bags fee claim execute",
-            "approval_token": _issue_execute_approval(
-                tool_name="claim_bags_fees",
-                preview=bags_claim_preview.data,
-                network="mainnet",
-                mainnet_confirmed=True,
-            ),
-        },
-    )
-    assert bags_claim_execute.ok and bags_claim_execute.data["confirmed"] is True
 
     bags_launch_preview = await mainnet_adapter.invoke(
         "launch_bags_token",

@@ -357,19 +357,6 @@ class AgentWalletBackend(ABC):
     async def get_stake_account(self, stake_account: str) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support stake account lookup.")
 
-    async def get_jupiter_portfolio(
-        self,
-        address: str | None = None,
-        platforms: list[str] | None = None,
-    ) -> dict[str, Any]:
-        raise WalletBackendError(f"{self.name} does not support Jupiter portfolio lookup.")
-
-    async def get_jupiter_portfolio_platforms(self) -> dict[str, Any]:
-        raise WalletBackendError(f"{self.name} does not support Jupiter portfolio platforms.")
-
-    async def get_jupiter_staked_jup(self, address: str | None = None) -> dict[str, Any]:
-        raise WalletBackendError(f"{self.name} does not support Jupiter staked JUP lookup.")
-
     async def get_flash_trade_markets(
         self,
         pool_name: str | None = None,
@@ -803,37 +790,6 @@ class AgentWalletBackend(ABC):
             "max_attempts": max_attempts,
         }
         return result
-
-    async def get_bags_claimable_positions(
-        self,
-        wallet: str | None = None,
-    ) -> dict[str, Any]:
-        raise WalletBackendError(f"{self.name} does not support Bags claimable positions lookup.")
-
-    async def get_bags_fee_analytics(
-        self,
-        token_mint: str,
-        *,
-        include_claim_events: bool = False,
-        mode: str = "offset",
-        limit: int | None = None,
-        offset: int | None = None,
-        from_ts: int | None = None,
-        to_ts: int | None = None,
-    ) -> dict[str, Any]:
-        raise WalletBackendError(f"{self.name} does not support Bags fee analytics lookup.")
-
-    async def preview_bags_fee_claim(self, token_mint: str) -> dict[str, Any]:
-        raise WalletBackendError(f"{self.name} does not support Bags fee claim previews.")
-
-    async def execute_bags_fee_claim(self, token_mint: str) -> dict[str, Any]:
-        raise WalletBackendError(f"{self.name} does not support Bags fee claims.")
-
-    async def execute_bags_fee_claim_from_preview(
-        self,
-        preview: dict[str, Any],
-    ) -> dict[str, Any]:
-        return await self.execute_bags_fee_claim(str(preview["token_mint"]))
 
     async def preview_bags_token_launch(
         self,

@@ -1,4 +1,4 @@
-"""Bags provider helpers routed through the shared provider gateway."""
+"""Bags launch helpers routed through the shared provider gateway."""
 
 from __future__ import annotations
 
@@ -200,60 +200,3 @@ async def create_launch_transaction(payload: dict[str, Any]) -> str:
     if isinstance(response, str):
         return response
     raise ProviderError("bags", "Unexpected launch transaction response from Bags.")
-
-
-async def fetch_claimable_positions(wallet: str) -> Any:
-    return await _gateway_get_json(
-        "/v1/bags/claim/positions",
-        params={"wallet": wallet},
-        operation="Bags claimable positions",
-    )
-
-
-async def build_claim_transactions(payload: dict[str, Any]) -> Any:
-    return await _gateway_post_json(
-        "/v1/bags/claim/transactions",
-        body=payload,
-        operation="Bags claim transactions",
-    )
-
-
-async def fetch_lifetime_fees(token_mint: str) -> Any:
-    return await _gateway_get_json(
-        "/v1/bags/fees/lifetime",
-        params={"tokenMint": token_mint},
-        operation="Bags lifetime fees",
-    )
-
-
-async def fetch_claim_stats(token_mint: str) -> Any:
-    return await _gateway_get_json(
-        "/v1/bags/fees/claim-stats",
-        params={"tokenMint": token_mint},
-        operation="Bags claim stats",
-    )
-
-
-async def fetch_claim_events(
-    *,
-    token_mint: str,
-    mode: str = "offset",
-    limit: int | None = None,
-    offset: int | None = None,
-    from_ts: int | None = None,
-    to_ts: int | None = None,
-) -> Any:
-    params: dict[str, Any] = {"tokenMint": token_mint, "mode": mode}
-    if limit is not None:
-        params["limit"] = str(limit)
-    if offset is not None:
-        params["offset"] = str(offset)
-    if from_ts is not None:
-        params["from"] = str(from_ts)
-    if to_ts is not None:
-        params["to"] = str(to_ts)
-    return await _gateway_get_json(
-        "/v1/bags/fees/claim-events",
-        params=params,
-        operation="Bags claim events",
-    )

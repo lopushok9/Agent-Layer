@@ -898,47 +898,6 @@ const solanaToolDefinitions = [
     },
   },
   {
-    name: "get_bags_claimable_positions",
-    description: "Get claimable Bags fee-share positions for a Solana wallet on mainnet.",
-    parameters: {
-      type: "object",
-      properties: {
-        wallet: {
-          type: "string",
-          description: "Optional wallet address override.",
-        },
-      },
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "get_bags_fee_analytics",
-    description: "Get Bags fee analytics for a launched token, with optional claim event history.",
-    parameters: {
-      type: "object",
-      properties: {
-        token_mint: {
-          type: "string",
-          description: "Launched token mint address.",
-        },
-        include_claim_events: {
-          type: "boolean",
-          description: "If true, also fetch claim event history.",
-        },
-        mode: {
-          type: "string",
-          enum: ["offset", "time"],
-        },
-        limit: { type: "integer" },
-        offset: { type: "integer" },
-        from_ts: { type: "integer" },
-        to_ts: { type: "integer" },
-      },
-      required: ["token_mint"],
-      additionalProperties: false,
-    },
-  },
-  {
     name: "get_flash_trade_markets",
     description: "List Flash Trade perpetual markets currently available on Solana mainnet.",
     parameters: {
@@ -1141,22 +1100,6 @@ const solanaToolDefinitions = [
         "mode",
         "purpose",
       ],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "claim_bags_fees",
-    description: "Preview, prepare, or execute a Bags fee-share claim for the connected wallet on mainnet. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
-    optional: true,
-    parameters: {
-      type: "object",
-      properties: {
-        token_mint: { type: "string" },
-        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
-        purpose: { type: "string" },
-        user_intent: { type: "boolean" },
-      },
-      required: ["token_mint", "mode", "purpose"],
       additionalProperties: false,
     },
   },

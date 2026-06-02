@@ -1,6 +1,6 @@
 ---
 name: wallet-operator
-description: Use when operating OpenClaw wallet tools: balances, transfers, swaps, LI.FI cross-chain swaps, Jupiter swaps, Velora EVM swaps, BTC transfers, staking, Kamino lending, Bags claims/launches, and wallet execution safety.
+description: Use when operating OpenClaw wallet tools: balances, transfers, swaps, LI.FI cross-chain swaps, Jupiter swaps, Velora EVM swaps, BTC transfers, staking, Kamino lending, Bags launches, and wallet execution safety.
 ---
 
 # Wallet Operator
@@ -30,7 +30,7 @@ Use this skill before calling OpenClaw wallet tools. It is the routing guide for
 - BTC transfer: `transfer_btc`.
 - Solana staking: `stake_sol_native`, `deactivate_solana_stake`, `withdraw_solana_stake`.
 - Kamino: `kamino_lend_deposit`, `kamino_lend_withdraw`, `kamino_lend_borrow`, `kamino_lend_repay`.
-- Bags: `claim_bags_fees`, `launch_bags_token`.
+- Bags: `launch_bags_token`.
 
 ## Common Token IDs
 
@@ -108,8 +108,6 @@ Use this skill before calling OpenClaw wallet tools. It is the routing guide for
 - `withdraw_solana_stake`: `stake_account`, `amount` in SOL, optional `recipient`, `mode`, `purpose`.
 - Before Kamino writes, use `get_kamino_lend_markets`, `get_kamino_lend_market_reserves`, `get_kamino_lend_user_obligations`, and `get_kamino_lend_user_rewards`.
 - Kamino write params: `market`, `reserve`, `amount_ui` decimal string, `mode`, `purpose`.
-- Bags reads: `get_bags_claimable_positions`, `get_bags_fee_analytics`.
-- `claim_bags_fees`: `token_mint`, `mode`, `purpose`.
 - `launch_bags_token`: `name`, `symbol`, `description`, `base_mint`, `claimers`, `basis_points`, `initial_buy_sol`, `mode`, `purpose`; optional socials/image/config type.
 - `close_empty_token_accounts`: `limit`, `mode` (`preview` or `execute`), `purpose`.
 
@@ -123,6 +121,5 @@ Use this skill before calling OpenClaw wallet tools. It is the routing guide for
 
 ## Disabled Or Avoided Paths
 
-- Do not call Jupiter Portfolio tools if they are not listed by `get_wallet_capabilities`; they may be temporarily disabled.
 - Do not invent generic calldata, arbitrary contract calls, token approvals, or non-listed bridge providers.
 - If a requested tool is absent from `list_tools` or capabilities, say the wallet runtime does not expose it.

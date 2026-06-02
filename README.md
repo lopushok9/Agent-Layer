@@ -218,13 +218,10 @@ Flash Trade integration adds a managed perpetuals surface on Solana mainnet:
 - `flash_trade_open_position` - preview, prepare, or execute a perp position open.
 - `flash_trade_close_position` - preview, prepare, or execute a perp position close.
 
-### Bags launch and fee-share
+### Bags launch
 
-Bags-backed tools cover token launch and post-launch fee analytics:
+Bags-backed tools currently cover token launch:
 
-- `get_bags_claimable_positions` - inspect claimable Bags fee-share positions for a Solana wallet.
-- `get_bags_fee_analytics` - fetch analytics and optional claim history for a launched token.
-- `claim_bags_fees` - preview, prepare, or execute a Bags fee-share claim.
 - `launch_bags_token` - preview, prepare, or execute a Bags token launch with fee-share configuration.
 
 ### EVM DeFi integrations

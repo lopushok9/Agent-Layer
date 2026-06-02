@@ -75,38 +75,6 @@ async def main() -> None:
             )
         if request.url.path.endswith("/v1/bags/launch/transaction"):
             return httpx.Response(200, json={"success": True, "response": "base58-launch-tx"})
-        if request.url.path.endswith("/v1/bags/claim/positions"):
-            assert request.url.params["wallet"] == "wallet-a"
-            return httpx.Response(
-                200,
-                json={"success": True, "response": {"positions": [{"tokenMint": "mint-123"}]}},
-            )
-        if request.url.path.endswith("/v1/bags/claim/transactions"):
-            return httpx.Response(
-                200,
-                json={
-                    "success": True,
-                    "response": [
-                        {
-                            "tx": "claim-tx",
-                            "blockhash": {
-                                "blockhash": "blockhash-claim",
-                                "lastValidBlockHeight": 789,
-                            },
-                        }
-                    ],
-                },
-            )
-        if request.url.path.endswith("/v1/bags/fees/lifetime"):
-            return httpx.Response(200, json={"success": True, "response": {"totalFees": "42"}})
-        if request.url.path.endswith("/v1/bags/fees/claim-stats"):
-            return httpx.Response(200, json={"success": True, "response": [{"wallet": "wallet-a"}]})
-        if request.url.path.endswith("/v1/bags/fees/claim-events"):
-            assert request.url.params["mode"] == "time"
-            return httpx.Response(
-                200,
-                json={"success": True, "response": {"events": [{"wallet": "wallet-a"}]}},
-            )
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
@@ -149,28 +117,6 @@ async def main() -> None:
             }
         )
         assert launch_tx == "base58-launch-tx"
-
-        positions = await bags.fetch_claimable_positions("wallet-a")
-        assert positions["positions"][0]["tokenMint"] == "mint-123"
-
-        claim_txs = await bags.build_claim_transactions(
-            {"feeClaimer": "wallet-a", "tokenMint": "mint-123"}
-        )
-        assert claim_txs[0]["tx"] == "claim-tx"
-
-        lifetime = await bags.fetch_lifetime_fees("mint-123")
-        assert lifetime["totalFees"] == "42"
-
-        claim_stats = await bags.fetch_claim_stats("mint-123")
-        assert claim_stats[0]["wallet"] == "wallet-a"
-
-        claim_events = await bags.fetch_claim_events(
-            token_mint="mint-123",
-            mode="time",
-            from_ts=10,
-            to_ts=20,
-        )
-        assert claim_events["events"][0]["wallet"] == "wallet-a"
 
         assert all(item[2] == "Bearer gateway-token" for item in seen)
         print("smoke_bags_provider_gateway: ok")

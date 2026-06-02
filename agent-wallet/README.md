@@ -106,12 +106,6 @@ Current safe tools:
 - `x402_preview_request`
 - `x402_pay_request`
 
-Temporarily disabled but kept in the codebase for later re-enable:
-
-- `get_jupiter_portfolio_platforms`
-- `get_jupiter_portfolio`
-- `get_jupiter_staked_jup`
-
 The signing tool still requires explicit `user_confirmed=true`.
 Transfer, native staking, swap, and Aave position-management tools support `preview`, `prepare`, and `execute` modes. The safe operational path is still preview-first. `prepare` now returns an execution plan only and never exposes signed transaction bytes to the agent. `execute` works only when the backend has a signer and `sign_only=false`.
 
@@ -491,8 +485,6 @@ Operational notes:
 
 - Jupiter `Earn` can use the hosted or self-hosted provider gateway for shared onboarding-friendly access.
 - Ordinary Jupiter swap routing remains direct and does not go through the provider gateway.
-- Jupiter `Portfolio` implementation remains in the backend, but the agent-facing tools are temporarily disabled.
-- The Jupiter config fields and provider code are intentionally kept so these surfaces can be restored later without rebuilding the integration from scratch.
 
 ## Flash Trade coverage
 

@@ -993,79 +993,6 @@ class SolanaWalletBackend(AgentWalletBackend):
             "source": "lifi",
         }
 
-    async def get_bags_claimable_positions(
-        self,
-        wallet: str | None = None,
-    ) -> dict[str, Any]:
-        self._require_mainnet_bags("Bags fee claims")
-        wallet_address = wallet or self.address
-        if not wallet_address:
-            raise WalletBackendError("A wallet address is required for Bags claimable positions.")
-        wallet_address = validate_solana_address(wallet_address)
-        raw = await bags.fetch_claimable_positions(wallet_address)
-        positions = self._bags_claim_positions_list(raw)
-        return {
-            "chain": "solana",
-            "network": self.network,
-            "wallet": wallet_address,
-            "position_count": len(positions),
-            "positions": positions,
-            "raw": raw,
-            "source": "bags",
-        }
-
-    async def get_bags_fee_analytics(
-        self,
-        token_mint: str,
-        *,
-        include_claim_events: bool = False,
-        mode: str = "offset",
-        limit: int | None = None,
-        offset: int | None = None,
-        from_ts: int | None = None,
-        to_ts: int | None = None,
-    ) -> dict[str, Any]:
-        self._require_mainnet_bags("Bags fee analytics")
-        normalized_mint = validate_solana_mint(token_mint)
-        if mode not in {"offset", "time"}:
-            raise WalletBackendError("mode must be 'offset' or 'time'.")
-        if limit is not None and limit <= 0:
-            raise WalletBackendError("limit must be greater than zero when provided.")
-        if offset is not None and offset < 0:
-            raise WalletBackendError("offset must be greater than or equal to zero when provided.")
-        if from_ts is not None and from_ts < 0:
-            raise WalletBackendError("from_ts must be greater than or equal to zero.")
-        if to_ts is not None and to_ts < 0:
-            raise WalletBackendError("to_ts must be greater than or equal to zero.")
-
-        tasks = [
-            bags.fetch_lifetime_fees(normalized_mint),
-            bags.fetch_claim_stats(normalized_mint),
-        ]
-        if include_claim_events:
-            tasks.append(
-                bags.fetch_claim_events(
-                    token_mint=normalized_mint,
-                    mode=mode,
-                    limit=limit,
-                    offset=offset,
-                    from_ts=from_ts,
-                    to_ts=to_ts,
-                )
-            )
-        results = await asyncio.gather(*tasks)
-        claim_events = results[2] if include_claim_events else None
-        return {
-            "chain": "solana",
-            "network": self.network,
-            "token_mint": normalized_mint,
-            "lifetime_fees": results[0],
-            "claim_stats": results[1],
-            "claim_events": claim_events,
-            "include_claim_events": include_claim_events,
-            "source": "bags",
-        }
-
     async def get_staking_validators(
         self,
         limit: int = 20,
@@ -1261,16 +1188,6 @@ class SolanaWalletBackend(AgentWalletBackend):
         if sum(normalized) != 10_000:
             raise WalletBackendError("basis_points must sum to exactly 10000.")
         return normalized
-
-    def _bags_claim_positions_list(self, payload: Any) -> list[dict[str, Any]]:
-        if isinstance(payload, list):
-            return [item for item in payload if isinstance(item, dict)]
-        if isinstance(payload, dict):
-            for key in ("positions", "claimablePositions", "items", "data"):
-                value = payload.get(key)
-                if isinstance(value, list):
-                    return [item for item in value if isinstance(item, dict)]
-        return []
 
     def _bags_decode_serialized_transaction_bytes(self, serialized_transaction: str) -> bytes:
         serialized = str(serialized_transaction).strip()
@@ -1532,75 +1449,6 @@ class SolanaWalletBackend(AgentWalletBackend):
     def _require_mainnet_kamino(self, feature: str) -> None:
         if self.network != "mainnet":
             raise WalletBackendError(f"{feature} is only enabled for Solana mainnet.")
-
-    async def get_jupiter_portfolio_platforms(self) -> dict[str, Any]:
-        self._require_mainnet_jupiter("Jupiter portfolio")
-        data = await jupiter.fetch_portfolio_platforms()
-        platforms = data.get("platforms")
-        if not isinstance(platforms, list):
-            platforms = data.get("data") if isinstance(data.get("data"), list) else []
-        return {
-            "chain": "solana",
-            "network": self.network,
-            "platform_count": len(platforms),
-            "platforms": platforms,
-            "raw": data,
-            "source": "jupiter-portfolio",
-        }
-
-    async def get_jupiter_portfolio(
-        self,
-        address: str | None = None,
-        platforms: list[str] | None = None,
-    ) -> dict[str, Any]:
-        self._require_mainnet_jupiter("Jupiter portfolio")
-        wallet_address = address or self.address
-        if not wallet_address:
-            raise WalletBackendError(
-                "No Solana wallet address configured. Set SOLANA_AGENT_PUBLIC_KEY or a signer."
-            )
-        wallet_address = validate_solana_address(wallet_address)
-        platform_filter: list[str] | None = None
-        if platforms is not None:
-            platform_filter = []
-            for platform in platforms:
-                if not isinstance(platform, str) or not platform.strip():
-                    raise WalletBackendError("Each platform must be a non-empty string.")
-                platform_filter.append(platform.strip())
-        data = await jupiter.fetch_portfolio_positions(
-            address=wallet_address,
-            platforms=platform_filter,
-        )
-        positions = data.get("positions")
-        if not isinstance(positions, list):
-            positions = data.get("data") if isinstance(data.get("data"), list) else []
-        return {
-            "chain": "solana",
-            "network": self.network,
-            "address": wallet_address,
-            "platforms": platform_filter or [],
-            "position_count": len(positions),
-            "positions": positions,
-            "raw": data,
-            "source": "jupiter-portfolio",
-        }
-
-    async def get_jupiter_staked_jup(self, address: str | None = None) -> dict[str, Any]:
-        self._require_mainnet_jupiter("Jupiter staked JUP")
-        wallet_address = address or self.address
-        if not wallet_address:
-            raise WalletBackendError(
-                "No Solana wallet address configured. Set SOLANA_AGENT_PUBLIC_KEY or a signer."
-            )
-        wallet_address = validate_solana_address(wallet_address)
-        data = await jupiter.fetch_staked_jup(address=wallet_address)
-        return {
-            "chain": "solana",
-            "network": self.network,
-            "address": wallet_address,
-            "raw": data,
-            "source": "jupiter-portfolio",
-        }
 
     async def get_flash_trade_markets(
         self,
@@ -4598,90 +4446,6 @@ class SolanaWalletBackend(AgentWalletBackend):
             "slot": status.get("slot") if status else None,
             "source": "solana-rpc",
         }
-
-    async def preview_bags_fee_claim(self, token_mint: str) -> dict[str, Any]:
-        self._require_mainnet_bags("Bags fee claims")
-        owner = await self.get_address()
-        if not owner:
-            raise WalletBackendError(
-                "No Solana wallet address configured. Set SOLANA_AGENT_PUBLIC_KEY or a signer."
-            )
-        normalized_mint = validate_solana_mint(token_mint)
-        positions_payload = await self.get_bags_claimable_positions(owner)
-        positions = [
-            item
-            for item in positions_payload["positions"]
-            if str(item.get("tokenMint") or item.get("token_mint") or "").strip() == normalized_mint
-        ]
-        return {
-            "chain": "solana",
-            "network": self.network,
-            "mode": "preview",
-            "asset_type": "bags-fee-claim",
-            "owner": owner,
-            "fee_claimer": owner,
-            "token_mint": normalized_mint,
-            "claimable_position_count": len(positions),
-            "claimable_positions": positions,
-            "sign_only": self.sign_only,
-            "can_send": self.get_capabilities().can_send_transaction,
-            "source": "bags",
-        }
-
-    async def execute_bags_fee_claim(
-        self,
-        token_mint: str,
-    ) -> dict[str, Any]:
-        preview = await self.preview_bags_fee_claim(token_mint)
-        return await self.execute_bags_fee_claim_from_preview(preview)
-
-    async def execute_bags_fee_claim_from_preview(
-        self,
-        preview: dict[str, Any],
-    ) -> dict[str, Any]:
-        if not self.signer:
-            raise WalletBackendError("Solana signer is not configured.")
-        owner = await self.get_address()
-        if not owner:
-            raise WalletBackendError(
-                "No Solana wallet address configured. Set SOLANA_AGENT_PUBLIC_KEY or a signer."
-            )
-        if str(preview.get("asset_type") or "").strip().lower() != "bags-fee-claim":
-            raise WalletBackendError("preview payload is not a Bags fee claim preview.")
-        if str(preview.get("network") or self.network).strip().lower() != self.network:
-            raise WalletBackendError("preview payload network does not match the wallet backend.")
-        if str(preview.get("owner") or owner) != owner:
-            raise WalletBackendError("preview payload owner does not match the connected wallet.")
-        if int(preview.get("claimable_position_count") or 0) <= 0:
-            raise WalletBackendError("No claimable Bags fee positions were found for this token.")
-
-        token_mint = validate_solana_mint(str(preview.get("token_mint") or ""))
-        claim_payload = await bags.build_claim_transactions(
-            {
-                "feeClaimer": owner,
-                "tokenMint": token_mint,
-            }
-        )
-        transactions = self._bags_extract_transaction_base64s(claim_payload)
-        prepared = await self._prepare_bags_transactions(
-            transaction_base64s=transactions,
-            token_mint=token_mint,
-            action="Bags fee claim",
-            owner=owner,
-            asset_type="bags-fee-claim",
-            extra={
-                "fee_claimer": owner,
-                "claimable_position_count": int(preview.get("claimable_position_count") or 0),
-                "claimable_positions": preview.get("claimable_positions"),
-                "claim_response": claim_payload,
-            },
-        )
-        result = await self._execute_prepared_bags_transactions(prepared)
-        result["fee_claimer"] = owner
-        result["claimable_position_count"] = int(preview.get("claimable_position_count") or 0)
-        result["claimable_positions"] = preview.get("claimable_positions")
-        result["claim_response"] = claim_payload
-        return result
 
     async def preview_bags_token_launch(
         self,

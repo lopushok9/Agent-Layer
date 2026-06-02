@@ -1,4 +1,4 @@
-"""Jupiter providers for swap routing, prices, and portfolio flows."""
+"""Jupiter providers for swap routing and price flows."""
 
 from __future__ import annotations
 
@@ -477,67 +477,4 @@ async def fetch_prices(
     data = response.json()
     if not isinstance(data, dict):
         raise ProviderError("jupiter", "Unexpected price response from Jupiter.")
-    return data
-
-
-async def fetch_portfolio_platforms() -> dict[str, Any]:
-    """Fetch the list of supported Jupiter Portfolio platforms."""
-    client = get_client()
-    response = await client.get(
-        f"{settings.jupiter_portfolio_api_base_url.rstrip('/')}/platforms",
-        headers=_headers(),
-    )
-    if response.status_code != 200:
-        raise ProviderError(
-            "jupiter-portfolio",
-            f"HTTP {response.status_code}: {response.text[:300]}",
-        )
-    data = response.json()
-    if not isinstance(data, dict):
-        raise ProviderError("jupiter-portfolio", "Unexpected portfolio platforms response.")
-    return data
-
-
-async def fetch_portfolio_positions(
-    *,
-    address: str,
-    platforms: list[str] | None = None,
-) -> dict[str, Any]:
-    """Fetch Jupiter Portfolio positions for a wallet address."""
-    client = get_client()
-    params: dict[str, str] = {"address": address}
-    if platforms:
-        params["platforms"] = ",".join(platforms)
-    response = await client.get(
-        f"{settings.jupiter_portfolio_api_base_url.rstrip('/')}/positions",
-        params=params,
-        headers=_headers(),
-    )
-    if response.status_code != 200:
-        raise ProviderError(
-            "jupiter-portfolio",
-            f"HTTP {response.status_code}: {response.text[:300]}",
-        )
-    data = response.json()
-    if not isinstance(data, dict):
-        raise ProviderError("jupiter-portfolio", "Unexpected portfolio positions response.")
-    return data
-
-
-async def fetch_staked_jup(*, address: str) -> dict[str, Any]:
-    """Fetch staked JUP information for a wallet address."""
-    client = get_client()
-    response = await client.get(
-        f"{settings.jupiter_portfolio_api_base_url.rstrip('/')}/staked-jup",
-        params={"address": address},
-        headers=_headers(),
-    )
-    if response.status_code != 200:
-        raise ProviderError(
-            "jupiter-portfolio",
-            f"HTTP {response.status_code}: {response.text[:300]}",
-        )
-    data = response.json()
-    if not isinstance(data, dict):
-        raise ProviderError("jupiter-portfolio", "Unexpected staked JUP response.")
     return data

@@ -113,10 +113,6 @@
         "type": "string",
         "description": "Optional Jupiter Price API base URL for token price lookup."
       },
-      "jupiterPortfolioBaseUrl": {
-        "type": "string",
-        "description": "Optional Jupiter Portfolio API base URL for Jupiter-specific positions and staking data."
-      },
       "jupiterApiKey": {
         "type": "string",
         "description": "Optional Jupiter API key if your deployment uses a keyed endpoint."
