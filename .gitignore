@@ -74,6 +74,8 @@ telegram-mvp-bot/
 RELEASE_BUNDLE_PROCESS.md
 INSTALLER_NEXT_STEPS.md
 video_install_scenario.md
+VERSIONING.md
+SKILL.md
 
 # Local npm cache (sandbox installs)
 npm-cache/
