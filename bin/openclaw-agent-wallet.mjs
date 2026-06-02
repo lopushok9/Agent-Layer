@@ -54,7 +54,12 @@ After a successful install it switches:
 
 Wallet files and sealed secrets remain under OPENCLAW_HOME and are not replaced
 by updates. The update command fetches the latest published npm package and
-reuses shared dependency snapshots when possible.`);
+reuses shared dependency snapshots when possible.
+
+The runtime checks the npm registry in the background (at most once/day) and
+surfaces a notice when a newer version is published — to the agent via the MCP
+server instructions and to you via 'status' / 'doctor'. The check never blocks
+startup. Disable it with AGENT_WALLET_DISABLE_UPDATE_CHECK=1.`);
 }
 
 function primaryBinCommand(pkg = packageJson) {
@@ -88,6 +93,49 @@ function resolveRuntimeBase(env = process.env) {
     return path.resolve(expandHome(env.OPENCLAW_INSTALL_ROOT));
   }
   return path.join(resolveOpenclawHome(env), "agent-wallet-runtime");
+}
+
+function updateCheckDisabled(env = process.env) {
+  const raw = String(env.AGENT_WALLET_DISABLE_UPDATE_CHECK || "").trim().toLowerCase();
+  return ["1", "true", "yes", "on"].includes(raw);
+}
+
+// Shared with the Python runtime (agent_wallet/update_check.py): the cache lives
+// under OPENCLAW_HOME/agent-wallet-runtime regardless of OPENCLAW_INSTALL_ROOT.
+function updateCheckCachePath(env = process.env) {
+  return path.join(resolveOpenclawHome(env), "agent-wallet-runtime", "update-check.json");
+}
+
+function isNewerVersion(latest, current) {
+  const parse = (v) =>
+    String(v)
+      .trim()
+      .split(".")
+      .map((chunk) => parseInt((chunk.match(/^\d+/) || ["0"])[0], 10) || 0);
+  const a = parse(latest);
+  const b = parse(current);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] || 0;
+    const y = b[i] || 0;
+    if (x !== y) return x > y;
+  }
+  return false;
+}
+
+function computeUpdateAvailability(env = process.env) {
+  const current = activeVersion(env) || packageVersion;
+  if (updateCheckDisabled(env)) {
+    return { available: false, latest: null, current };
+  }
+  try {
+    const cache = readJsonFile(updateCheckCachePath(env)) || {};
+    const latest = cache.latest_version || null;
+    const available = Boolean(latest && isNewerVersion(latest, current));
+    return { available, latest, current };
+  } catch {
+    // Fail-open: a malformed cache never breaks status/doctor.
+    return { available: false, latest: null, current };
+  }
 }
 
 function resolveHermesHome(env = process.env) {
@@ -817,6 +865,19 @@ function runDoctor(args = []) {
     checks.push(editorCheck);
   }
 
+  // Informational only: never flips doctor's overall ok. Surfaces a newer
+  // published version when the background runtime check has cached one.
+  const update = computeUpdateAvailability(env);
+  checks.push({
+    name: "update_available",
+    ok: true,
+    available: update.available,
+    latest: update.latest,
+    current: update.current,
+    error: "",
+    fix: update.available ? "npx @agentlayer.tech/wallet update --yes" : "",
+  });
+
   const ok = checks.every((c) => c.ok);
   console.log(
     JSON.stringify(
@@ -849,6 +910,7 @@ function runStatus(args = []) {
     previous_runtime: readLinkOrNull(previousRuntimePath()),
     active_version: activeVersion(),
     available_releases: listReleases(),
+    update_available: computeUpdateAvailability(),
   };
   if (hasFlag(args, "--verbose")) {
     payload.verbose = true;

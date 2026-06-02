@@ -906,17 +906,51 @@ async def _handle_wallet_tool(tool_name: str, params: dict[str, Any]) -> dict[st
     return payload.get("data", {})
 
 
+BASE_INSTRUCTIONS = (
+    "Use the local AgentLayer wallet runtime through explicit wallet tools. Keep wallet "
+    "secrets local. Preview writes first when supported, and execute only after explicit "
+    "user confirmation."
+)
+
+
+def _update_notice_instructions(base: str) -> str:
+    """Append a one-time update notice to ``base`` when a newer version exists.
+
+    Fully fail-open: any error (package not importable, malformed cache, etc.)
+    returns ``base`` unchanged so the server always starts. The network refresh
+    runs in a background daemon thread and only affects the *next* start; the
+    notice itself is decided synchronously from the cache.
+    """
+    try:
+        package_root_text = str(_resolve_package_root())
+        inserted = package_root_text not in sys.path
+        if inserted:
+            sys.path.insert(0, package_root_text)
+        try:
+            from agent_wallet import update_check
+
+            update_check.maybe_refresh_in_background()
+            notice = update_check.pending_notice(mark_shown=True)
+        finally:
+            if inserted:
+                try:
+                    sys.path.remove(package_root_text)
+                except ValueError:
+                    pass
+        if notice:
+            return f"{base}\n\n⚠️ UPDATE AVAILABLE: {notice}"
+    except Exception:
+        pass
+    return base
+
+
 def build_server():
     from fastmcp import FastMCP
     from fastmcp.tools import FunctionTool
 
     mcp = FastMCP(
         "Agent Wallet",
-        instructions=(
-            "Use the local AgentLayer wallet runtime through explicit wallet tools. Keep wallet "
-            "secrets local. Preview writes first when supported, and execute only after explicit "
-            "user confirmation."
-        ),
+        instructions=_update_notice_instructions(BASE_INSTRUCTIONS),
     )
 
     async def _dispatch(tool_name: str, params: dict[str, Any] | None = None) -> dict[str, Any]:

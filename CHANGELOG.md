@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- Added a background "update available" check so agents (and the humans behind
+  them) learn when a newer agent-wallet version is published.
+  - `agent_wallet/update_check.py` compares the installed `__version__` against
+    the latest version on the npm registry. The network call runs in a daemon
+    thread and only refreshes a cache (`OPENCLAW_HOME/agent-wallet-runtime/
+    update-check.json`) at most once/day for the *next* start — it never blocks
+    server startup, and any failure is silently ignored (fail-open).
+  - The MCP server (`server.py`) appends a one-time notice to its `instructions`
+    when a newer version is cached. Because instructions are read once per
+    session, the agent sees it at most once per usage cycle, and a per-version
+    daily throttle prevents repeats across sessions.
+  - `wallet status` now includes an `update_available` block and `wallet doctor`
+    adds an informational `update_available` check (with a ready `fix` command);
+    neither flips doctor's overall `ok`.
+  - Opt out entirely with `AGENT_WALLET_DISABLE_UPDATE_CHECK=1`.
+  - `agent_wallet/__init__.py` now carries `__version__`, and
+    `scripts/check_release_version.mjs` enforces that it stays in sync with
+    `package.json` / `pyproject.toml` on release.
+
 ## v0.1.33 - 2026-06-01
 
 - Hardened runtime resolution end-to-end so a broken or stale runtime can no
