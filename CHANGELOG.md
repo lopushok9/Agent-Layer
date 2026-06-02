@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## v0.1.34 - 2026-06-02
+
+- Added native ETH support to EVM (Velora) swaps in the wallet runtime.
+
 - Single source of truth for the project version across every framework.
   - Added a canonical root `VERSION` file. All other manifests (npm
     `package.json`, `pyproject.toml`, Python `__version__`, the OpenClaw
