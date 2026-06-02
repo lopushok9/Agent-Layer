@@ -246,6 +246,21 @@ function normalizeEvmTokenAddressAllowingNative(value, fieldName) {
   return normalizeAddress(address, fieldName).toLowerCase();
 }
 
+function normalizeVeloraTokenAddress(value, fieldName) {
+  const raw = assertNonEmptyString(value, fieldName);
+  const alias = raw.toLowerCase();
+  if (
+    alias === "native" ||
+    alias === "eth" ||
+    alias === "ethereum" ||
+    isZeroAddress(raw) ||
+    isVeloraNativeTokenAddress(raw)
+  ) {
+    return VELORA_NATIVE_TOKEN_ADDRESS;
+  }
+  return normalizeAddress(raw, fieldName);
+}
+
 function normalizeLifiOutputTokenAddress(value, destinationChainId, fieldName) {
   const raw = assertNonEmptyString(value, fieldName);
   const alias = raw.toLowerCase();
@@ -380,8 +395,8 @@ function normalizeX402ExactTypedData({ domain, types, primaryType, message }, ru
 
 function buildSwapRequest({ tokenIn, tokenOut, tokenInAmount }) {
   const swapRequest = {
-    tokenIn: normalizeAddress(tokenIn, "tokenIn"),
-    tokenOut: normalizeAddress(tokenOut, "tokenOut"),
+    tokenIn: normalizeVeloraTokenAddress(tokenIn, "tokenIn"),
+    tokenOut: normalizeVeloraTokenAddress(tokenOut, "tokenOut"),
     tokenInAmount: assertPositiveBigIntString(tokenInAmount, "tokenInAmount"),
   };
   assertDistinctAddresses(swapRequest.tokenIn, "tokenIn", swapRequest.tokenOut, "tokenOut");

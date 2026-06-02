@@ -775,6 +775,57 @@ test("quoteSwap skips allowance and approval for native token input", async () =
   );
 });
 
+test("quoteSwap accepts eth alias for native token input", async () => {
+  await withHarness(
+    {
+      tokenIn: NATIVE_ETH,
+      amountIn: "1000000000000000000",
+      destAmount: "995000",
+      swapTxValue: "1000000000000000000",
+      disallowAllowanceRead: true,
+    },
+    async ({ service, state, config }) => {
+      const quote = await service.quoteSwap({
+        seedPhrase: VALID_MNEMONIC,
+        tokenIn: "eth",
+        tokenOut: config.tokenOut,
+        tokenInAmount: config.amountIn,
+        network: config.network,
+      });
+      assert.equal(state.allowanceReadCalls, 0);
+      assert.equal(quote.swapRequest.tokenIn, NATIVE_ETH);
+      assert.equal(quote.allowance.approvalRequired, false);
+      assert.equal(quote.tokenInMetadata.symbol, "ETH");
+      assert.equal(quote.swapTransaction.value, config.amountIn);
+    }
+  );
+});
+
+test("quoteSwap accepts zero address alias for native token input", async () => {
+  await withHarness(
+    {
+      tokenIn: NATIVE_ETH,
+      amountIn: "1000000000000000000",
+      destAmount: "995000",
+      swapTxValue: "1000000000000000000",
+      disallowAllowanceRead: true,
+    },
+    async ({ service, state, config }) => {
+      const quote = await service.quoteSwap({
+        seedPhrase: VALID_MNEMONIC,
+        tokenIn: "0x0000000000000000000000000000000000000000",
+        tokenOut: config.tokenOut,
+        tokenInAmount: config.amountIn,
+        network: config.network,
+      });
+      assert.equal(state.allowanceReadCalls, 0);
+      assert.equal(quote.swapRequest.tokenIn, NATIVE_ETH);
+      assert.equal(quote.allowance.approvalRequired, false);
+      assert.equal(quote.swapTransaction.value, config.amountIn);
+    }
+  );
+});
+
 test("quoteSwap falls back to route gasCost for native token input when fee estimate is unavailable", async () => {
   await withHarness(
     {

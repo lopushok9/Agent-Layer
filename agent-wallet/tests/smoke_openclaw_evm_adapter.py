@@ -1719,6 +1719,46 @@ async def _main() -> None:
     assert lifi_native_alias_execute.ok is True
     assert lifi_native_alias_execute.data["hash"].startswith("0x")
 
+    native_velora_preview = await adapter.invoke(
+        "swap_evm_tokens",
+        {
+            "token_in": "eth",
+            "token_out": "0x3333333333333333333333333333333333333333",
+            "amount_in_raw": "1000000000000000",
+            "mode": "preview",
+            "purpose": "test evm velora native alias approval binding",
+        },
+    )
+    assert native_velora_preview.ok is True
+    assert (
+        native_velora_preview.data["confirmation_summary"]["token_in"]
+        == "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    )
+    native_velora_approval = issue_approval_token(
+        tool_name="swap_evm_tokens",
+        network="ethereum",
+        summary=native_velora_preview.data["confirmation_summary"],
+        mainnet_confirmed=True,
+        issued_by="test",
+    )
+    native_velora_execute = await adapter.invoke(
+        "swap_evm_tokens",
+        {
+            "token_in": "eth",
+            "token_out": "0x3333333333333333333333333333333333333333",
+            "amount_in_raw": "1000000000000000",
+            "mode": "execute",
+            "purpose": "test evm velora native alias approval binding",
+            "approval_token": native_velora_approval,
+        },
+    )
+    assert native_velora_execute.ok is True
+    assert (
+        native_velora_execute.data["token_in"]
+        == "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    )
+    assert native_velora_execute.data["hash"].startswith("0x")
+
     lifi_cross_chain_prepare = await adapter.invoke(
         "swap_evm_lifi_cross_chain_tokens",
         {

@@ -43,6 +43,7 @@ just to switch the active EVM network.
 """.strip()
 
 EVM_NATIVE_TOKEN_ADDRESS = "0x0000000000000000000000000000000000000000"
+VELORA_NATIVE_TOKEN_ADDRESS = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 SOLANA_NATIVE_TOKEN_ADDRESS = "11111111111111111111111111111111"
 LIFI_CHAIN_ALIASES = {
     "eth": "1",
@@ -159,6 +160,19 @@ class OpenClawWalletAdapter:
             return text
         if chain_id == "1151111081099710" and alias in {"native", "sol", "solana"}:
             return SOLANA_NATIVE_TOKEN_ADDRESS
+        return text
+
+    def _canonicalize_velora_token_identifier(self, value: Any) -> str:
+        text = str(value or "").strip()
+        alias = text.lower()
+        if alias in {"native", "eth", "ethereum"}:
+            return VELORA_NATIVE_TOKEN_ADDRESS
+        if alias == EVM_NATIVE_TOKEN_ADDRESS:
+            return VELORA_NATIVE_TOKEN_ADDRESS
+        if alias == VELORA_NATIVE_TOKEN_ADDRESS:
+            return VELORA_NATIVE_TOKEN_ADDRESS
+        if alias.startswith("0x") and len(alias) == 42:
+            return alias
         return text
 
     def _require_prepare_intent(self, user_intent: Any) -> None:
@@ -1429,7 +1443,7 @@ class OpenClawWalletAdapter:
                     AgentToolSpec(
                         name="get_evm_swap_quote",
                         description=(
-                            "Get a read-only Velora quote for an ERC-20 to ERC-20 swap on supported EVM mainnet networks. "
+                            "Get a read-only Velora quote for an ERC-20 or native ETH swap on supported EVM mainnet networks. "
                             "This does not approve or execute a swap."
                         ),
                         input_schema={
@@ -1437,11 +1451,11 @@ class OpenClawWalletAdapter:
                             "properties": {
                                 "token_in": {
                                     "type": "string",
-                                    "description": "ERC-20 contract address for the input token.",
+                                    "description": "ERC-20 contract address for the input token, or native/eth for native ETH.",
                                 },
                                 "token_out": {
                                     "type": "string",
-                                    "description": "ERC-20 contract address for the output token.",
+                                    "description": "ERC-20 contract address for the output token, or native/eth for native ETH.",
                                 },
                                 "amount_in_raw": {
                                     "type": "string",
@@ -1465,7 +1479,7 @@ class OpenClawWalletAdapter:
                     AgentToolSpec(
                         name="swap_evm_tokens",
                         description=(
-                            "Preview, prepare, or execute an ERC-20 to ERC-20 swap through Velora on supported EVM mainnet networks. "
+                            "Preview, prepare, or execute an ERC-20 or native ETH swap through Velora on supported EVM mainnet networks. "
                             "Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation."
                         ),
                         input_schema={
@@ -3454,8 +3468,8 @@ class OpenClawWalletAdapter:
                 if int(amount_in_raw.strip()) <= 0:
                     raise WalletBackendError("amount_in_raw must be greater than zero.")
                 data = await active_backend.get_evm_swap_quote(
-                    token_in=token_in.strip(),
-                    token_out=token_out.strip(),
+                    token_in=self._canonicalize_velora_token_identifier(token_in),
+                    token_out=self._canonicalize_velora_token_identifier(token_out),
                     amount_in_raw=amount_in_raw.strip(),
                 )
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
@@ -3483,8 +3497,8 @@ class OpenClawWalletAdapter:
                     raise WalletBackendError("purpose is required.")
 
                 preview_kwargs = {
-                    "token_in": token_in.strip(),
-                    "token_out": token_out.strip(),
+                    "token_in": self._canonicalize_velora_token_identifier(token_in),
+                    "token_out": self._canonicalize_velora_token_identifier(token_out),
                     "amount_in_raw": amount_in_raw.strip(),
                 }
 
@@ -3530,8 +3544,8 @@ class OpenClawWalletAdapter:
                 expected_summary = {
                     "operation": "EVM swap",
                     "network": str(getattr(active_backend, "network", "unknown")),
-                    "token_in": token_in.strip(),
-                    "token_out": token_out.strip(),
+                    "token_in": preview_kwargs["token_in"],
+                    "token_out": preview_kwargs["token_out"],
                     "input_amount_raw": amount_in_raw.strip(),
                 }
                 for key, expected_value in expected_summary.items():

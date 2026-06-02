@@ -1691,7 +1691,7 @@ const evmToolDefinitions = [
   },
   {
     name: "get_evm_swap_quote",
-    description: "Get a read-only Velora quote for an ERC-20 to ERC-20 swap on supported EVM mainnet networks. This does not approve or execute a swap.",
+    description: "Get a read-only Velora quote for an ERC-20 or native ETH swap on supported EVM mainnet networks. This does not approve or execute a swap.",
     parameters: {
       type: "object",
       properties: {
@@ -1706,7 +1706,7 @@ const evmToolDefinitions = [
   },
   {
     name: "swap_evm_tokens",
-    description: "Preview, prepare, or execute an ERC-20 to ERC-20 swap through Velora on supported EVM mainnet networks. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
+    description: "Preview, prepare, or execute an ERC-20 or native ETH swap through Velora on supported EVM mainnet networks. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
     optional: true,
     parameters: {
       type: "object",

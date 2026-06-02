@@ -18,8 +18,8 @@ Current scope:
 - fetch ERC-20 balances
 - fetch ERC-20 token metadata (`name`, `symbol`, `decimals`)
 - fetch fee-rate suggestions
-- fetch read-only Velora swap quotes for supported mainnet ERC-20 pairs
-- execute Velora ERC-20 swaps on supported mainnet networks through the local wallet account
+- fetch read-only Velora swap quotes for supported mainnet ERC-20 and native ETH pairs
+- execute Velora ERC-20 and native ETH swaps on supported mainnet networks through the local wallet account
 - fetch Aave V3 account data on supported mainnet networks
 - fetch Aave V3 reserve catalog on supported mainnet networks
 - fetch Aave V3 per-reserve user positions on supported mainnet networks
@@ -177,7 +177,7 @@ Local security note:
 - unlocked seed phrases live only in memory
 - explicit `lock` or process restart clears the in-memory unlocked state
 - seed reveal is password-gated and separate from normal agent operations
-- Velora swap support is currently limited to `ethereum` and `base` ERC-20 pairs
+- Velora swap support is currently limited to `ethereum` and `base` ERC-20 and native ETH pairs
 - the underlying WDK Velora package is still beta; test swap execution carefully before relying on it
 - Aave V3 support is currently limited to `ethereum` and `base`
 - Aave `supply` and `repay` may perform pool-scoped ERC-20 approvals; if a send fails after approval, the service attempts to restore the original allowance
