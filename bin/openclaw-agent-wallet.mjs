@@ -138,6 +138,17 @@ function computeUpdateAvailability(env = process.env) {
   }
 }
 
+// Compare the active installed runtime (what all editors exec via current/)
+// against the version of the CLI being run (the repo/canonical version during
+// local development). A mismatch means a local bump was not reinstalled with
+// release:local. in_sync is null when no runtime is installed yet.
+function computeRuntimeInSync(env = process.env) {
+  const active = activeVersion(env);
+  const cli = packageVersion;
+  const in_sync = active === null ? null : active === cli;
+  return { in_sync, active_version: active, cli_version: cli };
+}
+
 function resolveHermesHome(env = process.env) {
   return path.resolve(expandHome(env.HERMES_HOME || "~/.hermes"));
 }
@@ -878,6 +889,19 @@ function runDoctor(args = []) {
     fix: update.available ? "npx @agentlayer.tech/wallet update --yes" : "",
   });
 
+  // Informational only: flags when the installed runtime lags the CLI/repo
+  // version (a local bump that was not reinstalled into the frameworks).
+  const rsync = computeRuntimeInSync(env);
+  checks.push({
+    name: "runtime_in_sync",
+    ok: true,
+    in_sync: rsync.in_sync,
+    active_version: rsync.active_version,
+    cli_version: rsync.cli_version,
+    error: "",
+    fix: rsync.in_sync === false ? "npm run release:local" : "",
+  });
+
   const ok = checks.every((c) => c.ok);
   console.log(
     JSON.stringify(
@@ -911,6 +935,7 @@ function runStatus(args = []) {
     active_version: activeVersion(),
     available_releases: listReleases(),
     update_available: computeUpdateAvailability(),
+    runtime_in_sync: computeRuntimeInSync(),
   };
   if (hasFlag(args, "--verbose")) {
     payload.verbose = true;

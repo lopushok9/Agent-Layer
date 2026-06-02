@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- Single source of truth for the project version across every framework.
+  - Added a canonical root `VERSION` file. All other manifests (npm
+    `package.json`, `pyproject.toml`, Python `__version__`, the OpenClaw
+    extension, and the Codex / Claude Code / Hermes / wdk plugin manifests) are
+    now derived targets, stamped from `VERSION` via `scripts/sync_version.mjs`
+    (`npm run version:sync`). This realigned 7 manifests that had drifted to an
+    old `0.1.0`.
+  - `scripts/check_release_version.mjs` now verifies all 11 manifests against
+    `VERSION` (and against the `v*` tag on release), so version drift cannot be
+    merged or published. Shared logic lives in `scripts/version_targets.mjs`.
+  - `npm run release:local -- <version>` bumps, stamps, verifies, and reinstalls
+    the runtime into every local framework (OpenClaw, Codex, Claude Code) from
+    the working tree — the same files that ship to npm/ClawHub. `--dry-run`
+    previews the steps without changing anything.
+  - `wallet status` / `wallet doctor` gained a `runtime_in_sync` signal flagging
+    when the installed runtime lags the repo/CLI version (informational; never
+    flips doctor's overall ok).
+
 - Added a background "update available" check so agents (and the humans behind
   them) learn when a newer agent-wallet version is published.
   - `agent_wallet/update_check.py` compares the installed `__version__` against
