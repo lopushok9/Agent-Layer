@@ -24,7 +24,9 @@ if [ ! -f "$PLUGIN_ROOT/server.py" ]; then
 fi
 
 # Fail loudly (not -32000) if the resolved server cannot even be parsed.
-if ! "$PYTHON_BIN" -m py_compile "$PLUGIN_ROOT/server.py" 2>/dev/null; then
+# Use ast.parse (no bytecode written) so a read-only install dir cannot trigger
+# a false "runtime broken" error from py_compile failing to write __pycache__.
+if ! "$PYTHON_BIN" -c 'import sys, ast; ast.parse(open(sys.argv[1], encoding="utf-8").read())' "$PLUGIN_ROOT/server.py" 2>/dev/null; then
   "$PYTHON_BIN" - "$PLUGIN_ROOT/server.py" >&2 <<'PY'
 import json, sys
 print(json.dumps({

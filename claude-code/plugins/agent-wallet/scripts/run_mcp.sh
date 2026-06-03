@@ -10,13 +10,13 @@ PACKAGE_ROOT=${AGENT_WALLET_PACKAGE_ROOT:-${OPENCLAW_AGENT_WALLET_PACKAGE_ROOT:-
 # relative sibling paths below no longer resolve, so fall back to the codex
 # plugin copy inside the installed runtime package, which is always present.
 LOCAL_SERVER="$PLUGIN_ROOT/server.py"
-CODEX_SERVER="$PLUGIN_ROOT/../../codex/plugins/agent-wallet/server.py"
+CODEX_SERVER="$PLUGIN_ROOT/../../../codex/plugins/agent-wallet/server.py"
 RUNTIME_CODEX_DIR="$OPENCLAW_HOME/agent-wallet-runtime/current/codex/plugins/agent-wallet"
 
 if [ -f "$LOCAL_SERVER" ]; then
   SERVER_PY="$LOCAL_SERVER"
 elif [ -f "$CODEX_SERVER" ]; then
-  SERVER_PY=$(CDPATH= cd -- "$PLUGIN_ROOT/../../codex/plugins/agent-wallet" && pwd)/server.py
+  SERVER_PY=$(CDPATH= cd -- "$PLUGIN_ROOT/../../../codex/plugins/agent-wallet" && pwd)/server.py
 elif [ -f "$RUNTIME_CODEX_DIR/server.py" ]; then
   SERVER_PY=$(CDPATH= cd -- "$RUNTIME_CODEX_DIR" && pwd)/server.py
 else
@@ -37,7 +37,9 @@ else
 fi
 
 # Fail loudly (not -32000) if the resolved server cannot even be parsed.
-if ! "$PYTHON_BIN" -m py_compile "$SERVER_PY" 2>/dev/null; then
+# Use ast.parse (no bytecode written) so a read-only install dir cannot trigger
+# a false "runtime broken" error from py_compile failing to write __pycache__.
+if ! "$PYTHON_BIN" -c 'import sys, ast; ast.parse(open(sys.argv[1], encoding="utf-8").read())' "$SERVER_PY" 2>/dev/null; then
   "$PYTHON_BIN" - "$SERVER_PY" >&2 <<'PY'
 import json, sys
 print(json.dumps({

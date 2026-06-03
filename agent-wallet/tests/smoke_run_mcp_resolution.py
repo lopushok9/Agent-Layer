@@ -24,8 +24,19 @@ def _run(launcher: Path, env: dict) -> subprocess.CompletedProcess:
 
 def main() -> None:
     repo_root = Path(__file__).resolve().parents[2]
-    launcher = repo_root / "claude-code/plugins/agent-wallet/scripts/run_mcp.sh"
+    src_launcher = repo_root / "claude-code/plugins/agent-wallet/scripts/run_mcp.sh"
+
+    # Mirror the repo geometry in an isolated tmp tree so BOTH the claude-code
+    # sibling-codex fallback ("../../../codex/...") and the runtime fallback are
+    # fully controllable and never resolve into the real repo checkout.
     tmp = Path(tempfile.mkdtemp())
+    cc_scripts = tmp / "claude-code/plugins/agent-wallet/scripts"
+    cc_scripts.mkdir(parents=True, exist_ok=True)
+    launcher = cc_scripts / "run_mcp.sh"
+    shutil.copy(str(src_launcher), str(launcher))
+    os.chmod(str(launcher), 0o755)
+
+    sibling_codex = tmp / "codex/plugins/agent-wallet"  # the "../../../codex" tier
     home = tmp / "openclaw"
     runtime_codex = home / "agent-wallet-runtime/current/codex/plugins/agent-wallet"
     runtime_codex.mkdir(parents=True, exist_ok=True)
@@ -34,12 +45,21 @@ def main() -> None:
     base_env["OPENCLAW_HOME"] = str(home)
     base_env["AGENT_WALLET_PYTHON"] = sys.executable
 
-    # Case A: no server.py anywhere -> structured "not found" error, exit 1.
+    # Case A: no server.py in plugin, sibling, or runtime -> "not found" error, exit 1.
     res = _run(launcher, base_env)
     assert res.returncode == 1, f"expected exit 1, got {res.returncode}: {res.stderr}"
     payload = json.loads(res.stderr.strip().splitlines()[-1])
     assert "not found" in payload["error"].lower(), payload
     assert "install --yes" in payload["fix"], payload
+
+    # Case A2: the corrected sibling fallback (#3, "../../../codex") resolves a valid
+    # codex server.py even when the runtime copy is absent. Guards the off-by-one fix.
+    sibling_codex.mkdir(parents=True, exist_ok=True)
+    (sibling_codex / "server.py").write_text("pass\n", encoding="utf-8")
+    res = _run(launcher, base_env)
+    assert res.returncode == 0, f"sibling fallback should resolve: {res.stderr}"
+    assert '"error"' not in res.stderr, f"unexpected error in stderr: {res.stderr}"
+    shutil.rmtree(sibling_codex)  # later cases exercise the runtime tier
 
     # Case B: server.py present but broken -> structured "failed to parse" error, exit 1.
     (runtime_codex / "server.py").write_text("def broken(\n", encoding="utf-8")

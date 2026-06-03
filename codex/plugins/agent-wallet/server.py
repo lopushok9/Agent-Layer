@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import base64
 import hashlib
@@ -9,6 +10,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from functools import lru_cache
 from pathlib import Path
@@ -71,6 +73,9 @@ selected_solana_network: str | None = None
 selected_evm_network: str | None = None
 selected_btc_network: str | None = None
 approval_preview_cache: dict[str, dict[str, Any]] = {}
+# Guards approval_preview_cache against races once wallet calls run concurrently
+# via asyncio.to_thread. Reentrant so prune helpers can be nested under writers.
+_approval_cache_lock = threading.RLock()
 
 
 class WalletCliError(RuntimeError):
@@ -212,9 +217,10 @@ def _approval_preview_tool_name(tool_name: str) -> str:
 
 def _prune_approval_preview_cache() -> None:
     now = time.time()
-    for key in list(approval_preview_cache):
-        if float(approval_preview_cache[key].get("expires_at") or 0) <= now:
-            approval_preview_cache.pop(key, None)
+    with _approval_cache_lock:
+        for key in list(approval_preview_cache):
+            if float(approval_preview_cache[key].get("expires_at") or 0) <= now:
+                approval_preview_cache.pop(key, None)
 
 
 def _cache_preview_for_approval(user_id: str, tool_name: str, payload: dict[str, Any]) -> None:
@@ -231,18 +237,20 @@ def _cache_preview_for_approval(user_id: str, tool_name: str, payload: dict[str,
     summary = data.get("confirmation_summary")
     if not isinstance(summary, dict):
         return
-    _prune_approval_preview_cache()
-    approval_preview_cache[_approval_cache_key(user_id, cache_tool_name)] = {
-        "digest": _preview_digest(data),
-        "expires_at": time.time() + PREVIEW_CACHE_TTL_SECONDS,
-        "preview": data,
-        "summary": summary,
-    }
+    with _approval_cache_lock:
+        _prune_approval_preview_cache()
+        approval_preview_cache[_approval_cache_key(user_id, cache_tool_name)] = {
+            "digest": _preview_digest(data),
+            "expires_at": time.time() + PREVIEW_CACHE_TTL_SECONDS,
+            "preview": data,
+            "summary": summary,
+        }
 
 
 def _latest_cached_preview(user_id: str, tool_name: str) -> dict[str, Any] | None:
-    _prune_approval_preview_cache()
-    return approval_preview_cache.get(_approval_cache_key(user_id, _approval_preview_tool_name(tool_name)))
+    with _approval_cache_lock:
+        _prune_approval_preview_cache()
+        return approval_preview_cache.get(_approval_cache_key(user_id, _approval_preview_tool_name(tool_name)))
 
 
 def _approval_token_preview_digest(token: str) -> str:
@@ -824,26 +832,38 @@ async def _handle_set_wallet_backend(params: dict[str, Any]) -> dict[str, Any]:
 
     requested = params.get("backend", params.get("wallet"))
     backend = _normalize_wallet_backend(requested)
+    # Resolve the target network into a local first; only commit to the session
+    # globals after the validating wallet call succeeds, so a failed switch never
+    # leaves a stale backend paired with a freshly mutated network selection.
     if backend == "wdk_evm_local":
         implied = params.get("network") or selected_evm_network or _default_evm_network() or "ethereum"
-        selected_evm_network = _normalize_selectable_evm_network(implied)
+        resolved_network = _normalize_selectable_evm_network(implied)
     elif backend == "wdk_btc_local":
-        selected_btc_network = _normalize_btc_network(
+        resolved_network = _normalize_btc_network(
             params.get("network") or selected_btc_network or _default_btc_network()
         )
     else:
-        selected_solana_network = _normalize_solana_network(
+        resolved_network = _normalize_solana_network(
             params.get("network") or selected_solana_network or _default_solana_network()
         )
 
-    config = _effective_config_for_backend(backend)
-    payload = _invoke_tool(
+    config = _host_default_config()
+    config["backend"] = backend
+    config["network"] = resolved_network
+    payload = await asyncio.to_thread(
+        _invoke_tool,
         "get_evm_network" if backend == "wdk_evm_local" else "get_wallet_capabilities",
         {} if backend != "wdk_evm_local" else {"network": config["network"]},
         config,
     )
     if payload.get("ok") is False:
         raise RuntimeError(str(payload.get("error") or "set_wallet_backend failed"))
+    if backend == "wdk_evm_local":
+        selected_evm_network = resolved_network
+    elif backend == "wdk_btc_local":
+        selected_btc_network = resolved_network
+    else:
+        selected_solana_network = resolved_network
     selected_wallet_backend = backend
     return {
         "selected_backend": backend,
@@ -866,7 +886,7 @@ async def _handle_set_evm_network(params: dict[str, Any]) -> dict[str, Any]:
     network = _normalize_selectable_evm_network(params.get("network"))
     config = _effective_config_for_backend("wdk_evm_local")
     config["network"] = network
-    payload = _invoke_tool("get_evm_network", {"network": network}, config)
+    payload = await asyncio.to_thread(_invoke_tool, "get_evm_network", {"network": network}, config)
     if payload.get("ok") is False:
         raise RuntimeError(str(payload.get("error") or "set_evm_network failed"))
     selected_wallet_backend = "wdk_evm_local"
@@ -885,6 +905,26 @@ async def _handle_set_evm_network(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _invoke_wallet_tool_blocking(
+    tool_name: str,
+    config: dict[str, Any],
+    effective_params: dict[str, Any],
+) -> dict[str, Any]:
+    """Synchronous wallet invocation: approval attach + CLI subprocess + cache.
+
+    Runs off the event loop via ``asyncio.to_thread`` so a slow or hung wallet
+    call never freezes the MCP server (tools/list, read-only calls, and
+    cancellation stay responsive).
+    """
+    _attach_approval_for_execute(tool_name, config, effective_params)
+    try:
+        payload = _invoke_tool(tool_name, effective_params, config)
+    except Exception as exc:
+        raise _normalize_approval_context_error(exc) from exc
+    _cache_preview_for_approval(_user_id(), tool_name, payload)
+    return payload
+
+
 async def _handle_wallet_tool(tool_name: str, params: dict[str, Any]) -> dict[str, Any]:
     config = _base_config(params, tool_name=tool_name)
     backend = _normalize_wallet_backend(config.get("backend"))
@@ -893,14 +933,10 @@ async def _handle_wallet_tool(tool_name: str, params: dict[str, Any]) -> dict[st
         config["network"] = selected_evm_network
 
     effective_params = dict(params)
-    _attach_approval_for_execute(tool_name, config, effective_params)
+    payload = await asyncio.to_thread(
+        _invoke_wallet_tool_blocking, tool_name, config, effective_params
+    )
 
-    try:
-        payload = _invoke_tool(tool_name, effective_params, config)
-    except Exception as exc:
-        raise _normalize_approval_context_error(exc) from exc
-
-    _cache_preview_for_approval(_user_id(), tool_name, payload)
     if payload.get("ok") is False:
         raise RuntimeError(str(payload.get("error") or f"{tool_name} failed"))
     return payload.get("data", {})
