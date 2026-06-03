@@ -13,7 +13,7 @@ from agent_wallet.config import resolve_evm_wallet_password, resolve_openclaw_ho
 from agent_wallet.wallet_layer.base import WalletBackendError
 
 LOCAL_WDK_EVM_HOSTS = {"127.0.0.1", "localhost", "::1"}
-LONG_RUNNING_SEND_PATHS = {
+LONG_RUNNING_POST_PATHS = {
     "/v1/evm/aave/supply/send",
     "/v1/evm/aave/withdraw/send",
     "/v1/evm/aave/borrow/send",
@@ -24,7 +24,9 @@ LONG_RUNNING_SEND_PATHS = {
     "/v1/evm/lido/request_withdrawal_steth/send",
     "/v1/evm/lido/request_withdrawal_wsteth/send",
     "/v1/evm/lido/claim_withdrawal/send",
+    "/v1/evm/swap/quote",
     "/v1/evm/swap/send",
+    "/v1/evm/lifi/quote",
     "/v1/evm/lifi/send",
     "/v1/evm/transfer/send",
     "/v1/evm/token-transfer/send",
@@ -72,7 +74,7 @@ def _load_local_token() -> str:
 def _timeout_for_path(path: str) -> float:
     normalized = str(path or "").strip()
     base_timeout = float(settings.http_timeout)
-    if normalized in LONG_RUNNING_SEND_PATHS:
+    if normalized in LONG_RUNNING_POST_PATHS:
         return max(base_timeout, LONG_RUNNING_SEND_TIMEOUT_SECONDS)
     return base_timeout
 

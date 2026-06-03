@@ -74,6 +74,45 @@ def main() -> None:
         )
         assert sent["protocol"] == "velora"
 
+    with FakeWdkEvmWalletServer(
+        network="base",
+        auth_token="correct-token",
+        response_delays={
+            "POST /v1/evm/swap/quote": 11.0,
+            "POST /v1/evm/lifi/quote": 11.0,
+        },
+    ) as server:
+        os.environ["WDK_EVM_LOCAL_TOKEN"] = "correct-token"
+        client = WdkEvmLocalClient(server.base_url)
+        unlock = client.post_sync("/v1/evm/wallets/unlock", {"walletId": server.wallet_id})
+        assert unlock["unlocked"] is True
+        swap_quote = client.post_sync(
+            "/v1/evm/swap/quote",
+            {
+                "walletId": server.wallet_id,
+                "address": server.address,
+                "network": "base",
+                "tokenIn": server.token,
+                "tokenOut": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "tokenInAmount": "100000",
+            },
+        )
+        assert swap_quote["protocol"] == "velora"
+        lifi_quote = client.post_sync(
+            "/v1/evm/lifi/quote",
+            {
+                "walletId": server.wallet_id,
+                "address": server.address,
+                "network": "base",
+                "tokenIn": server.token,
+                "destinationChain": "1",
+                "outputToken": "0x0000000000000000000000000000000000000000",
+                "destinationAddress": "0x3333333333333333333333333333333333333333",
+                "tokenInAmount": "100000",
+            },
+        )
+        assert lifi_quote["tool"] == "across"
+
     with FakeWdkEvmWalletServer(network="base", auth_token="correct-token") as server:
         os.environ["WDK_EVM_LOCAL_TOKEN"] = "correct-token"
         backend = WdkEvmLocalWalletBackend(
@@ -116,7 +155,8 @@ def main() -> None:
     assert _timeout_for_path("/v1/evm/swap/send") >= 120.0
     assert _timeout_for_path("/v1/evm/transfer/send") >= 120.0
     assert _timeout_for_path("/v1/evm/token-transfer/send") >= 120.0
-    assert _timeout_for_path("/v1/evm/swap/quote") == 10.0
+    assert _timeout_for_path("/v1/evm/swap/quote") >= 120.0
+    assert _timeout_for_path("/v1/evm/lifi/quote") >= 120.0
 
     print("smoke_wdk_evm_local_security: ok")
 

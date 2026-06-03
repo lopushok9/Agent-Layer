@@ -826,6 +826,32 @@ test("quoteSwap accepts zero address alias for native token input", async () => 
   );
 });
 
+test("quoteSwap accepts eth alias for native token output", async () => {
+  await withHarness(
+    {
+      tokenOut: NATIVE_ETH,
+      amountIn: "1000000",
+      destAmount: "995000000000000000",
+      swapTxValue: "0",
+    },
+    async ({ service, config }) => {
+      const quote = await service.quoteSwap({
+        seedPhrase: VALID_MNEMONIC,
+        tokenIn: config.tokenIn,
+        tokenOut: "eth",
+        tokenInAmount: config.amountIn,
+        network: config.network,
+      });
+      assert.equal(quote.swapRequest.tokenOut, NATIVE_ETH);
+      assert.equal(quote.tokenOutMetadata.symbol, "ETH");
+      assert.equal(quote.tokenOutMetadata.decimals, 18);
+      assert.equal(quote.tokenOutMetadata.source, "native-asset");
+      assert.equal(quote.allowance.approvalRequired, true);
+      assert.equal(quote.swapTransaction.value, "0");
+    }
+  );
+});
+
 test("quoteSwap falls back to route gasCost for native token input when fee estimate is unavailable", async () => {
   await withHarness(
     {

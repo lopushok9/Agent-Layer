@@ -456,6 +456,48 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                     )
                     return
 
+                if self.path == "/v1/evm/lifi/quote":
+                    if wallet_id != outer.wallet_id or wallet_id not in outer.unlocked_wallet_ids:
+                        self._send(
+                            400,
+                            {
+                                "ok": False,
+                                "error": "Wallet is locked.",
+                                "error_code": "wallet_locked",
+                            },
+                        )
+                        return
+                    self._send(
+                        200,
+                        {
+                            "ok": True,
+                            "data": {
+                                "network": requested_network,
+                                "chainId": requested_chain_id,
+                                "address": outer.address,
+                                "tool": "across",
+                                "toolDetails": {"key": "across", "name": "Across"},
+                                "action": {
+                                    "fromToken": {"address": str(body.get("tokenIn") or outer.token)},
+                                    "toToken": {"address": str(body.get("outputToken") or outer.token)},
+                                },
+                                "estimate": {
+                                    "fromAmount": str(body.get("tokenInAmount") or "1000000"),
+                                    "toAmount": "995000",
+                                    "toAmountMin": "985050",
+                                    "approvalAddress": "0x5555555555555555555555555555555555555555",
+                                },
+                                "transactionRequest": {
+                                    "to": "0x4444444444444444444444444444444444444444",
+                                    "data": "0xdeadbeef",
+                                    "value": "0x0",
+                                    "gasLimit": "0x5208",
+                                },
+                            },
+                        },
+                    )
+                    return
+
                 if self.path == "/v1/evm/swap/quote":
                     if wallet_id != outer.wallet_id or wallet_id not in outer.unlocked_wallet_ids:
                         self._send(
