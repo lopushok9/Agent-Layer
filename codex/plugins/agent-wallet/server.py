@@ -99,6 +99,8 @@ def _openclaw_home() -> Path:
 
 @lru_cache(maxsize=1)
 def _openclaw_plugin_config() -> dict[str, Any]:
+    # Cached for the process lifetime: openclaw.json is read once per MCP server
+    # start. Edits to plugin config require restarting the bridge to take effect.
     config_path = _openclaw_home() / "openclaw.json"
     try:
         payload = json.loads(config_path.read_text(encoding="utf-8"))
@@ -517,23 +519,43 @@ def _parse_cli_error(text: str) -> WalletCliError:
     )
 
 
+def _cli_timeout_seconds() -> float:
+    """Parse the CLI timeout from env, falling back to 180s on bad values."""
+    raw = os.getenv("AGENT_WALLET_CODEX_TIMEOUT", "180")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return 180.0
+    return value if value > 0 else 180.0
+
+
 def _call_wallet_cli(command: str, extra_args: list[str]) -> dict[str, Any]:
     package_root = _resolve_package_root()
-    completed = subprocess.run(
-        [
-            _python_bin(package_root),
-            "-m",
-            "agent_wallet.openclaw_cli",
-            command,
-            *extra_args,
-        ],
-        cwd=str(package_root),
-        env=_cli_env(package_root),
-        text=True,
-        capture_output=True,
-        timeout=float(os.getenv("AGENT_WALLET_CODEX_TIMEOUT", "180")),
-        check=False,
-    )
+    timeout_seconds = _cli_timeout_seconds()
+    try:
+        completed = subprocess.run(
+            [
+                _python_bin(package_root),
+                "-m",
+                "agent_wallet.openclaw_cli",
+                command,
+                *extra_args,
+            ],
+            cwd=str(package_root),
+            env=_cli_env(package_root),
+            text=True,
+            capture_output=True,
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        # Surface a clean, actionable message instead of the raw TimeoutExpired
+        # repr, which would echo the full argv (approval_token, config JSON).
+        raise WalletCliError(
+            f"agent-wallet CLI '{command}' timed out after {timeout_seconds:g}s. "
+            "Retry, or raise AGENT_WALLET_CODEX_TIMEOUT if the network is slow.",
+            code="timeout",
+        ) from exc
     if completed.returncode != 0:
         detail = completed.stderr.strip() or completed.stdout.strip()
         raise _parse_cli_error(detail)

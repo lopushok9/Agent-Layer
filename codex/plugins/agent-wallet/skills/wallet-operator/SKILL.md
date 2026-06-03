@@ -16,3 +16,4 @@ Rules:
 - On mainnet, restate the network, asset, amount, and destination before execute.
 - Do not ask the user for `approval_token`. The bridge manages approval binding internally.
 - If approval context is missing or stale, repeat preview instead of improvising.
+- Use `set_wallet_backend` to switch between Solana, EVM, and Bitcoin wallets within a session, and `set_evm_network` to pick ethereum or base.
