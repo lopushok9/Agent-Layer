@@ -6,8 +6,16 @@
 [![docs](https://img.shields.io/badge/docs-agent--layer.tech-blue)](https://docs.agent-layer.tech/)
 [![license](https://img.shields.io/github/license/lopushok9/Agent-Layer)](https://github.com/lopushok9/Agent-Layer/blob/main/LICENSE)
 
+For Openclaw:
+
 ```bash
 npx @agentlayer.tech/wallet install --yes
+```
+
+For Codex:
+
+```bash
+npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet codex install --yes
 ```
 
 For Hermes:
