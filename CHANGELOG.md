@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+## v0.1.35 - 2026-06-03
+
+- Hardened the Codex / Claude Code MCP wallet bridge:
+  - Run the blocking wallet CLI subprocess off the event loop
+    (`asyncio.to_thread`) so a slow or hung wallet op no longer freezes the MCP
+    server — `tools/list`, read-only calls, and cancellation stay responsive.
+    The approval-preview cache is now guarded by a lock for concurrent calls.
+  - Consume the approved preview after a successful execute, so a duplicate
+    execute call cannot silently re-run the operation from stale 15-min approval
+    context. A failed execute keeps the preview so retries still work.
+  - `set_wallet_backend` commits session network/backend selection only after
+    the validating call succeeds, preventing a stale backend + new network mix.
+  - Fixed an off-by-one in the Claude Code launcher's sibling-codex fallback
+    path so a local checkout resolves `codex/server.py`.
+  - Replaced the `py_compile` self-check with a non-writing `ast.parse` check so
+    a read-only install dir cannot trigger a false "runtime broken" error.
+  - Parse `AGENT_WALLET_CODEX_TIMEOUT` defensively and surface a clean timeout
+    error instead of the raw `TimeoutExpired` repr (which echoed argv, including
+    the approval token). CLI stdout parsing now tolerates a stray line ahead of
+    the JSON result.
+  - Codex skill doc parity (`set_wallet_backend` / `set_evm_network`).
+
 ## v0.1.34 - 2026-06-02
 
 - Added native ETH support to EVM (Velora) swaps in the wallet runtime.
