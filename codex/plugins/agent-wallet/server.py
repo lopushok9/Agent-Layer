@@ -255,6 +255,21 @@ def _latest_cached_preview(user_id: str, tool_name: str) -> dict[str, Any] | Non
         return approval_preview_cache.get(_approval_cache_key(user_id, _approval_preview_tool_name(tool_name)))
 
 
+def _consume_cached_preview(user_id: str, tool_name: str) -> None:
+    """Drop the cached preview once a successful execute has consumed it.
+
+    Without this, a preview lingers for the full TTL and a duplicate execute
+    call could re-run the operation from stale approval context — the runtime's
+    single-use nonce registry cannot stop it, because the bridge runs each
+    invoke in a fresh subprocess (empty registry) and mints a new token per
+    execute. Requiring a fresh preview before the next execute is the safe rule.
+    """
+    with _approval_cache_lock:
+        approval_preview_cache.pop(
+            _approval_cache_key(user_id, _approval_preview_tool_name(tool_name)), None
+        )
+
+
 def _approval_token_preview_digest(token: str) -> str:
     if not isinstance(token, str) or "." not in token:
         return ""
@@ -559,8 +574,15 @@ def _call_wallet_cli(command: str, extra_args: list[str]) -> dict[str, Any]:
     if completed.returncode != 0:
         detail = completed.stderr.strip() or completed.stdout.strip()
         raise _parse_cli_error(detail)
+    # The CLI contract is a single JSON line on stdout. Parse the last non-empty
+    # line so a stray print/warning ahead of it from the runtime cannot break an
+    # otherwise-successful call.
+    stdout = completed.stdout.strip()
+    if not stdout:
+        return {}
+    last_line = stdout.splitlines()[-1].strip()
     try:
-        return json.loads(completed.stdout.strip() or "{}")
+        return json.loads(last_line)
     except json.JSONDecodeError as exc:
         raise WalletCliError(f"agent-wallet CLI returned invalid JSON: {exc}") from exc
 
@@ -938,12 +960,16 @@ def _invoke_wallet_tool_blocking(
     call never freezes the MCP server (tools/list, read-only calls, and
     cancellation stay responsive).
     """
-    _attach_approval_for_execute(tool_name, config, effective_params)
+    used_cache = _attach_approval_for_execute(tool_name, config, effective_params)
     try:
         payload = _invoke_tool(tool_name, effective_params, config)
     except Exception as exc:
         raise _normalize_approval_context_error(exc) from exc
     _cache_preview_for_approval(_user_id(), tool_name, payload)
+    # A bridge-managed preview that was just executed successfully is single-use:
+    # drop it so a duplicate execute cannot silently re-run the operation.
+    if used_cache is not None and payload.get("ok") is not False:
+        _consume_cached_preview(_user_id(), tool_name)
     return payload
 
 
