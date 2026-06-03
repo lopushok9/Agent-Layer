@@ -12,12 +12,13 @@ Use this skill before calling OpenClaw wallet tools. It is the routing guide for
 1. Start with `get_wallet_capabilities` when the active chain, signing support, or available tools are unclear.
 2. Use `get_wallet_address` before asking for deposits or confirming a recipient/source wallet.
 3. Use `get_wallet_balance` before spending, swapping, bridging, staking, lending, or claiming.
-4. Use `preview` first for every write action. For Solana Jupiter swaps, prefer `intent_preview` then `intent_execute` after explicit chat confirmation so execution can refresh the quote inside approved limits. Solana swap intents are normalized by the backend to at least 300 bps slippage, 120 seconds validity, and 3 fresh execution attempts; do not pass a hand-tightened `minimum_output_amount_raw` unless the user explicitly set that floor. Use `prepare` only after explicit user intent. In OpenClaw, use `execute` only after the user explicitly confirms the shown summary in chat; do not ask the user for `/approve`, buttons, popups, or a manual token.
-5. `prepare` returns an execution plan only; it must not return signed transaction bytes.
-6. On mainnet, restate the network and material terms before `execute`; the OpenClaw plugin handles the internal execution authorization after chat confirmation.
-7. If backend is `sign_only`, do not execute; use `prepare` and state that nothing was broadcast.
-8. Never claim a transfer, swap, bridge, stake, claim, deposit, borrow, repay, or withdrawal happened unless the tool result says it was broadcast/confirmed.
-9. Do not use Mayan. Direct Mayan paths were removed. Cross-chain swaps must go through LI.FI with Mayan denied.
+4. Treat `get_wallet_balance` as the default balance read for the active backend, not as a Solana-only helper. If `get_wallet_capabilities` says `can_get_balance=true`, prefer calling `get_wallet_balance` before assuming a backend lacks native balance support.
+5. Use `preview` first for every write action. For Solana Jupiter swaps, prefer `intent_preview` then `intent_execute` after explicit chat confirmation so execution can refresh the quote inside approved limits. Solana swap intents are normalized by the backend to at least 300 bps slippage, 120 seconds validity, and 3 fresh execution attempts; do not pass a hand-tightened `minimum_output_amount_raw` unless the user explicitly set that floor. Use `prepare` only after explicit user intent. In OpenClaw, use `execute` only after the user explicitly confirms the shown summary in chat; do not ask the user for `/approve`, buttons, popups, or a manual token.
+6. `prepare` returns an execution plan only; it must not return signed transaction bytes.
+7. On mainnet, restate the network and material terms before `execute`; the OpenClaw plugin handles the internal execution authorization after chat confirmation.
+8. If backend is `sign_only`, do not execute; use `prepare` and state that nothing was broadcast.
+9. Never claim a transfer, swap, bridge, stake, claim, deposit, borrow, repay, or withdrawal happened unless the tool result says it was broadcast/confirmed.
+10. Do not use Mayan. Direct Mayan paths were removed. Cross-chain swaps must go through LI.FI with Mayan denied.
 
 ## Provider Map
 
@@ -46,18 +47,29 @@ Use this skill before calling OpenClaw wallet tools. It is the routing guide for
 
 - `get_wallet_capabilities`: available chain, backend, send/sign support.
 - `get_wallet_address`: active wallet address.
-- `get_wallet_balance`: primary balance/portfolio summary. For EVM USD total, use `total_value_usd` from this result.
-- `get_wallet_portfolio`: Solana portfolio holdings.
+- `get_wallet_balance`: primary balance/portfolio summary for the active backend.
+  - Solana: native SOL plus discovered SPL assets and USD values when available.
+  - EVM: native ETH balance plus discovered ERC-20 assets and USD values when available.
+  - If the user asks for an EVM wallet balance, try this first before falling back to token-specific reads.
+- `get_wallet_portfolio`: detailed Solana portfolio holdings. Do not assume this works on every backend; `wdk_evm_local` may reject portfolio lookup even when `get_wallet_balance` works.
 - `get_solana_token_prices`: prices by Solana mint.
 - `get_lifi_supported_chains`: supported LI.FI subset.
 - `get_lifi_quote`: read-only LI.FI quote/status surface; use when user asks for indicative cross-chain quote outside the write flow.
 - `get_lifi_transfer_status`: check LI.FI bridge status after a cross-chain source transaction.
 - `get_evm_network`: active EVM network and supported EVM swap networks.
-- `get_evm_token_balance`: ERC-20 balance by `token_address`, optional `network`.
+- `get_evm_token_balance`: ERC-20 balance by `token_address`, optional `network`. This is not the native ETH balance reader; use it for a specific token contract such as USDC or WETH.
 - `get_evm_token_metadata`: ERC-20 metadata by `token_address`, optional `network`.
 - `get_evm_fee_rates`: EVM fee suggestions.
 - `get_evm_transaction_receipt`: EVM receipt by `tx_hash`.
 - `get_btc_transfer_history`, `get_btc_fee_rates`, `get_btc_max_spendable`: BTC read helpers.
+
+## Balance Routing
+
+- Solana wallet balance request: use `get_wallet_balance`.
+- EVM wallet balance request: use `get_wallet_balance` first for native ETH and discovered ERC-20 holdings.
+- EVM specific token balance request: use `get_evm_token_balance` with a concrete ERC-20 `token_address`.
+- EVM native transfer sizing: use `get_wallet_balance` for available ETH, then `get_evm_fee_rates` if the user needs fee context.
+- If the tool descriptions and runtime capabilities seem inconsistent, prefer a direct read call over guessing from descriptions alone.
 
 ## Transfer Commands
 
