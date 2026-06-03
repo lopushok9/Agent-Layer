@@ -1617,6 +1617,20 @@ function pinHomeIntoMcpFile(mcpPath, env = process.env) {
   const entry = (doc.mcpServers || {})["agent-wallet"];
   if (!entry) return { pinned: false, reason: "no agent-wallet server entry", path: mcpPath };
   const home = resolveOpenclawHome(env);
+  // When the install home is the default ~/.openclaw, run_mcp.sh already derives
+  // it (`${OPENCLAW_HOME:-"$HOME/.openclaw"}`), so pinning is redundant and would
+  // dirty version-controlled bundle files. Skip it — and drop any stale pin so the
+  // file self-heals back to a clean, distributable state.
+  const defaultHome = path.resolve(expandHome("~/.openclaw"));
+  if (home === defaultHome) {
+    if (entry.env && "OPENCLAW_HOME" in entry.env) {
+      delete entry.env.OPENCLAW_HOME;
+      if (Object.keys(entry.env).length === 0) delete entry.env;
+      writeJsonFile(mcpPath, doc);
+      return { pinned: false, reason: "home is default; removed redundant pin", path: mcpPath };
+    }
+    return { pinned: false, reason: "home is default; run_mcp.sh derives it", path: mcpPath };
+  }
   entry.env = { ...(entry.env || {}), OPENCLAW_HOME: home };
   writeJsonFile(mcpPath, doc);
   return { pinned: true, openclaw_home: home, path: mcpPath };
