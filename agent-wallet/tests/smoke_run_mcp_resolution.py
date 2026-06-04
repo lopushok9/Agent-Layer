@@ -77,6 +77,8 @@ def main() -> None:
         f"unexpected error in stderr: {res.stderr}"
     )
 
+    _assert_resolves_through_marketplace_symlink(repo_root)
+
     # --- Codex launcher section ---
     codex_launcher = repo_root / "codex/plugins/agent-wallet/scripts/run_mcp.sh"
     codex_tmp = Path(tempfile.mkdtemp())
@@ -106,6 +108,48 @@ def main() -> None:
     assert payload["server_py"].endswith("server.py"), payload
 
     print("OK smoke_run_mcp_resolution")
+
+
+def _assert_resolves_through_marketplace_symlink(repo_root: Path) -> None:
+    """Claude Code runs the plugin through a marketplace symlink. The sibling
+    codex fallback ("../../../codex") must still resolve through it. With a
+    logical pwd the symlink stayed in PLUGIN_ROOT and the `..` math collapsed to
+    a non-existent path (~/.claude/codex), killing the server with -32000. This
+    guards the physical (pwd -P) resolution.
+    """
+    src_launcher = repo_root / "claude-code/plugins/agent-wallet/scripts/run_mcp.sh"
+    tmp = Path(tempfile.mkdtemp())
+    # Real layout: claude-code and codex are siblings under <base>/real.
+    real_plugin = tmp / "real/claude-code/plugins/agent-wallet"
+    (real_plugin / "scripts").mkdir(parents=True, exist_ok=True)
+    launcher = real_plugin / "scripts/run_mcp.sh"
+    shutil.copy(str(src_launcher), str(launcher))
+    os.chmod(str(launcher), 0o755)
+    sibling_codex = tmp / "real/codex/plugins/agent-wallet"
+    sibling_codex.mkdir(parents=True, exist_ok=True)
+    (sibling_codex / "server.py").write_text("pass\n", encoding="utf-8")
+
+    # Marketplace symlink pointing at the real plugin dir.
+    link_root = tmp / "link/plugins"
+    link_root.mkdir(parents=True, exist_ok=True)
+    symlinked_plugin = link_root / "agent-wallet"
+    symlinked_plugin.symlink_to(real_plugin)
+
+    env = dict(os.environ)
+    env["OPENCLAW_HOME"] = str(tmp / "empty-home")  # no runtime: force sibling tier
+    env["AGENT_WALLET_PYTHON"] = sys.executable
+
+    # Invoke via the SYMLINK path, exactly as Claude Code does.
+    res = _run(symlinked_plugin / "scripts/run_mcp.sh", env)
+    try:
+        assert res.returncode == 0, (
+            f"symlinked launcher should resolve sibling codex, got "
+            f"{res.returncode}: {res.stderr}"
+        )
+        assert "No such file or directory" not in res.stderr, res.stderr
+        assert '"error"' not in res.stderr, res.stderr
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":

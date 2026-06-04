@@ -1,14 +1,21 @@
 #!/bin/sh
 set -eu
 
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-PLUGIN_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+# Resolve to PHYSICAL paths (pwd -P). Claude Code runs this plugin through a
+# marketplace symlink (~/.claude/agentlayer-local/plugins/agent-wallet -> the real
+# plugin dir). With a logical pwd, the symlink stays in PLUGIN_ROOT and the
+# "../../../codex" sibling math below collapses lexically into a non-existent path
+# (e.g. ~/.claude/codex), so `cd` fails and the server dies with -32000. Resolving
+# the symlink up front keeps the `..` arithmetic consistent with the real layout.
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+PLUGIN_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd -P)
 OPENCLAW_HOME=${OPENCLAW_HOME:-"$HOME/.openclaw"}
 PACKAGE_ROOT=${AGENT_WALLET_PACKAGE_ROOT:-${OPENCLAW_AGENT_WALLET_PACKAGE_ROOT:-"$OPENCLAW_HOME/agent-wallet-runtime/current/agent-wallet"}}
 
-# Resolve server.py. When Claude Code copies this plugin into its cache, the
-# relative sibling paths below no longer resolve, so fall back to the codex
-# plugin copy inside the installed runtime package, which is always present.
+# Resolve server.py. The claude-code plugin ships no server.py of its own; it
+# reuses the sibling codex copy (real repo / installed runtime, where claude-code
+# and codex sit side by side), falling back to the codex copy inside the runtime
+# package, which is always present.
 LOCAL_SERVER="$PLUGIN_ROOT/server.py"
 CODEX_SERVER="$PLUGIN_ROOT/../../../codex/plugins/agent-wallet/server.py"
 RUNTIME_CODEX_DIR="$OPENCLAW_HOME/agent-wallet-runtime/current/codex/plugins/agent-wallet"
@@ -16,9 +23,9 @@ RUNTIME_CODEX_DIR="$OPENCLAW_HOME/agent-wallet-runtime/current/codex/plugins/age
 if [ -f "$LOCAL_SERVER" ]; then
   SERVER_PY="$LOCAL_SERVER"
 elif [ -f "$CODEX_SERVER" ]; then
-  SERVER_PY=$(CDPATH= cd -- "$PLUGIN_ROOT/../../../codex/plugins/agent-wallet" && pwd)/server.py
+  SERVER_PY=$(CDPATH= cd -- "$PLUGIN_ROOT/../../../codex/plugins/agent-wallet" && pwd -P)/server.py
 elif [ -f "$RUNTIME_CODEX_DIR/server.py" ]; then
-  SERVER_PY=$(CDPATH= cd -- "$RUNTIME_CODEX_DIR" && pwd)/server.py
+  SERVER_PY=$(CDPATH= cd -- "$RUNTIME_CODEX_DIR" && pwd -P)/server.py
 else
   printf '{"error":"agent-wallet server.py not found in plugin, codex sibling, or runtime package.","fix":"npx @agentlayer.tech/wallet install --yes"}\n' >&2
   exit 1
