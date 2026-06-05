@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## v0.1.37 - 2026-06-05
+
+- Fixed the Claude Code / Codex MCP bridge failing to start with
+  `MCP error -32000: Connection closed` when the plugin is run through a
+  marketplace symlink. run_mcp.sh resolved PLUGIN_ROOT with a logical `pwd`, so
+  the symlink stayed in the path and the sibling-codex fallback (`../../../codex`)
+  collapsed lexically into a non-existent path. The launcher now resolves paths
+  physically (`pwd -P`), keeping the `..` arithmetic consistent with the real
+  layout, with a regression test that drives the launcher through a symlink.
+
+## v0.1.36 - 2026-06-03
+
+- Installer no longer pins a redundant `OPENCLAW_HOME` into the version-controlled
+  bundle `.mcp.json` when the install home is the default `~/.openclaw`
+  (run_mcp.sh already derives it). Any stale pin is removed so the tracked file
+  self-heals to a clean state; non-default homes still pin as before.
+
 ## v0.1.35 - 2026-06-03
 
 - Hardened the Codex / Claude Code MCP wallet bridge:

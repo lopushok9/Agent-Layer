@@ -1,6 +1,6 @@
 {
   "name": "wdk-btc-wallet",
-  "version": "0.1.36",
+  "version": "0.1.37",
   "private": true,
   "type": "module",
   "description": "Separate BTC-only wallet service built on Tether WDK.",
