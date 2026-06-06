@@ -26,31 +26,28 @@ function encodeAbiString(value) {
   return `0x${offset}${length}${data.padEnd(Math.ceil(data.length / 64) * 64, "0")}`;
 }
 
+// Mirrors the live Trading API shape: Permit2 AllowanceTransfer (PermitSingle),
+// domain has no `version`, and `types` does not include an EIP712Domain entry.
 function permitDataFixture(chainId) {
   return {
     domain: { name: "Permit2", chainId, verifyingContract: PERMIT2 },
     types: {
-      EIP712Domain: [
-        { name: "name", type: "string" },
-        { name: "chainId", type: "uint256" },
-        { name: "verifyingContract", type: "address" },
-      ],
-      PermitTransferFrom: [
-        { name: "permitted", type: "TokenPermissions" },
+      PermitSingle: [
+        { name: "details", type: "PermitDetails" },
         { name: "spender", type: "address" },
-        { name: "nonce", type: "uint256" },
-        { name: "deadline", type: "uint256" },
+        { name: "sigDeadline", type: "uint256" },
       ],
-      TokenPermissions: [
+      PermitDetails: [
         { name: "token", type: "address" },
-        { name: "amount", type: "uint256" },
+        { name: "amount", type: "uint160" },
+        { name: "expiration", type: "uint48" },
+        { name: "nonce", type: "uint48" },
       ],
     },
     values: {
-      permitted: { token: BASE_USDC, amount: "1000000" },
+      details: { token: BASE_USDC, amount: "1000000", expiration: "9999999999", nonce: "0" },
       spender: BASE_ROUTER,
-      nonce: "1",
-      deadline: "9999999999",
+      sigDeadline: "9999999999",
     },
   };
 }
@@ -121,7 +118,11 @@ function createHarness(options = {}) {
           routing: "CLASSIC",
           quote: {
             input: { token: body.tokenIn, amount: body.amount },
-            output: { token: body.tokenOut, amount: options.outputAmount || "990000" },
+            output: {
+              token: body.tokenOut,
+              amount: options.outputAmount || "990000",
+              minimumAmount: options.minimumAmount || "985000",
+            },
             slippage: body.slippageTolerance,
             gasFee: "5000000000000000",
             gasFeeUSD: "0.01",
@@ -198,7 +199,8 @@ test("quote: native ETH -> USDC has no permit and CLASSIC routing", async () => 
     assert.ok(result.quoteFingerprint);
     // request body assertions
     const body = h.state.quoteBodies.at(-1);
-    assert.equal(body.routingPreference, "CLASSIC");
+    assert.equal(body.routingPreference, undefined); // live API rejects routingPreference:"CLASSIC"
+    assert.deepEqual(body.protocols, ["V2", "V3", "V4"]);
     assert.equal(body.type, "EXACT_INPUT");
     assert.equal(body.tokenInChainId, 8453);
     assert.equal(body.slippageTolerance, 0.5);

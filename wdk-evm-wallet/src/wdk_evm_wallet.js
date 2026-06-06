@@ -3326,7 +3326,9 @@ export class WdkEvmWalletService {
       amount: swapRequest.tokenInAmount.toString(),
       type: "EXACT_INPUT",
       slippageTolerance: swapRequest.slippagePercent,
-      routingPreference: "CLASSIC",
+      // The live Trading API rejects routingPreference:"CLASSIC"; restricting
+      // protocols to V2/V3/V4 is what excludes UniswapX and yields routing=CLASSIC.
+      protocols: ["V2", "V3", "V4"],
     });
     const routing = String(payload.routing || "").toUpperCase();
     if (routing !== "CLASSIC") {
@@ -3371,8 +3373,13 @@ export class WdkEvmWalletService {
         });
     const tokenOutAmount = BigInt(String(quoteResponse.quote.output.amount || "0"));
     const slippageBps = Math.round(swapRequest.slippagePercent * 100);
+    // The Trading API returns the post-slippage floor directly; fall back to a
+    // local computation only if the field is absent.
     const minimumTokenOutAmount =
-      tokenOutAmount - (tokenOutAmount * BigInt(slippageBps)) / 10000n;
+      quoteResponse.quote.output.minimumAmount !== undefined &&
+      quoteResponse.quote.output.minimumAmount !== null
+        ? BigInt(String(quoteResponse.quote.output.minimumAmount))
+        : tokenOutAmount - (tokenOutAmount * BigInt(slippageBps)) / 10000n;
     const router = UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK[runtimeConfig.network];
     const quoteFingerprint = sha256Hex(
       JSON.stringify({
