@@ -20,6 +20,8 @@ Current scope:
 - fetch fee-rate suggestions
 - fetch read-only Velora swap quotes for supported mainnet ERC-20 and native ETH pairs
 - execute Velora ERC-20 and native ETH swaps on supported mainnet networks through the local wallet account
+- fetch read-only Uniswap Trading API swap quotes (CLASSIC routing) for native ETH and ERC-20 pairs on ethereum/base
+- execute Uniswap Trading API swaps (native ETH and ERC-20 inputs) with Permit2 EIP-712 signing for ERC-20 inputs
 - fetch Aave V3 account data on supported mainnet networks
 - fetch Aave V3 reserve catalog on supported mainnet networks
 - fetch Aave V3 per-reserve user positions on supported mainnet networks
@@ -101,6 +103,8 @@ The active network is persistent and can be switched without changing code.
 - `POST /v1/evm/aave/repay/send`
 - `POST /v1/evm/swap/quote`
 - `POST /v1/evm/swap/send`
+- `POST /v1/evm/uniswap/swap/quote`
+- `POST /v1/evm/uniswap/swap/send`
 - `POST /v1/evm/transfer/quote`
 - `POST /v1/evm/transfer/send`
 - `POST /v1/evm/token-transfer/quote`
@@ -158,6 +162,26 @@ Environment variables:
 - `WDK_EVM_SEPOLIA_RPC_URL`
 - `WDK_EVM_BASE_RPC_URL`
 - `WDK_EVM_BASE_SEPOLIA_RPC_URL`
+- `UNISWAP_API_KEY`
+- `UNISWAP_TRADING_API_BASE_URL`
+- `UNISWAP_ROUTER_VERSION`
+- `UNISWAP_DEFAULT_SLIPPAGE_BPS`
+
+Swap providers:
+
+- the runtime exposes three independent swap surfaces: Velora (`/v1/evm/swap/*`),
+  LI.FI cross-chain (`/v1/evm/lifi/*`), and Uniswap Trading API
+  (`/v1/evm/uniswap/swap/*`) — always keep more than one route available
+- Uniswap Trading API support is limited to `ethereum` and `base`, `EXACT_INPUT`,
+  and CLASSIC routing only; non-CLASSIC quotes (UniswapX Dutch/Priority) are rejected
+- native ETH inputs need no approval or signature; ERC-20 inputs are pulled via
+  Permit2 (`0x000000000022D473030F116dDEE9F6B43aC78BA3`) and require a per-swap
+  Permit2 EIP-712 signature produced locally by the wallet account
+- the `/swap` response `to` address is checked against a pinned Universal Router
+  allow-list before broadcast, and every swap is simulated first
+- `UNISWAP_API_KEY` is required for the Uniswap routes; it identifies the
+  integrator (this service), not an end user — swaps are scoped per request by the
+  active wallet address, so a single key never mixes users
 
 Gateway mode:
 
@@ -179,6 +203,7 @@ Local security note:
 - seed reveal is password-gated and separate from normal agent operations
 - Velora swap support is currently limited to `ethereum` and `base` ERC-20 and native ETH pairs
 - the underlying WDK Velora package is still beta; test swap execution carefully before relying on it
+- Uniswap Trading API swaps perform a Permit2-scoped ERC-20 approval for ERC-20 inputs; if a send fails after approval, the service attempts to restore the original allowance
 - Aave V3 support is currently limited to `ethereum` and `base`
 - Aave `supply` and `repay` may perform pool-scoped ERC-20 approvals; if a send fails after approval, the service attempts to restore the original allowance
 - Aave delegated `onBehalfOf` operations and third-party withdraw destinations are intentionally not exposed in this runtime
