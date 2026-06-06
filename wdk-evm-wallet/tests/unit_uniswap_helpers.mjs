@@ -9,6 +9,7 @@ const {
   normalizeUniswapTokenAddress,
   assertUniswapSupportedNetwork,
   uniswapSlippagePercentFromBps,
+  normalizeUniswapPermitData,
 } = __testables;
 
 test("native aliases normalize to the zero address", () => {
@@ -45,4 +46,44 @@ test("slippage bps converts to percent", () => {
 test("exports constants", () => {
   assert.equal(PERMIT2_ADDRESS, "0x000000000022D473030F116dDEE9F6B43aC78BA3");
   assert.deepEqual(UNISWAP_SUPPORTED_CHAIN_IDS, { ethereum: 1, base: 8453 });
+});
+
+test("permitData strips EIP712Domain and maps values to message", () => {
+  const permitData = {
+    domain: { name: "Permit2", chainId: 1, verifyingContract: PERMIT2_ADDRESS },
+    types: {
+      EIP712Domain: [
+        { name: "name", type: "string" },
+        { name: "chainId", type: "uint256" },
+        { name: "verifyingContract", type: "address" },
+      ],
+      PermitTransferFrom: [{ name: "permitted", type: "TokenPermissions" }],
+      TokenPermissions: [{ name: "token", type: "address" }],
+    },
+    values: { permitted: { token: "0xabc" } },
+  };
+  const out = normalizeUniswapPermitData(permitData, { chainId: 1 });
+  assert.equal(out.types.EIP712Domain, undefined);
+  assert.ok(out.types.PermitTransferFrom);
+  assert.ok(out.types.TokenPermissions);
+  assert.deepEqual(out.message, { permitted: { token: "0xabc" } });
+  assert.equal(out.domain.chainId, 1);
+});
+
+test("permitData rejects chainId mismatch", () => {
+  const permitData = {
+    domain: { chainId: 8453 },
+    types: { X: [{ name: "a", type: "uint256" }] },
+    values: {},
+  };
+  assert.throws(() => normalizeUniswapPermitData(permitData, { chainId: 1 }));
+});
+
+test("permitData rejects when only EIP712Domain present", () => {
+  const permitData = {
+    domain: { chainId: 1 },
+    types: { EIP712Domain: [{ name: "name", type: "string" }] },
+    values: {},
+  };
+  assert.throws(() => normalizeUniswapPermitData(permitData, { chainId: 1 }));
 });

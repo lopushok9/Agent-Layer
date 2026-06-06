@@ -422,6 +422,37 @@ function normalizeX402ExactTypedData({ domain, types, primaryType, message }, ru
   };
 }
 
+function normalizeUniswapPermitData(permitData, runtimeConfig) {
+  const data = assertPlainObject(permitData, "permitData");
+  const domain = assertPlainObject(data.domain, "permitData.domain");
+  const domainChainId = assertNonNegativeInteger(domain.chainId, "permitData.domain.chainId");
+  if (domainChainId !== runtimeConfig.chainId) {
+    throw new Error("permitData.domain.chainId must match the active network chain id.");
+  }
+  const typesObject = assertPlainObject(data.types, "permitData.types");
+  const normalizedTypes = {};
+  for (const [typeName, fields] of Object.entries(typesObject)) {
+    if (typeName === "EIP712Domain") {
+      continue; // ethers infers the domain type; including it throws.
+    }
+    if (!Array.isArray(fields) || fields.length === 0) {
+      throw new Error(`permitData.types.${typeName} must be a non-empty array.`);
+    }
+    normalizedTypes[typeName] = fields.map((field, index) => {
+      const normalizedField = assertPlainObject(field, `permitData.types.${typeName}[${index}]`);
+      return {
+        name: assertNonEmptyString(normalizedField.name, `permitData.types.${typeName}[${index}].name`),
+        type: assertNonEmptyString(normalizedField.type, `permitData.types.${typeName}[${index}].type`),
+      };
+    });
+  }
+  if (Object.keys(normalizedTypes).length === 0) {
+    throw new Error("permitData.types must contain at least one non-domain type.");
+  }
+  const message = assertPlainObject(data.values, "permitData.values");
+  return { domain, types: normalizedTypes, message };
+}
+
 function buildSwapRequest({ tokenIn, tokenOut, tokenInAmount }) {
   const swapRequest = {
     tokenIn: normalizeVeloraTokenAddress(tokenIn, "tokenIn"),
@@ -5138,4 +5169,5 @@ export const __testables = {
   normalizeUniswapTokenAddress,
   assertUniswapSupportedNetwork,
   uniswapSlippagePercentFromBps,
+  normalizeUniswapPermitData,
 };
