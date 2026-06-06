@@ -1382,6 +1382,162 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "source": "wdk-evm-wallet",
         }
 
+    def _normalize_uniswap_quote_payload(self, data: dict[str, Any], token_in: str, token_out: str, amount_in_raw: str) -> dict[str, Any]:
+        return {
+            "chain": self.chain,
+            "network": self.network,
+            "address": str(data.get("address") or ""),
+            "token_in": str(data.get("tokenIn") or token_in),
+            "token_out": str(data.get("tokenOut") or token_out),
+            "amount_in_raw": str(data.get("tokenInAmount") or amount_in_raw),
+            "amount_in_ui": str(data.get("inputAmountFormatted")) if data.get("inputAmountFormatted") is not None else None,
+            "estimated_output_amount_raw": str(data.get("outputAmount") or "0"),
+            "estimated_output_amount_ui": str(data.get("outputAmountFormatted")) if data.get("outputAmountFormatted") is not None else None,
+            "minimum_output_amount_raw": str(data.get("minimumOutputAmountRaw")) if data.get("minimumOutputAmountRaw") is not None else None,
+            "slippage_bps": int(data.get("slippageBps")) if data.get("slippageBps") is not None else None,
+            "protocol": str(data.get("protocol") or "uniswap"),
+            "routing": str(data.get("routing") or "CLASSIC"),
+            "permit_required": bool(data.get("permitRequired")),
+            "allowance": _normalize_swap_allowance(data.get("allowance")),
+            "router": str(data.get("router") or "").strip() or None,
+            "quote_fingerprint": str(data.get("quoteFingerprint") or "").strip() or None,
+            "gas_fee_usd": str(data.get("gasFeeUSD")) if data.get("gasFeeUSD") is not None else None,
+            "estimated_fee_wei": str(data.get("estimatedFeeWei")) if data.get("estimatedFeeWei") is not None else None,
+            "execution_supported": bool(data.get("executionSupported")) and not self.sign_only,
+            "token_in_metadata": _normalize_token_metadata(data.get("tokenInMetadata"), token_in),
+            "token_out_metadata": _normalize_token_metadata(data.get("tokenOutMetadata"), token_out),
+            "chain_id": int(data.get("chainId") or 0),
+            "source": "wdk-evm-wallet",
+        }
+
+    async def get_uniswap_swap_quote(
+        self,
+        *,
+        token_in: str,
+        token_out: str,
+        amount_in_raw: str,
+        slippage_bps: int | None = None,
+    ) -> dict[str, Any]:
+        resolved_address = await self.get_address()
+        body: dict[str, Any] = {
+            "walletId": self.wallet_id,
+            "address": resolved_address,
+            "accountIndex": self.account_index,
+            "network": self.network,
+            "tokenIn": token_in,
+            "tokenOut": token_out,
+            "tokenInAmount": amount_in_raw,
+        }
+        if slippage_bps is not None:
+            body["slippageBps"] = slippage_bps
+        data = await self.client.post("/v1/evm/uniswap/swap/quote", body)
+        return self._normalize_uniswap_quote_payload(data, token_in, token_out, amount_in_raw)
+
+    async def preview_uniswap_swap(
+        self,
+        *,
+        token_in: str,
+        token_out: str,
+        amount_in_raw: str,
+        slippage_bps: int | None = None,
+    ) -> dict[str, Any]:
+        resolved_address = await self.get_address()
+        body: dict[str, Any] = {
+            "walletId": self.wallet_id,
+            "address": resolved_address,
+            "accountIndex": self.account_index,
+            "network": self.network,
+            "tokenIn": token_in,
+            "tokenOut": token_out,
+            "tokenInAmount": amount_in_raw,
+        }
+        if slippage_bps is not None:
+            body["slippageBps"] = slippage_bps
+        data = await self.client.post("/v1/evm/uniswap/swap/quote", body)
+        payload = self._normalize_uniswap_quote_payload(data, token_in, token_out, amount_in_raw)
+        return {
+            **payload,
+            "asset_type": "evm-uniswap-swap",
+            "asset": "ERC20",
+            "wallet": self.wallet_id,
+            "from_address": resolved_address,
+            "input_amount_raw": payload["amount_in_raw"],
+            "input_amount_ui": payload["amount_in_ui"],
+            "swap_provider": payload["protocol"],
+            "route_plan": None,
+            "swap_transaction": {
+                "to": payload["router"],
+                "value": "0",
+                "data_hash": None,
+            },
+        }
+
+    async def send_uniswap_swap(
+        self,
+        *,
+        token_in: str,
+        token_out: str,
+        amount_in_raw: str,
+        slippage_bps: int | None = None,
+        expected_quote_fingerprint: str | None = None,
+        minimum_output_amount_raw: str | None = None,
+    ) -> dict[str, Any]:
+        if self.sign_only:
+            raise WalletBackendError("wdk_evm_local is configured as sign_only.")
+        body: dict[str, Any] = {
+            "walletId": self.wallet_id,
+            "accountIndex": self.account_index,
+            "network": self.network,
+            "tokenIn": token_in,
+            "tokenOut": token_out,
+            "tokenInAmount": amount_in_raw,
+        }
+        if slippage_bps is not None:
+            body["slippageBps"] = slippage_bps
+        if isinstance(expected_quote_fingerprint, str) and expected_quote_fingerprint.strip():
+            body["expectedQuoteFingerprint"] = expected_quote_fingerprint.strip()
+        if isinstance(minimum_output_amount_raw, str) and minimum_output_amount_raw.strip():
+            body["minimumTokenOutAmount"] = minimum_output_amount_raw.strip()
+        data = await self.client.post("/v1/evm/uniswap/swap/send", body)
+        result = dict(data.get("result") or {})
+        return {
+            "chain": self.chain,
+            "network": self.network,
+            "asset_type": "evm-uniswap-swap",
+            "asset": "ERC20",
+            "wallet": self.wallet_id,
+            "from_address": await self.get_address(),
+            "token_in": str(data.get("tokenIn") or token_in),
+            "token_out": str(data.get("tokenOut") or token_out),
+            "input_amount_raw": str(data.get("tokenInAmount") or amount_in_raw),
+            "input_amount_ui": str(data.get("inputAmountFormatted")) if data.get("inputAmountFormatted") is not None else None,
+            "estimated_output_amount_raw": str(data.get("outputAmount") or "0"),
+            "estimated_output_amount_ui": str(data.get("outputAmountFormatted")) if data.get("outputAmountFormatted") is not None else None,
+            "slippage_bps": int(data.get("slippageBps")) if data.get("slippageBps") is not None else None,
+            "minimum_output_amount_raw": str(data.get("minimumOutputAmountRaw")) if data.get("minimumOutputAmountRaw") is not None else None,
+            "swap_provider": str(data.get("protocol") or "uniswap"),
+            "routing": str(data.get("routing") or "CLASSIC"),
+            "quote_fingerprint": str(data.get("quoteFingerprint") or "").strip() or None,
+            "router": str(data.get("router") or "").strip() or None,
+            "allowance": _normalize_swap_allowance(data.get("allowance")),
+            "simulation": _normalize_swap_simulation(data.get("simulation")),
+            "swap_transaction": {
+                "to": str((data.get("swapTransaction") or {}).get("to") or "").strip() or None,
+                "value": str((data.get("swapTransaction") or {}).get("value") or "0"),
+                "data_hash": str((data.get("swapTransaction") or {}).get("dataHash") or "").strip() or None,
+            },
+            "token_in_metadata": _normalize_token_metadata(data.get("tokenInMetadata"), token_in),
+            "token_out_metadata": _normalize_token_metadata(data.get("tokenOutMetadata"), token_out),
+            "hash": result.get("hash"),
+            "approve_hash": result.get("approveHash"),
+            "reset_allowance_hash": result.get("resetAllowanceHash"),
+            "result": result,
+            "chain_id": int(data.get("chainId") or 0),
+            "broadcasted": True,
+            "confirmed": False,
+            "source": "wdk-evm-wallet",
+        }
+
     async def preview_evm_lifi_cross_chain_swap(
         self,
         *,

@@ -226,6 +226,38 @@ class AgentWalletBackend(ABC):
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support EVM LI.FI cross-chain swaps.")
 
+    async def get_uniswap_swap_quote(
+        self,
+        *,
+        token_in: str,
+        token_out: str,
+        amount_in_raw: str,
+        slippage_bps: int | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Uniswap swap quotes.")
+
+    async def preview_uniswap_swap(
+        self,
+        *,
+        token_in: str,
+        token_out: str,
+        amount_in_raw: str,
+        slippage_bps: int | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Uniswap swap previews.")
+
+    async def send_uniswap_swap(
+        self,
+        *,
+        token_in: str,
+        token_out: str,
+        amount_in_raw: str,
+        slippage_bps: int | None = None,
+        expected_quote_fingerprint: str | None = None,
+        minimum_output_amount_raw: str | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Uniswap swaps.")
+
     async def preview_evm_native_transfer(
         self,
         *,

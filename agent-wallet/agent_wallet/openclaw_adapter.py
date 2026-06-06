@@ -1587,6 +1587,96 @@ class OpenClawWalletAdapter:
                         risk_level="high",
                     ),
                 )
+                tools.insert(
+                    11,
+                    AgentToolSpec(
+                        name="get_uniswap_swap_quote",
+                        description=(
+                            "Get a read-only Uniswap Trading API quote (CLASSIC routing) for an ERC-20 or native ETH swap "
+                            "on ethereum or base. Supports full EIP-712 Permit2 path for ERC-20 inputs. "
+                            "This does not approve, sign, or execute a swap."
+                        ),
+                        input_schema={
+                            "type": "object",
+                            "properties": {
+                                "token_in": {
+                                    "type": "string",
+                                    "description": "ERC-20 contract address for the input token, or native/eth for native ETH.",
+                                },
+                                "token_out": {
+                                    "type": "string",
+                                    "description": "ERC-20 contract address for the output token, or native/eth for native ETH.",
+                                },
+                                "amount_in_raw": {
+                                    "type": "string",
+                                    "description": "Input amount in token base units as a base-10 integer string.",
+                                },
+                                "slippage_bps": {
+                                    "type": "integer",
+                                    "description": "Optional slippage tolerance in basis points (e.g. 50 = 0.5%). Defaults to 50.",
+                                },
+                                "network": {
+                                    "type": "string",
+                                    "enum": ["ethereum", "base"],
+                                    "description": "EVM network. Uniswap Trading API supports ethereum and base only.",
+                                },
+                            },
+                            "required": ["token_in", "token_out", "amount_in_raw"],
+                            "additionalProperties": False,
+                        },
+                        read_only=True,
+                        risk_level="low",
+                    ),
+                )
+                tools.insert(
+                    12,
+                    AgentToolSpec(
+                        name="swap_evm_uniswap_tokens",
+                        description=(
+                            "Preview, prepare, or execute an ERC-20 or native ETH swap through the Uniswap Trading API "
+                            "(CLASSIC routing) on ethereum or base. ERC-20 inputs use Permit2 EIP-712 signing automatically. "
+                            "Prepare returns an execution plan only. Execute requires a host-issued approval token bound to the previewed operation."
+                        ),
+                        input_schema={
+                            "type": "object",
+                            "properties": {
+                                "token_in": {
+                                    "type": "string",
+                                    "description": "ERC-20 contract address or native/eth for native ETH.",
+                                },
+                                "token_out": {
+                                    "type": "string",
+                                    "description": "ERC-20 contract address or native/eth for native ETH.",
+                                },
+                                "amount_in_raw": {
+                                    "type": "string",
+                                    "description": "Input amount in token base units as a base-10 integer string.",
+                                },
+                                "slippage_bps": {
+                                    "type": "integer",
+                                    "description": "Optional slippage tolerance in basis points (e.g. 50 = 0.5%). Defaults to 50.",
+                                },
+                                "mode": {
+                                    "type": "string",
+                                    "enum": ["preview", "prepare", "execute"],
+                                },
+                                "purpose": {"type": "string"},
+                                "user_intent": {"type": "boolean"},
+                                "approval_token": {"type": "string"},
+                                "network": {
+                                    "type": "string",
+                                    "enum": ["ethereum", "base"],
+                                    "description": "EVM network. Uniswap Trading API supports ethereum and base only.",
+                                },
+                            },
+                            "required": ["token_in", "token_out", "amount_in_raw", "mode", "purpose"],
+                            "additionalProperties": False,
+                        },
+                        read_only=False,
+                        requires_explicit_user_intent=True,
+                        risk_level="high",
+                    ),
+                )
 
             return tools
 
@@ -3749,6 +3839,146 @@ class OpenClawWalletAdapter:
                     data=self._annotate_sensitive_payload(
                         result,
                         action_label="EVM LI.FI cross-chain swap",
+                        mode="execute",
+                    ),
+                )
+
+            if tool_name == "get_uniswap_swap_quote":
+                token_in = args.get("token_in")
+                token_out = args.get("token_out")
+                amount_in_raw = args.get("amount_in_raw")
+                slippage_bps = args.get("slippage_bps")
+                if not isinstance(token_in, str) or not token_in.strip():
+                    raise WalletBackendError("token_in is required.")
+                if not isinstance(token_out, str) or not token_out.strip():
+                    raise WalletBackendError("token_out is required.")
+                if not isinstance(amount_in_raw, str) or not amount_in_raw.strip().isdigit():
+                    raise WalletBackendError("amount_in_raw must be a positive integer string.")
+                if int(amount_in_raw.strip()) <= 0:
+                    raise WalletBackendError("amount_in_raw must be greater than zero.")
+                if slippage_bps is not None and (not isinstance(slippage_bps, int) or slippage_bps < 0 or slippage_bps > 5000):
+                    raise WalletBackendError("slippage_bps must be an integer between 0 and 5000.")
+                data = await active_backend.get_uniswap_swap_quote(
+                    token_in=token_in.strip(),
+                    token_out=token_out.strip(),
+                    amount_in_raw=amount_in_raw.strip(),
+                    slippage_bps=slippage_bps,
+                )
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "swap_evm_uniswap_tokens":
+                token_in = args.get("token_in")
+                token_out = args.get("token_out")
+                amount_in_raw = args.get("amount_in_raw")
+                slippage_bps = args.get("slippage_bps")
+                mode = args.get("mode")
+                purpose = args.get("purpose")
+                user_intent = args.get("user_intent", False)
+                approval_token = args.get("approval_token")
+
+                if not isinstance(token_in, str) or not token_in.strip():
+                    raise WalletBackendError("token_in is required.")
+                if not isinstance(token_out, str) or not token_out.strip():
+                    raise WalletBackendError("token_out is required.")
+                if not isinstance(amount_in_raw, str) or not amount_in_raw.strip().isdigit():
+                    raise WalletBackendError("amount_in_raw must be a positive integer string.")
+                if int(amount_in_raw.strip()) <= 0:
+                    raise WalletBackendError("amount_in_raw must be greater than zero.")
+                if mode not in {"preview", "prepare", "execute"}:
+                    raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
+                if not isinstance(purpose, str) or not purpose.strip():
+                    raise WalletBackendError("purpose is required.")
+                if slippage_bps is not None and (not isinstance(slippage_bps, int) or slippage_bps < 0 or slippage_bps > 5000):
+                    raise WalletBackendError("slippage_bps must be an integer between 0 and 5000.")
+
+                preview_kwargs = {
+                    "token_in": token_in.strip(),
+                    "token_out": token_out.strip(),
+                    "amount_in_raw": amount_in_raw.strip(),
+                    "slippage_bps": slippage_bps,
+                }
+
+                if mode == "preview":
+                    preview = await active_backend.preview_uniswap_swap(**preview_kwargs)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            preview,
+                            action_label="Uniswap swap",
+                            mode="preview",
+                        ),
+                    )
+
+                if mode == "prepare":
+                    self._require_prepare_intent(user_intent)
+                    preview = await active_backend.preview_uniswap_swap(**preview_kwargs)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            self._build_prepare_plan(
+                                preview_payload=preview,
+                                action_label="Uniswap swap",
+                            ),
+                            action_label="Uniswap swap",
+                            mode="prepare",
+                        ),
+                    )
+
+                approval_payload = inspect_approval_token(
+                    approval_token,
+                    tool_name=tool_name,
+                    network=str(getattr(active_backend, "network", "unknown")),
+                    require_mainnet_confirmation=self._is_mainnet_for_backend(active_backend),
+                )
+                approval_summary = approval_payload.get("binding", {}).get("summary")
+                if not isinstance(approval_summary, dict):
+                    raise WalletBackendError(
+                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                    )
+                expected_summary = {
+                    "operation": "Uniswap swap",
+                    "network": str(getattr(active_backend, "network", "unknown")),
+                    "token_in": token_in.strip(),
+                    "token_out": token_out.strip(),
+                    "input_amount_raw": amount_in_raw.strip(),
+                }
+                for key, expected_value in expected_summary.items():
+                    if approval_summary.get(key) != expected_value:
+                        raise WalletBackendError(
+                            "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                        )
+
+                approval_summary_copy = dict(approval_summary)
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=approval_summary_copy,
+                    action_label="Uniswap swap",
+                    backend=active_backend,
+                )
+                bound_quote_fingerprint = approval_summary_copy.get("quote_fingerprint")
+                bound_minimum_output_amount_raw = approval_summary_copy.get("minimum_output_amount_raw")
+                result = await active_backend.send_uniswap_swap(
+                    **preview_kwargs,
+                    expected_quote_fingerprint=(
+                        bound_quote_fingerprint.strip()
+                        if isinstance(bound_quote_fingerprint, str) and bound_quote_fingerprint.strip()
+                        else None
+                    ),
+                    minimum_output_amount_raw=(
+                        str(bound_minimum_output_amount_raw).strip()
+                        if bound_minimum_output_amount_raw is not None
+                        else None
+                    ),
+                )
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=self._annotate_sensitive_payload(
+                        result,
+                        action_label="Uniswap swap",
                         mode="execute",
                     ),
                 )
