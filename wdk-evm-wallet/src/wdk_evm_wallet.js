@@ -2373,6 +2373,157 @@ export class WdkEvmWalletService {
     );
   }
 
+  async sendUniswapSwap({
+    seedPhrase,
+    tokenIn,
+    tokenOut,
+    tokenInAmount,
+    slippageBps,
+    accountIndex = 0,
+    network,
+    expectedQuoteFingerprint = null,
+    minimumTokenOutAmount = null,
+  }) {
+    return this.#withAccount({ seedPhrase, accountIndex, network }, async (account, runtimeConfig) => {
+      assertUniswapSupportedNetwork(runtimeConfig.network);
+      const swapRequest = buildUniswapSwapRequest({
+        tokenIn,
+        tokenOut,
+        tokenInAmount,
+        slippageBps:
+          slippageBps === undefined || slippageBps === null
+            ? this.config.uniswapDefaultSlippageBps
+            : slippageBps,
+      });
+      const normalizedExpectedQuoteFingerprint =
+        typeof expectedQuoteFingerprint === "string" && expectedQuoteFingerprint.trim()
+          ? expectedQuoteFingerprint.trim()
+          : null;
+      const requestedMinimumTokenOutAmount =
+        minimumTokenOutAmount !== null && minimumTokenOutAmount !== undefined
+          ? assertPositiveBigIntString(minimumTokenOutAmount, "minimumTokenOutAmount")
+          : null;
+      const address = await account.getAddress();
+      let initialPlan = await this.#buildUniswapSwapPlan({
+        account,
+        runtimeConfig,
+        address,
+        swapRequest,
+      });
+      this.#assertExpectedSwapFingerprint(
+        normalizedExpectedQuoteFingerprint,
+        initialPlan.quoteFingerprint
+      );
+      this.#assertMinimumSwapOutput(
+        requestedMinimumTokenOutAmount,
+        initialPlan.minimumTokenOutAmount,
+        initialPlan.tokenOutAmount
+      );
+
+      const approvalExecution = await this.#executeSwapApprovalsIfNeeded({
+        account,
+        runtimeConfig,
+        swapRequest: { tokenIn: swapRequest.tokenIn },
+        plan: initialPlan,
+      });
+
+      let finalPlan = initialPlan;
+      try {
+        if (approvalExecution.performed) {
+          // Re-fetch after approval to obtain fresh permitData (the deadline/nonce are short-lived).
+          finalPlan = await this.#buildUniswapSwapPlan({
+            account,
+            runtimeConfig,
+            address,
+            swapRequest,
+          });
+          this.#assertExpectedSwapFingerprint(
+            normalizedExpectedQuoteFingerprint,
+            finalPlan.quoteFingerprint
+          );
+        }
+        this.#assertMinimumSwapOutput(
+          requestedMinimumTokenOutAmount,
+          finalPlan.minimumTokenOutAmount,
+          finalPlan.tokenOutAmount
+        );
+
+        const allowanceReadUncertain =
+          approvalExecution.performed && finalPlan.allowanceReadError !== null;
+        if (finalPlan.approval.required && !allowanceReadUncertain) {
+          throw createTaggedError(
+            "Uniswap swap still requires token approval after the approval step completed.",
+            "swap_approval_required",
+            {
+              spender: finalPlan.spender,
+              requiredAllowance: finalPlan.tokenInAmount.toString(),
+              currentAllowance: finalPlan.currentAllowance.toString(),
+            }
+          );
+        }
+
+        const signature =
+          finalPlan.isNativeTokenIn || !finalPlan.permitData
+            ? null
+            : await this.#signUniswapPermit(account, finalPlan.permitData, runtimeConfig);
+
+        const swapTx = await this.#fetchUniswapSwapCalldata({
+          runtimeConfig,
+          quoteResponse: finalPlan.quoteResponse,
+          permitData: finalPlan.permitData,
+          signature,
+        });
+
+        const simulation = await this.#simulatePreparedTransaction({
+          runtimeConfig,
+          from: address,
+          tx: swapTx,
+        });
+        this.#assertSimulationSucceeded(simulation);
+
+        const { hash } = await account.sendTransaction(swapTx);
+        const result = {
+          hash,
+          approvalFee: approvalExecution.totalFee.toString(),
+          tokenInAmount: finalPlan.tokenInAmount.toString(),
+          tokenOutAmount: finalPlan.tokenOutAmount.toString(),
+          ...(approvalExecution.approveHash ? { approveHash: approvalExecution.approveHash } : {}),
+          ...(approvalExecution.resetAllowanceHash
+            ? { resetAllowanceHash: approvalExecution.resetAllowanceHash }
+            : {}),
+        };
+        return {
+          ...(await this.#formatUniswapSwapResponse({
+            runtimeConfig,
+            accountIndex,
+            address,
+            swapRequest,
+            plan: {
+              ...finalPlan,
+              approval: {
+                ...finalPlan.approval,
+                estimatedFee: approvalExecution.totalFee,
+              },
+            },
+          })),
+          simulation,
+          swapTransaction: { to: swapTx.to, value: swapTx.value.toString(), dataHash: sha256Hex(swapTx.data) },
+          result,
+        };
+      } catch (error) {
+        const cleanup = await this.#restoreAllowanceAfterFailedSwap({
+          account,
+          runtimeConfig,
+          tokenAddress: swapRequest.tokenIn,
+          spender: initialPlan.spender,
+          originalAllowance: initialPlan.currentAllowance,
+          approvalExecution,
+        });
+        this.#throwSwapFailureWithCleanup(error, cleanup);
+      }
+    });
+  }
+
   async #getUniswapTokenMetadata(runtimeConfig, tokenAddress) {
     if (isZeroAddress(tokenAddress)) {
       return {
@@ -3233,7 +3384,6 @@ export class WdkEvmWalletService {
         tokenInAmount: swapRequest.tokenInAmount.toString(),
         tokenOutAmount: tokenOutAmount.toString(),
         routing: "CLASSIC",
-        gasFee: quoteResponse.quote.gasFee ?? null,
       })
     );
     return {
