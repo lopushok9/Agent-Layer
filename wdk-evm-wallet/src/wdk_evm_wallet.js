@@ -3000,6 +3000,153 @@ export class WdkEvmWalletService {
     };
   }
 
+  async #uniswapTradingApiRequest(pathname, body) {
+    if (!this.config.uniswapApiKey) {
+      throw createTaggedError(
+        "UNISWAP_API_KEY is not configured. Set it to use Uniswap Trading API swaps.",
+        "uniswap_api_key_missing",
+        { provider: "uniswap" }
+      );
+    }
+    const base = String(this.config.uniswapTradingApiBaseUrl).replace(/\/+$/, "");
+    let response;
+    try {
+      response = await fetch(`${base}${pathname}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "x-api-key": this.config.uniswapApiKey,
+          "x-universal-router-version": this.config.uniswapRouterVersion,
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw createTaggedError(`Uniswap Trading API unavailable: ${message}`, "network_unavailable", {
+        provider: "uniswap",
+        pathname,
+      });
+    }
+    let payload;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    if (!response.ok) {
+      const message =
+        payload?.detail ||
+        payload?.message ||
+        payload?.error ||
+        `Uniswap Trading API ${pathname} failed with HTTP ${response.status}.`;
+      throw createTaggedError(String(message), "network_unavailable", {
+        provider: "uniswap",
+        pathname,
+        httpStatus: response.status,
+      });
+    }
+    if (!payload || typeof payload !== "object") {
+      throw createTaggedError(
+        `Uniswap Trading API ${pathname} returned an empty response.`,
+        "network_unavailable",
+        { provider: "uniswap", pathname }
+      );
+    }
+    return payload;
+  }
+
+  async #fetchUniswapQuote({ runtimeConfig, address, swapRequest }) {
+    const chainId = UNISWAP_SUPPORTED_CHAIN_IDS[runtimeConfig.network];
+    const payload = await this.#uniswapTradingApiRequest("/quote", {
+      swapper: address,
+      tokenIn: swapRequest.tokenIn,
+      tokenOut: swapRequest.tokenOut,
+      tokenInChainId: chainId,
+      tokenOutChainId: chainId,
+      amount: swapRequest.tokenInAmount.toString(),
+      type: "EXACT_INPUT",
+      slippageTolerance: swapRequest.slippagePercent,
+      routingPreference: "CLASSIC",
+    });
+    const routing = String(payload.routing || "").toUpperCase();
+    if (routing !== "CLASSIC") {
+      throw createTaggedError(
+        `Uniswap returned unsupported routing '${routing}'. Only CLASSIC is enabled in this runtime.`,
+        "uniswap_unsupported_route",
+        { provider: "uniswap", routing }
+      );
+    }
+    if (!payload.quote || typeof payload.quote !== "object" || !payload.quote.output) {
+      throw createTaggedError(
+        "Uniswap quote response is missing CLASSIC quote/output fields.",
+        "network_unavailable",
+        { provider: "uniswap" }
+      );
+    }
+    return payload;
+  }
+
+  async #buildUniswapSwapPlan({ account, runtimeConfig, address, swapRequest }) {
+    const quoteResponse = await this.#fetchUniswapQuote({ runtimeConfig, address, swapRequest });
+    const permitData = quoteResponse.permitData ?? null;
+    const isNativeTokenIn = isZeroAddress(swapRequest.tokenIn);
+    const spender = isNativeTokenIn ? null : PERMIT2_ADDRESS;
+    const allowanceState = isNativeTokenIn
+      ? { currentAllowance: swapRequest.tokenInAmount, error: null }
+      : await this.#getSwapAllowanceState({
+          account,
+          tokenAddress: swapRequest.tokenIn,
+          spender,
+        });
+    const currentAllowance = allowanceState.currentAllowance;
+    const approval = isNativeTokenIn
+      ? { required: false, estimatedFee: 0n, steps: [] }
+      : await this.#buildSwapApprovalPlan({
+          account,
+          runtimeConfig,
+          tokenAddress: swapRequest.tokenIn,
+          spender,
+          requiredAmount: swapRequest.tokenInAmount,
+          currentAllowance,
+        });
+    const tokenOutAmount = BigInt(String(quoteResponse.quote.output.amount || "0"));
+    const slippageBps = Math.round(swapRequest.slippagePercent * 100);
+    const minimumTokenOutAmount =
+      tokenOutAmount - (tokenOutAmount * BigInt(slippageBps)) / 10000n;
+    const router = UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK[runtimeConfig.network];
+    const quoteFingerprint = sha256Hex(
+      JSON.stringify({
+        chainId: runtimeConfig.chainId,
+        network: runtimeConfig.network,
+        from: address.toLowerCase(),
+        tokenIn: swapRequest.tokenIn.toLowerCase(),
+        tokenOut: swapRequest.tokenOut.toLowerCase(),
+        tokenInAmount: swapRequest.tokenInAmount.toString(),
+        tokenOutAmount: tokenOutAmount.toString(),
+        routing: "CLASSIC",
+        gasFee: quoteResponse.quote.gasFee ?? null,
+      })
+    );
+    return {
+      quoteResponse,
+      permitData,
+      isNativeTokenIn,
+      spender,
+      currentAllowance,
+      allowanceReadError: allowanceState.error,
+      approval,
+      tokenInAmount: swapRequest.tokenInAmount,
+      tokenOutAmount,
+      minimumTokenOutAmount,
+      slippageBps,
+      quoteFingerprint,
+      gasFee: quoteResponse.quote.gasFee ?? null,
+      gasFeeUSD: quoteResponse.quote.gasFeeUSD ?? null,
+      router,
+    };
+  }
+
   #assertExpectedSwapFingerprint(expectedQuoteFingerprint, actualQuoteFingerprint) {
     if (!expectedQuoteFingerprint) {
       return;
