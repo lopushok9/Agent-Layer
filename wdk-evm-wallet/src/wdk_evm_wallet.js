@@ -19,6 +19,13 @@ const LIFI_SOLANA_NATIVE_TOKEN_ADDRESS = "11111111111111111111111111111111";
 const DEFAULT_SWAP_SLIPPAGE_BPS = 100;
 const DEFAULT_LIFI_SLIPPAGE = 0.005;
 const ALWAYS_DENIED_LIFI_BRIDGES = ["mayan"];
+const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
+const UNISWAP_SUPPORTED_CHAIN_IDS = { ethereum: 1, base: 8453 };
+// Universal Router v2.0 allow-list (defense-in-depth: /swap response `to` must match).
+const UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK = {
+  ethereum: "0x66a9893cc07d91d95644aedd05d03f95e1dba8af",
+  base: "0x6ff5693b99212da76ad316178a184ab56d299b43",
+};
 const AAVE_RAY = 10n ** 27n;
 const LIDO_STETH_DECIMALS = 18;
 const LIDO_MIN_STETH_WITHDRAWAL_AMOUNT = 100n;
@@ -296,6 +303,28 @@ function parseLifiSlippage(value, fallback = DEFAULT_LIFI_SLIPPAGE) {
   return parsed;
 }
 
+function normalizeUniswapTokenAddress(value, fieldName) {
+  return normalizeEvmTokenAddressAllowingNative(value, fieldName);
+}
+
+function assertUniswapSupportedNetwork(network) {
+  const chainId = UNISWAP_SUPPORTED_CHAIN_IDS[network];
+  if (!chainId) {
+    throw new Error(
+      "Uniswap Trading API swaps are currently supported only on ethereum and base mainnet."
+    );
+  }
+  return chainId;
+}
+
+function uniswapSlippagePercentFromBps(bps) {
+  const parsed = Number(bps);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 5000) {
+    throw new Error("slippageBps must be an integer between 0 and 5000.");
+  }
+  return parsed / 100;
+}
+
 function normalizeBridgeList(value, fieldName) {
   if (value === undefined || value === null || value === "") {
     return null;
@@ -393,11 +422,53 @@ function normalizeX402ExactTypedData({ domain, types, primaryType, message }, ru
   };
 }
 
+function normalizeUniswapPermitData(permitData, runtimeConfig) {
+  const data = assertPlainObject(permitData, "permitData");
+  const domain = assertPlainObject(data.domain, "permitData.domain");
+  const domainChainId = assertNonNegativeInteger(domain.chainId, "permitData.domain.chainId");
+  if (domainChainId !== runtimeConfig.chainId) {
+    throw new Error("permitData.domain.chainId must match the active network chain id.");
+  }
+  const typesObject = assertPlainObject(data.types, "permitData.types");
+  const normalizedTypes = {};
+  for (const [typeName, fields] of Object.entries(typesObject)) {
+    if (typeName === "EIP712Domain") {
+      continue; // ethers infers the domain type; including it throws.
+    }
+    if (!Array.isArray(fields) || fields.length === 0) {
+      throw new Error(`permitData.types.${typeName} must be a non-empty array.`);
+    }
+    normalizedTypes[typeName] = fields.map((field, index) => {
+      const normalizedField = assertPlainObject(field, `permitData.types.${typeName}[${index}]`);
+      return {
+        name: assertNonEmptyString(normalizedField.name, `permitData.types.${typeName}[${index}].name`),
+        type: assertNonEmptyString(normalizedField.type, `permitData.types.${typeName}[${index}].type`),
+      };
+    });
+  }
+  if (Object.keys(normalizedTypes).length === 0) {
+    throw new Error("permitData.types must contain at least one non-domain type.");
+  }
+  const message = assertPlainObject(data.values, "permitData.values");
+  return { domain, types: normalizedTypes, message };
+}
+
 function buildSwapRequest({ tokenIn, tokenOut, tokenInAmount }) {
   const swapRequest = {
     tokenIn: normalizeVeloraTokenAddress(tokenIn, "tokenIn"),
     tokenOut: normalizeVeloraTokenAddress(tokenOut, "tokenOut"),
     tokenInAmount: assertPositiveBigIntString(tokenInAmount, "tokenInAmount"),
+  };
+  assertDistinctAddresses(swapRequest.tokenIn, "tokenIn", swapRequest.tokenOut, "tokenOut");
+  return swapRequest;
+}
+
+function buildUniswapSwapRequest({ tokenIn, tokenOut, tokenInAmount, slippageBps }) {
+  const swapRequest = {
+    tokenIn: normalizeUniswapTokenAddress(tokenIn, "tokenIn"),
+    tokenOut: normalizeUniswapTokenAddress(tokenOut, "tokenOut"),
+    tokenInAmount: assertPositiveBigIntString(tokenInAmount, "tokenInAmount"),
+    slippagePercent: uniswapSlippagePercentFromBps(slippageBps),
   };
   assertDistinctAddresses(swapRequest.tokenIn, "tokenIn", swapRequest.tokenOut, "tokenOut");
   return swapRequest;
@@ -2261,6 +2332,254 @@ export class WdkEvmWalletService {
     });
   }
 
+  async quoteUniswapSwap({
+    seedPhrase,
+    address,
+    tokenIn,
+    tokenOut,
+    tokenInAmount,
+    slippageBps,
+    accountIndex = 0,
+    network,
+  }) {
+    return this.#withReadableAccount(
+      { seedPhrase, address, accountIndex, network },
+      async (account, runtimeConfig) => {
+        assertUniswapSupportedNetwork(runtimeConfig.network);
+        const swapRequest = buildUniswapSwapRequest({
+          tokenIn,
+          tokenOut,
+          tokenInAmount,
+          slippageBps:
+            slippageBps === undefined || slippageBps === null
+              ? this.config.uniswapDefaultSlippageBps
+              : slippageBps,
+        });
+        const swapperAddress = await account.getAddress();
+        const plan = await this.#buildUniswapSwapPlan({
+          account,
+          runtimeConfig,
+          address: swapperAddress,
+          swapRequest,
+        });
+        return this.#formatUniswapSwapResponse({
+          runtimeConfig,
+          accountIndex,
+          address: swapperAddress,
+          swapRequest,
+          plan,
+        });
+      }
+    );
+  }
+
+  async sendUniswapSwap({
+    seedPhrase,
+    tokenIn,
+    tokenOut,
+    tokenInAmount,
+    slippageBps,
+    accountIndex = 0,
+    network,
+    expectedQuoteFingerprint = null,
+    minimumTokenOutAmount = null,
+  }) {
+    return this.#withAccount({ seedPhrase, accountIndex, network }, async (account, runtimeConfig) => {
+      assertUniswapSupportedNetwork(runtimeConfig.network);
+      const swapRequest = buildUniswapSwapRequest({
+        tokenIn,
+        tokenOut,
+        tokenInAmount,
+        slippageBps:
+          slippageBps === undefined || slippageBps === null
+            ? this.config.uniswapDefaultSlippageBps
+            : slippageBps,
+      });
+      const normalizedExpectedQuoteFingerprint =
+        typeof expectedQuoteFingerprint === "string" && expectedQuoteFingerprint.trim()
+          ? expectedQuoteFingerprint.trim()
+          : null;
+      const requestedMinimumTokenOutAmount =
+        minimumTokenOutAmount !== null && minimumTokenOutAmount !== undefined
+          ? assertPositiveBigIntString(minimumTokenOutAmount, "minimumTokenOutAmount")
+          : null;
+      const address = await account.getAddress();
+      let initialPlan = await this.#buildUniswapSwapPlan({
+        account,
+        runtimeConfig,
+        address,
+        swapRequest,
+      });
+      this.#assertExpectedSwapFingerprint(
+        normalizedExpectedQuoteFingerprint,
+        initialPlan.quoteFingerprint
+      );
+      this.#assertMinimumSwapOutput(
+        requestedMinimumTokenOutAmount,
+        initialPlan.minimumTokenOutAmount,
+        initialPlan.tokenOutAmount
+      );
+
+      const approvalExecution = await this.#executeSwapApprovalsIfNeeded({
+        account,
+        runtimeConfig,
+        swapRequest: { tokenIn: swapRequest.tokenIn },
+        plan: initialPlan,
+      });
+
+      let finalPlan = initialPlan;
+      try {
+        if (approvalExecution.performed) {
+          // Re-fetch after approval to obtain fresh permitData (the deadline/nonce are short-lived).
+          finalPlan = await this.#buildUniswapSwapPlan({
+            account,
+            runtimeConfig,
+            address,
+            swapRequest,
+          });
+          this.#assertExpectedSwapFingerprint(
+            normalizedExpectedQuoteFingerprint,
+            finalPlan.quoteFingerprint
+          );
+        }
+        this.#assertMinimumSwapOutput(
+          requestedMinimumTokenOutAmount,
+          finalPlan.minimumTokenOutAmount,
+          finalPlan.tokenOutAmount
+        );
+
+        const allowanceReadUncertain =
+          approvalExecution.performed && finalPlan.allowanceReadError !== null;
+        if (finalPlan.approval.required && !allowanceReadUncertain) {
+          throw createTaggedError(
+            "Uniswap swap still requires token approval after the approval step completed.",
+            "swap_approval_required",
+            {
+              spender: finalPlan.spender,
+              requiredAllowance: finalPlan.tokenInAmount.toString(),
+              currentAllowance: finalPlan.currentAllowance.toString(),
+            }
+          );
+        }
+
+        const signature =
+          finalPlan.isNativeTokenIn || !finalPlan.permitData
+            ? null
+            : await this.#signUniswapPermit(account, finalPlan.permitData, runtimeConfig);
+
+        const swapTx = await this.#fetchUniswapSwapCalldata({
+          runtimeConfig,
+          quoteResponse: finalPlan.quoteResponse,
+          permitData: finalPlan.permitData,
+          signature,
+        });
+
+        const simulation = await this.#simulatePreparedTransaction({
+          runtimeConfig,
+          from: address,
+          tx: swapTx,
+        });
+        this.#assertSimulationSucceeded(simulation);
+
+        const { hash } = await account.sendTransaction(swapTx);
+        const result = {
+          hash,
+          approvalFee: approvalExecution.totalFee.toString(),
+          tokenInAmount: finalPlan.tokenInAmount.toString(),
+          tokenOutAmount: finalPlan.tokenOutAmount.toString(),
+          ...(approvalExecution.approveHash ? { approveHash: approvalExecution.approveHash } : {}),
+          ...(approvalExecution.resetAllowanceHash
+            ? { resetAllowanceHash: approvalExecution.resetAllowanceHash }
+            : {}),
+        };
+        return {
+          ...(await this.#formatUniswapSwapResponse({
+            runtimeConfig,
+            accountIndex,
+            address,
+            swapRequest,
+            plan: {
+              ...finalPlan,
+              approval: {
+                ...finalPlan.approval,
+                estimatedFee: approvalExecution.totalFee,
+              },
+            },
+          })),
+          simulation,
+          swapTransaction: { to: swapTx.to, value: swapTx.value.toString(), dataHash: sha256Hex(swapTx.data) },
+          result,
+        };
+      } catch (error) {
+        const cleanup = await this.#restoreAllowanceAfterFailedSwap({
+          account,
+          runtimeConfig,
+          tokenAddress: swapRequest.tokenIn,
+          spender: initialPlan.spender,
+          originalAllowance: initialPlan.currentAllowance,
+          approvalExecution,
+        });
+        this.#throwSwapFailureWithCleanup(error, cleanup);
+      }
+    });
+  }
+
+  async #getUniswapTokenMetadata(runtimeConfig, tokenAddress) {
+    if (isZeroAddress(tokenAddress)) {
+      return {
+        address: ZERO_ADDRESS,
+        name: runtimeConfig.nativeSymbol === "ETH" ? "Ether" : runtimeConfig.nativeSymbol,
+        symbol: runtimeConfig.nativeSymbol,
+        decimals: 18,
+        verified: true,
+        source: "native-asset",
+      };
+    }
+    return this.#getTokenMetadata(runtimeConfig, tokenAddress);
+  }
+
+  async #formatUniswapSwapResponse({ runtimeConfig, accountIndex, address, swapRequest, plan }) {
+    const [tokenInMetadata, tokenOutMetadata] = await Promise.all([
+      this.#getUniswapTokenMetadata(runtimeConfig, swapRequest.tokenIn),
+      this.#getUniswapTokenMetadata(runtimeConfig, swapRequest.tokenOut),
+    ]);
+    return {
+      network: runtimeConfig.network,
+      chainId: runtimeConfig.chainId,
+      accountIndex,
+      address,
+      protocol: "uniswap",
+      executionSupported: true,
+      routing: "CLASSIC",
+      swapRequest: {
+        tokenIn: swapRequest.tokenIn,
+        tokenOut: swapRequest.tokenOut,
+        tokenInAmount: swapRequest.tokenInAmount.toString(),
+      },
+      tokenInMetadata,
+      tokenOutMetadata,
+      inputAmountFormatted: formatUnits(swapRequest.tokenInAmount, tokenInMetadata.decimals),
+      outputAmountFormatted: formatUnits(plan.tokenOutAmount, tokenOutMetadata.decimals),
+      quoteFingerprint: plan.quoteFingerprint,
+      slippageBps: plan.slippageBps,
+      minimumOutputAmountRaw: plan.minimumTokenOutAmount.toString(),
+      permitRequired: plan.permitData !== null,
+      gasFeeWei: plan.gasFee,
+      gasFeeUSD: plan.gasFeeUSD,
+      estimatedApprovalFeeWei: plan.approval.estimatedFee.toString(),
+      allowance: {
+        spender: plan.spender,
+        currentAllowance: plan.currentAllowance.toString(),
+        requiredAllowance: plan.tokenInAmount.toString(),
+        approvalRequired: plan.approval.required,
+        approvalSequence: plan.approval.steps,
+        readError: plan.allowanceReadError,
+      },
+      router: plan.router,
+      source: "uniswap-trading-api",
+    };
+  }
+
   async quoteNativeTransfer({ seedPhrase, to, value, accountIndex = 0, network }) {
     return this.#withAccount({ seedPhrase, accountIndex, network }, async (account, runtimeConfig) => {
       const tx = {
@@ -2937,6 +3256,204 @@ export class WdkEvmWalletService {
       toolDetails: plan.toolDetails,
       quote: plan.quote,
       source: "lifi",
+    };
+  }
+
+  async #uniswapTradingApiRequest(pathname, body) {
+    if (!this.config.uniswapApiKey) {
+      throw createTaggedError(
+        "UNISWAP_API_KEY is not configured. Set it to use Uniswap Trading API swaps.",
+        "uniswap_api_key_missing",
+        { provider: "uniswap" }
+      );
+    }
+    const base = String(this.config.uniswapTradingApiBaseUrl).replace(/\/+$/, "");
+    let response;
+    try {
+      response = await fetch(`${base}${pathname}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "x-api-key": this.config.uniswapApiKey,
+          "x-universal-router-version": this.config.uniswapRouterVersion,
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw createTaggedError(`Uniswap Trading API unavailable: ${message}`, "network_unavailable", {
+        provider: "uniswap",
+        pathname,
+      });
+    }
+    let payload;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    if (!response.ok) {
+      const message =
+        payload?.detail ||
+        payload?.message ||
+        payload?.error ||
+        `Uniswap Trading API ${pathname} failed with HTTP ${response.status}.`;
+      throw createTaggedError(String(message), "network_unavailable", {
+        provider: "uniswap",
+        pathname,
+        httpStatus: response.status,
+      });
+    }
+    if (!payload || typeof payload !== "object") {
+      throw createTaggedError(
+        `Uniswap Trading API ${pathname} returned an empty response.`,
+        "network_unavailable",
+        { provider: "uniswap", pathname }
+      );
+    }
+    return payload;
+  }
+
+  async #fetchUniswapQuote({ runtimeConfig, address, swapRequest }) {
+    const chainId = UNISWAP_SUPPORTED_CHAIN_IDS[runtimeConfig.network];
+    const payload = await this.#uniswapTradingApiRequest("/quote", {
+      swapper: address,
+      tokenIn: swapRequest.tokenIn,
+      tokenOut: swapRequest.tokenOut,
+      tokenInChainId: chainId,
+      tokenOutChainId: chainId,
+      amount: swapRequest.tokenInAmount.toString(),
+      type: "EXACT_INPUT",
+      slippageTolerance: swapRequest.slippagePercent,
+      // The live Trading API rejects routingPreference:"CLASSIC"; restricting
+      // protocols to V2/V3/V4 is what excludes UniswapX and yields routing=CLASSIC.
+      protocols: ["V2", "V3", "V4"],
+    });
+    const routing = String(payload.routing || "").toUpperCase();
+    if (routing !== "CLASSIC") {
+      throw createTaggedError(
+        `Uniswap returned unsupported routing '${routing}'. Only CLASSIC is enabled in this runtime.`,
+        "uniswap_unsupported_route",
+        { provider: "uniswap", routing }
+      );
+    }
+    if (!payload.quote || typeof payload.quote !== "object" || !payload.quote.output) {
+      throw createTaggedError(
+        "Uniswap quote response is missing CLASSIC quote/output fields.",
+        "network_unavailable",
+        { provider: "uniswap" }
+      );
+    }
+    return payload;
+  }
+
+  async #buildUniswapSwapPlan({ account, runtimeConfig, address, swapRequest }) {
+    const quoteResponse = await this.#fetchUniswapQuote({ runtimeConfig, address, swapRequest });
+    const permitData = quoteResponse.permitData ?? null;
+    const isNativeTokenIn = isZeroAddress(swapRequest.tokenIn);
+    const spender = isNativeTokenIn ? null : PERMIT2_ADDRESS;
+    const allowanceState = isNativeTokenIn
+      ? { currentAllowance: swapRequest.tokenInAmount, error: null }
+      : await this.#getSwapAllowanceState({
+          account,
+          tokenAddress: swapRequest.tokenIn,
+          spender,
+        });
+    const currentAllowance = allowanceState.currentAllowance;
+    const approval = isNativeTokenIn
+      ? { required: false, estimatedFee: 0n, steps: [] }
+      : await this.#buildSwapApprovalPlan({
+          account,
+          runtimeConfig,
+          tokenAddress: swapRequest.tokenIn,
+          spender,
+          requiredAmount: swapRequest.tokenInAmount,
+          currentAllowance,
+        });
+    const tokenOutAmount = BigInt(String(quoteResponse.quote.output.amount || "0"));
+    const slippageBps = Math.round(swapRequest.slippagePercent * 100);
+    // The Trading API returns the post-slippage floor directly; fall back to a
+    // local computation only if the field is absent.
+    const minimumTokenOutAmount =
+      quoteResponse.quote.output.minimumAmount !== undefined &&
+      quoteResponse.quote.output.minimumAmount !== null
+        ? BigInt(String(quoteResponse.quote.output.minimumAmount))
+        : tokenOutAmount - (tokenOutAmount * BigInt(slippageBps)) / 10000n;
+    const router = UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK[runtimeConfig.network];
+    const quoteFingerprint = sha256Hex(
+      JSON.stringify({
+        chainId: runtimeConfig.chainId,
+        network: runtimeConfig.network,
+        from: address.toLowerCase(),
+        tokenIn: swapRequest.tokenIn.toLowerCase(),
+        tokenOut: swapRequest.tokenOut.toLowerCase(),
+        tokenInAmount: swapRequest.tokenInAmount.toString(),
+        tokenOutAmount: tokenOutAmount.toString(),
+        routing: "CLASSIC",
+      })
+    );
+    return {
+      quoteResponse,
+      permitData,
+      isNativeTokenIn,
+      spender,
+      currentAllowance,
+      allowanceReadError: allowanceState.error,
+      approval,
+      tokenInAmount: swapRequest.tokenInAmount,
+      tokenOutAmount,
+      minimumTokenOutAmount,
+      slippageBps,
+      quoteFingerprint,
+      gasFee: quoteResponse.quote.gasFee ?? null,
+      gasFeeUSD: quoteResponse.quote.gasFeeUSD ?? null,
+      router,
+    };
+  }
+
+  async #signUniswapPermit(account, permitData, runtimeConfig) {
+    const typed = normalizeUniswapPermitData(permitData, runtimeConfig);
+    return account.signTypedData({
+      domain: typed.domain,
+      types: typed.types,
+      message: typed.message,
+    });
+  }
+
+  async #fetchUniswapSwapCalldata({ runtimeConfig, quoteResponse, permitData, signature }) {
+    const { permitData: _permitData, permitTransaction: _permitTransaction, ...cleanQuote } =
+      quoteResponse;
+    const body = { ...cleanQuote };
+    // CLASSIC routing: the Universal Router needs permitData on-chain to verify the
+    // Permit2 authorization, so signature and permitData are submitted together.
+    if (signature && permitData) {
+      body.signature = signature;
+      body.permitData = permitData;
+    }
+    const payload = await this.#uniswapTradingApiRequest("/swap", body);
+    const swap = payload.swap || {};
+    const to = normalizeAddress(String(swap.to || ""), "swap.to");
+    const expectedRouter = UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK[runtimeConfig.network];
+    if (to.toLowerCase() !== expectedRouter) {
+      throw createTaggedError(
+        "Uniswap /swap returned an unexpected target contract.",
+        "uniswap_unexpected_router",
+        { provider: "uniswap", to: to.toLowerCase(), expected: expectedRouter }
+      );
+    }
+    const data = assertNonEmptyString(String(swap.data || ""), "swap.data");
+    if (data === "0x") {
+      throw createTaggedError(
+        "Uniswap /swap returned empty calldata. The quote likely expired; generate a new preview.",
+        "swap_quote_changed",
+        { provider: "uniswap" }
+      );
+    }
+    return {
+      to,
+      data,
+      value: parseHexOrDecimalBigInt(swap.value || "0", "swap.value"),
     };
   }
 
@@ -5102,3 +5619,12 @@ export class WdkEvmWalletService {
     );
   }
 }
+
+export const __testables = {
+  PERMIT2_ADDRESS,
+  UNISWAP_SUPPORTED_CHAIN_IDS,
+  normalizeUniswapTokenAddress,
+  assertUniswapSupportedNetwork,
+  uniswapSlippagePercentFromBps,
+  normalizeUniswapPermitData,
+};

@@ -40,7 +40,10 @@ function normalizeErrorCode(errorCode, pathname, message) {
     code === "aave_cleanup_failed" ||
     code === "token_transfer_failed" ||
     code === "fee_limit_exceeded" ||
-    code === "token_read_failed"
+    code === "token_read_failed" ||
+    code === "uniswap_api_key_missing" ||
+    code === "uniswap_unsupported_route" ||
+    code === "uniswap_unexpected_router"
   ) {
     return code;
   }
@@ -129,9 +132,16 @@ function errorStatusCode(errorCode, fallback = 400) {
     errorCode === "aave_fee_unavailable" ||
     errorCode === "aave_cleanup_failed" ||
     errorCode === "token_transfer_failed" ||
-    errorCode === "fee_limit_exceeded"
+    errorCode === "fee_limit_exceeded" ||
+    errorCode === "uniswap_api_key_missing"
   ) {
     return 400;
+  }
+  if (errorCode === "uniswap_unsupported_route") {
+    return 422;
+  }
+  if (errorCode === "uniswap_unexpected_router") {
+    return 502;
   }
   if (errorCode === "token_read_failed") {
     return 502;
@@ -528,6 +538,18 @@ async function handleRequest(request, response) {
     if (method === "POST" && url.pathname === "/v1/evm/lifi/send") {
       const body = await withResolvedNetwork(await withResolvedSeed(await readJsonBody(request)));
       const data = await service.sendLifiSwap(body);
+      return sendJson(response, 200, { ok: true, data });
+    }
+
+    if (method === "POST" && url.pathname === "/v1/evm/uniswap/swap/quote") {
+      const body = await withResolvedNetwork(await withResolvedSeedOrAddress(await readJsonBody(request)));
+      const data = await service.quoteUniswapSwap(body);
+      return sendJson(response, 200, { ok: true, data });
+    }
+
+    if (method === "POST" && url.pathname === "/v1/evm/uniswap/swap/send") {
+      const body = await withResolvedNetwork(await withResolvedSeed(await readJsonBody(request)));
+      const data = await service.sendUniswapSwap(body);
       return sendJson(response, 200, { ok: true, data });
     }
 

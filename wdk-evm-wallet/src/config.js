@@ -284,6 +284,16 @@ export function loadConfig(env = process.env) {
     lifiDefaultDenyBridges: String(env.LIFI_DEFAULT_DENY_BRIDGES ?? "").trim() || "mayan",
     lidoApiBaseUrl: String(env.LIDO_API_BASE_URL ?? "").trim() || "https://eth-api.lido.fi/v1",
     lidoReferralAddress: String(env.LIDO_REFERRAL_ADDRESS ?? "").trim(),
+    uniswapTradingApiBaseUrl:
+      String(env.UNISWAP_TRADING_API_BASE_URL ?? "").trim() ||
+      "https://trade-api.gateway.uniswap.org/v1",
+    uniswapApiKey: String(env.UNISWAP_API_KEY ?? "").trim(),
+    uniswapRouterVersion: String(env.UNISWAP_ROUTER_VERSION ?? "").trim() || "2.0",
+    uniswapDefaultSlippageBps: parseInteger(
+      env.UNISWAP_DEFAULT_SLIPPAGE_BPS,
+      50,
+      "UNISWAP_DEFAULT_SLIPPAGE_BPS"
+    ),
     networkProfiles,
   };
 }
