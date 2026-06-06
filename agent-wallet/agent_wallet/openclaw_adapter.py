@@ -476,6 +476,26 @@ class OpenClawWalletAdapter:
                 "evm_swap_fingerprint": evm_swap_fingerprint,
             }
 
+        if asset_type == "evm-uniswap-swap":
+            provided_fingerprint = payload.get("quote_fingerprint")
+            return {
+                "operation": action_label,
+                "network": str(payload.get("network") or getattr(self.backend, "network", "unknown")),
+                "wallet": payload.get("wallet"),
+                "from_address": payload.get("from_address"),
+                "swap_provider": payload.get("swap_provider"),
+                "routing": payload.get("routing"),
+                "token_in": payload.get("token_in"),
+                "token_out": payload.get("token_out"),
+                "input_amount_raw": payload.get("input_amount_raw"),
+                "estimated_output_amount_raw": payload.get("estimated_output_amount_raw"),
+                "minimum_output_amount_raw": payload.get("minimum_output_amount_raw"),
+                "slippage_bps": payload.get("slippage_bps"),
+                "permit_required": payload.get("permit_required"),
+                "router": payload.get("router"),
+                "quote_fingerprint": provided_fingerprint,
+            }
+
         if asset_type == "evm-aave-v3":
             return {
                 "operation": action_label,
@@ -1670,6 +1690,41 @@ class OpenClawWalletAdapter:
                                 },
                             },
                             "required": ["token_in", "token_out", "amount_in_raw", "mode", "purpose"],
+                            "additionalProperties": False,
+                        },
+                        read_only=False,
+                        requires_explicit_user_intent=True,
+                        risk_level="high",
+                    ),
+                )
+                tools.insert(
+                    13,
+                    AgentToolSpec(
+                        name="issue_wallet_approval",
+                        description=(
+                            "Issue a host approval token bound to an exact wallet operation. "
+                            "Call this after prepare mode to get the token required for execute mode. "
+                            "Pass tool_name and the confirmation_summary exactly as returned in the prepare response. "
+                            "In Claude Code this is the bridge step that Codex performs automatically via its UI dialog."
+                        ),
+                        input_schema={
+                            "type": "object",
+                            "properties": {
+                                "tool_name": {
+                                    "type": "string",
+                                    "description": "Name of the tool being approved, e.g. swap_evm_uniswap_tokens or swap_evm_tokens.",
+                                },
+                                "summary": {
+                                    "type": "object",
+                                    "description": "The confirmation_summary dict returned verbatim from the prepare response.",
+                                    "additionalProperties": True,
+                                },
+                                "mainnet_confirmed": {
+                                    "type": "boolean",
+                                    "description": "Set to true to confirm this is a mainnet operation and you accept the risk.",
+                                },
+                            },
+                            "required": ["tool_name", "summary", "mainnet_confirmed"],
                             "additionalProperties": False,
                         },
                         read_only=False,
@@ -3981,6 +4036,45 @@ class OpenClawWalletAdapter:
                         action_label="Uniswap swap",
                         mode="execute",
                     ),
+                )
+
+            if tool_name == "issue_wallet_approval":
+                from agent_wallet.approval import issue_approval_token
+
+                target_tool = args.get("tool_name")
+                summary = args.get("summary")
+                mainnet_confirmed = args.get("mainnet_confirmed", False)
+
+                if not isinstance(target_tool, str) or not target_tool.strip():
+                    raise WalletBackendError("tool_name is required.")
+                if not isinstance(summary, dict) or not summary:
+                    raise WalletBackendError("summary must be a non-empty object matching the prepare response confirmation_summary.")
+                if not isinstance(mainnet_confirmed, bool):
+                    raise WalletBackendError("mainnet_confirmed must be a boolean.")
+                if self._is_mainnet_for_backend(active_backend) and not mainnet_confirmed:
+                    raise WalletBackendError(
+                        "mainnet_confirmed must be true for mainnet operations. "
+                        "Set mainnet_confirmed: true to confirm you accept the risk of an irreversible mainnet transaction."
+                    )
+
+                network = str(getattr(active_backend, "network", "unknown"))
+                token = issue_approval_token(
+                    tool_name=target_tool.strip(),
+                    network=network,
+                    summary=summary,
+                    mainnet_confirmed=mainnet_confirmed,
+                    issued_by="claude-code-bridge",
+                )
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data={
+                        "approval_token": token,
+                        "tool_name": target_tool.strip(),
+                        "network": network,
+                        "mainnet_confirmed": mainnet_confirmed,
+                        "usage": f"Pass approval_token to {target_tool.strip()} with mode='execute'.",
+                    },
                 )
 
             if tool_name == "get_wallet_portfolio":
