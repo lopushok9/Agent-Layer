@@ -19,6 +19,13 @@ const LIFI_SOLANA_NATIVE_TOKEN_ADDRESS = "11111111111111111111111111111111";
 const DEFAULT_SWAP_SLIPPAGE_BPS = 100;
 const DEFAULT_LIFI_SLIPPAGE = 0.005;
 const ALWAYS_DENIED_LIFI_BRIDGES = ["mayan"];
+const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
+const UNISWAP_SUPPORTED_CHAIN_IDS = { ethereum: 1, base: 8453 };
+// Universal Router v2.0 allow-list (defense-in-depth: /swap response `to` must match).
+const UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK = {
+  ethereum: "0x66a9893cc07d91d95644aedd05d03f95e1dba8af",
+  base: "0x6ff5693b99212da76ad316178a184ab56d299b43",
+};
 const AAVE_RAY = 10n ** 27n;
 const LIDO_STETH_DECIMALS = 18;
 const LIDO_MIN_STETH_WITHDRAWAL_AMOUNT = 100n;
@@ -294,6 +301,28 @@ function parseLifiSlippage(value, fallback = DEFAULT_LIFI_SLIPPAGE) {
     throw new Error("slippage must be a number between 0 and 1.");
   }
   return parsed;
+}
+
+function normalizeUniswapTokenAddress(value, fieldName) {
+  return normalizeEvmTokenAddressAllowingNative(value, fieldName);
+}
+
+function assertUniswapSupportedNetwork(network) {
+  const chainId = UNISWAP_SUPPORTED_CHAIN_IDS[network];
+  if (!chainId) {
+    throw new Error(
+      "Uniswap Trading API swaps are currently supported only on ethereum and base mainnet."
+    );
+  }
+  return chainId;
+}
+
+function uniswapSlippagePercentFromBps(bps) {
+  const parsed = Number(bps);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 5000) {
+    throw new Error("slippageBps must be an integer between 0 and 5000.");
+  }
+  return parsed / 100;
 }
 
 function normalizeBridgeList(value, fieldName) {
@@ -5102,3 +5131,11 @@ export class WdkEvmWalletService {
     );
   }
 }
+
+export const __testables = {
+  PERMIT2_ADDRESS,
+  UNISWAP_SUPPORTED_CHAIN_IDS,
+  normalizeUniswapTokenAddress,
+  assertUniswapSupportedNetwork,
+  uniswapSlippagePercentFromBps,
+};
