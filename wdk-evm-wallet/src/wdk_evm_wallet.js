@@ -463,6 +463,17 @@ function buildSwapRequest({ tokenIn, tokenOut, tokenInAmount }) {
   return swapRequest;
 }
 
+function buildUniswapSwapRequest({ tokenIn, tokenOut, tokenInAmount, slippageBps }) {
+  const swapRequest = {
+    tokenIn: normalizeUniswapTokenAddress(tokenIn, "tokenIn"),
+    tokenOut: normalizeUniswapTokenAddress(tokenOut, "tokenOut"),
+    tokenInAmount: assertPositiveBigIntString(tokenInAmount, "tokenInAmount"),
+    slippagePercent: uniswapSlippagePercentFromBps(slippageBps),
+  };
+  assertDistinctAddresses(swapRequest.tokenIn, "tokenIn", swapRequest.tokenOut, "tokenOut");
+  return swapRequest;
+}
+
 function buildLifiEvmSwapRequest({
   tokenIn,
   destinationChain,
@@ -2319,6 +2330,103 @@ export class WdkEvmWalletService {
         this.#throwSwapFailureWithCleanup(error, cleanup);
       }
     });
+  }
+
+  async quoteUniswapSwap({
+    seedPhrase,
+    address,
+    tokenIn,
+    tokenOut,
+    tokenInAmount,
+    slippageBps,
+    accountIndex = 0,
+    network,
+  }) {
+    return this.#withReadableAccount(
+      { seedPhrase, address, accountIndex, network },
+      async (account, runtimeConfig) => {
+        assertUniswapSupportedNetwork(runtimeConfig.network);
+        const swapRequest = buildUniswapSwapRequest({
+          tokenIn,
+          tokenOut,
+          tokenInAmount,
+          slippageBps:
+            slippageBps === undefined || slippageBps === null
+              ? this.config.uniswapDefaultSlippageBps
+              : slippageBps,
+        });
+        const swapperAddress = await account.getAddress();
+        const plan = await this.#buildUniswapSwapPlan({
+          account,
+          runtimeConfig,
+          address: swapperAddress,
+          swapRequest,
+        });
+        return this.#formatUniswapSwapResponse({
+          runtimeConfig,
+          accountIndex,
+          address: swapperAddress,
+          swapRequest,
+          plan,
+        });
+      }
+    );
+  }
+
+  async #getUniswapTokenMetadata(runtimeConfig, tokenAddress) {
+    if (isZeroAddress(tokenAddress)) {
+      return {
+        address: ZERO_ADDRESS,
+        name: runtimeConfig.nativeSymbol === "ETH" ? "Ether" : runtimeConfig.nativeSymbol,
+        symbol: runtimeConfig.nativeSymbol,
+        decimals: 18,
+        verified: true,
+        source: "native-asset",
+      };
+    }
+    return this.#getTokenMetadata(runtimeConfig, tokenAddress);
+  }
+
+  async #formatUniswapSwapResponse({ runtimeConfig, accountIndex, address, swapRequest, plan }) {
+    const [tokenInMetadata, tokenOutMetadata] = await Promise.all([
+      this.#getUniswapTokenMetadata(runtimeConfig, swapRequest.tokenIn),
+      this.#getUniswapTokenMetadata(runtimeConfig, swapRequest.tokenOut),
+    ]);
+    return {
+      network: runtimeConfig.network,
+      chainId: runtimeConfig.chainId,
+      accountIndex,
+      address,
+      protocol: "uniswap",
+      executionSupported: true,
+      routing: "CLASSIC",
+      swapRequest: {
+        tokenIn: swapRequest.tokenIn,
+        tokenOut: swapRequest.tokenOut,
+        tokenInAmount: swapRequest.tokenInAmount.toString(),
+      },
+      tokenInMetadata,
+      tokenOutMetadata,
+      inputAmountFormatted: formatUnits(swapRequest.tokenInAmount, tokenInMetadata.decimals),
+      outputAmountFormatted: formatUnits(plan.tokenOutAmount, tokenOutMetadata.decimals),
+      quoteFingerprint: plan.quoteFingerprint,
+      slippageBps: plan.slippageBps,
+      minimumOutputAmountRaw: plan.minimumTokenOutAmount.toString(),
+      permitRequired: plan.permitData !== null,
+      gasFeeWei: plan.gasFee,
+      gasFeeUSD: plan.gasFeeUSD,
+      estimatedApprovalFeeWei: plan.approval.estimatedFee.toString(),
+      allowance: {
+        spender: plan.spender,
+        currentAllowance: plan.currentAllowance.toString(),
+        requiredAllowance: plan.tokenInAmount.toString(),
+        approvalRequired: plan.approval.required,
+        approvalSequence: plan.approval.steps,
+        readError: plan.allowanceReadError,
+      },
+      router: plan.router,
+      source: "uniswap-trading-api",
+    };
   }
 
   async quoteNativeTransfer({ seedPhrase, to, value, accountIndex = 0, network }) {
