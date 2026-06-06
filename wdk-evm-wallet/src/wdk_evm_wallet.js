@@ -3147,6 +3147,51 @@ export class WdkEvmWalletService {
     };
   }
 
+  async #signUniswapPermit(account, permitData, runtimeConfig) {
+    const typed = normalizeUniswapPermitData(permitData, runtimeConfig);
+    return account.signTypedData({
+      domain: typed.domain,
+      types: typed.types,
+      message: typed.message,
+    });
+  }
+
+  async #fetchUniswapSwapCalldata({ runtimeConfig, quoteResponse, permitData, signature }) {
+    const { permitData: _permitData, permitTransaction: _permitTransaction, ...cleanQuote } =
+      quoteResponse;
+    const body = { ...cleanQuote };
+    // CLASSIC routing: the Universal Router needs permitData on-chain to verify the
+    // Permit2 authorization, so signature and permitData are submitted together.
+    if (signature && permitData) {
+      body.signature = signature;
+      body.permitData = permitData;
+    }
+    const payload = await this.#uniswapTradingApiRequest("/swap", body);
+    const swap = payload.swap || {};
+    const to = normalizeAddress(String(swap.to || ""), "swap.to");
+    const expectedRouter = UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK[runtimeConfig.network];
+    if (to.toLowerCase() !== expectedRouter) {
+      throw createTaggedError(
+        "Uniswap /swap returned an unexpected target contract.",
+        "uniswap_unexpected_router",
+        { provider: "uniswap", to: to.toLowerCase(), expected: expectedRouter }
+      );
+    }
+    const data = assertNonEmptyString(String(swap.data || ""), "swap.data");
+    if (data === "0x") {
+      throw createTaggedError(
+        "Uniswap /swap returned empty calldata. The quote likely expired; generate a new preview.",
+        "swap_quote_changed",
+        { provider: "uniswap" }
+      );
+    }
+    return {
+      to,
+      data,
+      value: parseHexOrDecimalBigInt(swap.value || "0", "swap.value"),
+    };
+  }
+
   #assertExpectedSwapFingerprint(expectedQuoteFingerprint, actualQuoteFingerprint) {
     if (!expectedQuoteFingerprint) {
       return;
