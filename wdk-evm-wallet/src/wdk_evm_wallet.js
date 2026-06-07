@@ -3381,15 +3381,23 @@ export class WdkEvmWalletService {
         ? BigInt(String(quoteResponse.quote.output.minimumAmount))
         : tokenOutAmount - (tokenOutAmount * BigInt(slippageBps)) / 10000n;
     const router = UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK[runtimeConfig.network];
+    // Bind only the stable swap *intent* (who/what/how-much/slippage/route), never
+    // the live quoted output: the Trading API re-prices every block, so including
+    // tokenOutAmount here made execute's re-quote fingerprint differ from preview's
+    // and spuriously fail with "swap_quote_changed". Adverse price movement is
+    // caught separately and tolerantly by the minimumTokenOutAmount check, matching
+    // the velora swap contract (#buildVeloraSwapPlan).
     const quoteFingerprint = sha256Hex(
       JSON.stringify({
         chainId: runtimeConfig.chainId,
         network: runtimeConfig.network,
         from: address.toLowerCase(),
+        router: router.toLowerCase(),
+        spender: spender ? spender.toLowerCase() : null,
         tokenIn: swapRequest.tokenIn.toLowerCase(),
         tokenOut: swapRequest.tokenOut.toLowerCase(),
         tokenInAmount: swapRequest.tokenInAmount.toString(),
-        tokenOutAmount: tokenOutAmount.toString(),
+        slippageBps,
         routing: "CLASSIC",
       })
     );

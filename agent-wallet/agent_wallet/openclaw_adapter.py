@@ -1633,7 +1633,7 @@ class OpenClawWalletAdapter:
                                 },
                                 "slippage_bps": {
                                     "type": "integer",
-                                    "description": "Optional slippage tolerance in basis points (e.g. 50 = 0.5%). Defaults to 50.",
+                                    "description": "Optional slippage tolerance in basis points (e.g. 50 = 0.5%, 300 = 3%). Defaults to 300.",
                                 },
                                 "network": {
                                     "type": "string",
@@ -1674,7 +1674,7 @@ class OpenClawWalletAdapter:
                                 },
                                 "slippage_bps": {
                                     "type": "integer",
-                                    "description": "Optional slippage tolerance in basis points (e.g. 50 = 0.5%). Defaults to 50.",
+                                    "description": "Optional slippage tolerance in basis points (e.g. 50 = 0.5%, 300 = 3%). Defaults to 300.",
                                 },
                                 "mode": {
                                     "type": "string",

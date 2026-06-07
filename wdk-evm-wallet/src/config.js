@@ -289,9 +289,14 @@ export function loadConfig(env = process.env) {
       "https://trade-api.gateway.uniswap.org/v1",
     uniswapApiKey: String(env.UNISWAP_API_KEY ?? "").trim(),
     uniswapRouterVersion: String(env.UNISWAP_ROUTER_VERSION ?? "").trim() || "2.0",
+    // 300 bps (3%) default mirrors the Solana swap-intent floor. Active markets
+    // (Base re-prices every block) drift during the multi-step preview -> approval
+    // -> execute window; a 0.5% floor rejected ordinary drift. The quote
+    // fingerprint binds only the swap intent, so this floor — not an exact-output
+    // pin — is the real slippage guard. Override per-call or via env for tight swaps.
     uniswapDefaultSlippageBps: parseInteger(
       env.UNISWAP_DEFAULT_SLIPPAGE_BPS,
-      50,
+      300,
       "UNISWAP_DEFAULT_SLIPPAGE_BPS"
     ),
     networkProfiles,

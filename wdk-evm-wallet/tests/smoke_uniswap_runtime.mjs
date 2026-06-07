@@ -114,13 +114,21 @@ function createHarness(options = {}) {
           return ok({ routing, quote: {} });
         }
         const erc20In = body.tokenIn !== ZERO;
+        // Successive /quote calls can return drifting output amounts (preview vs
+        // execute re-quote) to exercise quote-drift handling, mirroring the live
+        // Trading API where the quoted output moves every block.
+        const outputAmount = Array.isArray(options.quoteOutputAmounts)
+          ? options.quoteOutputAmounts[
+              Math.min(state.quoteBodies.length - 1, options.quoteOutputAmounts.length - 1)
+            ]
+          : options.outputAmount || "990000";
         return ok({
           routing: "CLASSIC",
           quote: {
             input: { token: body.tokenIn, amount: body.amount },
             output: {
               token: body.tokenOut,
-              amount: options.outputAmount || "990000",
+              amount: outputAmount,
               minimumAmount: options.minimumAmount || "985000",
             },
             slippage: body.slippageTolerance,
@@ -320,6 +328,71 @@ test("send: USDC -> ETH signs the permit and submits signature to /swap", async 
     assert.ok(swapBody.signature, "signature must be attached for CLASSIC permit");
     assert.ok(swapBody.permitData, "permitData must be re-attached for CLASSIC");
     assert.equal(result.result.hash, `0x${"d".repeat(64)}`);
+  } finally {
+    h.restore();
+  }
+});
+
+test("send: tolerates refreshed quote drift within the slippage window", async () => {
+  // Preview quotes 990000; execute re-quotes a lower-but-still-acceptable
+  // 988000 (>= bound minimum 985000). The quote fingerprint must stay stable
+  // across the re-quote so the swap proceeds, matching the velora swap contract.
+  const h = createHarness({
+    quoteOutputAmounts: ["990000", "988000"],
+    minimumAmount: "985000",
+    swapValue: "0xde0b6b3a7640000",
+  });
+  try {
+    const preview = await h.service.quoteUniswapSwap({
+      seedPhrase: VALID_MNEMONIC,
+      tokenIn: "native",
+      tokenOut: BASE_USDC,
+      tokenInAmount: "1000000000000000000",
+      network: "base",
+    });
+    const result = await h.service.sendUniswapSwap({
+      seedPhrase: VALID_MNEMONIC,
+      tokenIn: "native",
+      tokenOut: BASE_USDC,
+      tokenInAmount: "1000000000000000000",
+      network: "base",
+      expectedQuoteFingerprint: preview.quoteFingerprint,
+      minimumTokenOutAmount: preview.minimumOutputAmountRaw,
+    });
+    assert.equal(result.result.hash, `0x${"d".repeat(64)}`);
+  } finally {
+    h.restore();
+  }
+});
+
+test("send: rejects refreshed quote drift beyond the slippage window", async () => {
+  // Execute re-quotes 980000, below the bound minimum 985000 -> rejected via the
+  // tolerant minimum-output check (not a spurious fingerprint mismatch).
+  const h = createHarness({
+    quoteOutputAmounts: ["990000", "980000"],
+    minimumAmount: "985000",
+    swapValue: "0xde0b6b3a7640000",
+  });
+  try {
+    const preview = await h.service.quoteUniswapSwap({
+      seedPhrase: VALID_MNEMONIC,
+      tokenIn: "native",
+      tokenOut: BASE_USDC,
+      tokenInAmount: "1000000000000000000",
+      network: "base",
+    });
+    await assert.rejects(
+      h.service.sendUniswapSwap({
+        seedPhrase: VALID_MNEMONIC,
+        tokenIn: "native",
+        tokenOut: BASE_USDC,
+        tokenInAmount: "1000000000000000000",
+        network: "base",
+        expectedQuoteFingerprint: preview.quoteFingerprint,
+        minimumTokenOutAmount: preview.minimumOutputAmountRaw,
+      }),
+      (err) => err.errorCode === "swap_quote_changed"
+    );
   } finally {
     h.restore();
   }
