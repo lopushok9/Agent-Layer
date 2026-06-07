@@ -22,11 +22,13 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
         error_responses: dict[str, dict[str, Any]] | None = None,
         response_delays: dict[str, float] | None = None,
         start_empty: bool = False,
+        version: str = "test-version",
     ):
         self.network = network
         self.host = host
         self.port = int(port)
         self.auth_token = str(auth_token).strip()
+        self.version = str(version).strip()
         self.error_responses = dict(error_responses or {})
         self.response_delays = {
             str(key): float(value) for key, value in (response_delays or {}).items()
@@ -104,6 +106,7 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                         {
                             "ok": True,
                             "service": "wdk-evm-wallet",
+                            "version": outer.version,
                             "wallet": "evm",
                             "network": outer.network,
                             "chainId": outer.chain_id,

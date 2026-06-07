@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import signal
 import sys
@@ -11,6 +12,19 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from _wdk_evm_test_server import FakeWdkEvmWalletServer  # noqa: E402
+
+
+def _resolve_version() -> str:
+    # Mirror the real daemon: report the launcher's package.json version, unless a
+    # test forces a (stale) value via env to simulate an old long-running process.
+    override = os.getenv("WDK_EVM_FAKE_VERSION", "").strip()
+    if override:
+        return override
+    try:
+        pkg = json.loads((Path.cwd() / "package.json").read_text(encoding="utf-8"))
+        return str(pkg.get("version") or "").strip() or "test-version"
+    except (OSError, ValueError):
+        return "test-version"
 
 
 def main() -> None:
@@ -23,6 +37,7 @@ def main() -> None:
         host=host,
         port=port,
         auth_token=auth_token,
+        version=_resolve_version(),
     ):
         while True:
             time.sleep(1)

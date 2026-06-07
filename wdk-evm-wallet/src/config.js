@@ -9,6 +9,23 @@ const DEFAULTS = {
   network: "sepolia",
   unlockTimeoutSeconds: 0,
 };
+
+// Read this package's version once at module load. Surfaced via /health so the
+// host autostart can detect a stale long-running daemon (old code in memory)
+// after a release and restart it. Falls back to "0.0.0" if package.json is
+// unreadable — a value that will simply look "stale" and trigger a restart.
+function readPackageVersion() {
+  try {
+    const pkgUrl = new URL("../package.json", import.meta.url);
+    const pkg = JSON.parse(fs.readFileSync(pkgUrl, "utf8"));
+    const version = String(pkg.version || "").trim();
+    return version || "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
+const PACKAGE_VERSION = readPackageVersion();
 const DEFAULT_PROVIDER_GATEWAY_URL = "https://agent-layer-production.up.railway.app";
 const ENFORCED_GATEWAY_MAINNETS = new Set(["ethereum", "base"]);
 
@@ -299,6 +316,7 @@ export function loadConfig(env = process.env) {
       300,
       "UNISWAP_DEFAULT_SLIPPAGE_BPS"
     ),
+    version: PACKAGE_VERSION,
     networkProfiles,
   };
 }

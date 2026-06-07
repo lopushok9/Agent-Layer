@@ -282,7 +282,7 @@ async function handleRequest(request, response) {
       return sendJson(response, 200, {
         ok: true,
         service: "wdk-evm-wallet",
-        version: "0.1.0",
+        version: config.version,
         wallet: "evm",
         network: runtimeConfig.network,
         chainId: runtimeConfig.chainId,

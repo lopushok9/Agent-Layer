@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import shutil
+import signal
 import subprocess
 import time
 from pathlib import Path
@@ -50,12 +52,103 @@ def _health_url(service_url: str) -> str:
     return f"{service_url.rstrip('/')}/health"
 
 
-def _service_is_healthy(service_url: str) -> bool:
+def _service_health(service_url: str) -> dict[str, Any] | None:
+    """Return the parsed /health payload, or None if the service is down.
+
+    An empty dict means the service answered 200 but the body was unparseable —
+    treated as "running, version unknown" so we never restart on a parse blip.
+    """
     try:
         with urlopen(_health_url(service_url), timeout=1.5) as response:
-            return int(getattr(response, "status", 0) or 0) == 200
+            if int(getattr(response, "status", 0) or 0) != 200:
+                return None
+            raw = response.read()
     except (URLError, TimeoutError, OSError):
-        return False
+        return None
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _service_is_healthy(service_url: str) -> bool:
+    return _service_health(service_url) is not None
+
+
+def _read_on_disk_service_version(wallet_root: Path) -> str | None:
+    """Version the launcher in wallet_root would report once (re)started."""
+    try:
+        pkg = json.loads((wallet_root / "package.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    version = str(pkg.get("version") or "").strip()
+    return version or None
+
+
+def _listening_pids(port: int) -> list[int]:
+    """PIDs LISTENing on a local TCP port (via lsof), excluding our own."""
+    lsof = shutil.which("lsof")
+    if not lsof:
+        return []
+    try:
+        completed = subprocess.run(  # noqa: S603
+            [lsof, "-t", "-i", f"tcp:{port}", "-sTCP:LISTEN"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    pids: list[int] = []
+    for token in completed.stdout.split():
+        token = token.strip()
+        if token.isdigit():
+            pid = int(token)
+            if pid != os.getpid():
+                pids.append(pid)
+    return pids
+
+
+def _stop_local_service(service_url: str) -> None:
+    """Gracefully stop a local wdk-evm-wallet daemon so a fresh one can start.
+
+    SIGTERM the listener(s), wait for /health to drop, then SIGKILL as a fallback.
+    """
+    port = urlparse(service_url).port or 8081
+    pids = _listening_pids(port)
+    if not pids:
+        # Nothing identifiable to stop (e.g. lsof missing). Surface a clear,
+        # actionable error rather than racing into an EADDRINUSE start failure.
+        raise WalletBackendError(
+            f"A stale wdk-evm-wallet is running on port {port} but could not be "
+            "identified to restart it. Stop it manually and retry."
+        )
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            continue
+        except PermissionError as exc:
+            raise WalletBackendError(
+                f"Cannot stop stale wdk-evm-wallet (pid {pid}): {exc}."
+            ) from exc
+    deadline = time.time() + 10.0
+    while time.time() < deadline:
+        if _service_health(service_url) is None:
+            return
+        time.sleep(0.3)
+    for pid in _listening_pids(port):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            continue
+    deadline = time.time() + 5.0
+    while time.time() < deadline:
+        if _service_health(service_url) is None:
+            return
+        time.sleep(0.3)
+    raise WalletBackendError(f"Failed to stop stale wdk-evm-wallet on port {port}.")
 
 
 def _is_local_service_url(service_url: str) -> bool:
@@ -80,13 +173,28 @@ def _resolve_local_wdk_evm_root() -> Path | None:
 
 
 def _auto_start_local_service(service_url: str, network: str) -> None:
-    if _service_is_healthy(service_url):
-        return
+    wallet_root = _resolve_local_wdk_evm_root()
+    health = _service_health(service_url)
+    if health is not None:
+        # Already running. The daemon loads code once at boot (no hot-reload), so a
+        # long-running process keeps serving stale code after a release. Restart it
+        # only when its reported version differs from the on-disk launcher version —
+        # comparing against the version the restarted daemon will itself report keeps
+        # this idempotent (steady state = no-op) and free of restart loops. Remote
+        # (non-local) healthy services we don't manage are left untouched.
+        if not _is_local_service_url(service_url):
+            return
+        expected_version = (
+            _read_on_disk_service_version(wallet_root) if wallet_root is not None else None
+        )
+        running_version = str(health.get("version") or "").strip()
+        if expected_version is None or running_version == expected_version:
+            return
+        _stop_local_service(service_url)
     if not _is_local_service_url(service_url):
         raise WalletBackendError(
             f"wdk-evm-wallet is unreachable at {_health_url(service_url)} and auto-start only supports localhost URLs."
         )
-    wallet_root = _resolve_local_wdk_evm_root()
     if wallet_root is None:
         raise WalletBackendError(
             "wdk-evm-wallet is not healthy and the local launcher could not be found."

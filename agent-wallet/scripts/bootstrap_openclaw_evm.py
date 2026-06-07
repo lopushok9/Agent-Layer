@@ -137,8 +137,25 @@ def _auto_start_local_service(
     wdk_wallet_root: Path,
     config_path: Path,
 ) -> dict[str, object]:
-    if _service_is_healthy(service_url):
-        return {"started": False, "already_healthy": True}
+    # Restart a running-but-stale daemon (old code in memory after a release) by
+    # comparing its /health version to the on-disk launcher version. Idempotent:
+    # steady state is a no-op. See agent_wallet.evm_user_wallets for the shared
+    # health/version/stop helpers.
+    from agent_wallet.evm_user_wallets import (
+        _read_on_disk_service_version,
+        _service_health,
+        _stop_local_service,
+    )
+
+    restarted = False
+    health = _service_health(service_url)
+    if health is not None:
+        expected_version = _read_on_disk_service_version(wdk_wallet_root)
+        running_version = str(health.get("version") or "").strip()
+        if expected_version is None or running_version == expected_version:
+            return {"started": False, "already_healthy": True}
+        _stop_local_service(service_url)
+        restarted = True
 
     if not _is_local_service_url(service_url):
         raise SystemExit(
@@ -178,6 +195,7 @@ def _auto_start_local_service(
             return {
                 "started": True,
                 "already_healthy": False,
+                "restarted": restarted,
                 "pid": process.pid,
                 "log_path": str(log_path),
             }
