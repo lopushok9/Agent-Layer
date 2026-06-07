@@ -156,6 +156,10 @@ def main() -> None:
     assert _timeout_for_path("/v1/evm/transfer/send") >= 120.0
     assert _timeout_for_path("/v1/evm/token-transfer/send") >= 120.0
     assert _timeout_for_path("/v1/evm/swap/quote") >= 120.0
+    # Uniswap is a same-class write path (approve + swap = two on-chain
+    # confirmations) and must share the long-running timeout, not the 10s default.
+    assert _timeout_for_path("/v1/evm/uniswap/swap/send") >= 120.0
+    assert _timeout_for_path("/v1/evm/uniswap/swap/quote") >= 120.0
     assert _timeout_for_path("/v1/evm/lifi/quote") >= 120.0
 
     print("smoke_wdk_evm_local_security: ok")

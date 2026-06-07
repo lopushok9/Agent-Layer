@@ -26,6 +26,8 @@ LONG_RUNNING_POST_PATHS = {
     "/v1/evm/lido/claim_withdrawal/send",
     "/v1/evm/swap/quote",
     "/v1/evm/swap/send",
+    "/v1/evm/uniswap/swap/quote",
+    "/v1/evm/uniswap/swap/send",
     "/v1/evm/lifi/quote",
     "/v1/evm/lifi/send",
     "/v1/evm/transfer/send",
