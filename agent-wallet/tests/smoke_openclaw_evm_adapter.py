@@ -1625,6 +1625,10 @@ async def _main() -> None:
     )
     assert swap_preview.ok is True
     assert swap_preview.data["asset_type"] == "evm-swap"
+    # A preview must carry mode="preview" so the host bridge caches it for
+    # auto-approval at execute; without it, preview -> execute fails with
+    # "confirmation context expired".
+    assert swap_preview.data["mode"] == "preview"
     assert swap_preview.data["estimated_output_amount_raw"] == "995000"
     assert swap_preview.data["estimated_output_amount_ui"] == "0.995"
     assert swap_preview.data["quote_fingerprint"] == "evm-swap-fingerprint-1"

@@ -824,6 +824,13 @@ class OpenClawWalletAdapter:
         is_mainnet = self._is_mainnet_network(network)
         annotated["network"] = network
         annotated["is_mainnet"] = is_mainnet
+        # Stamp the mode so the host bridge can cache preview/prepare responses for
+        # auto-approval at execute. The bridge already treats "preview" as cacheable
+        # (alongside "prepare"/"intent_preview"); without this field a preview -> execute
+        # flow never caches and execute fails with "confirmation context expired",
+        # regardless of timing. prepare carries its own mode via _build_prepare_plan;
+        # "execute" responses stay uncached (not in the bridge's cacheable set).
+        annotated["mode"] = mode
         annotated["confirmation_summary"] = self._build_confirmation_summary(
             action_label=action_label,
             payload=annotated,
