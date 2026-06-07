@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+## v0.1.41 - 2026-06-07
+
+- Hardened Uniswap Trading API swap execution on active EVM mainnet markets.
+  - Stabilized the Uniswap quote fingerprint so `preview -> execute` binds to
+    the swap intent rather than a per-block quoted output amount, preventing
+    harmless repricing from failing execute with `swap_quote_changed`.
+  - Raised the default Uniswap slippage floor from `50` bps to `300` bps
+    (`3%`) so normal drift during the approval/execution window on Base no
+    longer causes avoidable failures. Per-call and env overrides still apply.
+- Made the local `wdk-evm-wallet` daemon version-aware and self-refreshing.
+  - `/health` now reports the real launcher version instead of a hardcoded
+    `0.1.0`.
+  - Local EVM autostart compares the running daemon version against the on-disk
+    launcher version and automatically restarts a stale daemon after local
+    release/install, avoiding old code staying resident in memory.
+- Extended the long-running EVM HTTP timeout policy to the Uniswap
+  `/v1/evm/uniswap/swap/{quote,send}` routes so approve+swap flows on Base do
+  not time out client-side while the daemon is still finishing the on-chain
+  operation.
+
 ## v0.1.37 - 2026-06-05
 
 - Fixed the Claude Code / Codex MCP bridge failing to start with
