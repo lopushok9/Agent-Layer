@@ -106,6 +106,7 @@ function createHarness(options = {}) {
     const requestUrl = String(url || "");
     if (requestUrl.startsWith(apiBase)) {
       const body = JSON.parse(String(init.body || "{}"));
+      state.lastHeaders = init.headers || {};
       const ok = (payload) => ({ ok: true, status: 200, json: async () => payload });
       if (requestUrl.endsWith("/quote")) {
         state.quoteBodies.push(body);
@@ -171,6 +172,8 @@ function createHarness(options = {}) {
     transferMaxFeeWei: null,
     uniswapTradingApiBaseUrl: apiBase,
     uniswapApiKey: options.apiKey === undefined ? "test-key" : options.apiKey,
+    uniswapViaGateway: Boolean(options.viaGateway),
+    providerGatewayToken: options.gatewayToken,
     uniswapRouterVersion: "2.0",
     uniswapDefaultSlippageBps: 50,
     networkProfiles: {
@@ -328,6 +331,51 @@ test("send: USDC -> ETH signs the permit and submits signature to /swap", async 
     assert.ok(swapBody.signature, "signature must be attached for CLASSIC permit");
     assert.ok(swapBody.permitData, "permitData must be re-attached for CLASSIC");
     assert.equal(result.result.hash, `0x${"d".repeat(64)}`);
+  } finally {
+    h.restore();
+  }
+});
+
+test("send: gateway mode authenticates with bearer and omits the local api key", async () => {
+  // No local UNISWAP_API_KEY; the daemon authenticates to the provider gateway
+  // with the shared bearer and the gateway injects x-api-key upstream.
+  const h = createHarness({
+    viaGateway: true,
+    gatewayToken: "gw-token",
+    apiKey: "",
+    swapValue: "0xde0b6b3a7640000",
+  });
+  try {
+    const result = await h.service.sendUniswapSwap({
+      seedPhrase: VALID_MNEMONIC,
+      tokenIn: "native",
+      tokenOut: BASE_USDC,
+      tokenInAmount: "1000000000000000000",
+      network: "base",
+    });
+    assert.equal(result.result.hash, `0x${"d".repeat(64)}`);
+    const headers = h.state.lastHeaders;
+    assert.equal(headers.Authorization, "Bearer gw-token");
+    assert.equal(headers["x-api-key"], undefined);
+    assert.equal(headers["x-universal-router-version"], "2.0");
+  } finally {
+    h.restore();
+  }
+});
+
+test("send: direct mode sends x-api-key and no bearer", async () => {
+  const h = createHarness({ swapValue: "0xde0b6b3a7640000" });
+  try {
+    await h.service.sendUniswapSwap({
+      seedPhrase: VALID_MNEMONIC,
+      tokenIn: "native",
+      tokenOut: BASE_USDC,
+      tokenInAmount: "1000000000000000000",
+      network: "base",
+    });
+    const headers = h.state.lastHeaders;
+    assert.equal(headers["x-api-key"], "test-key");
+    assert.equal(headers.Authorization, undefined);
   } finally {
     h.restore();
   }

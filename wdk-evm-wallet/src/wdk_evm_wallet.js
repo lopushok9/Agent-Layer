@@ -3260,24 +3260,35 @@ export class WdkEvmWalletService {
   }
 
   async #uniswapTradingApiRequest(pathname, body) {
-    if (!this.config.uniswapApiKey) {
-      throw createTaggedError(
-        "UNISWAP_API_KEY is not configured. Set it to use Uniswap Trading API swaps.",
-        "uniswap_api_key_missing",
-        { provider: "uniswap" }
-      );
+    const headers = {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "x-universal-router-version": this.config.uniswapRouterVersion,
+    };
+    if (this.config.uniswapViaGateway) {
+      // The provider gateway holds the Uniswap key and injects x-api-key upstream;
+      // we authenticate to it with the shared gateway bearer (same token used for
+      // EVM RPC routing), so no Uniswap key needs to live on this machine.
+      const token = String(this.config.providerGatewayToken || "").trim();
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+    } else {
+      if (!this.config.uniswapApiKey) {
+        throw createTaggedError(
+          "UNISWAP_API_KEY is not configured. Set it, or route Uniswap through the provider gateway, to use Uniswap Trading API swaps.",
+          "uniswap_api_key_missing",
+          { provider: "uniswap" }
+        );
+      }
+      headers["x-api-key"] = this.config.uniswapApiKey;
     }
     const base = String(this.config.uniswapTradingApiBaseUrl).replace(/\/+$/, "");
     let response;
     try {
       response = await fetch(`${base}${pathname}`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          "x-api-key": this.config.uniswapApiKey,
-          "x-universal-router-version": this.config.uniswapRouterVersion,
-        },
+        headers,
         body: JSON.stringify(body),
       });
     } catch (error) {

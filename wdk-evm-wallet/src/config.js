@@ -274,6 +274,20 @@ export function loadConfig(env = process.env) {
     },
   };
 
+  // Route Uniswap Trading API calls through the provider-gateway by default so the
+  // Uniswap key lives only in the gateway (never in a per-release wallet .env). When
+  // the base URL points at the gateway we authenticate with the gateway bearer and
+  // let the gateway inject x-api-key; an explicit non-gateway base URL falls back to
+  // the legacy direct mode (local UNISWAP_API_KEY + x-api-key).
+  const gatewayBaseTrimmed = String(providerGatewayUrl || "").replace(/\/+$/, "");
+  const uniswapTradingApiBaseUrl =
+    String(env.UNISWAP_TRADING_API_BASE_URL ?? "").trim() ||
+    (gatewayBaseTrimmed
+      ? `${gatewayBaseTrimmed}/v1/evm/uniswap`
+      : "https://trade-api.gateway.uniswap.org/v1");
+  const uniswapViaGateway =
+    Boolean(gatewayBaseTrimmed) && uniswapTradingApiBaseUrl.startsWith(gatewayBaseTrimmed);
+
   return {
     host,
     port: parseInteger(env.PORT, DEFAULTS.port, "PORT"),
@@ -301,9 +315,9 @@ export function loadConfig(env = process.env) {
     lifiDefaultDenyBridges: String(env.LIFI_DEFAULT_DENY_BRIDGES ?? "").trim() || "mayan",
     lidoApiBaseUrl: String(env.LIDO_API_BASE_URL ?? "").trim() || "https://eth-api.lido.fi/v1",
     lidoReferralAddress: String(env.LIDO_REFERRAL_ADDRESS ?? "").trim(),
-    uniswapTradingApiBaseUrl:
-      String(env.UNISWAP_TRADING_API_BASE_URL ?? "").trim() ||
-      "https://trade-api.gateway.uniswap.org/v1",
+    uniswapTradingApiBaseUrl,
+    uniswapViaGateway,
+    providerGatewayToken,
     uniswapApiKey: String(env.UNISWAP_API_KEY ?? "").trim(),
     uniswapRouterVersion: String(env.UNISWAP_ROUTER_VERSION ?? "").trim() || "2.0",
     // 300 bps (3%) default mirrors the Solana swap-intent floor. Active markets

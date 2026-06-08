@@ -210,6 +210,26 @@ def _jupiter_swap_configured() -> bool:
     return bool(_trim(os.getenv("JUPITER_API_KEY")))
 
 
+def _uniswap_base_url() -> str:
+    return _trim(os.getenv("UNISWAP_TRADING_API_BASE_URL")) or "https://trade-api.gateway.uniswap.org/v1"
+
+
+def _uniswap_configured() -> bool:
+    return bool(_trim(os.getenv("UNISWAP_API_KEY")))
+
+
+def _uniswap_headers() -> dict[str, str]:
+    api_key = _trim(os.getenv("UNISWAP_API_KEY"))
+    if not api_key:
+        raise RuntimeError("UNISWAP_API_KEY is not configured")
+    return {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "x-api-key": api_key,
+        "x-universal-router-version": _trim(os.getenv("UNISWAP_ROUTER_VERSION")) or "2.0",
+    }
+
+
 def _provider_url_from_env(name: str, default: str = "") -> str:
     return _trim(os.getenv(name)) or default
 
@@ -372,6 +392,11 @@ def _status_payload() -> dict[str, Any]:
         "jupiter_swap_features": {
             "swap_quote": True,
             "swap_swap": True,
+        },
+        "uniswap_configured": _uniswap_configured(),
+        "uniswap_features": {
+            "quote": True,
+            "swap": True,
         },
     }
 
@@ -1157,6 +1182,67 @@ async def jupiter_swap_swap(request: Request) -> JSONResponse:
     return JSONResponse(payload, status_code=status_code)
 
 
+async def uniswap_quote(request: Request) -> JSONResponse:
+    """Proxy a Uniswap Trading API quote, injecting the shared x-api-key.
+
+    Lets the local EVM wallet daemon route Uniswap quotes through the gateway so
+    the Uniswap key lives only here (never in per-machine wallet .env files). The
+    request/response bodies are passed through verbatim.
+    """
+    auth_error = _require_machine_token(request)
+    if auth_error:
+        return _json_error(auth_error, 401)
+
+    if not _uniswap_configured():
+        return _json_error("Uniswap is not configured", 503)
+
+    try:
+        body = _require_body_dict(await request.json())
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except Exception:
+        return _json_error("Invalid JSON body", 400)
+
+    try:
+        status_code, payload = await _http_post(
+            f"{_uniswap_base_url()}/quote",
+            headers=_uniswap_headers(),
+            json_body=body,
+        )
+    except (RuntimeError, httpx.HTTPError) as exc:
+        return _json_error(f"Uniswap quote error: {exc}", 502)
+
+    return JSONResponse(payload, status_code=status_code)
+
+
+async def uniswap_swap(request: Request) -> JSONResponse:
+    """Proxy a Uniswap Trading API swap-calldata build, injecting the x-api-key."""
+    auth_error = _require_machine_token(request)
+    if auth_error:
+        return _json_error(auth_error, 401)
+
+    if not _uniswap_configured():
+        return _json_error("Uniswap is not configured", 503)
+
+    try:
+        body = _require_body_dict(await request.json())
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except Exception:
+        return _json_error("Invalid JSON body", 400)
+
+    try:
+        status_code, payload = await _http_post(
+            f"{_uniswap_base_url()}/swap",
+            headers=_uniswap_headers(),
+            json_body=body,
+        )
+    except (RuntimeError, httpx.HTTPError) as exc:
+        return _json_error(f"Uniswap swap error: {exc}", 502)
+
+    return JSONResponse(payload, status_code=status_code)
+
+
 async def houdini_tokens(request: Request) -> JSONResponse:
     auth_error = _require_bearer(request)
     if auth_error:
@@ -1353,6 +1439,8 @@ routes = [
     Route("/v1/flash/perps/positions", flash_perps_positions, methods=["GET"]),
     Route("/v1/jupiter/swap/quote", jupiter_swap_quote, methods=["GET"]),
     Route("/v1/jupiter/swap/swap", jupiter_swap_swap, methods=["POST"]),
+    Route("/v1/evm/uniswap/quote", uniswap_quote, methods=["POST"]),
+    Route("/v1/evm/uniswap/swap", uniswap_swap, methods=["POST"]),
     Route("/v1/houdini/tokens", houdini_tokens, methods=["GET"]),
     Route("/v1/houdini/quotes/private", houdini_private_quotes, methods=["GET"]),
     Route("/v1/houdini/exchanges", houdini_exchange_create, methods=["POST"]),
