@@ -18,6 +18,12 @@ For Codex:
 npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet codex install --yes
 ```
 
+For Claude Code:
+
+```bash
+npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet claude-code install --yes
+```
+
 For Hermes:
 
 ```bash
