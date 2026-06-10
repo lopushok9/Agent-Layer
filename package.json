@@ -46,6 +46,7 @@
     "agent-wallet/pyproject.toml",
     ".openclaw/AGENTS.md",
     ".openclaw/extensions/agent-wallet/",
+    ".claude-plugin/marketplace.json",
     "codex/plugins/agent-wallet/",
     "claude-code/plugins/agent-wallet/",
     "hermes/plugins/agent_wallet/",

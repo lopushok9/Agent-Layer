@@ -24,6 +24,34 @@ For Claude Code:
 npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet claude-code install --yes
 ```
 
+Or install entirely from inside the Claude Code CLI, via the plugin marketplace
+(no terminal/npx needed) — two commands, then restart:
+
+```text
+/plugin marketplace add lopushok9/Agent-Layer
+/plugin install agent-wallet@agentlayer
+```
+
+Restart Claude Code (or run `/reload-plugins`), then run `/wallet-setup` to
+install the backend runtime — a bridge to the same `install --yes` that
+configures the wallet out of the box. On session start a `SessionStart` hook
+checks whether the backend is present and reminds you to run `/wallet-setup` if
+it is missing. To skip the prompt and have the hook install the backend
+automatically on session start instead, set `AGENT_WALLET_AUTO_BOOTSTRAP=1`.
+
+To get team members down to effectively zero typed commands, pre-register the
+marketplace in `.claude/settings.json` so Claude Code prompts to install on
+trust:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "agentlayer": { "source": { "source": "github", "repo": "lopushok9/Agent-Layer" } }
+  },
+  "enabledPlugins": { "agent-wallet@agentlayer": true }
+}
+```
+
 For Hermes:
 
 ```bash

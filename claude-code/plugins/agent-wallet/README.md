@@ -30,7 +30,38 @@ Primary design rules:
 
 ## Installation
 
-### Automated (recommended)
+### From inside Claude Code (no terminal needed)
+
+The plugin ships in a git marketplace at the repo root, so you can install it —
+and its backend runtime — without leaving the CLI. Two commands, then restart:
+
+```text
+/plugin marketplace add lopushok9/Agent-Layer
+/plugin install agent-wallet@agentlayer
+```
+
+Restart Claude Code (or `/reload-plugins`), then run `/wallet-setup`. It runs
+`scripts/bootstrap_backend.sh`, a thin bridge to the npm installer
+(`npx @agentlayer.tech/wallet install --yes`). The marketplace only copies this
+MCP bridge into Claude Code's cache; the bootstrap step lays down the Python
+backend runtime (venv + `agent_wallet` + `server.py`) that the bridge talks to,
+with the wallet configured out of the box. It is idempotent and a no-op once the
+backend is healthy.
+
+On session start a `SessionStart` hook runs `bootstrap_backend.sh check` and, if
+the backend is missing, reminds you to run `/wallet-setup` — it does not install
+anything by default.
+
+- `/wallet-setup` — install (or repair) the backend explicitly (requires
+  `/reload-plugins` first so the command is registered).
+- `AGENT_WALLET_AUTO_BOOTSTRAP=1` — opt in to auto-install: the `SessionStart`
+  hook then runs the bootstrap install itself instead of only reminding you.
+
+For near-zero typed commands, pre-register the marketplace in
+`.claude/settings.json` with `extraKnownMarketplaces` + `enabledPlugins` so
+Claude Code prompts to install on trust.
+
+### Automated via npm
 
 ```bash
 npx @agentlayer.tech/wallet install --yes

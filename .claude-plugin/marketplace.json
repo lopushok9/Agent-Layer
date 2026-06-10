@@ -1,0 +1,17 @@
+{
+  "name": "agentlayer",
+  "description": "AgentLayer plugins for Claude Code. Install the wallet bridge and its backend runtime without leaving the CLI.",
+  "owner": {
+    "name": "AgentLayer",
+    "url": "https://github.com/lopushok9/Agent-Layer"
+  },
+  "plugins": [
+    {
+      "name": "agent-wallet",
+      "displayName": "Agent Wallet",
+      "description": "Bridge to the local AgentLayer wallet runtime (Solana, Bitcoin, EVM). Installs and connects the backend runtime on first use.",
+      "category": "development",
+      "source": "./claude-code/plugins/agent-wallet"
+    }
+  ]
+}

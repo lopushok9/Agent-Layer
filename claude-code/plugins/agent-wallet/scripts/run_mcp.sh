@@ -27,7 +27,7 @@ elif [ -f "$CODEX_SERVER" ]; then
 elif [ -f "$RUNTIME_CODEX_DIR/server.py" ]; then
   SERVER_PY=$(CDPATH= cd -- "$RUNTIME_CODEX_DIR" && pwd -P)/server.py
 else
-  printf '{"error":"agent-wallet server.py not found in plugin, codex sibling, or runtime package.","fix":"npx @agentlayer.tech/wallet install --yes"}\n' >&2
+  printf '{"error":"agent-wallet backend not installed yet (server.py not found in plugin, codex sibling, or runtime package).","fix":"Run /wallet-setup inside Claude Code, or: npx @agentlayer.tech/wallet install --yes"}\n' >&2
   exit 1
 fi
 
