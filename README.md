@@ -32,12 +32,12 @@ Or install entirely from inside the Claude Code CLI, via the plugin marketplace
 /plugin install agent-wallet@agentlayer
 ```
 
-Restart Claude Code (or run `/reload-plugins`), then run `/wallet-setup` to
-install the backend runtime — a bridge to the same `install --yes` that
-configures the wallet out of the box. On session start a `SessionStart` hook
-checks whether the backend is present and reminds you to run `/wallet-setup` if
-it is missing. To skip the prompt and have the hook install the backend
-automatically on session start instead, set `AGENT_WALLET_AUTO_BOOTSTRAP=1`.
+Restart Claude Code (or run `/reload-plugins`). On the next session start a
+`SessionStart` hook installs the backend runtime automatically — a bridge to the
+same `install --yes` that configures the wallet out of the box. No third command
+needed. (Prefer to trigger it by hand instead? Run `/wallet-setup`. Opt out of
+the auto-install with `AGENT_WALLET_AUTO_BOOTSTRAP=0` — the hook then only
+reminds you to run `/wallet-setup`.)
 
 To get team members down to effectively zero typed commands, pre-register the
 marketplace in `.claude/settings.json` so Claude Code prompts to install on

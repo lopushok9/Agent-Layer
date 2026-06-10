@@ -19,8 +19,10 @@ set -eu
 #
 # Used by:
 #   - /wallet-setup slash command  -> `install` (explicit, user-initiated).
-#   - SessionStart hook            -> `check` (soft hint), or `install` when the
-#                                     user opts in with AGENT_WALLET_AUTO_BOOTSTRAP=1.
+#   - SessionStart hook            -> `install` by default, so the backend sets
+#                                     itself up on first session. Set
+#                                     AGENT_WALLET_AUTO_BOOTSTRAP=0 to opt out and
+#                                     get only a soft hint to run /wallet-setup.
 
 MODE=${1:-install}
 
