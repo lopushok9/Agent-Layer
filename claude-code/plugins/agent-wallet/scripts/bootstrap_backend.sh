@@ -27,10 +27,32 @@ MODE=${1:-install}
 PACKAGE_SPEC=${AGENT_WALLET_BOOTSTRAP_PACKAGE:-"@agentlayer.tech/wallet@latest"}
 OPENCLAW_HOME=${OPENCLAW_HOME:-"$HOME/.openclaw"}
 RUNTIME_CURRENT="$OPENCLAW_HOME/agent-wallet-runtime/current"
-SERVER_PY="$RUNTIME_CURRENT/codex/plugins/agent-wallet/server.py"
+
+# Resolve this script's plugin root with physical paths (pwd -P), the same way
+# run_mcp.sh does, so a marketplace symlink does not break the "../../../codex"
+# sibling math below.
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+PLUGIN_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd -P)
 
 log() {
   printf '%s\n' "$*" >&2
+}
+
+# Locate server.py exactly like run_mcp.sh: the plugin's own copy, then the codex
+# sibling in a repo checkout, then the installed runtime package. Keeping this in
+# lock-step with run_mcp.sh is what avoids a false "not installed" verdict in a
+# dev checkout, where run_mcp.sh resolves the codex sibling but this script used
+# to look only at the runtime path.
+resolve_server() {
+  if [ -f "$PLUGIN_ROOT/server.py" ]; then
+    printf '%s' "$PLUGIN_ROOT/server.py"
+  elif [ -f "$PLUGIN_ROOT/../../../codex/plugins/agent-wallet/server.py" ]; then
+    printf '%s' "$PLUGIN_ROOT/../../../codex/plugins/agent-wallet/server.py"
+  elif [ -f "$RUNTIME_CURRENT/codex/plugins/agent-wallet/server.py" ]; then
+    printf '%s' "$RUNTIME_CURRENT/codex/plugins/agent-wallet/server.py"
+  else
+    printf '%s' ''
+  fi
 }
 
 resolve_python() {
@@ -47,17 +69,23 @@ resolve_python() {
   fi
 }
 
-# Healthy == the runtime server.py exists and parses. Parsing (ast.parse, no
-# bytecode written) is the same readiness proxy run_mcp.sh and `doctor` use.
+# Readiness proxy: the resolved server.py exists and parses (ast.parse, no
+# bytecode written) — the same shallow check run_mcp.sh and `doctor` run before
+# exec. It deliberately does NOT verify that the venv/dependencies are installed:
+# importing or running the server would be too slow and flaky for a SessionStart
+# hook and risks false-negative reinstall loops. run_mcp.sh surfaces any missing
+# dependency with a clear error at first tool use, so this stays in lock-step
+# with what actually runs the server rather than being stricter than it.
 backend_ready() {
-  [ -f "$SERVER_PY" ] || return 1
+  server=$(resolve_server)
+  [ -n "$server" ] || return 1
   py=$(resolve_python)
   [ -n "$py" ] || return 1
-  "$py" -c 'import sys, ast; ast.parse(open(sys.argv[1], encoding="utf-8").read())' "$SERVER_PY" 2>/dev/null
+  "$py" -c 'import sys, ast; ast.parse(open(sys.argv[1], encoding="utf-8").read())' "$server" 2>/dev/null
 }
 
 if backend_ready; then
-  [ "$MODE" = "check" ] || log "AgentLayer wallet backend already installed at $RUNTIME_CURRENT."
+  [ "$MODE" = "check" ] || log "AgentLayer wallet backend already installed (server: $(resolve_server))."
   exit 0
 fi
 
