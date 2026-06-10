@@ -40,18 +40,22 @@ and its backend runtime — without leaving the CLI. Two commands, then restart:
 /plugin install agent-wallet@agentlayer
 ```
 
-Restart Claude Code (or `/reload-plugins`). On the next session start a
-`SessionStart` hook auto-runs `scripts/bootstrap_backend.sh`, a thin bridge to
-the npm installer (`npx @agentlayer.tech/wallet install --yes`). The marketplace
-only copies this MCP bridge into Claude Code's cache; the bootstrap step lays
-down the Python backend runtime (venv + `agent_wallet` + `server.py`) that the
-bridge talks to, with the wallet configured out of the box. It is idempotent and
-a no-op once the backend is healthy.
+Restart Claude Code (or `/reload-plugins`), then run `/wallet-setup`. It runs
+`scripts/bootstrap_backend.sh`, a thin bridge to the npm installer
+(`npx @agentlayer.tech/wallet install --yes`). The marketplace only copies this
+MCP bridge into Claude Code's cache; the bootstrap step lays down the Python
+backend runtime (venv + `agent_wallet` + `server.py`) that the bridge talks to,
+with the wallet configured out of the box. It is idempotent and a no-op once the
+backend is healthy.
 
-- `/wallet-setup` — trigger the bootstrap by hand instead of waiting for a
-  restart (requires `/reload-plugins` first so the command is registered).
-- `AGENT_WALLET_NO_AUTO_BOOTSTRAP=1` — opt out of the auto-install; the hook then
-  only reminds you to run `/wallet-setup`.
+On session start a `SessionStart` hook runs `bootstrap_backend.sh check` and, if
+the backend is missing, reminds you to run `/wallet-setup` — it does not install
+anything by default.
+
+- `/wallet-setup` — install (or repair) the backend explicitly (requires
+  `/reload-plugins` first so the command is registered).
+- `AGENT_WALLET_AUTO_BOOTSTRAP=1` — opt in to auto-install: the `SessionStart`
+  hook then runs the bootstrap install itself instead of only reminding you.
 
 For near-zero typed commands, pre-register the marketplace in
 `.claude/settings.json` with `extraKnownMarketplaces` + `enabledPlugins` so

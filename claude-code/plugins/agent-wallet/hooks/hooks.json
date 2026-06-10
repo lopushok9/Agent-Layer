@@ -6,8 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "timeout": 600,
-            "command": "sh -c 'if [ \"${AGENT_WALLET_NO_AUTO_BOOTSTRAP:-0}\" = \"1\" ]; then \"${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap_backend.sh\" check >/dev/null 2>&1 || echo \"AgentLayer wallet backend is not installed. Run /wallet-setup to install it.\"; else \"${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap_backend.sh\" install >&2; fi'"
+            "timeout": 300,
+            "command": "sh -c 'if [ \"${AGENT_WALLET_AUTO_BOOTSTRAP:-0}\" = \"1\" ]; then \"${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap_backend.sh\" install >&2; else \"${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap_backend.sh\" check >/dev/null 2>&1 || echo \"AgentLayer wallet backend is not installed. Run /wallet-setup to install it.\"; fi'"
           }
         ]
       }
