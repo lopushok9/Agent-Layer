@@ -1,0 +1,11 @@
+# Local telemetry SQLite store (and WAL/SHM sidecars) — never commit collected data
+telemetry.db
+telemetry.db-wal
+telemetry.db-shm
+*.db
+*.db-wal
+*.db-shm
+
+__pycache__/
+*.pyc
+.env

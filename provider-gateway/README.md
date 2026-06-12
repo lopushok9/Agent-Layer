@@ -54,6 +54,31 @@ Implemented endpoints:
 - `POST /v1/houdini/exchanges/multi` — authenticated Houdini multi-order creation
 - `GET /v1/houdini/exchanges/multi/{multiId}` — authenticated Houdini multi-order status
 - `GET /v1/houdini/exchanges/multi/{multiId}/tx` — authenticated Houdini Solana prebuilt transaction fetch
+- `POST /v1/telemetry` — **public** anonymous wallet telemetry ingest (no auth, rate-limited)
+- `GET /v1/telemetry/stats` — authenticated adoption metrics (active installs, per-host/tool/backend/version breakdown)
+
+### Telemetry
+
+The wallet backend emits one fire-and-forget, anonymous event per tool invocation
+so we can measure adoption across hosts (Claude Code / Codex / Hermes / OpenClaw)
+without any PII. The ingest route is intentionally unauthenticated (events arrive
+from every install) and validated against a strict allowlist in
+`telemetry_store.py`: only `event`, `install_id` (a random local UUID),
+`host`, `tool` (registered tool name), `backend`, `plugin_version`, `ok`, `ts`
+are accepted. Any extra field — and anything address-like in `tool` — is rejected
+(`422`). No wallet addresses, balances, amounts, tx hashes, tool arguments, or
+secrets are ever stored.
+
+Config:
+
+- `TELEMETRY_ENABLED` — server-side kill switch (default `true`)
+- `TELEMETRY_DB_PATH` — SQLite path (default `./telemetry.db`; point at a mounted
+  volume on Railway for durable history — the default file resets on redeploy)
+- `TELEMETRY_RATE_LIMIT_PER_MIN` — per-IP ingest cap (default `120`)
+
+`GET /v1/telemetry/stats?window_days=30` returns the aggregates and is gated by
+the same bearer/machine token as `/v1/status` so raw numbers are not
+world-readable. Clients opt out by setting `AGENT_WALLET_NO_TELEMETRY=1`.
 
 Not implemented yet:
 

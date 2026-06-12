@@ -1,5 +1,7 @@
 import json
 import os
+import time
+from collections import deque
 from typing import Any
 
 import httpx
@@ -9,6 +11,8 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
+
+import telemetry_store
 
 load_dotenv()
 
@@ -1415,6 +1419,76 @@ async def houdini_multi_tx(request: Request) -> JSONResponse:
     return JSONResponse(payload, status_code=status_code)
 
 
+# --- telemetry --------------------------------------------------------------
+
+# Best-effort, in-memory per-IP sliding-window limiter. Telemetry is anonymous
+# ingest from every wallet install, so the route is unauthenticated; this just
+# blunts abuse. State is per-process and resets on redeploy — good enough for a
+# low-stakes ingest endpoint.
+_TELEMETRY_RL: dict[str, deque] = {}
+_TELEMETRY_RL_MAX = int(os.getenv("TELEMETRY_RATE_LIMIT_PER_MIN", "120") or "120")
+
+
+def _telemetry_rate_limited(ip: str) -> bool:
+    if not ip:
+        ip = "unknown"
+    now = time.time()
+    window = _TELEMETRY_RL.setdefault(ip, deque())
+    while window and window[0] <= now - 60:
+        window.popleft()
+    if len(window) >= _TELEMETRY_RL_MAX:
+        return True
+    window.append(now)
+    return False
+
+
+def _telemetry_enabled() -> bool:
+    return _bool_env("TELEMETRY_ENABLED", True)
+
+
+async def telemetry_ingest(request: Request) -> JSONResponse:
+    if not _telemetry_enabled():
+        return JSONResponse({"ok": True, "stored": False, "disabled": True})
+
+    if _telemetry_rate_limited(_extract_request_ip(request)):
+        return _json_error("rate limited", 429)
+
+    raw = await request.body()
+    if len(raw) > telemetry_store.MAX_BODY_BYTES:
+        return _json_error("payload too large", 413)
+
+    try:
+        parsed = json.loads(raw or b"{}")
+    except json.JSONDecodeError:
+        return _json_error("invalid JSON", 400)
+
+    try:
+        event = telemetry_store.validate_event(parsed)
+    except telemetry_store.TelemetryValidationError as exc:
+        return _json_error(str(exc), 422)
+
+    try:
+        telemetry_store.record_event(event)
+    except Exception as exc:  # never let telemetry storage break the caller
+        return _json_error(f"store error: {exc}", 500)
+
+    return JSONResponse({"ok": True, "stored": True})
+
+
+async def telemetry_stats(request: Request) -> JSONResponse:
+    # Reading aggregates is privileged: gate behind the same bearer/machine token
+    # as /v1/status so raw adoption numbers are not world-readable.
+    auth_error = _require_machine_token(request)
+    if auth_error:
+        return _json_error(auth_error, 401)
+    try:
+        window_days = int(request.query_params.get("window_days", "30"))
+    except ValueError:
+        window_days = 30
+    window_days = max(1, min(window_days, 365))
+    return JSONResponse(telemetry_store.summary(window_days))
+
+
 routes = [
     Route("/health", health, methods=["GET"]),
     Route("/v1/status", status, methods=["GET"]),
@@ -1448,6 +1522,8 @@ routes = [
     Route("/v1/houdini/exchanges/multi", houdini_multi_create, methods=["POST"]),
     Route("/v1/houdini/exchanges/multi/{multi_id:str}", houdini_multi_status, methods=["GET"]),
     Route("/v1/houdini/exchanges/multi/{multi_id:str}/tx", houdini_multi_tx, methods=["GET"]),
+    Route("/v1/telemetry", telemetry_ingest, methods=["POST"]),
+    Route("/v1/telemetry/stats", telemetry_stats, methods=["GET"]),
 ]
 
 app = Starlette(debug=False, routes=routes)
