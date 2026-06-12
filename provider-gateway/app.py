@@ -1476,11 +1476,22 @@ async def telemetry_ingest(request: Request) -> JSONResponse:
 
 
 async def telemetry_stats(request: Request) -> JSONResponse:
-    # Reading aggregates is privileged: gate behind the same bearer/machine token
-    # as /v1/status so raw adoption numbers are not world-readable.
-    auth_error = _require_machine_token(request)
-    if auth_error:
-        return _json_error(auth_error, 401)
+    # Reading aggregates is privileged: adoption numbers must not be world-
+    # readable. A dedicated TELEMETRY_STATS_TOKEN gates this route independently
+    # of the global REQUIRE_BEARER_AUTH flag (which is currently off for the
+    # public RPC endpoints), so stats can be locked down on its own. Accept the
+    # token via `Authorization: Bearer <token>` or `?token=<token>`. If the env
+    # var is unset, fall back to the machine-token gate.
+    stats_token = _trim(os.getenv("TELEMETRY_STATS_TOKEN"))
+    if stats_token:
+        header = request.headers.get("authorization", "")
+        query_token = request.query_params.get("token", "").strip()
+        if header != f"Bearer {stats_token}" and query_token != stats_token:
+            return _json_error("Unauthorized", 401)
+    else:
+        auth_error = _require_machine_token(request)
+        if auth_error:
+            return _json_error(auth_error, 401)
     try:
         window_days = int(request.query_params.get("window_days", "30"))
     except ValueError:
