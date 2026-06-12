@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## v0.1.44 - 2026-06-12
+
+- Added anonymous, privacy-first adoption telemetry so wallet usage can be
+  measured across hosts (Claude Code / Codex / Hermes / OpenClaw) without any
+  PII.
+  - The wallet emits one event per tool invocation through the shared
+    `openclaw_cli invoke` chokepoint. Events carry only a random local install
+    id, host, the registered tool name, backend family, plugin version, and a
+    success flag — never addresses, balances, amounts, tx hashes, arguments, or
+    secrets. Secret-touching commands (onboard/wallet-create/unlock/import) are
+    never instrumented.
+  - Delivery uses a durable local spool plus a detached best-effort flush to the
+    provider-gateway, so a short-lived CLI process never adds latency or loses
+    events.
+  - Opt out at any time with `AGENT_WALLET_NO_TELEMETRY=1` (zero footprint).
+  - Per-frontend `host` tagging via `AGENT_WALLET_HOST` in each bridge.
+
 ## v0.1.41 - 2026-06-07
 
 - Hardened Uniswap Trading API swap execution on active EVM mainnet markets.
