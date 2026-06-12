@@ -24,11 +24,12 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 import time
 import urllib.request
 import uuid
 from pathlib import Path
-from threading import Thread
 from typing import Any
 
 from . import __version__
@@ -110,7 +111,7 @@ def record(
             "ts": int(time.time()),
         }
         _append_spool(payload)
-        _maybe_flush_async()
+        _maybe_spawn_flush()
     except Exception:
         # Telemetry is never allowed to affect the wallet call.
         pass
@@ -161,29 +162,87 @@ def _mark_flush_attempt() -> None:
         pass
 
 
-def _maybe_flush_async() -> None:
+def _maybe_spawn_flush() -> None:
+    """Trigger a flush in a DETACHED subprocess that outlives this process.
+
+    A per-tool CLI invocation exits microseconds after recording, so a thread
+    would be killed mid-flush. A detached child (its own session, no wait) runs
+    the network call on its own time and re-spools failures reliably. Throttling
+    keeps this to roughly one spawn per FLUSH_THROTTLE_SECONDS, so most calls
+    just append to the spool and return.
+    """
     if not _should_flush_now():
         return
     _mark_flush_attempt()
-    # Daemon thread: durability is in the spool, so a killed thread loses nothing.
-    Thread(target=_flush, daemon=True).start()
+    try:
+        subprocess.Popen(
+            [sys.executable, "-m", "agent_wallet.telemetry", "--flush"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,  # detach so parent exit doesn't kill it
+        )
+    except Exception:
+        pass
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # exists but owned by another user
+    except OSError:
+        return True
+    return True
+
+
+def _claim_suffix_pid(path: Path) -> int | None:
+    # ...telemetry_spool.jsonl.flushing.<pid>
+    try:
+        return int(path.name.rsplit(".flushing.", 1)[1])
+    except (IndexError, ValueError):
+        return None
 
 
 def _flush() -> None:
-    """Claim the spool atomically, POST each event, re-spool failures."""
+    """Claim the spool atomically, adopt dead-PID orphans, POST, re-spool failures."""
     spool = _spool_path()
+    home = _home()
     claim = spool.with_suffix(spool.suffix + f".flushing.{os.getpid()}")
-    try:
-        os.rename(spool, claim)  # atomic; only one process wins the batch
-    except OSError:
-        return  # nothing to flush, or another process claimed it
 
+    claims: list[Path] = []
     try:
-        lines = claim.read_text(encoding="utf-8").splitlines()
+        os.rename(spool, claim)  # atomic; only one process wins the live spool
+        claims.append(claim)
     except OSError:
+        pass  # nothing to flush, or another process claimed it
+
+    # Recover orphans left by a flush that died mid-run (crash/exit after the
+    # rename but before re-spooling). Only adopt claims whose PID is gone so we
+    # never steal a batch a live sibling is still working.
+    try:
+        for orphan in home.glob(SPOOL_NAME + ".flushing.*"):
+            if orphan == claim:
+                continue
+            pid = _claim_suffix_pid(orphan)
+            if pid is None or not _pid_alive(pid):
+                claims.append(orphan)
+    except OSError:
+        pass
+
+    if not claims:
         return
 
-    # If we've accumulated a huge backlog, keep only the most recent events.
+    lines: list[str] = []
+    for c in claims:
+        try:
+            lines.extend(c.read_text(encoding="utf-8").splitlines())
+        except OSError:
+            pass
+
+    # Bound a long backlog (gateway down for a while): keep the most recent.
     if len(lines) > MAX_SPOOL_LINES:
         lines = lines[-MAX_SPOOL_LINES:]
 
@@ -202,16 +261,18 @@ def _flush() -> None:
         else:
             failed.append(line)
 
-    try:
-        claim.unlink()
-    except OSError:
-        pass
-
-    # Re-spool anything that didn't make it so the next flush retries it.
+    # Re-spool failures BEFORE removing claims: favors at-least-once delivery
+    # (a crash here re-sends, never drops). Successes are gone from the claims.
     if failed:
         try:
             with open(spool, "a", encoding="utf-8") as fh:
                 fh.write("\n".join(failed) + "\n")
+        except OSError:
+            pass
+
+    for c in claims:
+        try:
+            c.unlink()
         except OSError:
             pass
 
@@ -228,3 +289,18 @@ def _post(url: str, body: str) -> bool:
             return 200 <= resp.status < 300
     except Exception:
         return False
+
+
+def _flush_main() -> int:
+    """Entry point for the detached flush subprocess (`-m agent_wallet.telemetry --flush`)."""
+    try:
+        _flush()
+    except Exception:
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    if "--flush" in sys.argv[1:]:
+        raise SystemExit(_flush_main())
+    raise SystemExit(0)

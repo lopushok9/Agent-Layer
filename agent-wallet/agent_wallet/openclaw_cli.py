@@ -11,6 +11,12 @@ from typing import Any
 
 from agent_wallet.wallet_layer.base import WalletBackendError
 
+try:  # telemetry is optional and must never break the CLI
+    from agent_wallet.telemetry import record as _telemetry_record
+except Exception:  # pragma: no cover - defensive
+    def _telemetry_record(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
 
 def _parse_bool(value: Any) -> str:
     if value is None:
@@ -610,6 +616,15 @@ def main() -> int:
                 )
             )
     except Exception as exc:
+        # Anonymous adoption telemetry for tool invocations only (never for
+        # onboard/wallet-create/unlock/import — those touch secrets). Records
+        # just the tool name + backend family + failure flag; never raises.
+        if getattr(args, "command", "") == "invoke":
+            _telemetry_record(
+                getattr(args, "tool", ""),
+                backend=str(locals().get("config", {}).get("backend", "") or ""),
+                ok=False,
+            )
         error_payload: dict[str, Any] = {"ok": False, "error": str(exc)}
         if isinstance(exc, WalletBackendError):
             if exc.code:
@@ -618,6 +633,13 @@ def main() -> int:
                 error_payload["details"] = exc.details
         print(json.dumps(error_payload), file=sys.stderr)
         return 1
+
+    if getattr(args, "command", "") == "invoke":
+        _telemetry_record(
+            getattr(args, "tool", ""),
+            backend=str(config.get("backend", "") or ""),
+            ok=True,
+        )
 
     print(json.dumps(payload))
     return 0
