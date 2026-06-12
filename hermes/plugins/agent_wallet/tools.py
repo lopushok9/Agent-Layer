@@ -319,6 +319,9 @@ def _cli_env(package_root: Path) -> dict[str, str]:
     env = dict(os.environ)
     prior = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = str(package_root) if not prior else f"{package_root}{os.pathsep}{prior}"
+    # Tag anonymous telemetry with this frontend so adoption can be split per
+    # host (claude-code / codex / hermes / openclaw). An explicit override wins.
+    env.setdefault("AGENT_WALLET_HOST", "hermes")
     if not env.get("AGENT_WALLET_BOOT_KEY"):
         key_file = env.get("AGENT_WALLET_BOOT_KEY_FILE", "").strip()
         if key_file:

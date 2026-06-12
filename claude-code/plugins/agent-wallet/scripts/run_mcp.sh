@@ -58,4 +58,9 @@ PY
   exit 1
 fi
 
+# Tag anonymous telemetry with this frontend so adoption can be split per host
+# (claude-code / codex / hermes / openclaw). An explicit override still wins.
+: "${AGENT_WALLET_HOST:=claude-code}"
+export AGENT_WALLET_HOST
+
 exec "$PYTHON_BIN" "$SERVER_PY"
