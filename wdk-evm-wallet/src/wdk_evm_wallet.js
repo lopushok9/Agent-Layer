@@ -97,7 +97,7 @@ const LIFI_CHAIN_ALIASES = {
 const MORPHO_DEFAULT_LIST_LIMIT = 100;
 const MORPHO_MAX_LIST_LIMIT = 500;
 const MORPHO_VAULT_LIST_QUERY = `
-  query MorphoVaultV2List($first: Int!, $where: VaultV2Filters) {
+  query MorphoVaultV2List($first: Int!, $where: VaultV2sFilters) {
     vaultV2s(first: $first, where: $where) {
       items {
         address
