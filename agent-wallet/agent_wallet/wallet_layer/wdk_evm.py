@@ -119,6 +119,22 @@ def _normalize_lido_withdrawal_operation(value: str) -> str:
     return operation
 
 
+def _normalize_morpho_vault_operation(value: str) -> str:
+    operation = str(value or "").strip().lower()
+    if operation not in {"supply", "withdraw"}:
+        raise WalletBackendError("Morpho vault operation must be one of: supply, withdraw.")
+    return operation
+
+
+def _normalize_morpho_market_operation(value: str) -> str:
+    operation = str(value or "").strip().lower()
+    if operation not in {"supply_collateral", "borrow", "repay", "withdraw_collateral"}:
+        raise WalletBackendError(
+            "Morpho market operation must be one of: supply_collateral, borrow, repay, withdraw_collateral."
+        )
+    return operation
+
+
 def _normalize_aave_payload(
     *,
     chain: str,
@@ -290,6 +306,88 @@ def _normalize_lido_withdrawal_payload(
         "hash": result.get("hash"),
         "approve_hash": result.get("approveHash"),
         "reset_allowance_hash": result.get("resetAllowanceHash"),
+        "result": result,
+        "chain_id": int(data.get("chainId") or 0),
+        "source": "wdk-evm-wallet",
+    }
+
+
+def _normalize_morpho_payload(
+    *,
+    chain: str,
+    network: str,
+    wallet_id: str,
+    address: str,
+    operation: str,
+    token_address: str,
+    amount_raw: str | None,
+    native_amount_raw: str | None,
+    data: dict[str, Any],
+    sign_only: bool,
+) -> dict[str, Any]:
+    result = dict(data.get("result") or {})
+    request = dict(data.get("operationRequest") or {})
+    requirements = dict(data.get("requirements") or {})
+    resolved_amount = (
+        str(request.get("amount"))
+        if request.get("amount") is not None
+        else (str(amount_raw) if amount_raw is not None else None)
+    )
+    resolved_native_amount = (
+        str(request.get("nativeAmount"))
+        if request.get("nativeAmount") is not None
+        else (str(native_amount_raw) if native_amount_raw is not None else None)
+    )
+    target = dict(data.get("target") or {})
+    surface = str(data.get("surface") or target.get("type") or "").strip().lower() or None
+    asset_type = "evm-morpho-vault" if surface == "vault" else "evm-morpho-market"
+    return {
+        "chain": chain,
+        "network": network,
+        "asset_type": asset_type,
+        "asset": "ERC20",
+        "wallet": wallet_id,
+        "from_address": str(data.get("address") or address),
+        "protocol": str(data.get("protocol") or "morpho"),
+        "surface": surface,
+        "operation": str(data.get("operation") or operation),
+        "target": target,
+        "token_address": str(request.get("token") or token_address),
+        "amount_raw": resolved_amount,
+        "native_amount_raw": resolved_native_amount,
+        "amount_ui": str(data.get("amountFormatted")) if data.get("amountFormatted") is not None else None,
+        "native_amount_ui": (
+            str(data.get("nativeAmountFormatted"))
+            if data.get("nativeAmountFormatted") is not None
+            else None
+        ),
+        "estimated_fee_wei": str(data.get("estimatedFeeWei")) if data.get("estimatedFeeWei") is not None else None,
+        "estimated_operation_fee_wei": (
+            str(data.get("estimatedOperationFeeWei"))
+            if data.get("estimatedOperationFeeWei") is not None
+            else None
+        ),
+        "estimated_requirements_fee_wei": (
+            str(data.get("estimatedRequirementsFeeWei"))
+            if data.get("estimatedRequirementsFeeWei") is not None
+            else None
+        ),
+        "fee_estimate_available": bool(data.get("feeEstimateAvailable", True)),
+        "fee_estimate_error": data.get("feeEstimateError"),
+        "execution_supported": bool(data.get("executionSupported", True)) and not sign_only,
+        "quote_fingerprint": str(data.get("quoteFingerprint") or "").strip() or None,
+        "requirements": {
+            "required": bool(requirements.get("required")),
+            "requirement_count": int(requirements.get("requirementCount") or 0),
+            "approval_required": bool(requirements.get("approvalRequired")),
+            "authorization_required": bool(requirements.get("authorizationRequired")),
+            "sequence": list(requirements.get("sequence") or []),
+        },
+        "token_metadata": _normalize_token_metadata(
+            data.get("tokenMetadata"),
+            str(request.get("token") or token_address),
+        ),
+        "hash": result.get("hash"),
         "result": result,
         "chain_id": int(data.get("chainId") or 0),
         "source": "wdk-evm-wallet",
@@ -921,6 +1019,90 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "source": "wdk-evm-wallet",
         }
 
+    async def get_evm_morpho_vaults(
+        self,
+        *,
+        vault_address: str | None = None,
+        limit: int | None = None,
+        listed_only: bool = True,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "network": self.network,
+            "listedOnly": bool(listed_only),
+        }
+        if isinstance(vault_address, str) and vault_address.strip():
+            payload["vaultAddress"] = vault_address.strip()
+        if limit is not None:
+            payload["limit"] = int(limit)
+        data = await self.client.post("/v1/evm/morpho/vaults/get", payload)
+        return {
+            "chain": self.chain,
+            "network": self.network,
+            "protocol": str(data.get("protocol") or "morpho"),
+            "chain_id": int(data.get("chainId") or 0),
+            "listed_only": bool(data.get("listedOnly", listed_only)),
+            "requested_limit": int(data.get("requestedLimit") or 0),
+            "found": bool(data.get("found")) if "found" in data else None,
+            "vault_count": int(data.get("vaultCount") or 0),
+            "vault": dict(data.get("vault") or {}) if isinstance(data.get("vault"), dict) else None,
+            "vaults": list(data.get("vaults") or []),
+            "source": "wdk-evm-wallet",
+        }
+
+    async def get_evm_morpho_markets(
+        self,
+        *,
+        market_id: str | None = None,
+        limit: int | None = None,
+        listed_only: bool = True,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "network": self.network,
+            "listedOnly": bool(listed_only),
+        }
+        if isinstance(market_id, str) and market_id.strip():
+            payload["marketId"] = market_id.strip()
+        if limit is not None:
+            payload["limit"] = int(limit)
+        data = await self.client.post("/v1/evm/morpho/markets/get", payload)
+        return {
+            "chain": self.chain,
+            "network": self.network,
+            "protocol": str(data.get("protocol") or "morpho"),
+            "chain_id": int(data.get("chainId") or 0),
+            "listed_only": bool(data.get("listedOnly", listed_only)),
+            "requested_limit": int(data.get("requestedLimit") or 0),
+            "found": bool(data.get("found")) if "found" in data else None,
+            "market_count": int(data.get("marketCount") or 0),
+            "market": dict(data.get("market") or {}) if isinstance(data.get("market"), dict) else None,
+            "markets": list(data.get("markets") or []),
+            "source": "wdk-evm-wallet",
+        }
+
+    async def get_evm_morpho_positions(self) -> dict[str, Any]:
+        resolved_address = await self.get_address()
+        data = await self.client.post(
+            "/v1/evm/morpho/positions/get",
+            {
+                "walletId": self.wallet_id,
+                "address": resolved_address,
+                "accountIndex": self.account_index,
+                "network": self.network,
+            },
+        )
+        return {
+            "chain": self.chain,
+            "network": self.network,
+            "address": str(data.get("address") or resolved_address or ""),
+            "protocol": str(data.get("protocol") or "morpho"),
+            "chain_id": int(data.get("chainId") or 0),
+            "market_position_count": int(data.get("marketPositionCount") or 0),
+            "vault_position_count": int(data.get("vaultPositionCount") or 0),
+            "market_positions": list(data.get("marketPositions") or []),
+            "vault_positions": list(data.get("vaultPositions") or []),
+            "source": "wdk-evm-wallet",
+        }
+
     async def preview_evm_aave_operation(
         self,
         *,
@@ -1133,6 +1315,196 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
                 operation=normalized_operation,
                 amount_raw=amount_raw,
                 request_id=request_id,
+                data=data,
+                sign_only=self.sign_only,
+            ),
+            "broadcasted": True,
+            "confirmed": False,
+        }
+
+    async def preview_evm_morpho_vault_operation(
+        self,
+        *,
+        operation: str,
+        token_address: str,
+        vault_address: str | None = None,
+        vault_preset: str | None = None,
+        amount_raw: str | None = None,
+        native_amount_raw: str | None = None,
+    ) -> dict[str, Any]:
+        normalized_operation = _normalize_morpho_vault_operation(operation)
+        resolved_address = await self.get_address()
+        payload: dict[str, Any] = {
+            "walletId": self.wallet_id,
+            "address": resolved_address,
+            "accountIndex": self.account_index,
+            "network": self.network,
+            "tokenAddress": token_address,
+        }
+        if isinstance(vault_address, str) and vault_address.strip():
+            payload["vaultAddress"] = vault_address.strip()
+        if isinstance(vault_preset, str) and vault_preset.strip():
+            payload["vaultPreset"] = vault_preset.strip()
+        if amount_raw is not None:
+            payload["amount"] = amount_raw
+        if native_amount_raw is not None:
+            payload["nativeAmount"] = native_amount_raw
+        data = await self.client.post(
+            f"/v1/evm/morpho/vault/{normalized_operation}/quote",
+            payload,
+        )
+        return _normalize_morpho_payload(
+            chain=self.chain,
+            network=self.network,
+            wallet_id=self.wallet_id,
+            address=resolved_address,
+            operation=normalized_operation,
+            token_address=token_address,
+            amount_raw=amount_raw,
+            native_amount_raw=native_amount_raw,
+            data=data,
+            sign_only=self.sign_only,
+        )
+
+    async def send_evm_morpho_vault_operation(
+        self,
+        *,
+        operation: str,
+        token_address: str,
+        vault_address: str | None = None,
+        vault_preset: str | None = None,
+        amount_raw: str | None = None,
+        native_amount_raw: str | None = None,
+        expected_quote_fingerprint: str | None = None,
+    ) -> dict[str, Any]:
+        if self.sign_only:
+            raise WalletBackendError("wdk_evm_local is configured as sign_only.")
+        normalized_operation = _normalize_morpho_vault_operation(operation)
+        payload: dict[str, Any] = {
+            "walletId": self.wallet_id,
+            "accountIndex": self.account_index,
+            "network": self.network,
+            "tokenAddress": token_address,
+        }
+        if isinstance(vault_address, str) and vault_address.strip():
+            payload["vaultAddress"] = vault_address.strip()
+        if isinstance(vault_preset, str) and vault_preset.strip():
+            payload["vaultPreset"] = vault_preset.strip()
+        if amount_raw is not None:
+            payload["amount"] = amount_raw
+        if native_amount_raw is not None:
+            payload["nativeAmount"] = native_amount_raw
+        if isinstance(expected_quote_fingerprint, str) and expected_quote_fingerprint.strip():
+            payload["expectedQuoteFingerprint"] = expected_quote_fingerprint.strip()
+        data = await self.client.post(
+            f"/v1/evm/morpho/vault/{normalized_operation}/send",
+            payload,
+        )
+        return {
+            **_normalize_morpho_payload(
+                chain=self.chain,
+                network=self.network,
+                wallet_id=self.wallet_id,
+                address=await self.get_address(),
+                operation=normalized_operation,
+                token_address=token_address,
+                amount_raw=amount_raw,
+                native_amount_raw=native_amount_raw,
+                data=data,
+                sign_only=self.sign_only,
+            ),
+            "broadcasted": True,
+            "confirmed": False,
+        }
+
+    async def preview_evm_morpho_market_operation(
+        self,
+        *,
+        operation: str,
+        token_address: str,
+        market_id: str | None = None,
+        market_preset: str | None = None,
+        amount_raw: str | None = None,
+        native_amount_raw: str | None = None,
+    ) -> dict[str, Any]:
+        normalized_operation = _normalize_morpho_market_operation(operation)
+        resolved_address = await self.get_address()
+        payload: dict[str, Any] = {
+            "walletId": self.wallet_id,
+            "address": resolved_address,
+            "accountIndex": self.account_index,
+            "network": self.network,
+            "tokenAddress": token_address,
+        }
+        if isinstance(market_id, str) and market_id.strip():
+            payload["marketId"] = market_id.strip()
+        if isinstance(market_preset, str) and market_preset.strip():
+            payload["marketPreset"] = market_preset.strip()
+        if amount_raw is not None:
+            payload["amount"] = amount_raw
+        if native_amount_raw is not None:
+            payload["nativeAmount"] = native_amount_raw
+        data = await self.client.post(
+            f"/v1/evm/morpho/market/{normalized_operation}/quote",
+            payload,
+        )
+        return _normalize_morpho_payload(
+            chain=self.chain,
+            network=self.network,
+            wallet_id=self.wallet_id,
+            address=resolved_address,
+            operation=normalized_operation,
+            token_address=token_address,
+            amount_raw=amount_raw,
+            native_amount_raw=native_amount_raw,
+            data=data,
+            sign_only=self.sign_only,
+        )
+
+    async def send_evm_morpho_market_operation(
+        self,
+        *,
+        operation: str,
+        token_address: str,
+        market_id: str | None = None,
+        market_preset: str | None = None,
+        amount_raw: str | None = None,
+        native_amount_raw: str | None = None,
+        expected_quote_fingerprint: str | None = None,
+    ) -> dict[str, Any]:
+        if self.sign_only:
+            raise WalletBackendError("wdk_evm_local is configured as sign_only.")
+        normalized_operation = _normalize_morpho_market_operation(operation)
+        payload: dict[str, Any] = {
+            "walletId": self.wallet_id,
+            "accountIndex": self.account_index,
+            "network": self.network,
+            "tokenAddress": token_address,
+        }
+        if isinstance(market_id, str) and market_id.strip():
+            payload["marketId"] = market_id.strip()
+        if isinstance(market_preset, str) and market_preset.strip():
+            payload["marketPreset"] = market_preset.strip()
+        if amount_raw is not None:
+            payload["amount"] = amount_raw
+        if native_amount_raw is not None:
+            payload["nativeAmount"] = native_amount_raw
+        if isinstance(expected_quote_fingerprint, str) and expected_quote_fingerprint.strip():
+            payload["expectedQuoteFingerprint"] = expected_quote_fingerprint.strip()
+        data = await self.client.post(
+            f"/v1/evm/morpho/market/{normalized_operation}/send",
+            payload,
+        )
+        return {
+            **_normalize_morpho_payload(
+                chain=self.chain,
+                network=self.network,
+                wallet_id=self.wallet_id,
+                address=await self.get_address(),
+                operation=normalized_operation,
+                token_address=token_address,
+                amount_raw=amount_raw,
+                native_amount_raw=native_amount_raw,
                 data=data,
                 sign_only=self.sign_only,
             ),

@@ -120,6 +120,27 @@ class AgentWalletBackend(ABC):
     async def get_evm_lido_withdrawal_requests(self) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support EVM Lido withdrawal lookup.")
 
+    async def get_evm_morpho_vaults(
+        self,
+        *,
+        vault_address: str | None = None,
+        limit: int | None = None,
+        listed_only: bool = True,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM Morpho vault lookup.")
+
+    async def get_evm_morpho_markets(
+        self,
+        *,
+        market_id: str | None = None,
+        limit: int | None = None,
+        listed_only: bool = True,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM Morpho market lookup.")
+
+    async def get_evm_morpho_positions(self) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM Morpho positions lookup.")
+
     async def preview_evm_aave_operation(
         self,
         *,
@@ -174,6 +195,56 @@ class AgentWalletBackend(ABC):
         expected_quote_fingerprint: str | None = None,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support EVM Lido withdrawals.")
+
+    async def preview_evm_morpho_vault_operation(
+        self,
+        *,
+        operation: str,
+        token_address: str,
+        vault_address: str | None = None,
+        vault_preset: str | None = None,
+        amount_raw: str | None = None,
+        native_amount_raw: str | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM Morpho vault previews.")
+
+    async def send_evm_morpho_vault_operation(
+        self,
+        *,
+        operation: str,
+        token_address: str,
+        vault_address: str | None = None,
+        vault_preset: str | None = None,
+        amount_raw: str | None = None,
+        native_amount_raw: str | None = None,
+        expected_quote_fingerprint: str | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM Morpho vault operations.")
+
+    async def preview_evm_morpho_market_operation(
+        self,
+        *,
+        operation: str,
+        token_address: str,
+        market_id: str | None = None,
+        market_preset: str | None = None,
+        amount_raw: str | None = None,
+        native_amount_raw: str | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM Morpho market previews.")
+
+    async def send_evm_morpho_market_operation(
+        self,
+        *,
+        operation: str,
+        token_address: str,
+        market_id: str | None = None,
+        market_preset: str | None = None,
+        amount_raw: str | None = None,
+        native_amount_raw: str | None = None,
+        expected_quote_fingerprint: str | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support EVM Morpho market operations.")
 
     async def preview_evm_swap(
         self,

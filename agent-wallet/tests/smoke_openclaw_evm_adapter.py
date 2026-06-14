@@ -781,6 +781,260 @@ class FakeEvmBackend(AgentWalletBackend):
             "confirmed": False,
         }
 
+    async def get_evm_morpho_vaults(
+        self,
+        *,
+        vault_address: str | None = None,
+        limit: int | None = None,
+        listed_only: bool = True,
+    ) -> dict:
+        vault = {
+            "address": vault_address or "0xb576765fB15505433aF24FEe2c0325895C559FB2",
+            "symbol": "pyUSDm",
+            "name": "Paypal USD Main",
+            "listed": bool(listed_only),
+        }
+        return {
+            "chain": "evm",
+            "network": self.network,
+            "protocol": "morpho",
+            "chain_id": 1 if self.network == "ethereum" else 8453,
+            "listed_only": bool(listed_only),
+            "requested_limit": limit or 100,
+            "found": vault_address is not None,
+            "vault_count": 1,
+            "vault": vault if vault_address else None,
+            "vaults": [vault],
+            "source": "fake",
+        }
+
+    async def get_evm_morpho_markets(
+        self,
+        *,
+        market_id: str | None = None,
+        limit: int | None = None,
+        listed_only: bool = True,
+    ) -> dict:
+        market = {
+            "marketId": market_id or "0x9103c3b4e834476c9a62ea009ba2c884ee42e94e6e314a26f04d312434191836",
+            "loanAsset": {"symbol": "USDC", "address": "0x2222222222222222222222222222222222222222"},
+            "collateralAsset": {"symbol": "cbBTC", "address": "0x3333333333333333333333333333333333333333"},
+            "listed": bool(listed_only),
+        }
+        return {
+            "chain": "evm",
+            "network": self.network,
+            "protocol": "morpho",
+            "chain_id": 1 if self.network == "ethereum" else 8453,
+            "listed_only": bool(listed_only),
+            "requested_limit": limit or 100,
+            "found": market_id is not None,
+            "market_count": 1,
+            "market": market if market_id else None,
+            "markets": [market],
+            "source": "fake",
+        }
+
+    async def get_evm_morpho_positions(self) -> dict:
+        return {
+            "chain": "evm",
+            "network": self.network,
+            "address": await self.get_address(),
+            "protocol": "morpho",
+            "chain_id": 1 if self.network == "ethereum" else 8453,
+            "market_position_count": 1,
+            "vault_position_count": 1,
+            "market_positions": [{"market": {"marketId": "0xmarket"}, "state": {"borrowAssets": "0"}}],
+            "vault_positions": [{"vault": {"address": "0xvault"}, "assets": "5000000"}],
+            "source": "fake",
+        }
+
+    async def preview_evm_morpho_vault_operation(
+        self,
+        *,
+        operation: str,
+        token_address: str,
+        vault_address: str | None = None,
+        vault_preset: str | None = None,
+        amount_raw: str | None = None,
+        native_amount_raw: str | None = None,
+    ) -> dict:
+        return {
+            "chain": "evm",
+            "network": self.network,
+            "asset_type": "evm-morpho-vault",
+            "asset": "ERC20",
+            "wallet": "evm-wallet-123",
+            "from_address": await self.get_address(),
+            "protocol": "morpho",
+            "surface": "vault",
+            "operation": operation,
+            "target": {
+                "type": "vault",
+                "vaultAddress": vault_address or "0xb576765fB15505433aF24FEe2c0325895C559FB2",
+                "vaultPreset": vault_preset,
+            },
+            "token_address": token_address,
+            "amount_raw": amount_raw,
+            "native_amount_raw": native_amount_raw,
+            "amount_ui": "2.5" if amount_raw else None,
+            "native_amount_ui": "0.1" if native_amount_raw else None,
+            "estimated_fee_wei": "10000000000000",
+            "estimated_operation_fee_wei": "7000000000000",
+            "estimated_requirements_fee_wei": "3000000000000",
+            "fee_estimate_available": True,
+            "quote_fingerprint": "morpho-vault-fingerprint-1",
+            "requirements": {
+                "required": operation == "supply",
+                "requirement_count": 1 if operation == "supply" else 0,
+                "approval_required": operation == "supply",
+                "authorization_required": False,
+                "sequence": (
+                    [{"type": "approval", "amount": amount_raw or "0", "estimatedFeeWei": "3000000000000"}]
+                    if operation == "supply"
+                    else []
+                ),
+            },
+            "token_metadata": {
+                "address": token_address,
+                "name": "PayPal USD",
+                "symbol": "PYUSD",
+                "decimals": 6,
+                "verified": False,
+                "source": "fake",
+            },
+            "source": "fake",
+        }
+
+    async def send_evm_morpho_vault_operation(
+        self,
+        *,
+        operation: str,
+        token_address: str,
+        vault_address: str | None = None,
+        vault_preset: str | None = None,
+        amount_raw: str | None = None,
+        native_amount_raw: str | None = None,
+        expected_quote_fingerprint: str | None = None,
+    ) -> dict:
+        if expected_quote_fingerprint and expected_quote_fingerprint != "morpho-vault-fingerprint-1":
+            raise WalletBackendError("morpho vault quote changed", code="morpho_quote_changed")
+        preview = await self.preview_evm_morpho_vault_operation(
+            operation=operation,
+            token_address=token_address,
+            vault_address=vault_address,
+            vault_preset=vault_preset,
+            amount_raw=amount_raw,
+            native_amount_raw=native_amount_raw,
+        )
+        return {
+            **preview,
+            "hash": "0x" + "1" * 64,
+            "result": {
+                "hash": "0x" + "1" * 64,
+                "requirementsFee": "3000000000000",
+                "totalFee": "10000000000000",
+                "requirements": [{"type": "approval", "hash": "0x" + "2" * 64}],
+            },
+            "broadcasted": True,
+            "confirmed": False,
+        }
+
+    async def preview_evm_morpho_market_operation(
+        self,
+        *,
+        operation: str,
+        token_address: str,
+        market_id: str | None = None,
+        market_preset: str | None = None,
+        amount_raw: str | None = None,
+        native_amount_raw: str | None = None,
+    ) -> dict:
+        return {
+            "chain": "evm",
+            "network": self.network,
+            "asset_type": "evm-morpho-market",
+            "asset": "ERC20",
+            "wallet": "evm-wallet-123",
+            "from_address": await self.get_address(),
+            "protocol": "morpho",
+            "surface": "market",
+            "operation": operation,
+            "target": {
+                "type": "market",
+                "marketId": market_id or "0x9103c3b4e834476c9a62ea009ba2c884ee42e94e6e314a26f04d312434191836",
+                "marketPreset": market_preset,
+            },
+            "token_address": token_address,
+            "amount_raw": amount_raw,
+            "native_amount_raw": native_amount_raw,
+            "amount_ui": "1" if amount_raw else None,
+            "native_amount_ui": "0.05" if native_amount_raw else None,
+            "estimated_fee_wei": "14000000000000",
+            "estimated_operation_fee_wei": "9000000000000",
+            "estimated_requirements_fee_wei": "5000000000000" if operation == "borrow" else "0",
+            "fee_estimate_available": True,
+            "quote_fingerprint": "morpho-market-fingerprint-1",
+            "requirements": {
+                "required": operation == "borrow",
+                "requirement_count": 1 if operation == "borrow" else 0,
+                "approval_required": operation == "supply_collateral",
+                "authorization_required": operation == "borrow",
+                "sequence": (
+                    [{"type": "authorization", "estimatedFeeWei": "5000000000000"}]
+                    if operation == "borrow"
+                    else []
+                ),
+            },
+            "token_metadata": {
+                "address": token_address,
+                "name": "USD Coin",
+                "symbol": "USDC",
+                "decimals": 6,
+                "verified": False,
+                "source": "fake",
+            },
+            "source": "fake",
+        }
+
+    async def send_evm_morpho_market_operation(
+        self,
+        *,
+        operation: str,
+        token_address: str,
+        market_id: str | None = None,
+        market_preset: str | None = None,
+        amount_raw: str | None = None,
+        native_amount_raw: str | None = None,
+        expected_quote_fingerprint: str | None = None,
+    ) -> dict:
+        if expected_quote_fingerprint and expected_quote_fingerprint != "morpho-market-fingerprint-1":
+            raise WalletBackendError("morpho market quote changed", code="morpho_quote_changed")
+        preview = await self.preview_evm_morpho_market_operation(
+            operation=operation,
+            token_address=token_address,
+            market_id=market_id,
+            market_preset=market_preset,
+            amount_raw=amount_raw,
+            native_amount_raw=native_amount_raw,
+        )
+        return {
+            **preview,
+            "hash": "0x" + "3" * 64,
+            "result": {
+                "hash": "0x" + "3" * 64,
+                "requirementsFee": "5000000000000" if operation == "borrow" else "0",
+                "totalFee": "14000000000000",
+                "requirements": (
+                    [{"type": "authorization", "hash": "0x" + "4" * 64}]
+                    if operation == "borrow"
+                    else []
+                ),
+            },
+            "broadcasted": True,
+            "confirmed": False,
+        }
+
     async def get_evm_swap_quote(
         self,
         *,
@@ -1256,6 +1510,11 @@ async def _main() -> None:
     assert "get_evm_aave_reserves" in tool_names
     assert "get_evm_aave_positions" in tool_names
     assert "manage_evm_aave_position" in tool_names
+    assert "get_evm_morpho_vaults" in tool_names
+    assert "get_evm_morpho_markets" in tool_names
+    assert "get_evm_morpho_positions" in tool_names
+    assert "manage_evm_morpho_vault_position" in tool_names
+    assert "manage_evm_morpho_market_position" in tool_names
     assert "get_evm_lido_overview" in tool_names
     assert "get_evm_lido_positions" in tool_names
     assert "manage_evm_lido_position" in tool_names
@@ -1448,6 +1707,116 @@ async def _main() -> None:
     assert aave_executed.ok is True
     assert aave_executed.data["hash"].startswith("0x")
     assert aave_executed.data["approve_hash"].startswith("0x")
+
+    morpho_vaults = await adapter.invoke("get_evm_morpho_vaults", {"network": "base", "limit": 5})
+    assert morpho_vaults.ok is True
+    assert morpho_vaults.data["vault_count"] == 1
+
+    morpho_markets = await adapter.invoke("get_evm_morpho_markets", {"network": "base"})
+    assert morpho_markets.ok is True
+    assert morpho_markets.data["market_count"] == 1
+
+    morpho_positions = await adapter.invoke("get_evm_morpho_positions", {"network": "base"})
+    assert morpho_positions.ok is True
+    assert morpho_positions.data["vault_position_count"] == 1
+    assert morpho_positions.data["market_position_count"] == 1
+
+    morpho_vault_preview = await adapter.invoke(
+        "manage_evm_morpho_vault_position",
+        {
+            "operation": "supply",
+            "token_address": "0x2222222222222222222222222222222222222222",
+            "vault_address": "0xb576765fB15505433aF24FEe2c0325895C559FB2",
+            "amount_raw": "2500000",
+            "mode": "preview",
+            "purpose": "test morpho vault supply",
+            "network": "base",
+        },
+    )
+    assert morpho_vault_preview.ok is True
+    assert morpho_vault_preview.data["asset_type"] == "evm-morpho-vault"
+    assert morpho_vault_preview.data["confirmation_summary"]["morpho_operation"] == "supply"
+    assert morpho_vault_preview.data["confirmation_summary"]["quote_fingerprint"] == "morpho-vault-fingerprint-1"
+    assert morpho_vault_preview.data["requirements"]["approval_required"] is True
+
+    morpho_vault_prepare = await adapter.invoke(
+        "manage_evm_morpho_vault_position",
+        {
+            "operation": "withdraw",
+            "token_address": "0x2222222222222222222222222222222222222222",
+            "vault_address": "0xb576765fB15505433aF24FEe2c0325895C559FB2",
+            "amount_raw": "1000000",
+            "mode": "prepare",
+            "purpose": "test morpho vault withdraw",
+            "user_intent": True,
+            "network": "base",
+        },
+    )
+    assert morpho_vault_prepare.ok is True
+    assert morpho_vault_prepare.data["execution_plan_only"] is True
+
+    morpho_vault_approval = issue_approval_token(
+        tool_name="manage_evm_morpho_vault_position",
+        network="base",
+        summary=morpho_vault_preview.data["confirmation_summary"],
+        mainnet_confirmed=True,
+        issued_by="test",
+    )
+    morpho_vault_executed = await adapter.invoke(
+        "manage_evm_morpho_vault_position",
+        {
+            "operation": "supply",
+            "token_address": "0x2222222222222222222222222222222222222222",
+            "vault_address": "0xb576765fB15505433aF24FEe2c0325895C559FB2",
+            "amount_raw": "2500000",
+            "mode": "execute",
+            "purpose": "test morpho vault supply",
+            "approval_token": morpho_vault_approval,
+            "network": "base",
+        },
+    )
+    assert morpho_vault_executed.ok is True
+    assert morpho_vault_executed.data["hash"].startswith("0x")
+
+    morpho_market_preview = await adapter.invoke(
+        "manage_evm_morpho_market_position",
+        {
+            "operation": "borrow",
+            "token_address": "0x2222222222222222222222222222222222222222",
+            "market_id": "0x9103c3b4e834476c9a62ea009ba2c884ee42e94e6e314a26f04d312434191836",
+            "amount_raw": "1000000",
+            "mode": "preview",
+            "purpose": "test morpho borrow",
+            "network": "base",
+        },
+    )
+    assert morpho_market_preview.ok is True
+    assert morpho_market_preview.data["asset_type"] == "evm-morpho-market"
+    assert morpho_market_preview.data["confirmation_summary"]["morpho_operation"] == "borrow"
+    assert morpho_market_preview.data["requirements"]["authorization_required"] is True
+
+    morpho_market_approval = issue_approval_token(
+        tool_name="manage_evm_morpho_market_position",
+        network="base",
+        summary=morpho_market_preview.data["confirmation_summary"],
+        mainnet_confirmed=True,
+        issued_by="test",
+    )
+    morpho_market_executed = await adapter.invoke(
+        "manage_evm_morpho_market_position",
+        {
+            "operation": "borrow",
+            "token_address": "0x2222222222222222222222222222222222222222",
+            "market_id": "0x9103c3b4e834476c9a62ea009ba2c884ee42e94e6e314a26f04d312434191836",
+            "amount_raw": "1000000",
+            "mode": "execute",
+            "purpose": "test morpho borrow",
+            "approval_token": morpho_market_approval,
+            "network": "base",
+        },
+    )
+    assert morpho_market_executed.ok is True
+    assert morpho_market_executed.data["hash"].startswith("0x")
 
     lido_overview = await adapter.invoke("get_evm_lido_overview", {"network": "ethereum"})
     assert lido_overview.ok is True

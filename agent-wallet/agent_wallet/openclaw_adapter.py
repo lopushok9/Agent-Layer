@@ -496,6 +496,46 @@ class OpenClawWalletAdapter:
                 "quote_fingerprint": provided_fingerprint,
             }
 
+        if asset_type == "evm-morpho-vault":
+            return {
+                "operation": action_label,
+                "network": str(payload.get("network") or getattr(self.backend, "network", "unknown")),
+                "wallet": payload.get("wallet"),
+                "from_address": payload.get("from_address"),
+                "protocol": payload.get("protocol"),
+                "morpho_surface": payload.get("surface"),
+                "morpho_operation": payload.get("operation"),
+                "target": payload.get("target"),
+                "token_address": payload.get("token_address"),
+                "amount_raw": payload.get("amount_raw"),
+                "native_amount_raw": payload.get("native_amount_raw"),
+                "estimated_fee_wei": payload.get("estimated_fee_wei"),
+                "estimated_operation_fee_wei": payload.get("estimated_operation_fee_wei"),
+                "estimated_requirements_fee_wei": payload.get("estimated_requirements_fee_wei"),
+                "quote_fingerprint": payload.get("quote_fingerprint"),
+                "requirements": payload.get("requirements"),
+            }
+
+        if asset_type == "evm-morpho-market":
+            return {
+                "operation": action_label,
+                "network": str(payload.get("network") or getattr(self.backend, "network", "unknown")),
+                "wallet": payload.get("wallet"),
+                "from_address": payload.get("from_address"),
+                "protocol": payload.get("protocol"),
+                "morpho_surface": payload.get("surface"),
+                "morpho_operation": payload.get("operation"),
+                "target": payload.get("target"),
+                "token_address": payload.get("token_address"),
+                "amount_raw": payload.get("amount_raw"),
+                "native_amount_raw": payload.get("native_amount_raw"),
+                "estimated_fee_wei": payload.get("estimated_fee_wei"),
+                "estimated_operation_fee_wei": payload.get("estimated_operation_fee_wei"),
+                "estimated_requirements_fee_wei": payload.get("estimated_requirements_fee_wei"),
+                "quote_fingerprint": payload.get("quote_fingerprint"),
+                "requirements": payload.get("requirements"),
+            }
+
         if asset_type == "evm-aave-v3":
             return {
                 "operation": action_label,
@@ -1458,6 +1498,208 @@ class OpenClawWalletAdapter:
                                 },
                             },
                             "required": ["operation", "mode", "purpose"],
+                            "additionalProperties": False,
+                        },
+                        read_only=False,
+                        requires_explicit_user_intent=True,
+                        risk_level="high",
+                    ),
+                )
+                tools.insert(
+                    15,
+                    AgentToolSpec(
+                        name="get_evm_morpho_vaults",
+                        description="Get read-only Morpho vault discovery and detail data for the configured EVM network on supported mainnet chains.",
+                        input_schema={
+                            "type": "object",
+                            "properties": {
+                                "vault_address": {
+                                    "type": "string",
+                                    "description": "Optional explicit Morpho vault address for a single-vault lookup.",
+                                },
+                                "limit": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 500,
+                                    "description": "Optional max number of vaults to return when listing.",
+                                },
+                                "listed_only": {
+                                    "type": "boolean",
+                                    "description": "Filter to listed vaults only. Defaults to true.",
+                                },
+                                "network": {
+                                    "type": "string",
+                                    "enum": ["ethereum", "base"],
+                                    "description": "Optional EVM network override for this request.",
+                                },
+                            },
+                            "additionalProperties": False,
+                        },
+                        read_only=True,
+                        risk_level="low",
+                    ),
+                )
+                tools.insert(
+                    16,
+                    AgentToolSpec(
+                        name="get_evm_morpho_markets",
+                        description="Get read-only Morpho market discovery and detail data for the configured EVM network on supported mainnet chains.",
+                        input_schema={
+                            "type": "object",
+                            "properties": {
+                                "market_id": {
+                                    "type": "string",
+                                    "description": "Optional explicit Morpho market id for a single-market lookup.",
+                                },
+                                "limit": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 500,
+                                    "description": "Optional max number of markets to return when listing.",
+                                },
+                                "listed_only": {
+                                    "type": "boolean",
+                                    "description": "Filter to listed markets only. Defaults to true.",
+                                },
+                                "network": {
+                                    "type": "string",
+                                    "enum": ["ethereum", "base"],
+                                    "description": "Optional EVM network override for this request.",
+                                },
+                            },
+                            "additionalProperties": False,
+                        },
+                        read_only=True,
+                        risk_level="low",
+                    ),
+                )
+                tools.insert(
+                    17,
+                    AgentToolSpec(
+                        name="get_evm_morpho_positions",
+                        description="Get read-only Morpho vault and market positions for the configured EVM wallet on supported mainnet chains.",
+                        input_schema={
+                            "type": "object",
+                            "properties": {
+                                "network": {
+                                    "type": "string",
+                                    "enum": ["ethereum", "base"],
+                                    "description": "Optional EVM network override for this request.",
+                                },
+                            },
+                            "additionalProperties": False,
+                        },
+                        read_only=True,
+                        risk_level="low",
+                    ),
+                )
+                tools.insert(
+                    18,
+                    AgentToolSpec(
+                        name="manage_evm_morpho_vault_position",
+                        description=(
+                            "Preview, prepare, or execute a narrow Morpho vault operation on supported EVM mainnet networks. "
+                            "Supported operations are supply and withdraw. Prepare returns an execution plan only, "
+                            "and execute requires a host-issued approval token bound to the previewed operation."
+                        ),
+                        input_schema={
+                            "type": "object",
+                            "properties": {
+                                "operation": {
+                                    "type": "string",
+                                    "enum": ["supply", "withdraw"],
+                                },
+                                "token_address": {
+                                    "type": "string",
+                                    "description": "Vault asset token address.",
+                                },
+                                "vault_address": {
+                                    "type": "string",
+                                    "description": "Optional explicit Morpho vault address.",
+                                },
+                                "vault_preset": {
+                                    "type": "string",
+                                    "description": "Optional Morpho vault preset name.",
+                                },
+                                "amount_raw": {
+                                    "type": "string",
+                                    "description": "Asset amount in base units. Required for withdraw and optional for supply when native_amount_raw is used.",
+                                },
+                                "native_amount_raw": {
+                                    "type": "string",
+                                    "description": "Optional native-wrap amount in base units for supply.",
+                                },
+                                "mode": {
+                                    "type": "string",
+                                    "enum": ["preview", "prepare", "execute"],
+                                },
+                                "purpose": {"type": "string"},
+                                "user_intent": {"type": "boolean"},
+                                "approval_token": {"type": "string"},
+                                "network": {
+                                    "type": "string",
+                                    "enum": ["ethereum", "base"],
+                                    "description": "Optional EVM network override for this request.",
+                                },
+                            },
+                            "required": ["operation", "token_address", "mode", "purpose"],
+                            "additionalProperties": False,
+                        },
+                        read_only=False,
+                        requires_explicit_user_intent=True,
+                        risk_level="high",
+                    ),
+                )
+                tools.insert(
+                    19,
+                    AgentToolSpec(
+                        name="manage_evm_morpho_market_position",
+                        description=(
+                            "Preview, prepare, or execute a narrow Morpho market operation on supported EVM mainnet networks. "
+                            "Supported operations are supply_collateral, borrow, repay, and withdraw_collateral. "
+                            "Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation."
+                        ),
+                        input_schema={
+                            "type": "object",
+                            "properties": {
+                                "operation": {
+                                    "type": "string",
+                                    "enum": ["supply_collateral", "borrow", "repay", "withdraw_collateral"],
+                                },
+                                "token_address": {
+                                    "type": "string",
+                                    "description": "Loan token or collateral token address for the selected operation.",
+                                },
+                                "market_id": {
+                                    "type": "string",
+                                    "description": "Optional explicit Morpho market id.",
+                                },
+                                "market_preset": {
+                                    "type": "string",
+                                    "description": "Optional Morpho market preset name.",
+                                },
+                                "amount_raw": {
+                                    "type": "string",
+                                    "description": "Operation amount in base units. For repay, use a positive integer string or the literal max.",
+                                },
+                                "native_amount_raw": {
+                                    "type": "string",
+                                    "description": "Optional native-wrap amount in base units for supply_collateral.",
+                                },
+                                "mode": {
+                                    "type": "string",
+                                    "enum": ["preview", "prepare", "execute"],
+                                },
+                                "purpose": {"type": "string"},
+                                "user_intent": {"type": "boolean"},
+                                "approval_token": {"type": "string"},
+                                "network": {
+                                    "type": "string",
+                                    "enum": ["ethereum", "base"],
+                                    "description": "Optional EVM network override for this request.",
+                                },
+                            },
+                            "required": ["operation", "token_address", "mode", "purpose"],
                             "additionalProperties": False,
                         },
                         read_only=False,
@@ -3603,6 +3845,333 @@ class OpenClawWalletAdapter:
                     data=self._annotate_sensitive_payload(
                         result,
                         action_label="EVM Lido withdrawal",
+                        mode="execute",
+                    ),
+                )
+
+            if tool_name == "get_evm_morpho_vaults":
+                data = await active_backend.get_evm_morpho_vaults(
+                    vault_address=(
+                        str(args.get("vault_address")).strip()
+                        if isinstance(args.get("vault_address"), str) and args.get("vault_address").strip()
+                        else None
+                    ),
+                    limit=int(args.get("limit")) if args.get("limit") is not None else None,
+                    listed_only=bool(args.get("listed_only", True)),
+                )
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_evm_morpho_markets":
+                data = await active_backend.get_evm_morpho_markets(
+                    market_id=(
+                        str(args.get("market_id")).strip()
+                        if isinstance(args.get("market_id"), str) and args.get("market_id").strip()
+                        else None
+                    ),
+                    limit=int(args.get("limit")) if args.get("limit") is not None else None,
+                    listed_only=bool(args.get("listed_only", True)),
+                )
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_evm_morpho_positions":
+                data = await active_backend.get_evm_morpho_positions()
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "manage_evm_morpho_vault_position":
+                operation = args.get("operation")
+                token_address = args.get("token_address")
+                vault_address = args.get("vault_address")
+                vault_preset = args.get("vault_preset")
+                amount_raw = args.get("amount_raw")
+                native_amount_raw = args.get("native_amount_raw")
+                mode = args.get("mode")
+                purpose = args.get("purpose")
+                user_intent = args.get("user_intent", False)
+                approval_token = args.get("approval_token")
+
+                if operation not in {"supply", "withdraw"}:
+                    raise WalletBackendError("operation must be one of: supply, withdraw.")
+                if not isinstance(token_address, str) or not token_address.strip():
+                    raise WalletBackendError("token_address is required.")
+                if bool(vault_address) == bool(vault_preset):
+                    raise WalletBackendError("Provide exactly one of vault_address or vault_preset.")
+                if operation == "supply":
+                    has_amount = isinstance(amount_raw, str) and amount_raw.strip().isdigit() and int(amount_raw.strip()) > 0
+                    has_native_amount = (
+                        isinstance(native_amount_raw, str)
+                        and native_amount_raw.strip().isdigit()
+                        and int(native_amount_raw.strip()) > 0
+                    )
+                    if not has_amount and not has_native_amount:
+                        raise WalletBackendError(
+                            "amount_raw or native_amount_raw must be a positive integer string for Morpho vault supply."
+                        )
+                else:
+                    if not isinstance(amount_raw, str) or not amount_raw.strip().isdigit():
+                        raise WalletBackendError("amount_raw must be a positive integer string.")
+                    if int(amount_raw.strip()) <= 0:
+                        raise WalletBackendError("amount_raw must be greater than zero.")
+                if mode not in {"preview", "prepare", "execute"}:
+                    raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
+                if not isinstance(purpose, str) or not purpose.strip():
+                    raise WalletBackendError("purpose is required.")
+
+                preview_kwargs = {
+                    "operation": str(operation),
+                    "token_address": token_address.strip(),
+                    **({"vault_address": vault_address.strip()} if isinstance(vault_address, str) and vault_address.strip() else {}),
+                    **({"vault_preset": vault_preset.strip()} if isinstance(vault_preset, str) and vault_preset.strip() else {}),
+                    **({"amount_raw": amount_raw.strip()} if isinstance(amount_raw, str) and amount_raw.strip() else {}),
+                    **(
+                        {"native_amount_raw": native_amount_raw.strip()}
+                        if isinstance(native_amount_raw, str) and native_amount_raw.strip()
+                        else {}
+                    ),
+                }
+
+                if mode == "preview":
+                    preview = await active_backend.preview_evm_morpho_vault_operation(**preview_kwargs)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            preview,
+                            action_label="EVM Morpho vault operation",
+                            mode="preview",
+                        ),
+                    )
+
+                if mode == "prepare":
+                    self._require_prepare_intent(user_intent)
+                    preview = await active_backend.preview_evm_morpho_vault_operation(**preview_kwargs)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            self._build_prepare_plan(
+                                preview_payload=preview,
+                                action_label="EVM Morpho vault operation",
+                            ),
+                            action_label="EVM Morpho vault operation",
+                            mode="prepare",
+                        ),
+                    )
+
+                approval_payload = inspect_approval_token(
+                    approval_token,
+                    tool_name=tool_name,
+                    network=str(getattr(active_backend, "network", "unknown")),
+                    require_mainnet_confirmation=self._is_mainnet_for_backend(active_backend),
+                )
+                approval_summary = approval_payload.get("binding", {}).get("summary")
+                if not isinstance(approval_summary, dict):
+                    raise WalletBackendError(
+                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                    )
+                expected_summary = {
+                    "operation": "EVM Morpho vault operation",
+                    "network": str(getattr(active_backend, "network", "unknown")),
+                    "morpho_surface": "vault",
+                    "morpho_operation": str(operation),
+                    "token_address": token_address.strip(),
+                }
+                if isinstance(amount_raw, str) and amount_raw.strip():
+                    expected_summary["amount_raw"] = amount_raw.strip()
+                if isinstance(native_amount_raw, str) and native_amount_raw.strip():
+                    expected_summary["native_amount_raw"] = native_amount_raw.strip()
+                target = approval_summary.get("target")
+                if not isinstance(target, dict):
+                    raise WalletBackendError(
+                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                    )
+                expected_target_key = "vaultAddress" if vault_address else "vaultPreset"
+                expected_target_value = vault_address.strip() if vault_address else vault_preset.strip()
+                for key, expected_value in expected_summary.items():
+                    if approval_summary.get(key) != expected_value:
+                        raise WalletBackendError(
+                            "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                        )
+                if target.get(expected_target_key) != expected_target_value:
+                    raise WalletBackendError(
+                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                    )
+
+                approval_summary_copy = dict(approval_summary)
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=approval_summary_copy,
+                    action_label="EVM Morpho vault operation",
+                    backend=active_backend,
+                )
+                result = await active_backend.send_evm_morpho_vault_operation(
+                    **preview_kwargs,
+                    expected_quote_fingerprint=(
+                        str(approval_summary_copy.get("quote_fingerprint")).strip()
+                        if approval_summary_copy.get("quote_fingerprint") is not None
+                        else None
+                    ),
+                )
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=self._annotate_sensitive_payload(
+                        result,
+                        action_label="EVM Morpho vault operation",
+                        mode="execute",
+                    ),
+                )
+
+            if tool_name == "manage_evm_morpho_market_position":
+                operation = args.get("operation")
+                token_address = args.get("token_address")
+                market_id = args.get("market_id")
+                market_preset = args.get("market_preset")
+                amount_raw = args.get("amount_raw")
+                native_amount_raw = args.get("native_amount_raw")
+                mode = args.get("mode")
+                purpose = args.get("purpose")
+                user_intent = args.get("user_intent", False)
+                approval_token = args.get("approval_token")
+
+                if operation not in {"supply_collateral", "borrow", "repay", "withdraw_collateral"}:
+                    raise WalletBackendError(
+                        "operation must be one of: supply_collateral, borrow, repay, withdraw_collateral."
+                    )
+                if not isinstance(token_address, str) or not token_address.strip():
+                    raise WalletBackendError("token_address is required.")
+                if bool(market_id) == bool(market_preset):
+                    raise WalletBackendError("Provide exactly one of market_id or market_preset.")
+                if operation == "supply_collateral":
+                    has_amount = isinstance(amount_raw, str) and amount_raw.strip().isdigit() and int(amount_raw.strip()) > 0
+                    has_native_amount = (
+                        isinstance(native_amount_raw, str)
+                        and native_amount_raw.strip().isdigit()
+                        and int(native_amount_raw.strip()) > 0
+                    )
+                    if not has_amount and not has_native_amount:
+                        raise WalletBackendError(
+                            "amount_raw or native_amount_raw must be a positive integer string for Morpho supply_collateral."
+                        )
+                elif operation == "repay":
+                    normalized_amount = str(amount_raw or "").strip().lower()
+                    if normalized_amount != "max":
+                        if not normalized_amount.isdigit() or int(normalized_amount) <= 0:
+                            raise WalletBackendError(
+                                "amount_raw must be a positive integer string or the literal max for Morpho repay."
+                            )
+                else:
+                    if not isinstance(amount_raw, str) or not amount_raw.strip().isdigit():
+                        raise WalletBackendError("amount_raw must be a positive integer string.")
+                    if int(amount_raw.strip()) <= 0:
+                        raise WalletBackendError("amount_raw must be greater than zero.")
+                if mode not in {"preview", "prepare", "execute"}:
+                    raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
+                if not isinstance(purpose, str) or not purpose.strip():
+                    raise WalletBackendError("purpose is required.")
+
+                preview_kwargs = {
+                    "operation": str(operation),
+                    "token_address": token_address.strip(),
+                    **({"market_id": market_id.strip()} if isinstance(market_id, str) and market_id.strip() else {}),
+                    **({"market_preset": market_preset.strip()} if isinstance(market_preset, str) and market_preset.strip() else {}),
+                    **({"amount_raw": amount_raw.strip()} if isinstance(amount_raw, str) and amount_raw.strip() else {}),
+                    **(
+                        {"native_amount_raw": native_amount_raw.strip()}
+                        if isinstance(native_amount_raw, str) and native_amount_raw.strip()
+                        else {}
+                    ),
+                }
+
+                if mode == "preview":
+                    preview = await active_backend.preview_evm_morpho_market_operation(**preview_kwargs)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            preview,
+                            action_label="EVM Morpho market operation",
+                            mode="preview",
+                        ),
+                    )
+
+                if mode == "prepare":
+                    self._require_prepare_intent(user_intent)
+                    preview = await active_backend.preview_evm_morpho_market_operation(**preview_kwargs)
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            self._build_prepare_plan(
+                                preview_payload=preview,
+                                action_label="EVM Morpho market operation",
+                            ),
+                            action_label="EVM Morpho market operation",
+                            mode="prepare",
+                        ),
+                    )
+
+                approval_payload = inspect_approval_token(
+                    approval_token,
+                    tool_name=tool_name,
+                    network=str(getattr(active_backend, "network", "unknown")),
+                    require_mainnet_confirmation=self._is_mainnet_for_backend(active_backend),
+                )
+                approval_summary = approval_payload.get("binding", {}).get("summary")
+                if not isinstance(approval_summary, dict):
+                    raise WalletBackendError(
+                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                    )
+                expected_summary = {
+                    "operation": "EVM Morpho market operation",
+                    "network": str(getattr(active_backend, "network", "unknown")),
+                    "morpho_surface": "market",
+                    "morpho_operation": str(operation),
+                    "token_address": token_address.strip(),
+                }
+                if isinstance(amount_raw, str) and amount_raw.strip():
+                    expected_summary["amount_raw"] = amount_raw.strip()
+                if isinstance(native_amount_raw, str) and native_amount_raw.strip():
+                    expected_summary["native_amount_raw"] = native_amount_raw.strip()
+                target = approval_summary.get("target")
+                if not isinstance(target, dict):
+                    raise WalletBackendError(
+                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                    )
+                expected_target_key = "marketId" if market_id else "marketPreset"
+                expected_target_value = market_id.strip() if market_id else market_preset.strip()
+                for key, expected_value in expected_summary.items():
+                    if approval_summary.get(key) != expected_value:
+                        raise WalletBackendError(
+                            "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                        )
+                if target.get(expected_target_key) != expected_target_value:
+                    raise WalletBackendError(
+                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                    )
+
+                approval_summary_copy = dict(approval_summary)
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=approval_summary_copy,
+                    action_label="EVM Morpho market operation",
+                    backend=active_backend,
+                )
+                result = await active_backend.send_evm_morpho_market_operation(
+                    **preview_kwargs,
+                    expected_quote_fingerprint=(
+                        str(approval_summary_copy.get("quote_fingerprint")).strip()
+                        if approval_summary_copy.get("quote_fingerprint") is not None
+                        else None
+                    ),
+                )
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=self._annotate_sensitive_payload(
+                        result,
+                        action_label="EVM Morpho market operation",
                         mode="execute",
                     ),
                 )
