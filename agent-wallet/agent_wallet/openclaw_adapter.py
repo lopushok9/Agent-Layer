@@ -3991,7 +3991,17 @@ class OpenClawWalletAdapter:
                         raise WalletBackendError(
                             "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
                         )
-                if target.get(expected_target_key) != expected_target_value:
+                actual_target_value = target.get(expected_target_key)
+                if vault_address:
+                    # The runtime lowercases the resolved vault address in the
+                    # approval binding, so compare addresses case-insensitively.
+                    target_matches = (
+                        isinstance(actual_target_value, str)
+                        and actual_target_value.lower() == expected_target_value.lower()
+                    )
+                else:
+                    target_matches = actual_target_value == expected_target_value
+                if not target_matches:
                     raise WalletBackendError(
                         "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
                     )
@@ -4145,7 +4155,17 @@ class OpenClawWalletAdapter:
                         raise WalletBackendError(
                             "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
                         )
-                if target.get(expected_target_key) != expected_target_value:
+                actual_target_value = target.get(expected_target_key)
+                if market_id:
+                    # Market ids are hex hashes; the runtime may normalize their
+                    # case in the approval binding, so compare case-insensitively.
+                    target_matches = (
+                        isinstance(actual_target_value, str)
+                        and actual_target_value.lower() == expected_target_value.lower()
+                    )
+                else:
+                    target_matches = actual_target_value == expected_target_value
+                if not target_matches:
                     raise WalletBackendError(
                         "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
                     )
