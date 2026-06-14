@@ -1690,6 +1690,89 @@ const evmToolDefinitions = [
     },
   },
   {
+    name: "get_evm_morpho_vaults",
+    description: "Get read-only Morpho vault discovery and detail data for the configured EVM network on supported mainnet chains.",
+    parameters: {
+      type: "object",
+      properties: {
+        vault_address: { type: "string" },
+        limit: { type: "integer", minimum: 1, maximum: 500 },
+        listed_only: { type: "boolean" },
+        network: { type: "string", enum: ["ethereum", "base"] },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_evm_morpho_markets",
+    description: "Get read-only Morpho market discovery and detail data for the configured EVM network on supported mainnet chains.",
+    parameters: {
+      type: "object",
+      properties: {
+        market_id: { type: "string" },
+        limit: { type: "integer", minimum: 1, maximum: 500 },
+        listed_only: { type: "boolean" },
+        network: { type: "string", enum: ["ethereum", "base"] },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_evm_morpho_positions",
+    description: "Get read-only Morpho vault and market positions for the configured EVM wallet on supported mainnet chains.",
+    parameters: {
+      type: "object",
+      properties: {
+        network: { type: "string", enum: ["ethereum", "base"] },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "manage_evm_morpho_vault_position",
+    description: "Preview, prepare, or execute a narrow Morpho vault operation on supported EVM mainnet networks. Supported operations are supply and withdraw. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
+    optional: true,
+    parameters: {
+      type: "object",
+      properties: {
+        operation: { type: "string", enum: ["supply", "withdraw"] },
+        token_address: { type: "string" },
+        vault_address: { type: "string" },
+        vault_preset: { type: "string" },
+        amount_raw: { type: "string" },
+        native_amount_raw: { type: "string" },
+        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
+        purpose: { type: "string" },
+        user_intent: { type: "boolean" },
+        network: { type: "string", enum: ["ethereum", "base"] },
+      },
+      required: ["operation", "token_address", "mode", "purpose"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "manage_evm_morpho_market_position",
+    description: "Preview, prepare, or execute a narrow Morpho market operation on supported EVM mainnet networks. Supported operations are supply_collateral, borrow, repay, and withdraw_collateral. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
+    optional: true,
+    parameters: {
+      type: "object",
+      properties: {
+        operation: { type: "string", enum: ["supply_collateral", "borrow", "repay", "withdraw_collateral"] },
+        token_address: { type: "string" },
+        market_id: { type: "string" },
+        market_preset: { type: "string" },
+        amount_raw: { type: "string" },
+        native_amount_raw: { type: "string" },
+        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
+        purpose: { type: "string" },
+        user_intent: { type: "boolean" },
+        network: { type: "string", enum: ["ethereum", "base"] },
+      },
+      required: ["operation", "token_address", "mode", "purpose"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_evm_swap_quote",
     description: "Get a read-only Velora quote for an ERC-20 or native ETH swap on supported EVM mainnet networks. This does not approve or execute a swap.",
     parameters: {
