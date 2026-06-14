@@ -276,6 +276,91 @@ test("morpho vault list returns discovery payload", async () => {
   assert.equal(calls.length, 1);
   assert.equal(calls[0].operationName, "MorphoVaultV2List");
   assert.deepEqual(calls[0].variables.where, { chainId_in: [8453], listed: true });
+  assert.equal(calls[0].variables.orderBy, "TotalAssetsUsd");
+  assert.equal(calls[0].variables.orderDirection, "Desc");
+});
+
+test("morpho vault list applies asset filter and custom ordering", async () => {
+  const service = createService();
+  const calls = [];
+
+  await withMockedFetch(async (_url, options) => {
+    const body = JSON.parse(String(options?.body || "{}"));
+    calls.push(body);
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return { data: { vaultV2s: { items: [] } } };
+      },
+    };
+  }, async () => {
+    const result = await service.getMorphoVaults({
+      network: "base",
+      listedOnly: false,
+      assetAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      orderBy: "apy",
+      orderDirection: "asc",
+    });
+    assert.equal(result.orderBy, "Apy");
+    assert.equal(result.orderDirection, "Asc");
+    assert.deepEqual(result.assetAddressFilter, ["0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"]);
+  });
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].variables.where, {
+    chainId_in: [8453],
+    assetAddress_in: ["0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"],
+  });
+  assert.equal(calls[0].variables.orderBy, "Apy");
+  assert.equal(calls[0].variables.orderDirection, "Asc");
+});
+
+test("morpho market list applies search, asset filters and ordering", async () => {
+  const service = createService();
+  const calls = [];
+
+  await withMockedFetch(async (_url, options) => {
+    const body = JSON.parse(String(options?.body || "{}"));
+    calls.push(body);
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return { data: { markets: { items: [] } } };
+      },
+    };
+  }, async () => {
+    const result = await service.getMorphoMarkets({
+      network: "ethereum",
+      search: "wstETH",
+      loanAssetAddress: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+      orderBy: "supplyapy",
+    });
+    assert.equal(result.orderBy, "SupplyApy");
+    assert.equal(result.orderDirection, "Desc");
+    assert.equal(result.search, "wstETH");
+    assert.deepEqual(result.loanAssetFilter, ["0xdAC17F958D2ee523a2206206994597C13D831ec7"]);
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].operationName, "MorphoMarketList");
+  assert.deepEqual(calls[0].variables.where, {
+    chainId_in: [1],
+    listed: true,
+    search: "wstETH",
+    loanAssetAddress_in: ["0xdAC17F958D2ee523a2206206994597C13D831ec7"],
+  });
+  assert.equal(calls[0].variables.orderBy, "SupplyApy");
+  assert.equal(calls[0].variables.orderDirection, "Desc");
+});
+
+test("morpho market list rejects an invalid market id", async () => {
+  const service = createService();
+  await assert.rejects(
+    () => service.getMorphoMarkets({ network: "ethereum", marketId: "not-a-hash" }),
+    /marketId must be a 32-byte hex string/
+  );
 });
 
 test("morpho market by id returns detailed payload", async () => {

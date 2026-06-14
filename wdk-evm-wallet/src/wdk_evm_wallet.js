@@ -97,8 +97,8 @@ const LIFI_CHAIN_ALIASES = {
 const MORPHO_DEFAULT_LIST_LIMIT = 100;
 const MORPHO_MAX_LIST_LIMIT = 500;
 const MORPHO_VAULT_LIST_QUERY = `
-  query MorphoVaultV2List($first: Int!, $where: VaultV2sFilters) {
-    vaultV2s(first: $first, where: $where) {
+  query MorphoVaultV2List($first: Int!, $where: VaultV2sFilters, $orderBy: VaultV2OrderBy, $orderDirection: OrderDirection) {
+    vaultV2s(first: $first, where: $where, orderBy: $orderBy, orderDirection: $orderDirection) {
       items {
         address
         symbol
@@ -253,8 +253,8 @@ const MORPHO_VAULT_BY_ADDRESS_QUERY = `
   }
 `;
 const MORPHO_MARKET_LIST_QUERY = `
-  query MorphoMarketList($first: Int!, $where: MarketFilters) {
-    markets(first: $first, where: $where) {
+  query MorphoMarketList($first: Int!, $where: MarketFilters, $orderBy: MarketOrderBy, $orderDirection: OrderDirection) {
+    markets(first: $first, where: $where, orderBy: $orderBy, orderDirection: $orderDirection) {
       items {
         marketId
         lltv
@@ -580,6 +580,109 @@ function normalizeMorphoListedOnly(value, fallback = true) {
     throw new Error("listedOnly must be a boolean.");
   }
   return value;
+}
+
+function buildOrderFieldLookup(fields) {
+  const lookup = new Map();
+  for (const field of fields) {
+    lookup.set(field.toLowerCase(), field);
+  }
+  return lookup;
+}
+
+const MORPHO_VAULT_ORDER_LOOKUP = buildOrderFieldLookup([
+  "Address",
+  "TotalAssets",
+  "TotalAssetsUsd",
+  "TotalSupply",
+  "Liquidity",
+  "LiquidityUsd",
+  "Apy",
+  "NetApy",
+  "RealAssets",
+  "RealAssetsUsd",
+  "IdleAssets",
+  "IdleAssetsUsd",
+]);
+
+const MORPHO_MARKET_ORDER_LOOKUP = buildOrderFieldLookup([
+  "UniqueKey",
+  "Lltv",
+  "BorrowAssets",
+  "BorrowAssetsUsd",
+  "SupplyAssets",
+  "SupplyAssetsUsd",
+  "BorrowShares",
+  "SupplyShares",
+  "Utilization",
+  "ApyAtTarget",
+  "SupplyApy",
+  "NetSupplyApy",
+  "BorrowApy",
+  "NetBorrowApy",
+  "Fee",
+  "LoanAssetSymbol",
+  "CollateralAssetSymbol",
+  "TotalLiquidityUsd",
+  "AvgBorrowApy",
+  "AvgNetBorrowApy",
+  "DailyBorrowApy",
+  "DailyNetBorrowApy",
+  "SizeUsd",
+]);
+
+function normalizeMorphoOrderBy(value, lookup, fallback, fieldName = "orderBy") {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+  const canonical = lookup.get(String(value).trim().toLowerCase());
+  if (!canonical) {
+    throw new Error(`${fieldName} must be one of: ${[...lookup.values()].join(", ")}.`);
+  }
+  return canonical;
+}
+
+function normalizeMorphoOrderDirection(value, fallback = "Desc") {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === "asc") {
+    return "Asc";
+  }
+  if (normalized === "desc") {
+    return "Desc";
+  }
+  throw new Error("orderDirection must be 'asc' or 'desc'.");
+}
+
+function normalizeMorphoSearch(value) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+  if (typeof value !== "string") {
+    throw new Error("search must be a string.");
+  }
+  return value.trim() || null;
+}
+
+function normalizeOptionalAddressFilter(value, fieldName) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+  const values = Array.isArray(value) ? value : [value];
+  const normalized = values
+    .filter((entry) => entry !== undefined && entry !== null && String(entry).trim())
+    .map((entry) => normalizeAddress(entry, fieldName));
+  return normalized.length > 0 ? normalized : null;
+}
+
+function assertMorphoMarketId(value, fieldName = "marketId") {
+  const id = assertNonEmptyString(value, fieldName);
+  if (!/^0x[a-fA-F0-9]{64}$/.test(id)) {
+    throw new Error(`${fieldName} must be a 32-byte hex string.`);
+  }
+  return id;
 }
 
 function normalizeAaveOperation(value) {
@@ -937,13 +1040,7 @@ function normalizeMorphoMarketTarget({ marketId, marketPreset }) {
   const normalizedMarketId =
     marketId === undefined || marketId === null || marketId === ""
       ? null
-      : (() => {
-          const value = assertNonEmptyString(marketId, "marketId");
-          if (!/^0x[a-fA-F0-9]{64}$/.test(value)) {
-            throw new Error("marketId must be a 32-byte hex string.");
-          }
-          return value;
-        })();
+      : assertMorphoMarketId(marketId, "marketId");
   const normalizedMarketPreset =
     marketPreset !== undefined && marketPreset !== null && String(marketPreset).trim()
       ? assertNonEmptyString(marketPreset, "marketPreset")
@@ -1822,7 +1919,15 @@ export class WdkEvmWalletService {
     );
   }
 
-  async getMorphoVaults({ network, vaultAddress = null, limit, listedOnly = true }) {
+  async getMorphoVaults({
+    network,
+    vaultAddress = null,
+    limit,
+    listedOnly = true,
+    assetAddress = null,
+    orderBy,
+    orderDirection,
+  }) {
     const runtimeConfig = this.#resolveRuntimeConfig(network);
     assertMorphoSupportedNetwork(runtimeConfig.network);
     if (vaultAddress !== null && vaultAddress !== undefined && String(vaultAddress).trim()) {
@@ -1845,13 +1950,27 @@ export class WdkEvmWalletService {
     }
     const first = normalizeMorphoListLimit(limit);
     const onlyListed = normalizeMorphoListedOnly(listedOnly);
+    const assetAddressFilter = normalizeOptionalAddressFilter(assetAddress, "assetAddress");
+    const resolvedOrderBy = normalizeMorphoOrderBy(
+      orderBy,
+      MORPHO_VAULT_ORDER_LOOKUP,
+      "TotalAssetsUsd"
+    );
+    const resolvedOrderDirection = normalizeMorphoOrderDirection(orderDirection);
+    const where = { chainId_in: [runtimeConfig.chainId] };
+    if (onlyListed) {
+      where.listed = true;
+    }
+    if (assetAddressFilter) {
+      where.assetAddress_in = assetAddressFilter;
+    }
     const data = await this.#morphoGraphqlRequest({
       query: MORPHO_VAULT_LIST_QUERY,
       variables: {
         first,
-        where: onlyListed
-          ? { chainId_in: [runtimeConfig.chainId], listed: true }
-          : { chainId_in: [runtimeConfig.chainId] },
+        where,
+        orderBy: resolvedOrderBy,
+        orderDirection: resolvedOrderDirection,
       },
       operationName: "MorphoVaultV2List",
     });
@@ -1862,20 +1981,33 @@ export class WdkEvmWalletService {
       protocol: "morpho",
       listedOnly: onlyListed,
       requestedLimit: first,
+      orderBy: resolvedOrderBy,
+      orderDirection: resolvedOrderDirection,
+      assetAddressFilter,
       vaultCount: vaults.length,
       vaults,
       source: "morpho-api",
     };
   }
 
-  async getMorphoMarkets({ network, marketId = null, limit, listedOnly = true }) {
+  async getMorphoMarkets({
+    network,
+    marketId = null,
+    limit,
+    listedOnly = true,
+    search,
+    collateralAssetAddress = null,
+    loanAssetAddress = null,
+    orderBy,
+    orderDirection,
+  }) {
     const runtimeConfig = this.#resolveRuntimeConfig(network);
     assertMorphoSupportedNetwork(runtimeConfig.network);
     if (marketId !== null && marketId !== undefined && String(marketId).trim()) {
       const data = await this.#morphoGraphqlRequest({
         query: MORPHO_MARKET_BY_ID_QUERY,
         variables: {
-          marketId: assertNonEmptyString(marketId, "marketId"),
+          marketId: assertMorphoMarketId(marketId, "marketId"),
           chainId: runtimeConfig.chainId,
         },
         operationName: "MorphoMarketById",
@@ -1891,13 +2023,38 @@ export class WdkEvmWalletService {
     }
     const first = normalizeMorphoListLimit(limit);
     const onlyListed = normalizeMorphoListedOnly(listedOnly);
+    const searchTerm = normalizeMorphoSearch(search);
+    const collateralFilter = normalizeOptionalAddressFilter(
+      collateralAssetAddress,
+      "collateralAssetAddress"
+    );
+    const loanFilter = normalizeOptionalAddressFilter(loanAssetAddress, "loanAssetAddress");
+    const resolvedOrderBy = normalizeMorphoOrderBy(
+      orderBy,
+      MORPHO_MARKET_ORDER_LOOKUP,
+      "SupplyAssetsUsd"
+    );
+    const resolvedOrderDirection = normalizeMorphoOrderDirection(orderDirection);
+    const where = { chainId_in: [runtimeConfig.chainId] };
+    if (onlyListed) {
+      where.listed = true;
+    }
+    if (searchTerm) {
+      where.search = searchTerm;
+    }
+    if (collateralFilter) {
+      where.collateralAssetAddress_in = collateralFilter;
+    }
+    if (loanFilter) {
+      where.loanAssetAddress_in = loanFilter;
+    }
     const data = await this.#morphoGraphqlRequest({
       query: MORPHO_MARKET_LIST_QUERY,
       variables: {
         first,
-        where: onlyListed
-          ? { chainId_in: [runtimeConfig.chainId], listed: true }
-          : { chainId_in: [runtimeConfig.chainId] },
+        where,
+        orderBy: resolvedOrderBy,
+        orderDirection: resolvedOrderDirection,
       },
       operationName: "MorphoMarketList",
     });
@@ -1908,6 +2065,11 @@ export class WdkEvmWalletService {
       protocol: "morpho",
       listedOnly: onlyListed,
       requestedLimit: first,
+      orderBy: resolvedOrderBy,
+      orderDirection: resolvedOrderDirection,
+      search: searchTerm,
+      collateralAssetFilter: collateralFilter,
+      loanAssetFilter: loanFilter,
       marketCount: markets.length,
       markets,
       source: "morpho-api",
