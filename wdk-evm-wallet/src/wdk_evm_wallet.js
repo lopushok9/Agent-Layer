@@ -3922,17 +3922,23 @@ export class WdkEvmWalletService {
     }
 
     if (Array.isArray(payload?.errors) && payload.errors.length > 0) {
-      throw createTaggedError(
-        String(payload.errors[0]?.message || "Morpho API query failed."),
-        "morpho_api_failed",
-        {
-          provider: "morpho",
-          endpoint: baseUrl,
-          status: response.status,
-          operationName,
-          errors: payload.errors,
-        }
+      const allNotFound = payload.errors.every(
+        (entry) =>
+          String(entry?.status || entry?.extensions?.code || "").toUpperCase() === "NOT_FOUND"
       );
+      if (!allNotFound) {
+        throw createTaggedError(
+          String(payload.errors[0]?.message || "Morpho API query failed."),
+          "morpho_api_failed",
+          {
+            provider: "morpho",
+            endpoint: baseUrl,
+            status: response.status,
+            operationName,
+            errors: payload.errors,
+          }
+        );
+      }
     }
 
     return payload?.data || {};
