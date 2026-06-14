@@ -469,6 +469,35 @@ def _replace_with_directory_symlink(link_path: Path, target_path: Path) -> None:
     link_path.symlink_to(target_resolved, target_is_directory=True)
 
 
+def _bootstrap_venv_pip(python_bin: Path) -> None:
+    """Upgrade pip in a freshly created venv before installing dependencies.
+
+    A new venv ships with whatever pip ``ensurepip`` bundled, which on older
+    interpreters (e.g. a python.org 3.10 build) can be too old to select
+    prebuilt wheels for native dependencies such as ``cryptography`` and
+    ``ckzg``. Without a matching wheel pip falls back to a source build that
+    needs a Rust/C toolchain and fails on machines that lack one. Upgrading pip
+    first keeps the editable install below on wheels.
+    """
+    subprocess.run(
+        [str(python_bin), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"],
+        check=True,
+    )
+
+
+def _pip_install_editable(python_bin: Path, package_root: Path) -> None:
+    """Editable-install the package, preferring prebuilt wheels for deps.
+
+    ``--prefer-binary`` keeps pip on prebuilt wheels for native dependencies
+    instead of compiling them from source when a newer source-only release is
+    available, so the install does not require a local build toolchain.
+    """
+    subprocess.run(
+        [str(python_bin), "-m", "pip", "install", "--prefer-binary", "-e", str(package_root)],
+        check=True,
+    )
+
+
 def _ensure_python_runtime(
     venv_path: Path,
     package_root: Path,
@@ -483,10 +512,8 @@ def _ensure_python_runtime(
         if not python_bin.exists():
             venv.EnvBuilder(with_pip=True).create(shared_venv_path)
             created = True
-            subprocess.run(
-                [str(python_bin), "-m", "pip", "install", "-e", str(package_root)],
-                check=True,
-            )
+            _bootstrap_venv_pip(python_bin)
+            _pip_install_editable(python_bin, package_root)
         shared_wrapper = _ensure_python_wrapper(shared_venv_path)
         _replace_with_directory_symlink(venv_path, shared_venv_path)
         plan["action"] = "create" if created else "reuse"
@@ -501,11 +528,9 @@ def _ensure_python_runtime(
     if not python_bin.exists():
         venv.EnvBuilder(with_pip=True).create(venv_path)
         created = True
+        _bootstrap_venv_pip(python_bin)
 
-    subprocess.run(
-        [str(python_bin), "-m", "pip", "install", "-e", str(package_root)],
-        check=True,
-    )
+    _pip_install_editable(python_bin, package_root)
     return (
         _ensure_python_wrapper(venv_path),
         created,
