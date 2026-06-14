@@ -126,6 +126,9 @@ class AgentWalletBackend(ABC):
         vault_address: str | None = None,
         limit: int | None = None,
         listed_only: bool = True,
+        asset_address: str | None = None,
+        order_by: str | None = None,
+        order_direction: str | None = None,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support EVM Morpho vault lookup.")
 
@@ -135,6 +138,11 @@ class AgentWalletBackend(ABC):
         market_id: str | None = None,
         limit: int | None = None,
         listed_only: bool = True,
+        search: str | None = None,
+        collateral_asset_address: str | None = None,
+        loan_asset_address: str | None = None,
+        order_by: str | None = None,
+        order_direction: str | None = None,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support EVM Morpho market lookup.")
 

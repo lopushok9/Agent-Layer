@@ -787,6 +787,9 @@ class FakeEvmBackend(AgentWalletBackend):
         vault_address: str | None = None,
         limit: int | None = None,
         listed_only: bool = True,
+        asset_address: str | None = None,
+        order_by: str | None = None,
+        order_direction: str | None = None,
     ) -> dict:
         vault = {
             "address": vault_address or "0xb576765fB15505433aF24FEe2c0325895C559FB2",
@@ -801,6 +804,9 @@ class FakeEvmBackend(AgentWalletBackend):
             "chain_id": 1 if self.network == "ethereum" else 8453,
             "listed_only": bool(listed_only),
             "requested_limit": limit or 100,
+            "order_by": order_by or "TotalAssetsUsd",
+            "order_direction": order_direction or "desc",
+            "asset_address_filter": [asset_address] if asset_address else None,
             "found": vault_address is not None,
             "vault_count": 1,
             "vault": vault if vault_address else None,
@@ -814,6 +820,11 @@ class FakeEvmBackend(AgentWalletBackend):
         market_id: str | None = None,
         limit: int | None = None,
         listed_only: bool = True,
+        search: str | None = None,
+        collateral_asset_address: str | None = None,
+        loan_asset_address: str | None = None,
+        order_by: str | None = None,
+        order_direction: str | None = None,
     ) -> dict:
         market = {
             "marketId": market_id or "0x9103c3b4e834476c9a62ea009ba2c884ee42e94e6e314a26f04d312434191836",
@@ -828,6 +839,11 @@ class FakeEvmBackend(AgentWalletBackend):
             "chain_id": 1 if self.network == "ethereum" else 8453,
             "listed_only": bool(listed_only),
             "requested_limit": limit or 100,
+            "order_by": order_by or "SupplyAssetsUsd",
+            "order_direction": order_direction or "desc",
+            "search": search,
+            "collateral_asset_filter": [collateral_asset_address] if collateral_asset_address else None,
+            "loan_asset_filter": [loan_asset_address] if loan_asset_address else None,
             "found": market_id is not None,
             "market_count": 1,
             "market": market if market_id else None,
@@ -1715,6 +1731,32 @@ async def _main() -> None:
     morpho_markets = await adapter.invoke("get_evm_morpho_markets", {"network": "base"})
     assert morpho_markets.ok is True
     assert morpho_markets.data["market_count"] == 1
+
+    morpho_vaults_filtered = await adapter.invoke(
+        "get_evm_morpho_vaults",
+        {
+            "network": "base",
+            "asset_address": "0x2222222222222222222222222222222222222222",
+            "order_by": "Apy",
+            "order_direction": "asc",
+        },
+    )
+    assert morpho_vaults_filtered.ok is True
+    assert morpho_vaults_filtered.data["order_by"] == "Apy"
+    assert morpho_vaults_filtered.data["order_direction"] == "asc"
+    assert morpho_vaults_filtered.data["asset_address_filter"] == [
+        "0x2222222222222222222222222222222222222222"
+    ]
+
+    morpho_markets_filtered = await adapter.invoke(
+        "get_evm_morpho_markets",
+        {"network": "base", "search": "cbBTC", "loan_asset_address": "0x2222222222222222222222222222222222222222"},
+    )
+    assert morpho_markets_filtered.ok is True
+    assert morpho_markets_filtered.data["search"] == "cbBTC"
+    assert morpho_markets_filtered.data["loan_asset_filter"] == [
+        "0x2222222222222222222222222222222222222222"
+    ]
 
     morpho_positions = await adapter.invoke("get_evm_morpho_positions", {"network": "base"})
     assert morpho_positions.ok is True

@@ -1025,6 +1025,9 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
         vault_address: str | None = None,
         limit: int | None = None,
         listed_only: bool = True,
+        asset_address: str | None = None,
+        order_by: str | None = None,
+        order_direction: str | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "network": self.network,
@@ -1034,6 +1037,12 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             payload["vaultAddress"] = vault_address.strip()
         if limit is not None:
             payload["limit"] = int(limit)
+        if isinstance(asset_address, str) and asset_address.strip():
+            payload["assetAddress"] = asset_address.strip()
+        if isinstance(order_by, str) and order_by.strip():
+            payload["orderBy"] = order_by.strip()
+        if isinstance(order_direction, str) and order_direction.strip():
+            payload["orderDirection"] = order_direction.strip()
         data = await self.client.post("/v1/evm/morpho/vaults/get", payload)
         return {
             "chain": self.chain,
@@ -1042,6 +1051,9 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "chain_id": int(data.get("chainId") or 0),
             "listed_only": bool(data.get("listedOnly", listed_only)),
             "requested_limit": int(data.get("requestedLimit") or 0),
+            "order_by": data.get("orderBy"),
+            "order_direction": data.get("orderDirection"),
+            "asset_address_filter": data.get("assetAddressFilter"),
             "found": bool(data.get("found")) if "found" in data else None,
             "vault_count": int(data.get("vaultCount") or 0),
             "vault": dict(data.get("vault") or {}) if isinstance(data.get("vault"), dict) else None,
@@ -1055,6 +1067,11 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
         market_id: str | None = None,
         limit: int | None = None,
         listed_only: bool = True,
+        search: str | None = None,
+        collateral_asset_address: str | None = None,
+        loan_asset_address: str | None = None,
+        order_by: str | None = None,
+        order_direction: str | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "network": self.network,
@@ -1064,6 +1081,16 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             payload["marketId"] = market_id.strip()
         if limit is not None:
             payload["limit"] = int(limit)
+        if isinstance(search, str) and search.strip():
+            payload["search"] = search.strip()
+        if isinstance(collateral_asset_address, str) and collateral_asset_address.strip():
+            payload["collateralAssetAddress"] = collateral_asset_address.strip()
+        if isinstance(loan_asset_address, str) and loan_asset_address.strip():
+            payload["loanAssetAddress"] = loan_asset_address.strip()
+        if isinstance(order_by, str) and order_by.strip():
+            payload["orderBy"] = order_by.strip()
+        if isinstance(order_direction, str) and order_direction.strip():
+            payload["orderDirection"] = order_direction.strip()
         data = await self.client.post("/v1/evm/morpho/markets/get", payload)
         return {
             "chain": self.chain,
@@ -1072,6 +1099,11 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "chain_id": int(data.get("chainId") or 0),
             "listed_only": bool(data.get("listedOnly", listed_only)),
             "requested_limit": int(data.get("requestedLimit") or 0),
+            "order_by": data.get("orderBy"),
+            "order_direction": data.get("orderDirection"),
+            "search": data.get("search"),
+            "collateral_asset_filter": data.get("collateralAssetFilter"),
+            "loan_asset_filter": data.get("loanAssetFilter"),
             "found": bool(data.get("found")) if "found" in data else None,
             "market_count": int(data.get("marketCount") or 0),
             "market": dict(data.get("market") or {}) if isinstance(data.get("market"), dict) else None,

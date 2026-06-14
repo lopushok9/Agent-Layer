@@ -1509,7 +1509,7 @@ class OpenClawWalletAdapter:
                     15,
                     AgentToolSpec(
                         name="get_evm_morpho_vaults",
-                        description="Get read-only Morpho vault discovery and detail data for the configured EVM network on supported mainnet chains.",
+                        description="Get read-only Morpho vault discovery and detail data for the configured EVM network on supported mainnet chains. When listing, results are ordered (default: largest TVL first) and can be filtered by underlying asset.",
                         input_schema={
                             "type": "object",
                             "properties": {
@@ -1527,6 +1527,29 @@ class OpenClawWalletAdapter:
                                     "type": "boolean",
                                     "description": "Filter to listed vaults only. Defaults to true.",
                                 },
+                                "asset_address": {
+                                    "type": "string",
+                                    "description": "Optional underlying asset address to filter vaults (e.g. only USDC vaults).",
+                                },
+                                "order_by": {
+                                    "type": "string",
+                                    "enum": [
+                                        "TotalAssetsUsd",
+                                        "TotalAssets",
+                                        "TotalSupply",
+                                        "Liquidity",
+                                        "LiquidityUsd",
+                                        "Apy",
+                                        "NetApy",
+                                        "Address",
+                                    ],
+                                    "description": "Optional sort field when listing. Defaults to TotalAssetsUsd (largest TVL first).",
+                                },
+                                "order_direction": {
+                                    "type": "string",
+                                    "enum": ["asc", "desc"],
+                                    "description": "Optional sort direction. Defaults to desc.",
+                                },
                                 "network": {
                                     "type": "string",
                                     "enum": ["ethereum", "base"],
@@ -1543,13 +1566,13 @@ class OpenClawWalletAdapter:
                     16,
                     AgentToolSpec(
                         name="get_evm_morpho_markets",
-                        description="Get read-only Morpho market discovery and detail data for the configured EVM network on supported mainnet chains.",
+                        description="Get read-only Morpho market discovery and detail data for the configured EVM network on supported mainnet chains. When listing, results are ordered (default: largest supply first) and can be filtered by a free-text search or by collateral/loan asset.",
                         input_schema={
                             "type": "object",
                             "properties": {
                                 "market_id": {
                                     "type": "string",
-                                    "description": "Optional explicit Morpho market id for a single-market lookup.",
+                                    "description": "Optional explicit Morpho market id (32-byte hex) for a single-market lookup.",
                                 },
                                 "limit": {
                                     "type": "integer",
@@ -1560,6 +1583,38 @@ class OpenClawWalletAdapter:
                                 "listed_only": {
                                     "type": "boolean",
                                     "description": "Filter to listed markets only. Defaults to true.",
+                                },
+                                "search": {
+                                    "type": "string",
+                                    "description": "Optional free-text search over market/asset symbols (e.g. 'wstETH').",
+                                },
+                                "collateral_asset_address": {
+                                    "type": "string",
+                                    "description": "Optional collateral asset address to filter markets.",
+                                },
+                                "loan_asset_address": {
+                                    "type": "string",
+                                    "description": "Optional loan asset address to filter markets.",
+                                },
+                                "order_by": {
+                                    "type": "string",
+                                    "enum": [
+                                        "SupplyAssetsUsd",
+                                        "BorrowAssetsUsd",
+                                        "SupplyApy",
+                                        "NetSupplyApy",
+                                        "BorrowApy",
+                                        "NetBorrowApy",
+                                        "Utilization",
+                                        "TotalLiquidityUsd",
+                                        "Lltv",
+                                    ],
+                                    "description": "Optional sort field when listing. Defaults to SupplyAssetsUsd (largest supply first).",
+                                },
+                                "order_direction": {
+                                    "type": "string",
+                                    "enum": ["asc", "desc"],
+                                    "description": "Optional sort direction. Defaults to desc.",
                                 },
                                 "network": {
                                     "type": "string",
@@ -3858,6 +3913,21 @@ class OpenClawWalletAdapter:
                     ),
                     limit=int(args.get("limit")) if args.get("limit") is not None else None,
                     listed_only=bool(args.get("listed_only", True)),
+                    asset_address=(
+                        str(args.get("asset_address")).strip()
+                        if isinstance(args.get("asset_address"), str) and args.get("asset_address").strip()
+                        else None
+                    ),
+                    order_by=(
+                        str(args.get("order_by")).strip()
+                        if isinstance(args.get("order_by"), str) and args.get("order_by").strip()
+                        else None
+                    ),
+                    order_direction=(
+                        str(args.get("order_direction")).strip()
+                        if isinstance(args.get("order_direction"), str) and args.get("order_direction").strip()
+                        else None
+                    ),
                 )
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
 
@@ -3870,6 +3940,33 @@ class OpenClawWalletAdapter:
                     ),
                     limit=int(args.get("limit")) if args.get("limit") is not None else None,
                     listed_only=bool(args.get("listed_only", True)),
+                    search=(
+                        str(args.get("search")).strip()
+                        if isinstance(args.get("search"), str) and args.get("search").strip()
+                        else None
+                    ),
+                    collateral_asset_address=(
+                        str(args.get("collateral_asset_address")).strip()
+                        if isinstance(args.get("collateral_asset_address"), str)
+                        and args.get("collateral_asset_address").strip()
+                        else None
+                    ),
+                    loan_asset_address=(
+                        str(args.get("loan_asset_address")).strip()
+                        if isinstance(args.get("loan_asset_address"), str)
+                        and args.get("loan_asset_address").strip()
+                        else None
+                    ),
+                    order_by=(
+                        str(args.get("order_by")).strip()
+                        if isinstance(args.get("order_by"), str) and args.get("order_by").strip()
+                        else None
+                    ),
+                    order_direction=(
+                        str(args.get("order_direction")).strip()
+                        if isinstance(args.get("order_direction"), str) and args.get("order_direction").strip()
+                        else None
+                    ),
                 )
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
 

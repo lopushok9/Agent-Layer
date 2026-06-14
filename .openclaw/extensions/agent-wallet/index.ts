@@ -1691,13 +1691,20 @@ const evmToolDefinitions = [
   },
   {
     name: "get_evm_morpho_vaults",
-    description: "Get read-only Morpho vault discovery and detail data for the configured EVM network on supported mainnet chains.",
+    description: "Get read-only Morpho vault discovery and detail data for the configured EVM network on supported mainnet chains. When listing, results are ordered (default: largest TVL first) and can be filtered by underlying asset.",
     parameters: {
       type: "object",
       properties: {
-        vault_address: { type: "string" },
+        vault_address: { type: "string", description: "Optional explicit vault address for a single-vault lookup." },
         limit: { type: "integer", minimum: 1, maximum: 500 },
-        listed_only: { type: "boolean" },
+        listed_only: { type: "boolean", description: "Filter to listed vaults only. Defaults to true." },
+        asset_address: { type: "string", description: "Optional underlying asset address filter (e.g. only USDC vaults)." },
+        order_by: {
+          type: "string",
+          enum: ["TotalAssetsUsd", "TotalAssets", "TotalSupply", "Liquidity", "LiquidityUsd", "Apy", "NetApy", "Address"],
+          description: "Sort field when listing. Defaults to TotalAssetsUsd.",
+        },
+        order_direction: { type: "string", enum: ["asc", "desc"], description: "Sort direction. Defaults to desc." },
         network: { type: "string", enum: ["ethereum", "base"] },
       },
       additionalProperties: false,
@@ -1705,13 +1712,22 @@ const evmToolDefinitions = [
   },
   {
     name: "get_evm_morpho_markets",
-    description: "Get read-only Morpho market discovery and detail data for the configured EVM network on supported mainnet chains.",
+    description: "Get read-only Morpho market discovery and detail data for the configured EVM network on supported mainnet chains. When listing, results are ordered (default: largest supply first) and can be filtered by free-text search or by collateral/loan asset.",
     parameters: {
       type: "object",
       properties: {
-        market_id: { type: "string" },
+        market_id: { type: "string", description: "Optional explicit market id (32-byte hex) for a single-market lookup." },
         limit: { type: "integer", minimum: 1, maximum: 500 },
-        listed_only: { type: "boolean" },
+        listed_only: { type: "boolean", description: "Filter to listed markets only. Defaults to true." },
+        search: { type: "string", description: "Optional free-text search over market/asset symbols (e.g. 'wstETH')." },
+        collateral_asset_address: { type: "string", description: "Optional collateral asset address filter." },
+        loan_asset_address: { type: "string", description: "Optional loan asset address filter." },
+        order_by: {
+          type: "string",
+          enum: ["SupplyAssetsUsd", "BorrowAssetsUsd", "SupplyApy", "NetSupplyApy", "BorrowApy", "NetBorrowApy", "Utilization", "TotalLiquidityUsd", "Lltv"],
+          description: "Sort field when listing. Defaults to SupplyAssetsUsd.",
+        },
+        order_direction: { type: "string", enum: ["asc", "desc"], description: "Sort direction. Defaults to desc." },
         network: { type: "string", enum: ["ethereum", "base"] },
       },
       additionalProperties: false,
