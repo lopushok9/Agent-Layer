@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## v0.1.46 - 2026-06-14
+
+- Hardened the runtime install so a freshly created venv does not fail on
+  native dependencies. The venv fingerprint hashes `pyproject.toml`, whose
+  version line changes every release, so each bump builds a brand-new venv with
+  the pip that `ensurepip` bundled. That pip could resolve `cryptography` and
+  `ckzg` to versions without a prebuilt wheel and fall back to a source build
+  needing a Rust/C toolchain, failing the install on machines that lack one.
+  The installer now upgrades pip/setuptools/wheel in a new venv and runs the
+  editable install with `--prefer-binary`, keeping native deps on prebuilt
+  wheels.
+
 ## v0.1.45 - 2026-06-14
 
 - Added a Morpho lending integration (vaults + Blue markets) on Ethereum and
