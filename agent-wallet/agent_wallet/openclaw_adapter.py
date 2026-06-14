@@ -7,6 +7,7 @@ import json
 from typing import Any
 
 from agent_wallet.approval import inspect_approval_token, verify_approval_token
+from agent_wallet.autonomous_policy import OperationRequest
 from agent_wallet.exceptions import ProviderError
 from agent_wallet.models import AgentToolResult, AgentToolSpec
 from agent_wallet.providers import x402
@@ -278,6 +279,73 @@ class OpenClawWalletAdapter:
             ),
         ]
 
+    @staticmethod
+    def _autonomous_signals(summary: dict[str, Any]) -> tuple[str | None, int | None]:
+        """Best-effort extraction of (recipient, smallest-unit spend) from a summary.
+
+        Only raw/base-unit amount fields are trusted for spend accounting; a
+        UI-denominated amount is ignored so caps are never applied at the wrong
+        scale. When no raw amount is present the spend is reported as ``None``
+        (unknown), which the session layer treats as fail-closed when caps are
+        configured.
+        """
+        recipient: str | None = None
+        for key in ("to_address", "to", "recipient", "destination", "destination_address", "spender"):
+            value = summary.get(key)
+            if isinstance(value, str) and value.strip():
+                recipient = value.strip()
+                break
+
+        spend: int | None = None
+        for key in ("input_amount_raw", "amount_raw", "amount_wei", "amount_lamports", "amount_base_units"):
+            value = summary.get(key)
+            if value is None:
+                continue
+            try:
+                spend = int(str(value))
+            except (TypeError, ValueError):
+                continue
+            break
+        return recipient, spend
+
+    def _build_session_config_from_args(self, args: dict[str, Any]):
+        """Construct an AutonomousSessionConfig from start_autonomous_session args."""
+        from agent_wallet.autonomous_policy import AutonomousSessionConfig
+        from agent_wallet.spending_limits import SpendingConfig
+
+        def _str_list(value: Any, field: str) -> list[str]:
+            if value is None:
+                return []
+            if not isinstance(value, list) or any(not isinstance(v, str) or not v.strip() for v in value):
+                raise WalletBackendError(f"{field} must be an array of non-empty strings.")
+            return [v.strip() for v in value]
+
+        def _int(value: Any, field: str) -> int:
+            if value is None:
+                return 0
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise WalletBackendError(f"{field} must be a non-negative integer.")
+            return value
+
+        return AutonomousSessionConfig(
+            enabled=True,
+            allowed_tools=frozenset(_str_list(args.get("allowed_tools"), "allowed_tools")),
+            allowed_networks=frozenset(_str_list(args.get("allowed_networks"), "allowed_networks")),
+            allow_mainnet=bool(args.get("allow_mainnet", False)),
+            allowed_recipients=frozenset(_str_list(args.get("allowed_recipients"), "allowed_recipients")),
+            allow_any_recipient=bool(args.get("allow_any_recipient", False)),
+            require_simulation=bool(args.get("require_simulation", True)),
+            spending=SpendingConfig(
+                max_per_tx_lamports=_int(args.get("max_per_tx_lamports"), "max_per_tx_lamports"),
+                max_hourly_lamports=_int(args.get("max_hourly_lamports"), "max_hourly_lamports"),
+                max_daily_lamports=_int(args.get("max_daily_lamports"), "max_daily_lamports"),
+                max_txs_per_minute=_int(args.get("max_txs_per_minute"), "max_txs_per_minute"),
+            ),
+            max_operations=_int(args.get("max_operations"), "max_operations"),
+            session_ttl_seconds=_int(args.get("session_ttl_seconds"), "session_ttl_seconds"),
+            approval_ttl_seconds=_int(args.get("approval_ttl_seconds"), "approval_ttl_seconds") or 120,
+        )
+
     def _require_execute_approval(
         self,
         *,
@@ -288,10 +356,31 @@ class OpenClawWalletAdapter:
         backend: AgentWalletBackend | None = None,
     ) -> None:
         active_backend = backend or self.backend
+        network = str(getattr(active_backend, "network", "unknown"))
         if not isinstance(approval_token, str) or not approval_token.strip():
-            raise WalletBackendError(
-                f"{action_label} execution requires a host-issued approval_token."
-            )
+            # No host token: fall back to the autonomous policy engine if (and
+            # only if) a human-authorized session envelope is active. The engine
+            # mints the same signed token the host would, so verification below
+            # is identical for both paths.
+            from agent_wallet import autonomous_session
+
+            if autonomous_session.is_active():
+                recipient, spend = self._autonomous_signals(summary)
+                approval_token = autonomous_session.authorize_operation(
+                    OperationRequest(
+                        tool_name=tool_name,
+                        network=network,
+                        summary=summary,
+                        spend_amount=spend,
+                        recipient=recipient,
+                        simulated=True,
+                    )
+                )
+            else:
+                raise WalletBackendError(
+                    f"{action_label} execution requires a host-issued approval_token "
+                    "(or an active autonomous session authorized by the host)."
+                )
         verify_approval_token(
             approval_token.strip(),
             tool_name=tool_name,
@@ -3259,6 +3348,104 @@ class OpenClawWalletAdapter:
                 )
             )
 
+        tools.append(
+            AgentToolSpec(
+                name="get_autonomous_session",
+                description=(
+                    "Return the status of the current autonomous execution session, if any: "
+                    "whether it is active, its allow-lists, spend limits, operation count, and expiry. "
+                    "Read-only."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            )
+        )
+        tools.append(
+            AgentToolSpec(
+                name="start_autonomous_session",
+                description=(
+                    "Start an autonomous execution session so subsequent wallet writes can execute "
+                    "WITHOUT a per-transaction human approval, bounded by the supplied limits. "
+                    "This grants standing authority, so it requires a host-issued approval_token bound "
+                    "to the exact session policy; an agent cannot start a session on its own. "
+                    "Preview the policy first (mode=preview) to obtain the confirmation summary the host signs."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "mode": {
+                            "type": "string",
+                            "enum": ["preview", "execute"],
+                            "description": "preview returns the policy summary to be confirmed; execute starts the session.",
+                        },
+                        "allowed_tools": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Wallet tools the agent may execute autonomously.",
+                        },
+                        "allowed_networks": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Networks the agent may operate on autonomously.",
+                        },
+                        "allow_mainnet": {
+                            "type": "boolean",
+                            "description": "Must be true to permit autonomous execution on real-money networks.",
+                        },
+                        "allowed_recipients": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Destination addresses the agent may send to.",
+                        },
+                        "allow_any_recipient": {
+                            "type": "boolean",
+                            "description": "Allow destinations not on the allow-list (spend caps and simulation still apply).",
+                        },
+                        "require_simulation": {
+                            "type": "boolean",
+                            "description": "Require a passing simulation before each autonomous execute (default true).",
+                        },
+                        "max_per_tx_lamports": {"type": "integer", "description": "Per-transaction spend cap in smallest units (0 = unlimited)."},
+                        "max_hourly_lamports": {"type": "integer", "description": "Hourly cumulative spend cap (0 = unlimited)."},
+                        "max_daily_lamports": {"type": "integer", "description": "Daily cumulative spend cap (0 = unlimited)."},
+                        "max_txs_per_minute": {"type": "integer", "description": "Transaction rate cap per minute (0 = unlimited)."},
+                        "max_operations": {"type": "integer", "description": "Maximum operations the session may approve (0 = unlimited)."},
+                        "session_ttl_seconds": {"type": "integer", "description": "Session lifetime in seconds (0 = no expiry)."},
+                        "approval_ttl_seconds": {"type": "integer", "description": "TTL applied to each auto-issued approval token (default 120)."},
+                        "approval_token": {
+                            "type": "string",
+                            "description": "Host-issued approval token bound to this session policy. Required for mode=execute.",
+                        },
+                    },
+                    "required": ["mode"],
+                    "additionalProperties": False,
+                },
+                read_only=False,
+                risk_level="high",
+            )
+        )
+        tools.append(
+            AgentToolSpec(
+                name="stop_autonomous_session",
+                description=(
+                    "End the current autonomous execution session. Always allowed; this only removes "
+                    "standing authority and returns the wallet to per-transaction human approval."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": False,
+                },
+                read_only=False,
+                risk_level="low",
+            )
+        )
+
         tools.extend(self._x402_tool_specs())
         return tools
 
@@ -3271,6 +3458,57 @@ class OpenClawWalletAdapter:
         args = arguments or {}
         try:
             active_backend = self._resolve_backend_for_args(args)
+
+            if tool_name == "get_autonomous_session":
+                from agent_wallet import autonomous_session
+
+                return AgentToolResult(tool=tool_name, ok=True, data=autonomous_session.session_status())
+
+            if tool_name == "stop_autonomous_session":
+                from agent_wallet import autonomous_session
+
+                return AgentToolResult(tool=tool_name, ok=True, data=autonomous_session.stop_session())
+
+            if tool_name == "start_autonomous_session":
+                from agent_wallet import autonomous_session
+                from agent_wallet.autonomous_session import config_to_dict
+                from agent_wallet.nonce_registry import require_single_use
+
+                config = self._build_session_config_from_args(args)
+                policy_summary = {"operation": "start_autonomous_session", **config_to_dict(config)}
+                mode = str(args.get("mode") or "").strip().lower()
+                if mode not in {"preview", "execute"}:
+                    raise WalletBackendError("mode must be 'preview' or 'execute'.")
+                if mode == "preview":
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data={
+                            "mode": "preview",
+                            "confirmation_summary": policy_summary,
+                            "execute_requires_approval_token": True,
+                            "approval_hint": {"host_must_issue_token_for": policy_summary},
+                        },
+                    )
+                # execute: starting a session grants standing authority, so it
+                # always requires a genuine host token — never the autonomous
+                # fallback (an agent must not be able to widen its own envelope).
+                approval_token = args.get("approval_token")
+                if not isinstance(approval_token, str) or not approval_token.strip():
+                    raise WalletBackendError(
+                        "start_autonomous_session execute requires a host-issued approval_token "
+                        "bound to the previewed session policy."
+                    )
+                verify_approval_token(
+                    approval_token.strip(),
+                    tool_name="start_autonomous_session",
+                    network=str(getattr(active_backend, "network", "unknown")),
+                    summary=policy_summary,
+                    require_mainnet_confirmation=bool(config.allow_mainnet),
+                )
+                require_single_use(approval_token.strip())
+                status = autonomous_session.start_session(config)
+                return AgentToolResult(tool=tool_name, ok=True, data=status)
 
             if tool_name == "x402_search_services":
                 query = args.get("query")
