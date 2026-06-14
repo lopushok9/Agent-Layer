@@ -79,24 +79,36 @@ preview (risk-free)
 - **No new I/O.** The engine performs no network or signing calls and is fully
   unit-testable (`tests/smoke_autonomous_policy.py`).
 
-## What is included in this change
+## What is included
 
 - `agent_wallet/autonomous_policy.py` — the engine, config, request/decision
-  dataclasses. Token issuer is injectable for testing.
-- `tests/smoke_autonomous_policy.py` — exercises every gate and proves an
-  autonomously-issued token verifies under the standard `verify_approval_token`
-  (including the mainnet-confirmation flag).
+  dataclasses. Token issuer, clock, started_at, and operation count are
+  injectable so a session can be rehydrated across processes.
+- `agent_wallet/autonomous_session.py` — persistent session store under
+  `OPENCLAW_HOME` (the CLI runs one subprocess per tool call, so the envelope
+  must survive on disk). Provides `start_session` / `stop_session` /
+  `session_status` / `authorize_operation`, with fail-closed handling when a
+  spend amount can't be verified under configured caps.
+- `agent_wallet/spending_limits.py` — `SpendingLedger` now accepts an injectable
+  `clock` and `entries`, plus an `export()` method, so caps can be persisted and
+  enforced with wall-clock time across processes (default behavior unchanged).
+- `agent_wallet/openclaw_adapter.py`:
+  - autonomous fallback wired into the single approval choke point
+    (`_require_execute_approval`): when no host token is present but a session is
+    active, the engine mints the same signed token and the downstream verify /
+    single-use / execute path is unchanged.
+  - new tools `start_autonomous_session` (host-token gated — an agent cannot
+    self-grant), `stop_autonomous_session` (always allowed), and
+    `get_autonomous_session` (read-only status).
+- Tests: `tests/smoke_autonomous_policy.py` (every gate + real-token roundtrip)
+  and `tests/smoke_autonomous_session.py` (end-to-end through the adapter,
+  including persistence, allow-lists, spend caps, and operation budget).
 
 ## Suggested follow-ups (not in this change)
 
-1. Wire the engine into `openclaw_adapter`: when an autonomous session is
-   configured, route execute calls through `AutonomousPolicyEngine.authorize`
-   instead of demanding a host token; log every decision with its `rule`.
-2. Surface a session-config tool (`start_autonomous_session` /
-   `stop_autonomous_session`) so a human authorizes the *envelope* once, then
-   the agent operates within it.
-3. Persist the spend ledger (Redis/SQLite) for multi-instance and
-   restart-survivable caps, per the note in `spending_limits.py`.
-4. Extend EVM coverage by reusing `transaction_policy`-style verifiers for
-   EVM calldata (allow-listed routers/spenders, approval-amount caps).
-5. Emit autonomous approvals to an append-only audit trail for review.
+1. Persist the spend ledger and single-use nonce registry in Redis/SQLite for
+   multi-instance and restart-survivable enforcement, per the notes in
+   `spending_limits.py` / `nonce_registry.py`.
+2. Extend EVM coverage by reusing `transaction_policy`-style verifiers for EVM
+   calldata (allow-listed routers/spenders, approval-amount caps).
+3. Emit autonomous approvals to an append-only audit trail for review.

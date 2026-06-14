@@ -127,8 +127,10 @@ class OperationRequest:
     summary: dict
     #: Normalized notional spend used for limit accounting.  Callers should
     #: pass the outflow in the wallet's smallest unit (lamports/wei).  Use 0
-    #: for read-shaped or zero-value operations.
-    spend_amount: int = 0
+    #: for read-shaped or zero-value operations, or ``None`` when the amount
+    #: could not be determined (the session layer treats unknown spend as a
+    #: hard denial whenever spend caps are configured).
+    spend_amount: int | None = 0
     #: Destination address or program id, if known.
     recipient: str | None = None
     #: Whether a simulation/dry-run already succeeded for this operation.
@@ -171,13 +173,20 @@ class AutonomousPolicyEngine:
         token_issuer: TokenIssuer = issue_approval_token,
         ledger: SpendingLedger | None = None,
         clock: Callable[[], float] = time.time,
+        started_at: float | None = None,
+        operations_used: int = 0,
     ) -> None:
         self.config = config.normalized()
         self._issuer = token_issuer
         self._ledger = ledger if ledger is not None else SpendingLedger(self.config.spending)
         self._clock = clock
         self._lock = threading.Lock()
-        self._state = _SessionState(started_at=clock())
+        # ``started_at`` / ``operations_used`` are injectable so a session can
+        # be rehydrated from a persisted record across processes.
+        self._state = _SessionState(
+            started_at=clock() if started_at is None else started_at,
+            operations=int(operations_used),
+        )
 
     # -- public API ----------------------------------------------------------
 
@@ -284,6 +293,10 @@ class AutonomousPolicyEngine:
                 "session_ttl_seconds": self.config.session_ttl_seconds,
                 "allow_mainnet": self.config.allow_mainnet,
             }
+
+    def export_spend(self) -> list[tuple[float, int]]:
+        """Return the spend ledger entries so they can be persisted."""
+        return self._ledger.export()
 
     # -- internal ------------------------------------------------------------
 
