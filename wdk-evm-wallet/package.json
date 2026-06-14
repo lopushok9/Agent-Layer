@@ -17,6 +17,8 @@
     "test:unit": "node --test tests/unit_uniswap_helpers.mjs"
   },
   "dependencies": {
+    "@morpho-org/morpho-sdk": "^3.2.0",
+    "@morpho-org/wdk-protocol-lending-morpho-evm": "^0.0.5",
     "@tetherto/wdk": "^1.0.0-beta.9",
     "@tetherto/wdk-protocol-lending-aave-evm": "^1.0.0-beta.4",
     "@tetherto/wdk-protocol-swap-velora-evm": "^1.0.0-beta.4",

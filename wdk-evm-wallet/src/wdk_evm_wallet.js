@@ -1,7 +1,9 @@
 import crypto from "node:crypto";
 
 import { Contract, Interface } from "ethers";
+import { isRequirementApproval, isRequirementAuthorization } from "@morpho-org/morpho-sdk";
 import WDK from "@tetherto/wdk";
+import MorphoProtocolEvm from "@morpho-org/wdk-protocol-lending-morpho-evm";
 import { AaveV3Base, AaveV3Ethereum } from "@bgd-labs/aave-address-book";
 import AaveProtocolEvm from "@tetherto/wdk-protocol-lending-aave-evm";
 import VeloraProtocolEvm from "@tetherto/wdk-protocol-swap-velora-evm";
@@ -71,9 +73,13 @@ const LIDO_WITHDRAWAL_QUEUE_ABI = [
   "function getWithdrawalStatus(uint256[] _requestIds) view returns ((uint256 amountOfStETH,uint256 amountOfShares,address owner,uint256 timestamp,bool isFinalized,bool isClaimed)[] statuses)",
   "function claimWithdrawal(uint256 _requestId)",
 ];
+const MORPHO_AUTHORIZATION_ABI = [
+  "function setAuthorization(address authorized, bool isAuthorized)",
+];
 const LIDO_WSTETH_INTERFACE = new Interface(LIDO_WSTETH_ABI);
 const LIDO_REFERRAL_STAKER_INTERFACE = new Interface(LIDO_REFERRAL_STAKER_ABI);
 const LIDO_WITHDRAWAL_QUEUE_INTERFACE = new Interface(LIDO_WITHDRAWAL_QUEUE_ABI);
+const MORPHO_AUTHORIZATION_INTERFACE = new Interface(MORPHO_AUTHORIZATION_ABI);
 const LIFI_CHAIN_IDS_BY_NETWORK = {
   ethereum: "1",
   base: "8453",
@@ -584,6 +590,24 @@ function normalizeAaveOperation(value) {
   return operation;
 }
 
+function normalizeMorphoVaultOperation(value) {
+  const operation = assertNonEmptyString(value, "operation").toLowerCase();
+  if (!["supply", "withdraw"].includes(operation)) {
+    throw new Error("operation must be one of: supply, withdraw.");
+  }
+  return operation;
+}
+
+function normalizeMorphoMarketOperation(value) {
+  const operation = assertNonEmptyString(value, "operation").toLowerCase();
+  if (!["supply_collateral", "borrow", "repay", "withdraw_collateral"].includes(operation)) {
+    throw new Error(
+      "operation must be one of: supply_collateral, borrow, repay, withdraw_collateral."
+    );
+  }
+  return operation;
+}
+
 function normalizeLidoOperation(value) {
   const operation = assertNonEmptyString(value, "operation").toLowerCase();
   if (!["stake_eth_for_wsteth", "wrap_steth", "unwrap_wsteth"].includes(operation)) {
@@ -881,6 +905,158 @@ function buildAaveOperationRequest({ operation, token, tokenAddress, amount, onB
     operation: normalizeAaveOperation(operation),
     token: normalizeAddress(preferredToken, "tokenAddress"),
     amount: assertPositiveBigIntString(amount, "amount"),
+  };
+}
+
+function parseOptionalPositiveBigIntString(value, fieldName) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+  return assertPositiveBigIntString(value, fieldName);
+}
+
+function normalizeMorphoVaultTarget({ vaultAddress, vaultPreset }) {
+  const normalizedVaultAddress = vaultAddress ? normalizeAddress(vaultAddress, "vaultAddress") : null;
+  const normalizedVaultPreset =
+    vaultPreset !== undefined && vaultPreset !== null && String(vaultPreset).trim()
+      ? assertNonEmptyString(vaultPreset, "vaultPreset")
+      : null;
+  if (normalizedVaultAddress && normalizedVaultPreset) {
+    throw new Error("Provide either vaultAddress or vaultPreset, not both.");
+  }
+  if (!normalizedVaultAddress && !normalizedVaultPreset) {
+    throw new Error("vaultAddress or vaultPreset is required.");
+  }
+  return {
+    vaultAddress: normalizedVaultAddress,
+    vaultPreset: normalizedVaultPreset,
+  };
+}
+
+function normalizeMorphoMarketTarget({ marketId, marketPreset }) {
+  const normalizedMarketId =
+    marketId === undefined || marketId === null || marketId === ""
+      ? null
+      : (() => {
+          const value = assertNonEmptyString(marketId, "marketId");
+          if (!/^0x[a-fA-F0-9]{64}$/.test(value)) {
+            throw new Error("marketId must be a 32-byte hex string.");
+          }
+          return value;
+        })();
+  const normalizedMarketPreset =
+    marketPreset !== undefined && marketPreset !== null && String(marketPreset).trim()
+      ? assertNonEmptyString(marketPreset, "marketPreset")
+      : null;
+  if (normalizedMarketId && normalizedMarketPreset) {
+    throw new Error("Provide either marketId or marketPreset, not both.");
+  }
+  if (!normalizedMarketId && !normalizedMarketPreset) {
+    throw new Error("marketId or marketPreset is required.");
+  }
+  return {
+    marketId: normalizedMarketId,
+    marketPreset: normalizedMarketPreset,
+  };
+}
+
+function buildMorphoVaultOperationRequest({
+  operation,
+  vaultAddress,
+  vaultPreset,
+  token,
+  tokenAddress,
+  amount,
+  nativeAmount,
+  onBehalfOf,
+  to,
+}) {
+  if (onBehalfOf !== undefined && onBehalfOf !== null && String(onBehalfOf).trim()) {
+    throw new Error("Morpho delegated onBehalfOf operations are not exposed by this local wallet runtime.");
+  }
+  if (to !== undefined && to !== null && String(to).trim()) {
+    throw new Error("Morpho third-party withdraw destinations are not exposed by this local wallet runtime.");
+  }
+  const preferredToken = tokenAddress ?? token;
+  if (tokenAddress && token && String(tokenAddress).toLowerCase() !== String(token).toLowerCase()) {
+    throw new Error("tokenAddress and token must refer to the same address.");
+  }
+  const request = {
+    target: normalizeMorphoVaultTarget({ vaultAddress, vaultPreset }),
+    operation: normalizeMorphoVaultOperation(operation),
+    token: normalizeAddress(preferredToken, "tokenAddress"),
+  };
+  if (request.operation === "supply") {
+    const supplyAmount = parseOptionalPositiveBigIntString(amount, "amount");
+    const supplyNativeAmount = parseOptionalPositiveBigIntString(nativeAmount, "nativeAmount");
+    if (supplyAmount === null && supplyNativeAmount === null) {
+      throw new Error("amount or nativeAmount is required for Morpho vault supply.");
+    }
+    return {
+      ...request,
+      amount: supplyAmount,
+      nativeAmount: supplyNativeAmount,
+    };
+  }
+  return {
+    ...request,
+    amount: assertPositiveBigIntString(amount, "amount"),
+  };
+}
+
+function buildMorphoMarketOperationRequest({
+  operation,
+  marketId,
+  marketPreset,
+  token,
+  tokenAddress,
+  amount,
+  nativeAmount,
+  onBehalfOf,
+  to,
+}) {
+  if (onBehalfOf !== undefined && onBehalfOf !== null && String(onBehalfOf).trim()) {
+    throw new Error("Morpho delegated onBehalfOf operations are not exposed by this local wallet runtime.");
+  }
+  if (to !== undefined && to !== null && String(to).trim()) {
+    throw new Error("Morpho third-party withdraw destinations are not exposed by this local wallet runtime.");
+  }
+  const preferredToken = tokenAddress ?? token;
+  if (tokenAddress && token && String(tokenAddress).toLowerCase() !== String(token).toLowerCase()) {
+    throw new Error("tokenAddress and token must refer to the same address.");
+  }
+  const request = {
+    target: normalizeMorphoMarketTarget({ marketId, marketPreset }),
+    operation: normalizeMorphoMarketOperation(operation),
+    token: normalizeAddress(preferredToken, "tokenAddress"),
+  };
+  if (request.operation === "repay") {
+    const normalizedAmount = String(amount ?? "").trim().toLowerCase();
+    return {
+      ...request,
+      amount:
+        normalizedAmount === "max"
+          ? "max"
+          : assertPositiveBigIntString(amount, "amount"),
+      nativeAmount: null,
+    };
+  }
+  if (request.operation === "supply_collateral") {
+    const collateralAmount = parseOptionalPositiveBigIntString(amount, "amount");
+    const collateralNativeAmount = parseOptionalPositiveBigIntString(nativeAmount, "nativeAmount");
+    if (collateralAmount === null && collateralNativeAmount === null) {
+      throw new Error("amount or nativeAmount is required for Morpho market supply_collateral.");
+    }
+    return {
+      ...request,
+      amount: collateralAmount,
+      nativeAmount: collateralNativeAmount,
+    };
+  }
+  return {
+    ...request,
+    amount: assertPositiveBigIntString(amount, "amount"),
+    nativeAmount: null,
   };
 }
 
@@ -1769,6 +1945,360 @@ export class WdkEvmWalletService {
         };
       }
     );
+  }
+
+  async quoteMorphoVaultOperation({
+    seedPhrase,
+    address,
+    operation,
+    vaultAddress,
+    vaultPreset,
+    token,
+    tokenAddress,
+    amount,
+    nativeAmount,
+    accountIndex = 0,
+    network,
+  }) {
+    return this.#withReadableAccount(
+      { seedPhrase, address, accountIndex, network },
+      async (account, runtimeConfig) => {
+        assertMorphoSupportedNetwork(runtimeConfig.network);
+        const request = buildMorphoVaultOperationRequest({
+          operation,
+          vaultAddress,
+          vaultPreset,
+          token,
+          tokenAddress,
+          amount,
+          nativeAmount,
+        });
+        const accountAddress = await account.getAddress();
+        const plan = await this.#buildMorphoOperationPlan({
+          account,
+          runtimeConfig,
+          address: accountAddress,
+          request,
+          tolerateOperationFeeFailure: true,
+        });
+        return this.#formatMorphoOperationResponse({
+          runtimeConfig,
+          accountIndex,
+          address: accountAddress,
+          request,
+          plan,
+        });
+      }
+    );
+  }
+
+  async sendMorphoVaultOperation({
+    seedPhrase,
+    operation,
+    vaultAddress,
+    vaultPreset,
+    token,
+    tokenAddress,
+    amount,
+    nativeAmount,
+    accountIndex = 0,
+    network,
+    expectedQuoteFingerprint = null,
+  }) {
+    return this.#withAccount({ seedPhrase, accountIndex, network }, async (account, runtimeConfig) => {
+      assertMorphoSupportedNetwork(runtimeConfig.network);
+      const request = buildMorphoVaultOperationRequest({
+        operation,
+        vaultAddress,
+        vaultPreset,
+        token,
+        tokenAddress,
+        amount,
+        nativeAmount,
+      });
+      const normalizedExpectedQuoteFingerprint =
+        typeof expectedQuoteFingerprint === "string" && expectedQuoteFingerprint.trim()
+          ? expectedQuoteFingerprint.trim()
+          : null;
+      const address = await account.getAddress();
+      let initialPlan = await this.#buildMorphoOperationPlan({
+        account,
+        runtimeConfig,
+        address,
+        request,
+        tolerateOperationFeeFailure: true,
+      });
+      this.#assertExpectedMorphoFingerprint(
+        normalizedExpectedQuoteFingerprint,
+        initialPlan.quoteFingerprint
+      );
+      const requirementExecution = await this.#executeMorphoRequirementsIfNeeded({
+        account,
+        runtimeConfig,
+        request,
+        plan: initialPlan,
+      });
+
+      let finalPlan = initialPlan;
+      try {
+        if (requirementExecution.performed) {
+          finalPlan = await this.#buildMorphoOperationPlan({
+            account,
+            runtimeConfig,
+            address,
+            request,
+          });
+          this.#assertExpectedMorphoFingerprint(
+            normalizedExpectedQuoteFingerprint,
+            finalPlan.quoteFingerprint
+          );
+        }
+
+        if (finalPlan.requirements.required) {
+          throw createTaggedError(
+            "Morpho operation still requires prerequisite transactions after the requirement step completed.",
+            "morpho_requirements_unresolved",
+            {
+              requirementCount: finalPlan.requirements.steps.length,
+              requirements: finalPlan.requirements.steps,
+            }
+          );
+        }
+
+        if (finalPlan.operationFee === null) {
+          throw createTaggedError(
+            "Morpho operation fee estimate was unavailable. Generate a new quote before sending.",
+            "morpho_fee_unavailable",
+            {
+              operation: request.operation,
+              feeEstimateError: finalPlan.operationFeeError,
+            }
+          );
+        }
+
+        const protocol = this.#createMorphoProtocol(account, runtimeConfig, request);
+        let result;
+        try {
+          result = await protocol[this.#getMorphoOperationMethods(request).sendMethod](
+            this.#buildMorphoOperationOptions(request)
+          );
+        } finally {
+          await maybeDispose(protocol);
+        }
+        const resultFee = BigInt(result?.fee || finalPlan.operationFee || 0);
+        const totalFee = requirementExecution.totalFee + resultFee;
+        return {
+          ...this.#formatMorphoOperationResponse({
+            runtimeConfig,
+            accountIndex,
+            address,
+            request,
+            plan: {
+              ...finalPlan,
+              operationFee: resultFee,
+              totalEstimatedFee: totalFee,
+              requirements: {
+                ...finalPlan.requirements,
+                estimatedFee: requirementExecution.totalFee,
+              },
+            },
+          }),
+          result: {
+            ...result,
+            fee: resultFee.toString(),
+            totalFee: totalFee.toString(),
+            requirementsFee: requirementExecution.totalFee.toString(),
+            requirements: requirementExecution.transactions,
+          },
+        };
+      } catch (error) {
+        const cleanup = await this.#restoreMorphoRequirementsAfterFailedOperation({
+          account,
+          runtimeConfig,
+          request,
+          plan: initialPlan,
+          requirementExecution,
+        });
+        this.#throwMorphoFailureWithCleanup(error, cleanup);
+      }
+    });
+  }
+
+  async quoteMorphoMarketOperation({
+    seedPhrase,
+    address,
+    operation,
+    marketId,
+    marketPreset,
+    token,
+    tokenAddress,
+    amount,
+    nativeAmount,
+    accountIndex = 0,
+    network,
+  }) {
+    return this.#withReadableAccount(
+      { seedPhrase, address, accountIndex, network },
+      async (account, runtimeConfig) => {
+        assertMorphoSupportedNetwork(runtimeConfig.network);
+        const request = buildMorphoMarketOperationRequest({
+          operation,
+          marketId,
+          marketPreset,
+          token,
+          tokenAddress,
+          amount,
+          nativeAmount,
+        });
+        const accountAddress = await account.getAddress();
+        const plan = await this.#buildMorphoOperationPlan({
+          account,
+          runtimeConfig,
+          address: accountAddress,
+          request,
+          tolerateOperationFeeFailure: true,
+        });
+        return this.#formatMorphoOperationResponse({
+          runtimeConfig,
+          accountIndex,
+          address: accountAddress,
+          request,
+          plan,
+        });
+      }
+    );
+  }
+
+  async sendMorphoMarketOperation({
+    seedPhrase,
+    operation,
+    marketId,
+    marketPreset,
+    token,
+    tokenAddress,
+    amount,
+    nativeAmount,
+    accountIndex = 0,
+    network,
+    expectedQuoteFingerprint = null,
+  }) {
+    return this.#withAccount({ seedPhrase, accountIndex, network }, async (account, runtimeConfig) => {
+      assertMorphoSupportedNetwork(runtimeConfig.network);
+      const request = buildMorphoMarketOperationRequest({
+        operation,
+        marketId,
+        marketPreset,
+        token,
+        tokenAddress,
+        amount,
+        nativeAmount,
+      });
+      const normalizedExpectedQuoteFingerprint =
+        typeof expectedQuoteFingerprint === "string" && expectedQuoteFingerprint.trim()
+          ? expectedQuoteFingerprint.trim()
+          : null;
+      const address = await account.getAddress();
+      let initialPlan = await this.#buildMorphoOperationPlan({
+        account,
+        runtimeConfig,
+        address,
+        request,
+        tolerateOperationFeeFailure: true,
+      });
+      this.#assertExpectedMorphoFingerprint(
+        normalizedExpectedQuoteFingerprint,
+        initialPlan.quoteFingerprint
+      );
+      const requirementExecution = await this.#executeMorphoRequirementsIfNeeded({
+        account,
+        runtimeConfig,
+        request,
+        plan: initialPlan,
+      });
+
+      let finalPlan = initialPlan;
+      try {
+        if (requirementExecution.performed) {
+          finalPlan = await this.#buildMorphoOperationPlan({
+            account,
+            runtimeConfig,
+            address,
+            request,
+          });
+          this.#assertExpectedMorphoFingerprint(
+            normalizedExpectedQuoteFingerprint,
+            finalPlan.quoteFingerprint
+          );
+        }
+
+        if (finalPlan.requirements.required) {
+          throw createTaggedError(
+            "Morpho operation still requires prerequisite transactions after the requirement step completed.",
+            "morpho_requirements_unresolved",
+            {
+              requirementCount: finalPlan.requirements.steps.length,
+              requirements: finalPlan.requirements.steps,
+            }
+          );
+        }
+
+        if (finalPlan.operationFee === null) {
+          throw createTaggedError(
+            "Morpho operation fee estimate was unavailable. Generate a new quote before sending.",
+            "morpho_fee_unavailable",
+            {
+              operation: request.operation,
+              feeEstimateError: finalPlan.operationFeeError,
+            }
+          );
+        }
+
+        const protocol = this.#createMorphoProtocol(account, runtimeConfig, request);
+        let result;
+        try {
+          result = await protocol[this.#getMorphoOperationMethods(request).sendMethod](
+            this.#buildMorphoOperationOptions(request)
+          );
+        } finally {
+          await maybeDispose(protocol);
+        }
+        const resultFee = BigInt(result?.fee || finalPlan.operationFee || 0);
+        const totalFee = requirementExecution.totalFee + resultFee;
+        return {
+          ...this.#formatMorphoOperationResponse({
+            runtimeConfig,
+            accountIndex,
+            address,
+            request,
+            plan: {
+              ...finalPlan,
+              operationFee: resultFee,
+              totalEstimatedFee: totalFee,
+              requirements: {
+                ...finalPlan.requirements,
+                estimatedFee: requirementExecution.totalFee,
+              },
+            },
+          }),
+          result: {
+            ...result,
+            fee: resultFee.toString(),
+            totalFee: totalFee.toString(),
+            requirementsFee: requirementExecution.totalFee.toString(),
+            requirements: requirementExecution.transactions,
+          },
+        };
+      } catch (error) {
+        const cleanup = await this.#restoreMorphoRequirementsAfterFailedOperation({
+          account,
+          runtimeConfig,
+          request,
+          plan: initialPlan,
+          requirementExecution,
+        });
+        this.#throwMorphoFailureWithCleanup(error, cleanup);
+      }
+    });
   }
 
   async quoteAaveOperation({
@@ -3408,6 +3938,519 @@ export class WdkEvmWalletService {
     return payload?.data || {};
   }
 
+  #createMorphoProtocol(account, runtimeConfig, request) {
+    return new MorphoProtocolEvm(account, this.#buildMorphoProtocolOptions(runtimeConfig, request));
+  }
+
+  #buildMorphoProtocolOptions(runtimeConfig, request) {
+    const options = {
+      chainId: runtimeConfig.chainId,
+      supportSignature: false,
+    };
+    if (request.target.vaultAddress) {
+      options.earnVaultAddress = request.target.vaultAddress;
+    } else if (request.target.vaultPreset) {
+      options.presets = {
+        ...(options.presets || {}),
+        earn: request.target.vaultPreset,
+      };
+    }
+    if (request.target.marketId) {
+      options.borrowMarketId = request.target.marketId;
+    } else if (request.target.marketPreset) {
+      options.presets = {
+        ...(options.presets || {}),
+        borrow: request.target.marketPreset,
+      };
+    }
+    return options;
+  }
+
+  #getMorphoOperationMethods(request) {
+    const table =
+      request.target.vaultAddress || request.target.vaultPreset
+        ? {
+            supply: {
+              requirementsMethod: "getSupplyRequirements",
+              quoteMethod: "quoteSupply",
+              sendMethod: "supply",
+            },
+            withdraw: {
+              requirementsMethod: null,
+              quoteMethod: "quoteWithdraw",
+              sendMethod: "withdraw",
+            },
+          }
+        : {
+            supply_collateral: {
+              requirementsMethod: "getSupplyCollateralRequirements",
+              quoteMethod: "quoteSupplyCollateral",
+              sendMethod: "supplyCollateral",
+            },
+            borrow: {
+              requirementsMethod: "getBorrowRequirements",
+              quoteMethod: "quoteBorrow",
+              sendMethod: "borrow",
+            },
+            repay: {
+              requirementsMethod: "getRepayRequirements",
+              quoteMethod: "quoteRepay",
+              sendMethod: "repay",
+            },
+            withdraw_collateral: {
+              requirementsMethod: null,
+              quoteMethod: "quoteWithdrawCollateral",
+              sendMethod: "withdrawCollateral",
+            },
+          };
+    const methods = table[request.operation];
+    if (!methods) {
+      throw new Error(`Unsupported Morpho operation '${request.operation}'.`);
+    }
+    return methods;
+  }
+
+  #buildMorphoOperationOptions(request) {
+    const options = {
+      token: request.token,
+    };
+    if (request.amount !== undefined && request.amount !== null) {
+      options.amount = request.amount;
+    }
+    if (request.nativeAmount !== undefined && request.nativeAmount !== null) {
+      options.nativeAmount = request.nativeAmount;
+    }
+    return options;
+  }
+
+  async #buildMorphoOperationPlan({
+    account,
+    runtimeConfig,
+    address,
+    request,
+    tolerateOperationFeeFailure = false,
+  }) {
+    const protocol = this.#createMorphoProtocol(account, runtimeConfig, request);
+    try {
+      const methods = this.#getMorphoOperationMethods(request);
+      const operationOptions = this.#buildMorphoOperationOptions(request);
+      const requirements = await this.#buildMorphoRequirementPlan({
+        account,
+        runtimeConfig,
+        protocol,
+        request,
+        methods,
+        operationOptions,
+      });
+      const operationFeeQuote = await this.#quoteMorphoProtocolOperation({
+        protocol,
+        methods,
+        operationOptions,
+        tolerateFailure: tolerateOperationFeeFailure,
+      });
+      const tokenMetadata = await this.#getBestEffortTokenMetadata(runtimeConfig, request.token);
+      const target =
+        request.target.vaultAddress || request.target.vaultPreset
+          ? {
+              type: "vault",
+              vaultAddress: protocol.getVaultAddress().toLowerCase(),
+              vaultPreset: request.target.vaultPreset || null,
+            }
+          : {
+              type: "market",
+              marketId: protocol.getBorrowMarketId(),
+              marketPreset: request.target.marketPreset || null,
+            };
+      const quoteFingerprint = sha256Hex(
+        JSON.stringify({
+          chainId: runtimeConfig.chainId,
+          network: runtimeConfig.network,
+          from: address.toLowerCase(),
+          protocol: "morpho",
+          target,
+          operation: request.operation,
+          token: request.token.toLowerCase(),
+          amount:
+            typeof request.amount === "bigint"
+              ? request.amount.toString()
+              : request.amount === "max"
+                ? "max"
+                : null,
+          nativeAmount: request.nativeAmount ? request.nativeAmount.toString() : null,
+        })
+      );
+      return {
+        quoteFingerprint,
+        target,
+        amount: request.amount ?? null,
+        nativeAmount: request.nativeAmount ?? null,
+        tokenMetadata,
+        operationFee: operationFeeQuote.fee,
+        operationFeeError: operationFeeQuote.error,
+        totalEstimatedFee:
+          operationFeeQuote.fee !== null ? operationFeeQuote.fee + requirements.estimatedFee : null,
+        requirements,
+      };
+    } finally {
+      await maybeDispose(protocol);
+    }
+  }
+
+  async #buildMorphoRequirementPlan({
+    account,
+    runtimeConfig,
+    protocol,
+    request,
+    methods,
+    operationOptions,
+  }) {
+    if (!methods.requirementsMethod) {
+      return {
+        required: false,
+        estimatedFee: 0n,
+        approvalRequired: false,
+        authorizationRequired: false,
+        steps: [],
+        transactions: [],
+        approvalContexts: [],
+        authorizationContexts: [],
+      };
+    }
+    const requirements = await protocol[methods.requirementsMethod](operationOptions);
+    const steps = [];
+    const transactions = [];
+    const approvalContexts = [];
+    const authorizationContexts = [];
+    let estimatedFee = 0n;
+    for (const requirement of Array.isArray(requirements) ? requirements : []) {
+      if (isRequirementApproval(requirement)) {
+        const spender = normalizeAddress(
+          String(requirement.action?.args?.spender || ""),
+          "morphoRequirement.spender"
+        ).toLowerCase();
+        const amount = BigInt(requirement.action?.args?.amount || 0);
+        const quote = await account.quoteSendTransaction({
+          to: requirement.to,
+          value: requirement.value ?? 0n,
+          data: requirement.data,
+        });
+        const fee = BigInt(quote?.fee || 0);
+        this.#assertMaxFee(runtimeConfig, fee, `morpho approval`);
+        estimatedFee += fee;
+        steps.push({
+          type: "approval",
+          spender,
+          amount: amount.toString(),
+          estimatedFeeWei: fee.toString(),
+          to: requirement.to.toLowerCase(),
+          value: BigInt(requirement.value ?? 0).toString(),
+          dataHash: sha256Hex(requirement.data),
+        });
+        transactions.push(requirement);
+        if (!approvalContexts.some((entry) => entry.spender === spender)) {
+          const originalAllowance = await account.getAllowance(request.token, spender);
+          approvalContexts.push({
+            tokenAddress: request.token,
+            spender,
+            originalAllowance,
+          });
+        }
+        continue;
+      }
+      if (isRequirementAuthorization(requirement)) {
+        const authorized = normalizeAddress(
+          String(requirement.action?.args?.authorized || ""),
+          "morphoRequirement.authorized"
+        ).toLowerCase();
+        const quote = await account.quoteSendTransaction({
+          to: requirement.to,
+          value: requirement.value ?? 0n,
+          data: requirement.data,
+        });
+        const fee = BigInt(quote?.fee || 0);
+        this.#assertMaxFee(runtimeConfig, fee, `morpho authorization`);
+        estimatedFee += fee;
+        steps.push({
+          type: "authorization",
+          authorized,
+          isAuthorized: Boolean(requirement.action?.args?.isAuthorized),
+          estimatedFeeWei: fee.toString(),
+          to: requirement.to.toLowerCase(),
+          value: BigInt(requirement.value ?? 0).toString(),
+          dataHash: sha256Hex(requirement.data),
+        });
+        transactions.push(requirement);
+        if (
+          !authorizationContexts.some(
+            (entry) =>
+              entry.contractAddress === requirement.to.toLowerCase() &&
+              entry.authorized === authorized
+          )
+        ) {
+          authorizationContexts.push({
+            contractAddress: requirement.to.toLowerCase(),
+            authorized,
+          });
+        }
+        continue;
+      }
+      throw createTaggedError(
+        "Morpho returned a signature requirement, but this runtime only supports transaction-based requirements.",
+        "morpho_requirements_unresolved",
+        {
+          requirementType: requirement?.action?.type || null,
+        }
+      );
+    }
+    return {
+      required: steps.length > 0,
+      estimatedFee,
+      approvalRequired: steps.some((step) => step.type === "approval"),
+      authorizationRequired: steps.some((step) => step.type === "authorization"),
+      steps,
+      transactions,
+      approvalContexts,
+      authorizationContexts,
+    };
+  }
+
+  async #quoteMorphoProtocolOperation({
+    protocol,
+    methods,
+    operationOptions,
+    tolerateFailure,
+  }) {
+    try {
+      const quote = await protocol[methods.quoteMethod](operationOptions);
+      return {
+        fee: BigInt(quote?.fee || 0),
+        error: null,
+      };
+    } catch (error) {
+      if (!tolerateFailure) {
+        throw error;
+      }
+      return {
+        fee: null,
+        error: {
+          code: normalizeErrorCodeValue(error) || null,
+          message: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+  }
+
+  #formatMorphoOperationResponse({ runtimeConfig, accountIndex, address, request, plan }) {
+    const amountFormatted =
+      typeof plan.amount === "bigint" &&
+      plan.tokenMetadata &&
+      Number.isInteger(plan.tokenMetadata.decimals)
+        ? formatUnits(plan.amount, plan.tokenMetadata.decimals)
+        : null;
+    const nativeAmountFormatted =
+      typeof plan.nativeAmount === "bigint" ? formatUnits(plan.nativeAmount, 18) : null;
+    return {
+      network: runtimeConfig.network,
+      chainId: runtimeConfig.chainId,
+      accountIndex,
+      address,
+      protocol: "morpho",
+      executionSupported: true,
+      surface: plan.target.type,
+      operation: request.operation,
+      target: plan.target,
+      operationRequest: {
+        token: request.token,
+        amount:
+          typeof plan.amount === "bigint"
+            ? plan.amount.toString()
+            : plan.amount === "max"
+              ? "max"
+              : null,
+        nativeAmount: typeof plan.nativeAmount === "bigint" ? plan.nativeAmount.toString() : null,
+      },
+      tokenMetadata: plan.tokenMetadata,
+      amountFormatted,
+      nativeAmountFormatted,
+      quoteFingerprint: plan.quoteFingerprint,
+      estimatedFeeWei: plan.totalEstimatedFee !== null ? plan.totalEstimatedFee.toString() : null,
+      estimatedOperationFeeWei: plan.operationFee !== null ? plan.operationFee.toString() : null,
+      estimatedRequirementsFeeWei: plan.requirements.estimatedFee.toString(),
+      feeEstimateAvailable: plan.operationFee !== null,
+      feeEstimateError: plan.operationFeeError,
+      requirements: {
+        required: plan.requirements.required,
+        requirementCount: plan.requirements.steps.length,
+        approvalRequired: plan.requirements.approvalRequired,
+        authorizationRequired: plan.requirements.authorizationRequired,
+        sequence: plan.requirements.steps,
+      },
+      source: "wdk-protocol-lending-morpho-evm",
+    };
+  }
+
+  #assertExpectedMorphoFingerprint(expectedQuoteFingerprint, actualQuoteFingerprint) {
+    if (!expectedQuoteFingerprint) {
+      return;
+    }
+    if (expectedQuoteFingerprint !== actualQuoteFingerprint) {
+      throw createTaggedError(
+        "Morpho quote changed since preview. Generate a new preview and approval before execute.",
+        "morpho_quote_changed",
+        {
+          expectedQuoteFingerprint,
+          actualQuoteFingerprint,
+        }
+      );
+    }
+  }
+
+  async #executeMorphoRequirementsIfNeeded({ account, runtimeConfig, plan }) {
+    if (!plan.requirements.required) {
+      return {
+        performed: false,
+        totalFee: 0n,
+        transactions: [],
+        approvalContexts: plan.requirements.approvalContexts,
+        authorizationContexts: plan.requirements.authorizationContexts,
+      };
+    }
+    let totalFee = 0n;
+    const transactions = [];
+    for (let index = 0; index < plan.requirements.transactions.length; index += 1) {
+      const requirementTx = plan.requirements.transactions[index];
+      const step = plan.requirements.steps[index];
+      const result = await account.sendTransaction({
+        to: requirementTx.to,
+        value: requirementTx.value ?? 0n,
+        data: requirementTx.data,
+      });
+      const fee = BigInt(result?.fee || 0);
+      totalFee += fee;
+      transactions.push({
+        ...step,
+        hash: result.hash,
+        fee: fee.toString(),
+      });
+      await this.#waitForTransactionReceipt(runtimeConfig, result.hash);
+    }
+    return {
+      performed: true,
+      totalFee,
+      transactions,
+      approvalContexts: plan.requirements.approvalContexts,
+      authorizationContexts: plan.requirements.authorizationContexts,
+    };
+  }
+
+  async #restoreMorphoRequirementsAfterFailedOperation({
+    account,
+    runtimeConfig,
+    requirementExecution,
+  }) {
+    if (!requirementExecution?.performed) {
+      return {
+        attempted: false,
+        restored: false,
+      };
+    }
+    const cleanup = {
+      attempted: true,
+      restored: false,
+      approvals: [],
+      authorizations: [],
+      error: null,
+    };
+    try {
+      for (const context of requirementExecution.approvalContexts || []) {
+        const restorePlan = await this.#buildAllowanceRestorePlan({
+          account,
+          runtimeConfig,
+          tokenAddress: context.tokenAddress,
+          spender: context.spender,
+          targetAllowance: context.originalAllowance,
+        });
+        const entry = {
+          tokenAddress: context.tokenAddress,
+          spender: context.spender,
+          originalAllowance: BigInt(context.originalAllowance || 0).toString(),
+          restoreSteps: restorePlan.steps.map((step) => ({ ...step })),
+          restoreHashes: [],
+        };
+        for (const step of restorePlan.steps) {
+          const result = await account.approve({
+            token: context.tokenAddress,
+            spender: context.spender,
+            amount: step.amount,
+          });
+          entry.restoreHashes.push({
+            type: step.type,
+            hash: result.hash,
+            fee: BigInt(result.fee || 0).toString(),
+          });
+          await this.#waitForTransactionReceipt(runtimeConfig, result.hash);
+        }
+        const finalAllowance = await account.getAllowance(context.tokenAddress, context.spender);
+        entry.finalAllowance = finalAllowance.toString();
+        entry.restored = finalAllowance === BigInt(context.originalAllowance || 0);
+        cleanup.approvals.push(entry);
+        if (!entry.restored) {
+          throw new Error("Morpho approval allowance restore did not reach the original allowance.");
+        }
+      }
+
+      for (const context of requirementExecution.authorizationContexts || []) {
+        const result = await account.sendTransaction({
+          to: context.contractAddress,
+          value: 0n,
+          data: MORPHO_AUTHORIZATION_INTERFACE.encodeFunctionData("setAuthorization", [
+            context.authorized,
+            false,
+          ]),
+        });
+        cleanup.authorizations.push({
+          contractAddress: context.contractAddress,
+          authorized: context.authorized,
+          hash: result.hash,
+          fee: BigInt(result.fee || 0).toString(),
+        });
+        await this.#waitForTransactionReceipt(runtimeConfig, result.hash);
+      }
+
+      cleanup.restored = true;
+      return cleanup;
+    } catch (cleanupError) {
+      cleanup.error = {
+        message: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+        code:
+          cleanupError && typeof cleanupError === "object"
+            ? String(cleanupError.errorCode || cleanupError.code || "").trim() || null
+            : null,
+      };
+      return cleanup;
+    }
+  }
+
+  #throwMorphoFailureWithCleanup(error, cleanup) {
+    if (cleanup?.attempted && cleanup.restored !== true) {
+      throw createTaggedError(
+        "Morpho operation failed after prerequisite transactions and automatic cleanup did not complete.",
+        "morpho_cleanup_failed",
+        {
+          originalError:
+            error instanceof Error
+              ? {
+                  message: error.message,
+                  code: String(error.errorCode || error.code || "").trim() || null,
+                }
+              : { message: String(error), code: null },
+          cleanup,
+        }
+      );
+    }
+    throw error;
+  }
+
   async #getTokenMetadata(runtimeConfig, tokenAddress) {
     const cacheKey = `${runtimeConfig.network}:${tokenAddress.toLowerCase()}`;
     const cached = this._tokenMetadataCache.get(cacheKey);
@@ -3564,6 +4607,7 @@ export class WdkEvmWalletService {
   #assertMaxFee(runtimeConfig, fee, operation) {
     if (
       runtimeConfig.transferMaxFeeWei !== null &&
+      runtimeConfig.transferMaxFeeWei !== undefined &&
       BigInt(fee) >= BigInt(runtimeConfig.transferMaxFeeWei)
     ) {
       throw createTaggedError(`Exceeded maximum fee cost for ${operation}.`, "fee_limit_exceeded", {

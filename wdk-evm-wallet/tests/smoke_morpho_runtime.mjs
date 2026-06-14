@@ -1,12 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import MorphoProtocolEvm from "@morpho-org/wdk-protocol-lending-morpho-evm";
+import WalletManagerEvm from "@tetherto/wdk-wallet-evm";
+
 import { WdkEvmWalletService } from "../src/wdk_evm_wallet.js";
 
 const DEFAULT_ADDRESS = "0x1111111111111111111111111111111111111111";
 const DEFAULT_MARKET_ID =
   "0x9103c3b4e834476c9a62ea009ba2c884ee42e94e6e314a26f04d312434191836";
 const DEFAULT_VAULT_ADDRESS = "0xb576765fB15505433aF24FEe2c0325895C559FB2";
+const DEFAULT_TOKEN = "0x2222222222222222222222222222222222222222";
+const APPROVAL_SPENDER = "0x3333333333333333333333333333333333333333";
+const MORPHO_CORE = "0x4444444444444444444444444444444444444444";
+const GENERAL_ADAPTER = "0x5555555555555555555555555555555555555555";
+const APPROVAL_DATA = "0xaaaaaaaa";
+const AUTHORIZATION_DATA = "0xbbbbbbbb";
 
 function createService() {
   return new WdkEvmWalletService({
@@ -35,6 +44,189 @@ function withMockedFetch(handler, callback) {
     .finally(() => {
       globalThis.fetch = original;
     });
+}
+
+function createMorphoHarness(options = {}) {
+  const state = {
+    allowance: BigInt(options.initialAllowance ?? 0n),
+    approvalSatisfied: Boolean(options.initialApprovalSatisfied),
+    authorizationSatisfied: Boolean(options.initialAuthorizationSatisfied),
+    quoteCalls: [],
+    protocolCalls: [],
+    sentTransactions: [],
+  };
+
+  const fakeAccount = {
+    _config: {
+      provider: {
+        async request({ method }) {
+          if (method === "eth_chainId") {
+            return "0x2105";
+          }
+          if (method === "net_version") {
+            return "8453";
+          }
+          return "0x1";
+        },
+      },
+    },
+    async getAddress() {
+      return DEFAULT_ADDRESS;
+    },
+    async getAllowance() {
+      return state.allowance;
+    },
+    async quoteSendTransaction(tx) {
+      state.quoteCalls.push(tx);
+      if (String(tx?.data || "") === AUTHORIZATION_DATA) {
+        return { fee: BigInt(options.authorizationFee ?? 5n) };
+      }
+      return { fee: BigInt(options.approvalFee ?? 3n) };
+    },
+    async sendTransaction(tx) {
+      state.sentTransactions.push(tx);
+      if (String(tx?.data || "") === APPROVAL_DATA) {
+        state.approvalSatisfied = true;
+        state.allowance = BigInt(options.requiredAmount ?? 1_000_000n);
+      }
+      if (String(tx?.data || "") === AUTHORIZATION_DATA) {
+        state.authorizationSatisfied = true;
+      }
+      return {
+        hash: `0x${String(state.sentTransactions.length).padStart(64, "a")}`,
+        fee:
+          String(tx?.data || "") === AUTHORIZATION_DATA
+            ? BigInt(options.authorizationFee ?? 5n)
+            : BigInt(options.approvalFee ?? 3n),
+      };
+    },
+  };
+
+  const originals = {
+    getAccount: WalletManagerEvm.prototype.getAccount,
+    disposeWallet: WalletManagerEvm.prototype.dispose,
+    getVaultAddress: MorphoProtocolEvm.prototype.getVaultAddress,
+    getBorrowMarketId: MorphoProtocolEvm.prototype.getBorrowMarketId,
+    getSupplyRequirements: MorphoProtocolEvm.prototype.getSupplyRequirements,
+    quoteSupply: MorphoProtocolEvm.prototype.quoteSupply,
+    supply: MorphoProtocolEvm.prototype.supply,
+    getBorrowRequirements: MorphoProtocolEvm.prototype.getBorrowRequirements,
+    quoteBorrow: MorphoProtocolEvm.prototype.quoteBorrow,
+    borrow: MorphoProtocolEvm.prototype.borrow,
+    fetch: globalThis.fetch,
+  };
+
+  WalletManagerEvm.prototype.getAccount = async function getAccount() {
+    return fakeAccount;
+  };
+  WalletManagerEvm.prototype.dispose = function dispose() {};
+
+  MorphoProtocolEvm.prototype.getVaultAddress = function getVaultAddress() {
+    return DEFAULT_VAULT_ADDRESS;
+  };
+  MorphoProtocolEvm.prototype.getBorrowMarketId = function getBorrowMarketId() {
+    return DEFAULT_MARKET_ID;
+  };
+  MorphoProtocolEvm.prototype.getSupplyRequirements = async function getSupplyRequirements() {
+    state.protocolCalls.push({ name: "getSupplyRequirements" });
+    if (state.approvalSatisfied) {
+      return [];
+    }
+    return [
+      {
+        to: APPROVAL_SPENDER,
+        value: 0n,
+        data: APPROVAL_DATA,
+        action: {
+          type: "erc20Approval",
+          args: {
+            spender: APPROVAL_SPENDER,
+            amount: BigInt(options.requiredAmount ?? 1_000_000n),
+          },
+        },
+      },
+    ];
+  };
+  MorphoProtocolEvm.prototype.quoteSupply = async function quoteSupply(params) {
+    state.protocolCalls.push({ name: "quoteSupply", params });
+    return { fee: BigInt(options.operationFee ?? 7n) };
+  };
+  MorphoProtocolEvm.prototype.supply = async function supply(params) {
+    state.protocolCalls.push({ name: "supply", params });
+    return {
+      hash: `0x${"d".repeat(64)}`,
+      fee: BigInt(options.operationFee ?? 7n),
+    };
+  };
+  MorphoProtocolEvm.prototype.getBorrowRequirements = async function getBorrowRequirements() {
+    state.protocolCalls.push({ name: "getBorrowRequirements" });
+    if (state.authorizationSatisfied) {
+      return [];
+    }
+    return [
+      {
+        to: MORPHO_CORE,
+        value: 0n,
+        data: AUTHORIZATION_DATA,
+        action: {
+          type: "morphoAuthorization",
+          args: {
+            authorized: GENERAL_ADAPTER,
+            isAuthorized: true,
+          },
+        },
+      },
+    ];
+  };
+  MorphoProtocolEvm.prototype.quoteBorrow = async function quoteBorrow(params) {
+    state.protocolCalls.push({ name: "quoteBorrow", params });
+    return { fee: BigInt(options.operationFee ?? 9n) };
+  };
+  MorphoProtocolEvm.prototype.borrow = async function borrow(params) {
+    state.protocolCalls.push({ name: "borrow", params });
+    return {
+      hash: `0x${"e".repeat(64)}`,
+      fee: BigInt(options.operationFee ?? 9n),
+    };
+  };
+  globalThis.fetch = async (url, request) => {
+    if (String(url).startsWith("http://fake-rpc.local")) {
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          const body = JSON.parse(String(request?.body || "{}"));
+          if (body.method === "eth_getTransactionReceipt") {
+            return {
+              result: {
+                status: "0x1",
+                transactionHash: body.params?.[0] || `0x${"f".repeat(64)}`,
+              },
+            };
+          }
+          return { result: "0x1" };
+        },
+      };
+    }
+    throw new Error(`Unexpected fetch URL: ${String(url)}`);
+  };
+
+  return {
+    state,
+    restore() {
+      WalletManagerEvm.prototype.getAccount = originals.getAccount;
+      WalletManagerEvm.prototype.dispose = originals.disposeWallet;
+      MorphoProtocolEvm.prototype.getVaultAddress = originals.getVaultAddress;
+      MorphoProtocolEvm.prototype.getBorrowMarketId = originals.getBorrowMarketId;
+      MorphoProtocolEvm.prototype.getSupplyRequirements = originals.getSupplyRequirements;
+      MorphoProtocolEvm.prototype.quoteSupply = originals.quoteSupply;
+      MorphoProtocolEvm.prototype.supply = originals.supply;
+      MorphoProtocolEvm.prototype.getBorrowRequirements = originals.getBorrowRequirements;
+      MorphoProtocolEvm.prototype.quoteBorrow = originals.quoteBorrow;
+      MorphoProtocolEvm.prototype.borrow = originals.borrow;
+      globalThis.fetch = originals.fetch;
+    },
+  };
 }
 
 test("morpho vault list returns discovery payload", async () => {
@@ -220,4 +412,121 @@ test("morpho api graphql errors are shaped", async () => {
       (error) => error?.errorCode === "morpho_api_failed" && /bad query/.test(error.message)
     );
   });
+});
+
+test("morpho vault supply quote reports approval requirements and send executes them", async () => {
+  const service = createService();
+  const harness = createMorphoHarness({
+    requiredAmount: 2_500_000n,
+    approvalFee: 3n,
+    operationFee: 7n,
+  });
+
+  try {
+    const quote = await service.quoteMorphoVaultOperation({
+      seedPhrase:
+        "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+      network: "base",
+      vaultAddress: DEFAULT_VAULT_ADDRESS,
+      token: DEFAULT_TOKEN,
+      amount: "2500000",
+      operation: "supply",
+    });
+    assert.equal(quote.protocol, "morpho");
+    assert.equal(quote.surface, "vault");
+    assert.equal(quote.requirements.required, true);
+    assert.equal(quote.requirements.approvalRequired, true);
+    assert.equal(quote.requirements.requirementCount, 1);
+    assert.equal(quote.estimatedRequirementsFeeWei, "3");
+    assert.equal(quote.estimatedOperationFeeWei, "7");
+
+    const sent = await service.sendMorphoVaultOperation({
+      seedPhrase:
+        "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+      network: "base",
+      vaultAddress: DEFAULT_VAULT_ADDRESS,
+      token: DEFAULT_TOKEN,
+      amount: "2500000",
+      operation: "supply",
+      expectedQuoteFingerprint: quote.quoteFingerprint,
+    });
+    assert.equal(sent.result.requirements.length, 1);
+    assert.equal(sent.result.requirements[0].type, "approval");
+    assert.equal(sent.result.requirementsFee, "3");
+    assert.equal(sent.result.totalFee, "10");
+    assert.equal(harness.state.sentTransactions.length, 1);
+    assert.equal(harness.state.sentTransactions[0].data, APPROVAL_DATA);
+    assert.ok(harness.state.protocolCalls.some((entry) => entry.name === "supply"));
+  } finally {
+    harness.restore();
+  }
+});
+
+test("morpho market borrow quote reports authorization requirements and send executes them", async () => {
+  const service = createService();
+  const harness = createMorphoHarness({
+    authorizationFee: 5n,
+    operationFee: 9n,
+  });
+
+  try {
+    const quote = await service.quoteMorphoMarketOperation({
+      seedPhrase:
+        "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+      network: "base",
+      marketId: DEFAULT_MARKET_ID,
+      token: DEFAULT_TOKEN,
+      amount: "1000000",
+      operation: "borrow",
+    });
+    assert.equal(quote.protocol, "morpho");
+    assert.equal(quote.surface, "market");
+    assert.equal(quote.requirements.required, true);
+    assert.equal(quote.requirements.authorizationRequired, true);
+    assert.equal(quote.requirements.sequence[0].authorized, GENERAL_ADAPTER.toLowerCase());
+
+    const sent = await service.sendMorphoMarketOperation({
+      seedPhrase:
+        "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+      network: "base",
+      marketId: DEFAULT_MARKET_ID,
+      token: DEFAULT_TOKEN,
+      amount: "1000000",
+      operation: "borrow",
+      expectedQuoteFingerprint: quote.quoteFingerprint,
+    });
+    assert.equal(sent.result.requirements.length, 1);
+    assert.equal(sent.result.requirements[0].type, "authorization");
+    assert.equal(sent.result.requirementsFee, "5");
+    assert.equal(sent.result.totalFee, "14");
+    assert.equal(harness.state.sentTransactions.length, 1);
+    assert.equal(harness.state.sentTransactions[0].data, AUTHORIZATION_DATA);
+    assert.ok(harness.state.protocolCalls.some((entry) => entry.name === "borrow"));
+  } finally {
+    harness.restore();
+  }
+});
+
+test("morpho send rejects a changed quote fingerprint", async () => {
+  const service = createService();
+  const harness = createMorphoHarness();
+
+  try {
+    await assert.rejects(
+      () =>
+        service.sendMorphoVaultOperation({
+          seedPhrase:
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+          network: "base",
+          vaultAddress: DEFAULT_VAULT_ADDRESS,
+          token: DEFAULT_TOKEN,
+          amount: "1000",
+          operation: "supply",
+          expectedQuoteFingerprint: "stale",
+        }),
+      (error) => error?.errorCode === "morpho_quote_changed"
+    );
+  } finally {
+    harness.restore();
+  }
 });

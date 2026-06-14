@@ -29,6 +29,8 @@ Current scope:
 - fetch Morpho vault discovery and detail data on supported mainnet networks
 - fetch Morpho market discovery and detail data on supported mainnet networks
 - fetch Morpho user vault and market positions on supported mainnet networks
+- quote and send narrow Morpho vault `supply` and `withdraw` operations
+- quote and send narrow Morpho market `supply_collateral`, `borrow`, `repay`, and `withdraw_collateral` operations
 - quote and send native transfers
 - quote and send ERC-20 transfers
 - fetch transaction receipts
@@ -44,6 +46,8 @@ The implementation follows the official WDK documentation:
 - Velora swap API reference: https://docs.wdk.tether.io/sdk/swap-modules/swap-velora-evm/api-reference
 - Aave lending overview: https://docs.wdk.tether.io/sdk/lending-modules/lending-aave-evm
 - Aave lending API reference: https://docs.wdk.tether.io/sdk/lending-modules/lending-aave-evm/api-reference
+- Morpho Build overview: https://morpho.org/build
+- Morpho offchain API docs: https://docs.morpho.org/tools/offchain/api/get-started/
 
 ## Why Separate
 
@@ -107,6 +111,18 @@ The active network is persistent and can be switched without changing code.
 - `POST /v1/evm/morpho/vaults/get`
 - `POST /v1/evm/morpho/markets/get`
 - `POST /v1/evm/morpho/positions/get`
+- `POST /v1/evm/morpho/vault/supply/quote`
+- `POST /v1/evm/morpho/vault/supply/send`
+- `POST /v1/evm/morpho/vault/withdraw/quote`
+- `POST /v1/evm/morpho/vault/withdraw/send`
+- `POST /v1/evm/morpho/market/supply_collateral/quote`
+- `POST /v1/evm/morpho/market/supply_collateral/send`
+- `POST /v1/evm/morpho/market/borrow/quote`
+- `POST /v1/evm/morpho/market/borrow/send`
+- `POST /v1/evm/morpho/market/repay/quote`
+- `POST /v1/evm/morpho/market/repay/send`
+- `POST /v1/evm/morpho/market/withdraw_collateral/quote`
+- `POST /v1/evm/morpho/market/withdraw_collateral/send`
 - `POST /v1/evm/swap/quote`
 - `POST /v1/evm/swap/send`
 - `POST /v1/evm/uniswap/swap/quote`

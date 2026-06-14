@@ -39,6 +39,10 @@ function normalizeErrorCode(errorCode, pathname, message) {
     code === "aave_fee_unavailable" ||
     code === "aave_cleanup_failed" ||
     code === "morpho_api_failed" ||
+    code === "morpho_quote_changed" ||
+    code === "morpho_requirements_unresolved" ||
+    code === "morpho_fee_unavailable" ||
+    code === "morpho_cleanup_failed" ||
     code === "token_transfer_failed" ||
     code === "fee_limit_exceeded" ||
     code === "token_read_failed" ||
@@ -123,6 +127,9 @@ function errorStatusCode(errorCode, fallback = 400) {
   if (errorCode === "aave_quote_changed") {
     return 409;
   }
+  if (errorCode === "morpho_quote_changed") {
+    return 409;
+  }
   if (
     errorCode === "swap_simulation_failed" ||
     errorCode === "swap_approval_required" ||
@@ -133,6 +140,9 @@ function errorStatusCode(errorCode, fallback = 400) {
     errorCode === "aave_fee_unavailable" ||
     errorCode === "aave_cleanup_failed" ||
     errorCode === "morpho_api_failed" ||
+    errorCode === "morpho_requirements_unresolved" ||
+    errorCode === "morpho_fee_unavailable" ||
+    errorCode === "morpho_cleanup_failed" ||
     errorCode === "token_transfer_failed" ||
     errorCode === "fee_limit_exceeded" ||
     errorCode === "uniswap_api_key_missing"
@@ -462,6 +472,42 @@ async function handleRequest(request, response) {
     if (method === "POST" && url.pathname === "/v1/evm/morpho/positions/get") {
       const body = await withResolvedNetwork(await withResolvedSeedOrAddress(await readJsonBody(request)));
       const data = await service.getMorphoPositions(body);
+      return sendJson(response, 200, { ok: true, data });
+    }
+
+    const morphoVaultOperationMatch = url.pathname.match(
+      /^\/v1\/evm\/morpho\/vault\/(supply|withdraw)\/(quote|send)$/
+    );
+    if (method === "POST" && morphoVaultOperationMatch) {
+      const operation = morphoVaultOperationMatch[1];
+      const action = morphoVaultOperationMatch[2];
+      const rawBody = await readJsonBody(request);
+      const body =
+        action === "quote"
+          ? await withResolvedNetwork(await withResolvedSeedOrAddress(rawBody))
+          : await withResolvedNetwork(await withResolvedSeed(rawBody));
+      const data =
+        action === "quote"
+          ? await service.quoteMorphoVaultOperation({ ...body, operation })
+          : await service.sendMorphoVaultOperation({ ...body, operation });
+      return sendJson(response, 200, { ok: true, data });
+    }
+
+    const morphoMarketOperationMatch = url.pathname.match(
+      /^\/v1\/evm\/morpho\/market\/(supply_collateral|borrow|repay|withdraw_collateral)\/(quote|send)$/
+    );
+    if (method === "POST" && morphoMarketOperationMatch) {
+      const operation = morphoMarketOperationMatch[1];
+      const action = morphoMarketOperationMatch[2];
+      const rawBody = await readJsonBody(request);
+      const body =
+        action === "quote"
+          ? await withResolvedNetwork(await withResolvedSeedOrAddress(rawBody))
+          : await withResolvedNetwork(await withResolvedSeed(rawBody));
+      const data =
+        action === "quote"
+          ? await service.quoteMorphoMarketOperation({ ...body, operation })
+          : await service.sendMorphoMarketOperation({ ...body, operation });
       return sendJson(response, 200, { ok: true, data });
     }
 
