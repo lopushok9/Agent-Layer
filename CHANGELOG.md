@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+## v0.1.45 - 2026-06-14
+
+- Added a Morpho lending integration (vaults + Blue markets) on Ethereum and
+  Base, exposed across all local agent frameworks (OpenClaw, Codex,
+  Claude Code) through the shared agent-wallet adapter.
+  - Read-only discovery: `get_evm_morpho_vaults`, `get_evm_morpho_markets`,
+    and `get_evm_morpho_positions`, backed by the Morpho GraphQL API.
+  - Write flows with preview/prepare/execute and quote-fingerprint binding:
+    `manage_evm_morpho_vault_position` (supply/withdraw) and
+    `manage_evm_morpho_market_position`
+    (supply_collateral/borrow/repay/withdraw_collateral), including automatic
+    approval/authorization requirement execution and rollback on failure.
+- Fixed three Morpho defects found while hardening the integration:
+  - Vault list discovery used a non-existent GraphQL filter type
+    (`VaultV2Filters` -> `VaultV2sFilters`), so the default vault listing
+    failed on every call.
+  - Single vault/market lookups now return `found: false` for a missing target
+    instead of a confusing `morpho_api_failed`. The Morpho API answers a
+    missing entity as a `NOT_FOUND` GraphQL error with HTTP 200, which the
+    previous code treated as a hard failure.
+  - Execute no longer rejects checksummed vault/market targets: the approval
+    binding lowercases the resolved target, so it is now compared
+    case-insensitively against the requested address/id.
+- Made Morpho discovery usable without paging through a default-ordered slice:
+  - Vaults: filter by underlying asset and order by TVL/APY (default
+    `TotalAssetsUsd` desc).
+  - Markets: free-text `search` plus collateral/loan asset filters, ordered by
+    supply/APY (default `SupplyAssetsUsd` desc).
+  - `order_by` is validated case-insensitively against an allowlist, and the
+    read-path `marketId` is validated as a 32-byte hex string.
+
 ## v0.1.44 - 2026-06-12
 
 - Added anonymous, privacy-first adoption telemetry so wallet usage can be
