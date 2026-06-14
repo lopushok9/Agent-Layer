@@ -38,6 +38,7 @@ function normalizeErrorCode(errorCode, pathname, message) {
     code === "aave_approval_required" ||
     code === "aave_fee_unavailable" ||
     code === "aave_cleanup_failed" ||
+    code === "morpho_api_failed" ||
     code === "token_transfer_failed" ||
     code === "fee_limit_exceeded" ||
     code === "token_read_failed" ||
@@ -131,6 +132,7 @@ function errorStatusCode(errorCode, fallback = 400) {
     errorCode === "aave_approval_required" ||
     errorCode === "aave_fee_unavailable" ||
     errorCode === "aave_cleanup_failed" ||
+    errorCode === "morpho_api_failed" ||
     errorCode === "token_transfer_failed" ||
     errorCode === "fee_limit_exceeded" ||
     errorCode === "uniswap_api_key_missing"
@@ -442,6 +444,24 @@ async function handleRequest(request, response) {
     if (method === "POST" && url.pathname === "/v1/evm/aave/positions/get") {
       const body = await withResolvedNetwork(await withResolvedSeedOrAddress(await readJsonBody(request)));
       const data = await service.getAavePositions(body);
+      return sendJson(response, 200, { ok: true, data });
+    }
+
+    if (method === "POST" && url.pathname === "/v1/evm/morpho/vaults/get") {
+      const body = await withResolvedNetwork(await readJsonBody(request));
+      const data = await service.getMorphoVaults(body);
+      return sendJson(response, 200, { ok: true, data });
+    }
+
+    if (method === "POST" && url.pathname === "/v1/evm/morpho/markets/get") {
+      const body = await withResolvedNetwork(await readJsonBody(request));
+      const data = await service.getMorphoMarkets(body);
+      return sendJson(response, 200, { ok: true, data });
+    }
+
+    if (method === "POST" && url.pathname === "/v1/evm/morpho/positions/get") {
+      const body = await withResolvedNetwork(await withResolvedSeedOrAddress(await readJsonBody(request)));
+      const data = await service.getMorphoPositions(body);
       return sendJson(response, 200, { ok: true, data });
     }
 

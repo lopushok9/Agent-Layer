@@ -26,6 +26,9 @@ Current scope:
 - fetch Aave V3 reserve catalog on supported mainnet networks
 - fetch Aave V3 per-reserve user positions on supported mainnet networks
 - quote and send narrow Aave V3 `supply`, `withdraw`, `borrow`, and `repay` operations
+- fetch Morpho vault discovery and detail data on supported mainnet networks
+- fetch Morpho market discovery and detail data on supported mainnet networks
+- fetch Morpho user vault and market positions on supported mainnet networks
 - quote and send native transfers
 - quote and send ERC-20 transfers
 - fetch transaction receipts
@@ -101,6 +104,9 @@ The active network is persistent and can be switched without changing code.
 - `POST /v1/evm/aave/borrow/send`
 - `POST /v1/evm/aave/repay/quote`
 - `POST /v1/evm/aave/repay/send`
+- `POST /v1/evm/morpho/vaults/get`
+- `POST /v1/evm/morpho/markets/get`
+- `POST /v1/evm/morpho/positions/get`
 - `POST /v1/evm/swap/quote`
 - `POST /v1/evm/swap/send`
 - `POST /v1/evm/uniswap/swap/quote`
@@ -162,10 +168,19 @@ Environment variables:
 - `WDK_EVM_SEPOLIA_RPC_URL`
 - `WDK_EVM_BASE_RPC_URL`
 - `WDK_EVM_BASE_SEPOLIA_RPC_URL`
+- `MORPHO_API_BASE_URL`
 - `UNISWAP_API_KEY`
 - `UNISWAP_TRADING_API_BASE_URL`
 - `UNISWAP_ROUTER_VERSION`
 - `UNISWAP_DEFAULT_SLIPPAGE_BPS`
+
+Morpho read-only support:
+
+- the runtime exposes Morpho discovery and account-read routes through the public
+  Morpho GraphQL API at `https://api.morpho.org/graphql` by default
+- Morpho support is currently limited to `ethereum` and `base` mainnet
+- vault and market discovery use fixed first-party queries rather than caller-provided
+  GraphQL strings
 
 Swap providers:
 

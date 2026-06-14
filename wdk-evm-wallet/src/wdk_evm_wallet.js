@@ -88,6 +88,346 @@ const LIFI_CHAIN_ALIASES = {
   sol: "1151111081099710",
   solana: "1151111081099710",
 };
+const MORPHO_DEFAULT_LIST_LIMIT = 100;
+const MORPHO_MAX_LIST_LIMIT = 500;
+const MORPHO_VAULT_LIST_QUERY = `
+  query MorphoVaultV2List($first: Int!, $where: VaultV2Filters) {
+    vaultV2s(first: $first, where: $where) {
+      items {
+        address
+        symbol
+        name
+        listed
+        totalAssets
+        totalAssetsUsd
+        totalSupply
+        liquidity
+        liquidityUsd
+        idleAssets
+        idleAssetsUsd
+        sharePrice
+        avgNetApy
+        avgNetApyExcludingRewards
+        performanceFee
+        managementFee
+        maxRate
+        warnings {
+          type
+          level
+        }
+        asset {
+          id
+          address
+          decimals
+          symbol
+          name
+          priceUsd
+          yield {
+            apr
+            lookback
+          }
+        }
+        chain {
+          id
+          network
+        }
+        rewards {
+          supplyApr
+          asset {
+            address
+            symbol
+            chain {
+              id
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+const MORPHO_VAULT_BY_ADDRESS_QUERY = `
+  query MorphoVaultV2ByAddress($address: String!, $chainId: Int!) {
+    vaultV2ByAddress(address: $address, chainId: $chainId) {
+      address
+      symbol
+      name
+      listed
+      totalAssets
+      totalAssetsUsd
+      totalSupply
+      liquidity
+      liquidityUsd
+      idleAssets
+      idleAssetsUsd
+      sharePrice
+      avgNetApy
+      avgNetApyExcludingRewards
+      performanceFee
+      managementFee
+      maxRate
+      metadata {
+        description
+        image
+      }
+      warnings {
+        type
+        level
+      }
+      asset {
+        id
+        address
+        decimals
+        symbol
+        name
+        priceUsd
+        yield {
+          apr
+          lookback
+        }
+      }
+      chain {
+        id
+        network
+      }
+      rewards {
+        supplyApr
+        asset {
+          address
+          symbol
+          chain {
+            id
+          }
+        }
+      }
+      adapters(first: 20) {
+        items {
+          __typename
+          address
+          type
+          assets
+          assetsUsd
+          ... on MorphoMarketV1Adapter {
+            positions(first: 50) {
+              items {
+                market {
+                  marketId
+                  collateralAsset {
+                    symbol
+                    address
+                  }
+                  loanAsset {
+                    symbol
+                    address
+                  }
+                }
+                state {
+                  supplyAssets
+                  supplyAssetsUsd
+                }
+              }
+            }
+          }
+          ... on MetaMorphoAdapter {
+            metaMorpho {
+              address
+              name
+              symbol
+            }
+          }
+          ... on MorphoVaultV2Adapter {
+            innerVault {
+              address
+              name
+              symbol
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+const MORPHO_MARKET_LIST_QUERY = `
+  query MorphoMarketList($first: Int!, $where: MarketFilters) {
+    markets(first: $first, where: $where) {
+      items {
+        marketId
+        lltv
+        irmAddress
+        warnings {
+          type
+          level
+        }
+        oracle {
+          address
+          type
+        }
+        loanAsset {
+          address
+          symbol
+          decimals
+          name
+          priceUsd
+        }
+        collateralAsset {
+          address
+          symbol
+          decimals
+          name
+          priceUsd
+        }
+        state {
+          collateralAssets
+          collateralAssetsUsd
+          borrowAssets
+          borrowAssetsUsd
+          supplyAssets
+          supplyAssetsUsd
+          liquidityAssets
+          liquidityAssetsUsd
+          borrowApy
+          avgBorrowApy
+          avgNetBorrowApy
+          supplyApy
+          avgSupplyApy
+          avgNetSupplyApy
+          fee
+          utilization
+          rewards {
+            supplyApr
+            borrowApr
+            asset {
+              address
+              symbol
+              chain {
+                id
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+const MORPHO_MARKET_BY_ID_QUERY = `
+  query MorphoMarketById($marketId: String!, $chainId: Int!) {
+    marketById(marketId: $marketId, chainId: $chainId) {
+      marketId
+      lltv
+      irmAddress
+      warnings {
+        type
+        level
+      }
+      oracle {
+        address
+        type
+      }
+      loanAsset {
+        address
+        symbol
+        decimals
+        name
+        priceUsd
+      }
+      collateralAsset {
+        address
+        symbol
+        decimals
+        name
+        priceUsd
+      }
+      state {
+        collateralAssets
+        collateralAssetsUsd
+        borrowAssets
+        borrowAssetsUsd
+        supplyAssets
+        supplyAssetsUsd
+        liquidityAssets
+        liquidityAssetsUsd
+        borrowApy
+        avgBorrowApy
+        avgNetBorrowApy
+        supplyApy
+        avgSupplyApy
+        avgNetSupplyApy
+        fee
+        utilization
+        rewards {
+          supplyApr
+          borrowApr
+          asset {
+            address
+            symbol
+            chain {
+              id
+            }
+          }
+        }
+      }
+      supplyingVaults {
+        address
+        name
+        symbol
+      }
+      supplyingVaultV2s {
+        address
+        name
+        symbol
+      }
+    }
+  }
+`;
+const MORPHO_USER_OVERVIEW_QUERY = `
+  query MorphoUserByAddress($address: String!, $chainId: Int!) {
+    userByAddress(address: $address, chainId: $chainId) {
+      address
+      marketPositions {
+        market {
+          marketId
+          loanAsset {
+            address
+            symbol
+            decimals
+            name
+          }
+          collateralAsset {
+            address
+            symbol
+            decimals
+            name
+          }
+        }
+        state {
+          supplyShares
+          supplyAssets
+          supplyAssetsUsd
+          borrowShares
+          borrowAssets
+          borrowAssetsUsd
+          collateral
+          collateralUsd
+        }
+      }
+      vaultV2Positions {
+        vault {
+          address
+          name
+          symbol
+          asset {
+            address
+            symbol
+            decimals
+            name
+          }
+        }
+        shares
+        assets
+        assetsUsd
+      }
+    }
+  }
+`;
 
 function createTaggedError(message, code, details = {}) {
   const error = new Error(message);
@@ -207,6 +547,33 @@ function assertLidoSupportedNetwork(network) {
   if (network !== "ethereum") {
     throw new Error("Lido staking is currently supported only on ethereum mainnet.");
   }
+}
+
+function assertMorphoSupportedNetwork(network) {
+  if (!["ethereum", "base"].includes(network)) {
+    throw new Error("Morpho is currently supported only on ethereum and base mainnet.");
+  }
+}
+
+function normalizeMorphoListLimit(value) {
+  if (value === undefined || value === null || value === "") {
+    return MORPHO_DEFAULT_LIST_LIMIT;
+  }
+  const limit = assertNonNegativeInteger(value, "limit");
+  if (limit < 1 || limit > MORPHO_MAX_LIST_LIMIT) {
+    throw new Error(`limit must be between 1 and ${MORPHO_MAX_LIST_LIMIT}.`);
+  }
+  return limit;
+}
+
+function normalizeMorphoListedOnly(value, fallback = true) {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+  if (typeof value !== "boolean") {
+    throw new Error("listedOnly must be a boolean.");
+  }
+  return value;
 }
 
 function normalizeAaveOperation(value) {
@@ -1275,6 +1642,131 @@ export class WdkEvmWalletService {
         } finally {
           await maybeDispose(protocol);
         }
+      }
+    );
+  }
+
+  async getMorphoVaults({ network, vaultAddress = null, limit, listedOnly = true }) {
+    const runtimeConfig = this.#resolveRuntimeConfig(network);
+    assertMorphoSupportedNetwork(runtimeConfig.network);
+    if (vaultAddress !== null && vaultAddress !== undefined && String(vaultAddress).trim()) {
+      const data = await this.#morphoGraphqlRequest({
+        query: MORPHO_VAULT_BY_ADDRESS_QUERY,
+        variables: {
+          address: normalizeAddress(vaultAddress, "vaultAddress"),
+          chainId: runtimeConfig.chainId,
+        },
+        operationName: "MorphoVaultV2ByAddress",
+      });
+      return {
+        network: runtimeConfig.network,
+        chainId: runtimeConfig.chainId,
+        protocol: "morpho",
+        vault: data.vaultV2ByAddress || null,
+        found: Boolean(data.vaultV2ByAddress),
+        source: "morpho-api",
+      };
+    }
+    const first = normalizeMorphoListLimit(limit);
+    const onlyListed = normalizeMorphoListedOnly(listedOnly);
+    const data = await this.#morphoGraphqlRequest({
+      query: MORPHO_VAULT_LIST_QUERY,
+      variables: {
+        first,
+        where: onlyListed
+          ? { chainId_in: [runtimeConfig.chainId], listed: true }
+          : { chainId_in: [runtimeConfig.chainId] },
+      },
+      operationName: "MorphoVaultV2List",
+    });
+    const vaults = Array.isArray(data?.vaultV2s?.items) ? data.vaultV2s.items : [];
+    return {
+      network: runtimeConfig.network,
+      chainId: runtimeConfig.chainId,
+      protocol: "morpho",
+      listedOnly: onlyListed,
+      requestedLimit: first,
+      vaultCount: vaults.length,
+      vaults,
+      source: "morpho-api",
+    };
+  }
+
+  async getMorphoMarkets({ network, marketId = null, limit, listedOnly = true }) {
+    const runtimeConfig = this.#resolveRuntimeConfig(network);
+    assertMorphoSupportedNetwork(runtimeConfig.network);
+    if (marketId !== null && marketId !== undefined && String(marketId).trim()) {
+      const data = await this.#morphoGraphqlRequest({
+        query: MORPHO_MARKET_BY_ID_QUERY,
+        variables: {
+          marketId: assertNonEmptyString(marketId, "marketId"),
+          chainId: runtimeConfig.chainId,
+        },
+        operationName: "MorphoMarketById",
+      });
+      return {
+        network: runtimeConfig.network,
+        chainId: runtimeConfig.chainId,
+        protocol: "morpho",
+        market: data.marketById || null,
+        found: Boolean(data.marketById),
+        source: "morpho-api",
+      };
+    }
+    const first = normalizeMorphoListLimit(limit);
+    const onlyListed = normalizeMorphoListedOnly(listedOnly);
+    const data = await this.#morphoGraphqlRequest({
+      query: MORPHO_MARKET_LIST_QUERY,
+      variables: {
+        first,
+        where: onlyListed
+          ? { chainId_in: [runtimeConfig.chainId], listed: true }
+          : { chainId_in: [runtimeConfig.chainId] },
+      },
+      operationName: "MorphoMarketList",
+    });
+    const markets = Array.isArray(data?.markets?.items) ? data.markets.items : [];
+    return {
+      network: runtimeConfig.network,
+      chainId: runtimeConfig.chainId,
+      protocol: "morpho",
+      listedOnly: onlyListed,
+      requestedLimit: first,
+      marketCount: markets.length,
+      markets,
+      source: "morpho-api",
+    };
+  }
+
+  async getMorphoPositions({ seedPhrase, address, accountIndex = 0, network }) {
+    return this.#withReadableAccount(
+      { seedPhrase, address, accountIndex, network },
+      async (account, runtimeConfig) => {
+        assertMorphoSupportedNetwork(runtimeConfig.network);
+        const accountAddress = await account.getAddress();
+        const data = await this.#morphoGraphqlRequest({
+          query: MORPHO_USER_OVERVIEW_QUERY,
+          variables: {
+            address: accountAddress,
+            chainId: runtimeConfig.chainId,
+          },
+          operationName: "MorphoUserByAddress",
+        });
+        const user = data.userByAddress || null;
+        const marketPositions = Array.isArray(user?.marketPositions) ? user.marketPositions : [];
+        const vaultPositions = Array.isArray(user?.vaultV2Positions) ? user.vaultV2Positions : [];
+        return {
+          network: runtimeConfig.network,
+          chainId: runtimeConfig.chainId,
+          accountIndex,
+          address: accountAddress,
+          protocol: "morpho",
+          marketPositionCount: marketPositions.length,
+          vaultPositionCount: vaultPositions.length,
+          marketPositions,
+          vaultPositions,
+          source: "morpho-api",
+        };
       }
     );
   }
@@ -2832,6 +3324,88 @@ export class WdkEvmWalletService {
       }
     }
     return this.#withAccount({ seedPhrase, accountIndex, network }, callback);
+  }
+
+  async #morphoGraphqlRequest({ query, variables = {}, operationName = null }) {
+    const baseUrl = String(this.config.morphoApiBaseUrl || "https://api.morpho.org/graphql").trim();
+    if (!baseUrl) {
+      throw createTaggedError("Morpho API base URL is not configured.", "morpho_api_failed");
+    }
+    let response;
+    try {
+      response = await fetch(baseUrl, {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          query,
+          variables,
+          ...(operationName ? { operationName } : {}),
+        }),
+      });
+    } catch (error) {
+      throw createTaggedError(
+        `Morpho API request failed: ${error instanceof Error ? error.message : String(error)}`,
+        "network_unavailable",
+        {
+          provider: "morpho",
+          endpoint: baseUrl,
+          operationName,
+        }
+      );
+    }
+
+    let payload;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      throw createTaggedError(
+        `Morpho API returned invalid JSON (HTTP ${response.status}).`,
+        "morpho_api_failed",
+        {
+          provider: "morpho",
+          endpoint: baseUrl,
+          status: response.status,
+          operationName,
+        }
+      );
+    }
+
+    if (!response.ok) {
+      const message =
+        Array.isArray(payload?.errors) && payload.errors.length > 0
+          ? String(payload.errors[0]?.message || "").trim()
+          : "";
+      throw createTaggedError(
+        message || `Morpho API request failed with HTTP ${response.status}.`,
+        "morpho_api_failed",
+        {
+          provider: "morpho",
+          endpoint: baseUrl,
+          status: response.status,
+          operationName,
+          errors: Array.isArray(payload?.errors) ? payload.errors : [],
+        }
+      );
+    }
+
+    if (Array.isArray(payload?.errors) && payload.errors.length > 0) {
+      throw createTaggedError(
+        String(payload.errors[0]?.message || "Morpho API query failed."),
+        "morpho_api_failed",
+        {
+          provider: "morpho",
+          endpoint: baseUrl,
+          status: response.status,
+          operationName,
+          errors: payload.errors,
+        }
+      );
+    }
+
+    return payload?.data || {};
   }
 
   async #getTokenMetadata(runtimeConfig, tokenAddress) {

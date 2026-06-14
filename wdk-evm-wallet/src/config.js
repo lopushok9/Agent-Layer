@@ -309,6 +309,8 @@ export function loadConfig(env = process.env) {
       env.WDK_EVM_TRANSFER_MAX_FEE_WEI,
       "WDK_EVM_TRANSFER_MAX_FEE_WEI"
     ),
+    morphoApiBaseUrl:
+      String(env.MORPHO_API_BASE_URL ?? "").trim() || "https://api.morpho.org/graphql",
     lifiApiBaseUrl: String(env.LIFI_API_BASE_URL ?? "").trim() || "https://li.quest/v1",
     lifiApiKey: String(env.LIFI_API_KEY ?? "").trim(),
     lifiIntegrator: String(env.LIFI_INTEGRATOR ?? "").trim() || "openclaw",

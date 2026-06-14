@@ -11,6 +11,7 @@
     "check": "node --check src/server.js && node --check src/wdk_evm_wallet.js && node --check src/config.js && node --check src/json.js && node --check src/local_vault.js && node --check src/network_state.js",
     "test:swap-runtime": "node --test --test-concurrency=1 tests/smoke_swap_runtime.mjs",
     "test:aave-runtime": "node --test --test-concurrency=1 tests/smoke_aave_runtime.mjs",
+    "test:morpho-runtime": "node --test --test-concurrency=1 tests/smoke_morpho_runtime.mjs",
     "test:lido-runtime": "node --test --test-concurrency=1 tests/smoke_lido_runtime.mjs",
     "test:uniswap-runtime": "node --test --test-concurrency=1 tests/smoke_uniswap_runtime.mjs",
     "test:unit": "node --test tests/unit_uniswap_helpers.mjs"
