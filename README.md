@@ -3,8 +3,9 @@
 
 [![npm version](https://img.shields.io/npm/v/%40agentlayer.tech%2Fwallet)](https://www.npmjs.com/package/@agentlayer.tech/wallet)
 [![npm downloads](https://img.shields.io/npm/dm/%40agentlayer.tech%2Fwallet)](https://www.npmjs.com/package/@agentlayer.tech/wallet)
+[![Node 24.x](https://img.shields.io/badge/node-24.x-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![GitHub stars](https://img.shields.io/github/stars/lopushok9/Agent-Layer?style=social)](https://github.com/lopushok9/Agent-Layer/stargazers)
 [![docs](https://img.shields.io/badge/docs-agent--layer.tech-blue)](https://docs.agent-layer.tech/)
-[![license](https://img.shields.io/github/license/lopushok9/Agent-Layer)](https://github.com/lopushok9/Agent-Layer/blob/main/LICENSE)
 
 For Openclaw:
 
@@ -69,7 +70,7 @@ Do not treat it as a finished production wallet stack. Test every flow before re
 System prerequisites:
 
 - `python3`
-- `node`
+- `node` `24.x`
 - `npm`
 
 Install the local runtime:
