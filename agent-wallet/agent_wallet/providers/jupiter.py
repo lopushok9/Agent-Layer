@@ -117,6 +117,7 @@ async def fetch_quote(
     restrict_intermediate_tokens: bool = True,
     only_direct_routes: bool = False,
     swap_mode: str = "ExactIn",
+    exclude_dexes: list[str] | None = None,
 ) -> dict[str, Any]:
     """Fetch a Jupiter quote for an exact-in swap.
 
@@ -133,6 +134,7 @@ async def fetch_quote(
             restrict_intermediate_tokens=restrict_intermediate_tokens,
             only_direct_routes=only_direct_routes,
             swap_mode=swap_mode,
+            exclude_dexes=exclude_dexes,
         )
     except ProviderError as exc:
         error_msg = str(exc).lower()
@@ -168,6 +170,7 @@ async def _fetch_quote_direct(
     restrict_intermediate_tokens: bool = True,
     only_direct_routes: bool = False,
     swap_mode: str = "ExactIn",
+    exclude_dexes: list[str] | None = None,
 ) -> dict[str, Any]:
     """Fetch a Jupiter quote directly from Jupiter API."""
     client = get_client()
@@ -180,6 +183,8 @@ async def _fetch_quote_direct(
         "restrictIntermediateTokens": str(restrict_intermediate_tokens).lower(),
         "onlyDirectRoutes": str(only_direct_routes).lower(),
     }
+    if exclude_dexes:
+        params["excludeDexes"] = ",".join(str(d).strip() for d in exclude_dexes if str(d).strip())
     response = await client.get(
         f"{settings.jupiter_api_base_url.rstrip('/')}/quote",
         params=params,
