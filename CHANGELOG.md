@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## v0.1.47 - 2026-06-16
+
+- Fixed Solana swaps of Token-2022 tokens with complex extensions (e.g. Backpack
+  xStock tokens such as SPCX, which carry `scaledUiAmountConfig`,
+  `pausableConfig`, `permanentDelegate`, and `confidentialTransferMint`) that
+  consistently failed with "Provider swap transaction simulation failed". When a
+  simulation failure is detected during `execute_swap_intent`, the next retry
+  now passes `excludeDexes=GoonFi V2` to the Jupiter lite-api quote, forcing
+  routing through a DEX that handles these extensions correctly (ZeroFi).
+  - `providers/jupiter.py`: `fetch_quote`/`_fetch_quote_direct` accept an
+    optional `exclude_dexes`, passed through as the `excludeDexes` query param.
+  - `wallet_layer/solana.py`: `preview_swap` propagates `exclude_dexes` into the
+    metis fallback; `execute_swap_intent` tracks a simulation-failure flag and
+    excludes `GoonFi V2` on the retry. Default behavior is unchanged (no DEX
+    exclusion unless a prior attempt failed simulation). (#14)
+- First published release carrying the Morpho lending integration and the
+  fresh-venv install hardening previously rolled out only locally (see the
+  0.1.45 and 0.1.46 entries below).
+
 ## v0.1.46 - 2026-06-14
 
 - Hardened the runtime install so a freshly created venv does not fail on
