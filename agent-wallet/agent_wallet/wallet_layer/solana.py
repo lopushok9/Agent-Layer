@@ -4704,6 +4704,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         amount_ui: float,
         slippage_bps: int = SOLANA_SWAP_DEFAULT_SLIPPAGE_BPS,
         exclude_routers: list[str] | None = None,
+        exclude_dexes: list[str] | None = None,
     ) -> dict[str, Any]:
         if self.network != "mainnet":
             raise WalletBackendError("Provider-routed swaps are only enabled for Solana mainnet.")
@@ -4749,6 +4750,7 @@ class SolanaWalletBackend(AgentWalletBackend):
                     output_mint=output_mint,
                     amount_raw=raw_amount,
                     slippage_bps=slippage_bps,
+                    exclude_dexes=exclude_dexes,
                 )
                 quote_source = "jupiter-metis"
 
@@ -5006,17 +5008,27 @@ class SolanaWalletBackend(AgentWalletBackend):
 
         attempts: list[dict[str, Any]] = []
         last_error: str | None = None
+        _simulation_failed = False
         for attempt_index in range(max_attempts):
             if valid_until_epoch_seconds is not None and int(time.time()) > int(valid_until_epoch_seconds):
                 break
             try:
                 exclude_routers = ["jupiterz"] if attempt_index > 0 else None
+                # On retries after a simulation failure, exclude DEXes known to fail
+                # simulation for Token-2022 tokens with extensions such as
+                # scaledUiAmountConfig, pausableConfig, or permanentDelegate
+                # (e.g. Backpack xStock tokens). GoonFi V2 is the primary offender;
+                # ZeroFi handles these tokens correctly.
+                exclude_dexes: list[str] | None = None
+                if _simulation_failed and attempt_index > 0:
+                    exclude_dexes = ["GoonFi V2"]
                 preview = await self.preview_swap(
                     input_mint=input_mint,
                     output_mint=output_mint,
                     amount_ui=amount_ui,
                     slippage_bps=slippage_bps,
                     exclude_routers=exclude_routers,
+                    exclude_dexes=exclude_dexes,
                 )
                 estimated_output_raw = int(preview.get("estimated_output_amount_raw") or 0)
                 if (
@@ -5073,6 +5085,8 @@ class SolanaWalletBackend(AgentWalletBackend):
                 return result
             except (WalletBackendError, ProviderError) as exc:
                 last_error = str(exc)
+                if "simulation failed" in str(exc).lower():
+                    _simulation_failed = True
                 attempts.append(
                     {
                         "attempt": attempt_index + 1,
