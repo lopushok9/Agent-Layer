@@ -80,3 +80,6 @@ X_ARTICLE_AGENTLAYER_0_1_28_TO_0_1_47.md
 
 # Local npm cache (sandbox installs)
 npm-cache/
+
+# Local benchmark drafts (agentic finance evals — WIP, not for release)
+benchmarks/
