@@ -137,3 +137,31 @@ Suggested follow-ups: persist the spend ledger in Redis/SQLite for multi-instanc
 deployments, an append-only audit log of autonomous decisions, and EVM-calldata
 verifiers (allow-listed routers/spenders, approval-amount caps) analogous to the
 existing Solana `transaction_policy` checks.
+
+## High-trust permission mode for Base swaps
+
+There is also a separate, less restrictive UX model for users who explicitly
+want coding-CLI-style permissions: approve a capability once, then let the
+agent use it without a per-transaction prompt. This is intentionally **not**
+the same as `start_autonomous_session`; it has no spending caps, token
+allow-list, router allow-list, or session TTL.
+
+Current scope:
+
+- `agentlayer_autonomous_approve { "scope": "base_swaps", ... }`
+- `agentlayer_autonomous_revoke { "scope": "base_swaps" }`
+- `agentlayer_autonomous_status`
+- applies only to `swap_evm_tokens` (Velora) and `swap_evm_uniswap_tokens`
+- applies only when the active EVM network is `base`
+- does not apply to transfers, withdrawals, lending, staking, bridges,
+  Solana swaps, or non-Base networks
+
+When enabled, a Base swap execute call with no `approval_token` fetches a fresh
+preview/quote, builds the exact confirmation summary, issues the same signed
+approval token internally with `issued_by="autonomous-permission:base-swaps"`,
+then runs the existing verification and send path. This preserves exact
+operation binding while removing the host confirmation step for this scope.
+
+This mode is high-trust by design. It is appropriate only when the user wants
+the agent to have the same practical Base swap authority as the wallet surface
+already exposes, while still excluding direct fund withdrawals/transfers.

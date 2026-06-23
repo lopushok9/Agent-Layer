@@ -51,6 +51,11 @@ no-op once the backend is healthy.
 - `/wallet-setup` — install (or repair) the backend explicitly instead of
   waiting for the hook (requires `/reload-plugins` first so the command is
   registered).
+- `/agentlayer-autonomous-approve` — enable high-trust autonomous Base swaps
+  (`swap_evm_tokens` / `swap_evm_uniswap_tokens` on Base only) without
+  per-transaction approvals.
+- `/agentlayer-autonomous-revoke` — disable that autonomous Base swap
+  permission.
 - `AGENT_WALLET_AUTO_BOOTSTRAP=0` — opt out of the auto-install: the
   `SessionStart` hook then only reminds you to run `/wallet-setup` instead of
   installing the backend itself.
