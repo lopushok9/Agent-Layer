@@ -3148,6 +3148,78 @@ class OpenClawWalletAdapter:
                 risk_level="low",
             )
         )
+        tools.append(
+            AgentToolSpec(
+                name="agentlayer_autonomous_status",
+                description=(
+                    "Return AgentLayer high-trust autonomous permission status. "
+                    "Currently supports only scope=base_swaps."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            )
+        )
+        tools.append(
+            AgentToolSpec(
+                name="agentlayer_autonomous_approve",
+                description=(
+                    "Enable high-trust autonomous execution for a narrow scope. "
+                    "Currently scope=base_swaps lets Base Velora/Uniswap swap execute calls run "
+                    "without per-transaction human approval until revoked. This does not cover "
+                    "transfers, withdrawals, lending, staking, bridges, Solana swaps, or non-Base networks."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "scope": {
+                            "type": "string",
+                            "enum": ["base_swaps"],
+                            "description": "Only base_swaps is currently supported.",
+                        },
+                        "purpose": {
+                            "type": "string",
+                            "description": "Short explanation of why the standing permission is being enabled.",
+                        },
+                        "user_intent": {
+                            "type": "boolean",
+                            "description": "Must be true after the user explicitly asks to enable this permission.",
+                        },
+                    },
+                    "required": ["scope", "purpose", "user_intent"],
+                    "additionalProperties": False,
+                },
+                read_only=False,
+                risk_level="high",
+            )
+        )
+        tools.append(
+            AgentToolSpec(
+                name="agentlayer_autonomous_revoke",
+                description=(
+                    "Disable high-trust autonomous execution for a scope. "
+                    "Currently supports only scope=base_swaps."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "scope": {
+                            "type": "string",
+                            "enum": ["base_swaps"],
+                            "description": "Only base_swaps is currently supported.",
+                        }
+                    },
+                    "required": ["scope"],
+                    "additionalProperties": False,
+                },
+                read_only=False,
+                risk_level="low",
+            )
+        )
 
         tools.extend(self._x402_tool_specs())
         return tools
@@ -3171,6 +3243,42 @@ class OpenClawWalletAdapter:
                 from agent_wallet import autonomous_session
 
                 return AgentToolResult(tool=tool_name, ok=True, data=autonomous_session.stop_session())
+
+            if tool_name == "agentlayer_autonomous_status":
+                from agent_wallet import autonomous_permissions
+
+                return AgentToolResult(tool=tool_name, ok=True, data=autonomous_permissions.status())
+
+            if tool_name == "agentlayer_autonomous_approve":
+                from agent_wallet import autonomous_permissions
+
+                scope = str(args.get("scope") or "").strip()
+                purpose = args.get("purpose")
+                if scope != autonomous_permissions.BASE_SWAP_SCOPE:
+                    raise WalletBackendError("Only scope=base_swaps is currently supported.")
+                if not isinstance(purpose, str) or not purpose.strip():
+                    raise WalletBackendError("purpose is required.")
+                if args.get("user_intent") is not True:
+                    raise WalletBackendError(
+                        "agentlayer_autonomous_approve requires user_intent=true after the user explicitly asks for this permission."
+                    )
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=autonomous_permissions.approve_base_swaps(approved_by="agentlayer_autonomous_approve"),
+                )
+
+            if tool_name == "agentlayer_autonomous_revoke":
+                from agent_wallet import autonomous_permissions
+
+                scope = str(args.get("scope") or "").strip()
+                if scope != autonomous_permissions.BASE_SWAP_SCOPE:
+                    raise WalletBackendError("Only scope=base_swaps is currently supported.")
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=autonomous_permissions.revoke_base_swaps(),
+                )
 
             if tool_name == "start_autonomous_session":
                 from agent_wallet import autonomous_session
