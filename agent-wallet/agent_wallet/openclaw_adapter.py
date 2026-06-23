@@ -346,6 +346,46 @@ class OpenClawWalletAdapter:
             approval_ttl_seconds=_int(args.get("approval_ttl_seconds"), "approval_ttl_seconds") or 120,
         )
 
+    async def _authorize_base_swap_permission(
+        self,
+        *,
+        active_backend: AgentWalletBackend,
+        tool_name: str,
+        action_label: str,
+        preview_kwargs: dict[str, Any],
+        preview_method: Any,
+    ) -> tuple[str, dict[str, Any]]:
+        """Authorize one Base swap through the high-trust permission toggle."""
+        from agent_wallet import autonomous_permissions
+
+        network = str(getattr(active_backend, "network", "unknown")).strip().lower()
+        if network != autonomous_permissions.BASE_SWAP_NETWORK:
+            raise WalletBackendError(
+                "Autonomous Base swap permission only applies on network=base. "
+                "Use set_evm_network or the network parameter to select Base."
+            )
+        if not autonomous_permissions.is_base_swap_approved():
+            raise WalletBackendError(
+                "Autonomous Base swap permission is not enabled. Ask the user to run "
+                "agentlayer_autonomous_approve with scope=base_swaps first."
+            )
+
+        preview = await preview_method(**preview_kwargs)
+        annotated_preview = self._annotate_sensitive_payload(
+            preview,
+            action_label=action_label,
+            mode="preview",
+        )
+        summary = dict(annotated_preview.get("confirmation_summary") or {})
+        if not summary:
+            raise WalletBackendError("Autonomous Base swap preview did not produce a confirmation_summary.")
+        token = autonomous_permissions.authorize_base_swap(
+            tool_name=tool_name,
+            network=network,
+            summary=summary,
+        )
+        return token, summary
+
     def _require_execute_approval(
         self,
         *,
@@ -1829,6 +1869,7 @@ class OpenClawWalletAdapter:
                     ),
                 )
 
+            tools.extend(self._autonomous_permission_tool_specs())
             return tools
 
         if capabilities.chain == "bitcoin":
@@ -3228,6 +3269,77 @@ class OpenClawWalletAdapter:
         """Return the instruction block to inject into the agent runtime."""
         return WALLET_RUNTIME_INSTRUCTIONS
 
+    @staticmethod
+    def _autonomous_permission_tool_specs() -> list[AgentToolSpec]:
+        return [
+            AgentToolSpec(
+                name="agentlayer_autonomous_status",
+                description=(
+                    "Return AgentLayer high-trust autonomous permission status. "
+                    "Currently supports only scope=base_swaps."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+            AgentToolSpec(
+                name="agentlayer_autonomous_approve",
+                description=(
+                    "Enable high-trust autonomous execution for a narrow scope. "
+                    "Currently scope=base_swaps lets Base Velora/Uniswap swap execute calls run "
+                    "without per-transaction human approval until revoked. This does not cover "
+                    "transfers, withdrawals, lending, staking, bridges, Solana swaps, or non-Base networks."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "scope": {
+                            "type": "string",
+                            "enum": ["base_swaps"],
+                            "description": "Only base_swaps is currently supported.",
+                        },
+                        "purpose": {
+                            "type": "string",
+                            "description": "Short explanation of why the standing permission is being enabled.",
+                        },
+                        "user_intent": {
+                            "type": "boolean",
+                            "description": "Must be true after the user explicitly asks to enable this permission.",
+                        },
+                    },
+                    "required": ["scope", "purpose", "user_intent"],
+                    "additionalProperties": False,
+                },
+                read_only=False,
+                risk_level="high",
+            ),
+            AgentToolSpec(
+                name="agentlayer_autonomous_revoke",
+                description=(
+                    "Disable high-trust autonomous execution for a scope. "
+                    "Currently supports only scope=base_swaps."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "scope": {
+                            "type": "string",
+                            "enum": ["base_swaps"],
+                            "description": "Only base_swaps is currently supported.",
+                        }
+                    },
+                    "required": ["scope"],
+                    "additionalProperties": False,
+                },
+                read_only=False,
+                risk_level="low",
+            ),
+        ]
+
     async def invoke(self, tool_name: str, arguments: dict[str, Any] | None = None) -> AgentToolResult:
         """Dispatch an agent-facing tool call to the wallet backend."""
         args = arguments or {}
@@ -4028,16 +4140,26 @@ class OpenClawWalletAdapter:
                         ),
                     )
 
-                approval_payload = inspect_approval_token(
-                    approval_token,
-                    tool_name=tool_name,
-                    network=str(getattr(active_backend, "network", "unknown")),
-                    require_mainnet_confirmation=self._is_mainnet_for_backend(active_backend),
-                )
-                approval_summary = approval_payload.get("binding", {}).get("summary")
-                if not isinstance(approval_summary, dict):
-                    raise WalletBackendError(
-                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                if isinstance(approval_token, str) and approval_token.strip():
+                    approval_payload = inspect_approval_token(
+                        approval_token,
+                        tool_name=tool_name,
+                        network=str(getattr(active_backend, "network", "unknown")),
+                        require_mainnet_confirmation=self._is_mainnet_for_backend(active_backend),
+                    )
+                    approval_summary = approval_payload.get("binding", {}).get("summary")
+                    if not isinstance(approval_summary, dict):
+                        raise WalletBackendError(
+                            "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                        )
+                    approval_summary_copy = dict(approval_summary)
+                else:
+                    approval_token, approval_summary_copy = await self._authorize_base_swap_permission(
+                        active_backend=active_backend,
+                        tool_name=tool_name,
+                        action_label="EVM swap",
+                        preview_kwargs=preview_kwargs,
+                        preview_method=active_backend.preview_evm_swap,
                     )
                 expected_summary = {
                     "operation": "EVM swap",
@@ -4047,12 +4169,11 @@ class OpenClawWalletAdapter:
                     "input_amount_raw": amount_in_raw.strip(),
                 }
                 for key, expected_value in expected_summary.items():
-                    if approval_summary.get(key) != expected_value:
+                    if approval_summary_copy.get(key) != expected_value:
                         raise WalletBackendError(
                             "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
                         )
 
-                approval_summary_copy = dict(approval_summary)
                 self._require_execute_approval(
                     approval_token=approval_token,
                     tool_name=tool_name,
@@ -4334,16 +4455,26 @@ class OpenClawWalletAdapter:
                         ),
                     )
 
-                approval_payload = inspect_approval_token(
-                    approval_token,
-                    tool_name=tool_name,
-                    network=str(getattr(active_backend, "network", "unknown")),
-                    require_mainnet_confirmation=self._is_mainnet_for_backend(active_backend),
-                )
-                approval_summary = approval_payload.get("binding", {}).get("summary")
-                if not isinstance(approval_summary, dict):
-                    raise WalletBackendError(
-                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                if isinstance(approval_token, str) and approval_token.strip():
+                    approval_payload = inspect_approval_token(
+                        approval_token,
+                        tool_name=tool_name,
+                        network=str(getattr(active_backend, "network", "unknown")),
+                        require_mainnet_confirmation=self._is_mainnet_for_backend(active_backend),
+                    )
+                    approval_summary = approval_payload.get("binding", {}).get("summary")
+                    if not isinstance(approval_summary, dict):
+                        raise WalletBackendError(
+                            "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                        )
+                    approval_summary_copy = dict(approval_summary)
+                else:
+                    approval_token, approval_summary_copy = await self._authorize_base_swap_permission(
+                        active_backend=active_backend,
+                        tool_name=tool_name,
+                        action_label="Uniswap swap",
+                        preview_kwargs=preview_kwargs,
+                        preview_method=active_backend.preview_uniswap_swap,
                     )
                 expected_summary = {
                     "operation": "Uniswap swap",
@@ -4353,12 +4484,11 @@ class OpenClawWalletAdapter:
                     "input_amount_raw": amount_in_raw.strip(),
                 }
                 for key, expected_value in expected_summary.items():
-                    if approval_summary.get(key) != expected_value:
+                    if approval_summary_copy.get(key) != expected_value:
                         raise WalletBackendError(
                             "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
                         )
 
-                approval_summary_copy = dict(approval_summary)
                 self._require_execute_approval(
                     approval_token=approval_token,
                     tool_name=tool_name,
