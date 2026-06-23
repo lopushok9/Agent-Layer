@@ -59,6 +59,7 @@ PREVIEW_BOUND_SWAP_TOOLS = {
     "flash_trade_open_position",
     "flash_trade_close_position",
 }
+AUTONOMOUS_BASE_SWAP_TOOLS = {"swap_evm_tokens", "swap_evm_uniswap_tokens"}
 APPROVAL_PREVIEW_TOOL_ALIASES = {
     "x402_pay_request": "x402_preview_request",
 }
@@ -642,6 +643,21 @@ def _requires_approved_preview_payload(tool_name: str, params: dict[str, Any]) -
     return tool_name in PREVIEW_BOUND_SWAP_TOOLS
 
 
+def _should_let_backend_authorize_autonomous_base_swap(
+    tool_name: str,
+    params: dict[str, Any],
+    config: dict[str, Any],
+) -> bool:
+    if tool_name not in AUTONOMOUS_BASE_SWAP_TOOLS:
+        return False
+    if str(params.get("mode") or "") != "execute":
+        return False
+    if str(params.get("approval_token") or "").strip():
+        return False
+    network = str(params.get("network") or config.get("network") or selected_evm_network or "").strip().lower()
+    return network == "base"
+
+
 def _looks_like_approval_context_error(message: str) -> bool:
     text = str(message or "").lower()
     return any(
@@ -676,6 +692,8 @@ def _attach_approval_for_execute(
 ) -> dict[str, Any] | None:
     mode = str(effective_params.get("mode") or "")
     if mode not in {"execute", "intent_execute"}:
+        return None
+    if _should_let_backend_authorize_autonomous_base_swap(tool_name, effective_params, config):
         return None
     if tool_name == "swap_solana_tokens" and mode == "execute":
         raise RuntimeError(
