@@ -603,6 +603,116 @@ class AgentWalletBackend(ABC):
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Kamino withdraw previews.")
 
+    def _build_kamino_lend_intent_preview(
+        self,
+        base_preview: dict[str, Any],
+        *,
+        valid_for_seconds: int,
+    ) -> dict[str, Any]:
+        """Wrap a base Kamino lend preview into an intent approval preview.
+
+        The intent binds approval to stable semantic parameters (owner, market,
+        reserve, amount, obligation) instead of an ephemeral preview digest, so
+        execute can re-derive the transaction server-side without the host having
+        to round-trip the full preview payload back as _approved_preview.
+        """
+        if valid_for_seconds <= 0 or valid_for_seconds > 300:
+            raise WalletBackendError("valid_for_seconds must be between 1 and 300.")
+        try:
+            can_send = bool(self.get_capabilities().can_send_transaction)
+        except Exception:
+            can_send = bool(base_preview.get("can_send"))
+        return {
+            "chain": "solana",
+            "network": getattr(self, "network", "mainnet"),
+            "mode": "intent_preview",
+            "asset_type": "kamino-lend-intent",
+            "kamino_operation": base_preview["asset_type"],
+            "owner": base_preview["owner"],
+            "market": base_preview["market"],
+            "reserve": base_preview["reserve"],
+            "amount_ui": base_preview["amount_ui"],
+            "obligation_address": base_preview.get("obligation_address"),
+            "obligation_options": base_preview.get("obligation_options", []),
+            "requires_obligation_address": bool(base_preview.get("requires_obligation_address")),
+            "reserve_info": base_preview.get("reserve_info"),
+            "recipient_policy": "owner-only",
+            "spend_policy": "exact-amount",
+            "valid_for_seconds": valid_for_seconds,
+            "valid_until_epoch_seconds": int(time.time()) + valid_for_seconds,
+            "intent_note": (
+                "This is an intent approval preview. Execute re-derives the Kamino "
+                "transaction and only signs/sends if it remains within these approved parameters."
+            ),
+            "can_send": can_send,
+            "sign_only": bool(getattr(self, "sign_only", False)),
+            "source": "kamino-intent",
+        }
+
+    async def preview_kamino_lend_deposit_intent(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+        obligation_address: str | None = None,
+        valid_for_seconds: int = 120,
+    ) -> dict[str, Any]:
+        base = await self.preview_kamino_lend_deposit(
+            market=market,
+            reserve=reserve,
+            amount_ui=amount_ui,
+            obligation_address=obligation_address,
+        )
+        return self._build_kamino_lend_intent_preview(base, valid_for_seconds=valid_for_seconds)
+
+    async def preview_kamino_lend_withdraw_intent(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+        obligation_address: str | None = None,
+        valid_for_seconds: int = 120,
+    ) -> dict[str, Any]:
+        base = await self.preview_kamino_lend_withdraw(
+            market=market,
+            reserve=reserve,
+            amount_ui=amount_ui,
+            obligation_address=obligation_address,
+        )
+        return self._build_kamino_lend_intent_preview(base, valid_for_seconds=valid_for_seconds)
+
+    async def preview_kamino_lend_borrow_intent(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+        obligation_address: str | None = None,
+        valid_for_seconds: int = 120,
+    ) -> dict[str, Any]:
+        base = await self.preview_kamino_lend_borrow(
+            market=market,
+            reserve=reserve,
+            amount_ui=amount_ui,
+            obligation_address=obligation_address,
+        )
+        return self._build_kamino_lend_intent_preview(base, valid_for_seconds=valid_for_seconds)
+
+    async def preview_kamino_lend_repay_intent(
+        self,
+        market: str,
+        reserve: str,
+        amount_ui: str,
+        obligation_address: str | None = None,
+        valid_for_seconds: int = 120,
+    ) -> dict[str, Any]:
+        base = await self.preview_kamino_lend_repay(
+            market=market,
+            reserve=reserve,
+            amount_ui=amount_ui,
+            obligation_address=obligation_address,
+        )
+        return self._build_kamino_lend_intent_preview(base, valid_for_seconds=valid_for_seconds)
+
     async def prepare_kamino_lend_withdraw(
         self,
         market: str,

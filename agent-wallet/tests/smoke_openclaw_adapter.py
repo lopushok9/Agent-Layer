@@ -2267,6 +2267,63 @@ async def main() -> None:
     )
     assert kamino_execute.ok and kamino_execute.data["confirmed"] is True
 
+    # Intent-style Kamino flow (mirrors swap intent): binds approval to stable
+    # parameters and re-derives the transaction at execute, so it does NOT depend
+    # on the host echoing _approved_preview back like the legacy execute path.
+    kamino_intent_preview = await adapter.invoke(
+        "kamino_lend_deposit",
+        {
+            "market": "FakeKaminoMarket111111111111111111111111111111",
+            "reserve": "FakeKaminoReserve1111111111111111111111111111",
+            "amount_ui": "1.25",
+            "mode": "intent_preview",
+            "purpose": "test kamino deposit intent preview",
+            "valid_for_seconds": 90,
+        },
+    )
+    assert kamino_intent_preview.ok
+    assert kamino_intent_preview.data["asset_type"] == "kamino-lend-intent"
+    assert kamino_intent_preview.data["kamino_operation"] == "kamino-lend-deposit"
+    assert kamino_intent_preview.data["confirmation_summary"]["operation"] == "Kamino deposit intent"
+    assert "_preview_digest" not in kamino_intent_preview.data["confirmation_summary"]
+    assert kamino_intent_preview.data["confirmation_summary"]["spend_policy"] == "exact-amount"
+    assert kamino_intent_preview.data["valid_for_seconds"] == 90
+
+    kamino_intent_execute = await adapter.invoke(
+        "kamino_lend_deposit",
+        {
+            "market": "FakeKaminoMarket111111111111111111111111111111",
+            "reserve": "FakeKaminoReserve1111111111111111111111111111",
+            "amount_ui": "1.25",
+            "mode": "intent_execute",
+            "purpose": "test kamino deposit intent execute",
+            "approval_token": _issue_execute_approval(
+                tool_name="kamino_lend_deposit",
+                preview=kamino_intent_preview.data,
+                network="mainnet",
+            ),
+        },
+    )
+    assert kamino_intent_execute.ok and kamino_intent_execute.data["confirmed"] is True
+
+    # A mismatched amount must invalidate the intent approval token.
+    kamino_intent_mismatch = await adapter.invoke(
+        "kamino_lend_deposit",
+        {
+            "market": "FakeKaminoMarket111111111111111111111111111111",
+            "reserve": "FakeKaminoReserve1111111111111111111111111111",
+            "amount_ui": "9.99",
+            "mode": "intent_execute",
+            "purpose": "test kamino deposit intent mismatch",
+            "approval_token": _issue_execute_approval(
+                tool_name="kamino_lend_deposit",
+                preview=kamino_intent_preview.data,
+                network="mainnet",
+            ),
+        },
+    )
+    assert kamino_intent_mismatch.ok is False
+
     multi_kamino_adapter = OpenClawWalletAdapter(MultiObligationKaminoBackend())
     multi_kamino_preview = await multi_kamino_adapter.invoke(
         "kamino_lend_withdraw",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from typing import Any
 
 from agent_wallet.approval import inspect_approval_token, verify_approval_token
@@ -370,6 +371,24 @@ class OpenClawWalletAdapter:
                 "recipient_policy": payload.get("recipient_policy"),
                 "spend_policy": payload.get("spend_policy"),
             }
+
+        if asset_type == "kamino-lend-intent":
+            summary = {
+                "operation": action_label,
+                "network": str(payload.get("network") or getattr(self.backend, "network", "unknown")),
+                "owner": payload.get("owner"),
+                "kamino_operation": payload.get("kamino_operation"),
+                "market": payload.get("market"),
+                "reserve": payload.get("reserve"),
+                "amount_ui": payload.get("amount_ui"),
+                "recipient_policy": payload.get("recipient_policy"),
+                "spend_policy": payload.get("spend_policy"),
+                "valid_until_epoch_seconds": payload.get("valid_until_epoch_seconds"),
+            }
+            obligation_address = payload.get("obligation_address")
+            if obligation_address is not None:
+                summary["obligation_address"] = obligation_address
+            return summary
 
         if asset_type == "solana-lifi-cross-chain-swap":
             return {
@@ -3000,12 +3019,16 @@ class OpenClawWalletAdapter:
                             },
                             "mode": {
                                 "type": "string",
-                                "enum": ["preview", "prepare", "execute"],
-                                "description": "preview returns a summary, prepare returns an execution plan without signed transaction bytes, execute attempts to submit the Kamino deposit transaction.",
+                                "enum": ["preview", "prepare", "execute", "intent_preview", "intent_execute"],
+                                "description": "Prefer intent_preview then intent_execute after explicit chat confirmation: intent_execute re-derives the Kamino transaction and executes within the approved parameters without round-tripping the preview payload. Legacy preview/prepare/execute remains supported.",
+                            },
+                            "valid_for_seconds": {
+                                "type": "integer",
+                                "description": "Optional intent validity window in seconds for intent_preview (1-300, default 120).",
                             },
                             "purpose": {"type": "string", "description": "Short explanation of why the deposit is being made."},
                             "user_intent": {"type": "boolean", "description": "Must be true for prepare mode."},
-                            "approval_token": {"type": "string", "description": "Host-issued approval token required for execute mode."},
+                            "approval_token": {"type": "string", "description": "Host-issued approval token required for execute/intent_execute mode."},
                         },
                         "required": ["market", "reserve", "amount_ui", "mode", "purpose"],
                         "additionalProperties": False,
@@ -3038,12 +3061,16 @@ class OpenClawWalletAdapter:
                             },
                             "mode": {
                                 "type": "string",
-                                "enum": ["preview", "prepare", "execute"],
-                                "description": "preview returns a summary, prepare returns an execution plan without signed transaction bytes, execute attempts to submit the Kamino withdraw transaction.",
+                                "enum": ["preview", "prepare", "execute", "intent_preview", "intent_execute"],
+                                "description": "Prefer intent_preview then intent_execute after explicit chat confirmation: intent_execute re-derives the Kamino transaction and executes within the approved parameters without round-tripping the preview payload. Legacy preview/prepare/execute remains supported.",
+                            },
+                            "valid_for_seconds": {
+                                "type": "integer",
+                                "description": "Optional intent validity window in seconds for intent_preview (1-300, default 120).",
                             },
                             "purpose": {"type": "string", "description": "Short explanation of why the withdraw is being made."},
                             "user_intent": {"type": "boolean", "description": "Must be true for prepare mode."},
-                            "approval_token": {"type": "string", "description": "Host-issued approval token required for execute mode."},
+                            "approval_token": {"type": "string", "description": "Host-issued approval token required for execute/intent_execute mode."},
                         },
                         "required": ["market", "reserve", "amount_ui", "mode", "purpose"],
                         "additionalProperties": False,
@@ -3076,12 +3103,16 @@ class OpenClawWalletAdapter:
                             },
                             "mode": {
                                 "type": "string",
-                                "enum": ["preview", "prepare", "execute"],
-                                "description": "preview returns a summary, prepare returns an execution plan without signed transaction bytes, execute attempts to submit the Kamino borrow transaction.",
+                                "enum": ["preview", "prepare", "execute", "intent_preview", "intent_execute"],
+                                "description": "Prefer intent_preview then intent_execute after explicit chat confirmation: intent_execute re-derives the Kamino transaction and executes within the approved parameters without round-tripping the preview payload. Legacy preview/prepare/execute remains supported.",
+                            },
+                            "valid_for_seconds": {
+                                "type": "integer",
+                                "description": "Optional intent validity window in seconds for intent_preview (1-300, default 120).",
                             },
                             "purpose": {"type": "string", "description": "Short explanation of why the borrow is being made."},
                             "user_intent": {"type": "boolean", "description": "Must be true for prepare mode."},
-                            "approval_token": {"type": "string", "description": "Host-issued approval token required for execute mode."},
+                            "approval_token": {"type": "string", "description": "Host-issued approval token required for execute/intent_execute mode."},
                         },
                         "required": ["market", "reserve", "amount_ui", "mode", "purpose"],
                         "additionalProperties": False,
@@ -3114,12 +3145,16 @@ class OpenClawWalletAdapter:
                             },
                             "mode": {
                                 "type": "string",
-                                "enum": ["preview", "prepare", "execute"],
-                                "description": "preview returns a summary, prepare returns an execution plan without signed transaction bytes, execute attempts to submit the Kamino repay transaction.",
+                                "enum": ["preview", "prepare", "execute", "intent_preview", "intent_execute"],
+                                "description": "Prefer intent_preview then intent_execute after explicit chat confirmation: intent_execute re-derives the Kamino transaction and executes within the approved parameters without round-tripping the preview payload. Legacy preview/prepare/execute remains supported.",
+                            },
+                            "valid_for_seconds": {
+                                "type": "integer",
+                                "description": "Optional intent validity window in seconds for intent_preview (1-300, default 120).",
                             },
                             "purpose": {"type": "string", "description": "Short explanation of why the repay is being made."},
                             "user_intent": {"type": "boolean", "description": "Must be true for prepare mode."},
-                            "approval_token": {"type": "string", "description": "Host-issued approval token required for execute mode."},
+                            "approval_token": {"type": "string", "description": "Host-issued approval token required for execute/intent_execute mode."},
                         },
                         "required": ["market", "reserve", "amount_ui", "mode", "purpose"],
                         "additionalProperties": False,
@@ -5480,6 +5515,7 @@ class OpenClawWalletAdapter:
                 purpose = args.get("purpose")
                 user_intent = args.get("user_intent", False)
                 approval_token = args.get("approval_token")
+                valid_for_seconds = args.get("valid_for_seconds", 120)
 
                 if not isinstance(market, str) or not market.strip():
                     raise WalletBackendError("market is required.")
@@ -5489,10 +5525,18 @@ class OpenClawWalletAdapter:
                     raise WalletBackendError("amount_ui is required.")
                 if obligation_address is not None and not isinstance(obligation_address, str):
                     raise WalletBackendError("obligation_address must be a string when provided.")
-                if mode not in {"preview", "prepare", "execute"}:
-                    raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
+                if mode not in {"preview", "prepare", "execute", "intent_preview", "intent_execute"}:
+                    raise WalletBackendError(
+                        "mode must be 'preview', 'prepare', 'execute', 'intent_preview' or 'intent_execute'."
+                    )
                 if not isinstance(purpose, str) or not purpose.strip():
                     raise WalletBackendError("purpose is required.")
+                if mode == "intent_preview" and (
+                    not isinstance(valid_for_seconds, int)
+                    or valid_for_seconds <= 0
+                    or valid_for_seconds > 300
+                ):
+                    raise WalletBackendError("valid_for_seconds must be an integer between 1 and 300.")
 
                 action_label_map = {
                     "kamino_lend_deposit": "Kamino deposit",
@@ -5500,11 +5544,23 @@ class OpenClawWalletAdapter:
                     "kamino_lend_borrow": "Kamino borrow",
                     "kamino_lend_repay": "Kamino repay",
                 }
+                intent_action_label_map = {
+                    "kamino_lend_deposit": "Kamino deposit intent",
+                    "kamino_lend_withdraw": "Kamino withdraw intent",
+                    "kamino_lend_borrow": "Kamino borrow intent",
+                    "kamino_lend_repay": "Kamino repay intent",
+                }
                 preview_method_map = {
                     "kamino_lend_deposit": self.backend.preview_kamino_lend_deposit,
                     "kamino_lend_withdraw": self.backend.preview_kamino_lend_withdraw,
                     "kamino_lend_borrow": self.backend.preview_kamino_lend_borrow,
                     "kamino_lend_repay": self.backend.preview_kamino_lend_repay,
+                }
+                intent_preview_method_map = {
+                    "kamino_lend_deposit": self.backend.preview_kamino_lend_deposit_intent,
+                    "kamino_lend_withdraw": self.backend.preview_kamino_lend_withdraw_intent,
+                    "kamino_lend_borrow": self.backend.preview_kamino_lend_borrow_intent,
+                    "kamino_lend_repay": self.backend.preview_kamino_lend_repay_intent,
                 }
                 execute_method_map = {
                     "kamino_lend_deposit": self.backend.execute_kamino_lend_deposit,
@@ -5513,8 +5569,113 @@ class OpenClawWalletAdapter:
                     "kamino_lend_repay": self.backend.execute_kamino_lend_repay,
                 }
                 action_label = action_label_map[tool_name]
+                intent_action_label = intent_action_label_map[tool_name]
                 preview_method = preview_method_map[tool_name]
+                intent_preview_method = intent_preview_method_map[tool_name]
                 execute_method = execute_method_map[tool_name]
+                normalized_obligation_address = (
+                    obligation_address.strip()
+                    if isinstance(obligation_address, str) and obligation_address.strip()
+                    else None
+                )
+
+                if mode == "intent_preview":
+                    intent_preview = await intent_preview_method(
+                        market=market.strip(),
+                        reserve=reserve.strip(),
+                        amount_ui=amount_ui.strip(),
+                        obligation_address=normalized_obligation_address,
+                        valid_for_seconds=valid_for_seconds,
+                    )
+                    if bool(intent_preview.get("requires_obligation_address")):
+                        raise WalletBackendError(
+                            f"{action_label} requires obligation_address when multiple Kamino obligations match the selected position."
+                        )
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            intent_preview,
+                            action_label=intent_action_label,
+                            mode="preview",
+                        ),
+                    )
+
+                if mode == "intent_execute":
+                    approval_payload = inspect_approval_token(
+                        approval_token,
+                        tool_name=tool_name,
+                        network=str(getattr(self.backend, "network", "unknown")),
+                        require_mainnet_confirmation=self._is_mainnet_for_backend(self.backend),
+                    )
+                    approval_summary = approval_payload.get("binding", {}).get("summary")
+                    if not isinstance(approval_summary, dict):
+                        raise WalletBackendError(
+                            "approval_token does not match the requested operation. Generate a new intent preview and approval before execute."
+                        )
+                    expected_summary = {
+                        "operation": intent_action_label,
+                        "network": str(getattr(self.backend, "network", "unknown")),
+                        "market": market.strip(),
+                        "reserve": reserve.strip(),
+                        "amount_ui": amount_ui.strip(),
+                    }
+                    for key, expected_value in expected_summary.items():
+                        if approval_summary.get(key) != expected_value:
+                            raise WalletBackendError(
+                                f"approval_token does not match the requested {action_label} intent. Generate a fresh intent preview and approval before execute."
+                            )
+                    if approval_summary.get("recipient_policy") != "owner-only":
+                        raise WalletBackendError("approved Kamino intent recipient policy is invalid.")
+                    if approval_summary.get("spend_policy") != "exact-amount":
+                        raise WalletBackendError("approved Kamino intent spend policy is invalid.")
+                    current_owner = await self.backend.get_address()
+                    approved_owner = approval_summary.get("owner")
+                    if approved_owner and current_owner and str(approved_owner) != str(current_owner):
+                        raise WalletBackendError(
+                            "approval_token does not match the active wallet owner. Generate a fresh intent preview and approval before execute."
+                        )
+                    approved_obligation = approval_summary.get("obligation_address")
+                    if (
+                        normalized_obligation_address is not None
+                        and approved_obligation is not None
+                        and str(approved_obligation) != normalized_obligation_address
+                    ):
+                        raise WalletBackendError(
+                            "approval_token does not match the requested obligation. Generate a fresh intent preview and approval before execute."
+                        )
+                    valid_until = approval_summary.get("valid_until_epoch_seconds")
+                    if valid_until is not None and int(time.time()) > int(valid_until):
+                        raise WalletBackendError(
+                            "Approved Kamino intent has expired. Create a fresh intent preview."
+                        )
+                    approval_summary_copy = dict(approval_summary)
+                    self._require_execute_approval(
+                        approval_token=approval_token,
+                        tool_name=tool_name,
+                        summary=approval_summary_copy,
+                        action_label=intent_action_label,
+                    )
+                    result = await execute_method(
+                        market=market.strip(),
+                        reserve=reserve.strip(),
+                        amount_ui=amount_ui.strip(),
+                        obligation_address=(
+                            str(approved_obligation).strip()
+                            if approved_obligation
+                            else normalized_obligation_address
+                        ),
+                        approved_preview=None,
+                    )
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            result,
+                            action_label=action_label,
+                            mode="execute",
+                        ),
+                    )
 
                 if mode == "preview":
                     preview = await preview_method(
