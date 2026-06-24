@@ -550,3 +550,7 @@ If you are an individual developer, researcher, student, security reviewer, or h
 - open issues and send pull requests
 
 If you are using the project for a company, the license allows use for small businesses covered by the PolyForm thresholds. If you need rights beyond that, reach out for a separate commercial license.
+
+## Download History
+
+[![Download History](https://skill-history.com/chart/lopushok9/market-pulse.svg)](https://skill-history.com/lopushok9/market-pulse)
