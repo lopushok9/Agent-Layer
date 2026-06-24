@@ -1,5 +1,5 @@
 name: agent-wallet
-version: 0.1.48
+version: 0.1.49
 description: Thin Hermes Agent bridge to the existing AgentLayer/OpenClaw wallet backend
 provides_tools:
   - agent_wallet_tools
