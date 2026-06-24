@@ -7,7 +7,17 @@ import threading
 import time
 from contextlib import AbstractContextManager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
+
+
+def _default_service_version() -> str:
+    package_path = Path(__file__).resolve().parents[2] / "wdk-evm-wallet" / "package.json"
+    try:
+        package = json.loads(package_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "test-version"
+    return str(package.get("version") or "test-version").strip()
 
 
 class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
@@ -22,13 +32,13 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
         error_responses: dict[str, dict[str, Any]] | None = None,
         response_delays: dict[str, float] | None = None,
         start_empty: bool = False,
-        version: str = "test-version",
+        version: str | None = None,
     ):
         self.network = network
         self.host = host
         self.port = int(port)
         self.auth_token = str(auth_token).strip()
-        self.version = str(version).strip()
+        self.version = str(version or _default_service_version()).strip()
         self.error_responses = dict(error_responses or {})
         self.response_delays = {
             str(key): float(value) for key, value in (response_delays or {}).items()

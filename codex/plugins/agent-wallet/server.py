@@ -693,8 +693,6 @@ def _attach_approval_for_execute(
     mode = str(effective_params.get("mode") or "")
     if mode not in {"execute", "intent_execute"}:
         return None
-    if _should_let_backend_authorize_autonomous_base_swap(tool_name, effective_params, config):
-        return None
     if tool_name == "swap_solana_tokens" and mode == "execute":
         raise RuntimeError(
             "Legacy exact-preview execute is disabled for Solana Jupiter swaps in Codex. "
@@ -713,6 +711,8 @@ def _attach_approval_for_execute(
         if cached_preview is not None and "_approved_preview" not in effective_params:
             effective_params["_approved_preview"] = cached_preview
     if effective_params.get("approval_token"):
+        return None
+    if _should_let_backend_authorize_autonomous_base_swap(tool_name, effective_params, config):
         return None
     raise RuntimeError(APPROVAL_CONTEXT_MISSING_MESSAGE)
 

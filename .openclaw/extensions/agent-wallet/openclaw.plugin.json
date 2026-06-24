@@ -5,6 +5,9 @@
   "version": "0.1.48",
   "contracts": {
     "tools": [
+      "agentlayer_autonomous_approve",
+      "agentlayer_autonomous_revoke",
+      "agentlayer_autonomous_status",
       "close_empty_token_accounts",
       "flash_trade_close_position",
       "flash_trade_open_position",

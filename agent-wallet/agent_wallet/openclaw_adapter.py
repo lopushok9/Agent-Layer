@@ -1952,7 +1952,8 @@ class OpenClawWalletAdapter:
                         name="swap_evm_tokens",
                         description=(
                             "Preview, prepare, or execute an ERC-20 or native ETH swap through Velora on supported EVM mainnet networks. "
-                            "Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation."
+                            "Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation "
+                            "unless high-trust autonomous Base swaps are enabled with scope=base_swaps."
                         ),
                         input_schema={
                             "type": "object",
@@ -2107,7 +2108,8 @@ class OpenClawWalletAdapter:
                         description=(
                             "Preview, prepare, or execute an ERC-20 or native ETH swap through the Uniswap Trading API "
                             "(CLASSIC routing) on ethereum or base. ERC-20 inputs use Permit2 EIP-712 signing automatically. "
-                            "Prepare returns an execution plan only. Execute requires a host-issued approval token bound to the previewed operation."
+                            "Prepare returns an execution plan only. Execute requires a host-issued approval token bound to the previewed operation "
+                            "unless high-trust autonomous Base swaps are enabled with scope=base_swaps."
                         ),
                         input_schema={
                             "type": "object",

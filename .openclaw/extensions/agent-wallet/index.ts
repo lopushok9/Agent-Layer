@@ -494,7 +494,6 @@ async function issueApprovalToken(api, config, userId, toolName, previewPayload)
 
 async function attachApprovalForExecute(api, config, userId, toolName, effectiveParams) {
   if (!["execute", "intent_execute"].includes(String(effectiveParams.mode || ""))) return null;
-  if (shouldLetBackendAuthorizeAutonomousBaseSwap(toolName, effectiveParams, config)) return null;
   if (toolName === "swap_solana_tokens" && String(effectiveParams.mode || "") === "execute") {
     throw new Error(
       "Legacy exact-preview execute is disabled for Solana Jupiter swaps in OpenClaw. Use intent_preview, ask for explicit chat confirmation, then call intent_execute. The intent path binds approval to risk limits instead of a fragile Jupiter quote payload."
@@ -529,6 +528,7 @@ async function attachApprovalForExecute(api, config, userId, toolName, effective
   }
 
   if (effectiveParams.approval_token) return null;
+  if (shouldLetBackendAuthorizeAutonomousBaseSwap(toolName, effectiveParams, config)) return null;
 
   throw new Error(APPROVAL_CONTEXT_MISSING_MESSAGE);
 }
