@@ -220,6 +220,35 @@ async def _run_issue_approval(
     }
 
 
+def _run_autonomous_permission(action: str, scope: str) -> dict[str, Any]:
+    from agent_wallet import autonomous_permissions
+
+    normalized_scope = str(scope or "").strip()
+    if normalized_scope != autonomous_permissions.BASE_SWAP_SCOPE:
+        raise WalletBackendError("Only scope=base_swaps is currently supported.")
+
+    normalized_action = str(action or "").strip().lower()
+    if normalized_action == "approve":
+        return {
+            "ok": True,
+            "action": normalized_action,
+            "data": autonomous_permissions.approve_base_swaps(approved_by="openclaw_cli"),
+        }
+    if normalized_action == "revoke":
+        return {
+            "ok": True,
+            "action": normalized_action,
+            "data": autonomous_permissions.revoke_base_swaps(),
+        }
+    if normalized_action == "status":
+        return {
+            "ok": True,
+            "action": normalized_action,
+            "data": autonomous_permissions.status(),
+        }
+    raise WalletBackendError("action must be approve, revoke, or status.")
+
+
 async def _run_btc_wallet_get(user_id: str, config: dict[str, Any]) -> dict[str, Any]:
     from agent_wallet.btc_user_wallets import get_user_btc_wallet_binding
 
@@ -433,6 +462,11 @@ def main() -> int:
     approval_parser.add_argument("--ttl-seconds", type=int)
     approval_parser.add_argument("--config-json", default="{}")
 
+    autonomous_permission_parser = subparsers.add_parser("autonomous-permission")
+    autonomous_permission_parser.add_argument("--action", choices=["approve", "revoke", "status"], required=True)
+    autonomous_permission_parser.add_argument("--scope", choices=["base_swaps"], required=True)
+    autonomous_permission_parser.add_argument("--config-json", default="{}")
+
     btc_get_parser = subparsers.add_parser("btc-wallet-get")
     btc_get_parser.add_argument("--user-id", required=True)
     btc_get_parser.add_argument("--config-json", default="{}")
@@ -506,6 +540,8 @@ def main() -> int:
                     ttl_seconds=args.ttl_seconds,
                 )
             )
+        elif args.command == "autonomous-permission":
+            payload = _run_autonomous_permission(args.action, args.scope)
         elif args.command == "btc-wallet-get":
             payload = asyncio.run(_run_btc_wallet_get(args.user_id, config))
         elif args.command == "btc-wallet-create":

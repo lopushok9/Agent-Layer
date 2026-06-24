@@ -18,6 +18,10 @@ const PREVIEW_BOUND_SWAP_TOOLS = new Set([
   "flash_trade_open_position",
   "flash_trade_close_position",
 ]);
+const AUTONOMOUS_BASE_SWAP_TOOLS = new Set([
+  "swap_evm_tokens",
+  "swap_evm_uniswap_tokens",
+]);
 const approvalPreviewCache = new Map();
 const WALLET_TOOL_ONLY_GUIDANCE =
   "Use this wallet tool instead of shelling out to solana CLI, spl-token CLI, curl, or exec. If it fails, surface the wallet-tool error and stop rather than falling back to terminal commands.";
@@ -125,6 +129,14 @@ function isSolanaSwapIntentExecute(params) {
 function requiresApprovedPreviewPayload(toolName, params = null) {
   if (toolName === "swap_solana_tokens" && isSolanaSwapIntentExecute(params)) return false;
   return PREVIEW_BOUND_SWAP_TOOLS.has(toolName);
+}
+
+function shouldLetBackendAuthorizeAutonomousBaseSwap(toolName, params, config) {
+  if (!AUTONOMOUS_BASE_SWAP_TOOLS.has(toolName)) return false;
+  if (String(params?.mode || "") !== "execute") return false;
+  if (typeof params?.approval_token === "string" && params.approval_token.trim()) return false;
+  const network = String(params?.network || config?.network || selectedEvmNetwork || "").trim().toLowerCase();
+  return network === "base";
 }
 
 function looksLikeApprovalContextError(message) {
@@ -482,6 +494,7 @@ async function issueApprovalToken(api, config, userId, toolName, previewPayload)
 
 async function attachApprovalForExecute(api, config, userId, toolName, effectiveParams) {
   if (!["execute", "intent_execute"].includes(String(effectiveParams.mode || ""))) return null;
+  if (shouldLetBackendAuthorizeAutonomousBaseSwap(toolName, effectiveParams, config)) return null;
   if (toolName === "swap_solana_tokens" && String(effectiveParams.mode || "") === "execute") {
     throw new Error(
       "Legacy exact-preview execute is disabled for Solana Jupiter swaps in OpenClaw. Use intent_preview, ask for explicit chat confirmation, then call intent_execute. The intent path binds approval to risk limits instead of a fragile Jupiter quote payload."
@@ -694,6 +707,38 @@ const walletSessionToolDefinitions = [
           description: "Optional wallet address override.",
         },
       },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "agentlayer_autonomous_status",
+    description: "Return AgentLayer high-trust autonomous permission status. Currently supports only scope=base_swaps.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "agentlayer_autonomous_approve",
+    description:
+      "Enable high-trust autonomous Base swaps. scope=base_swaps lets Base Velora/Uniswap swap execute calls run without per-transaction human approval until revoked. This does not cover transfers, withdrawals, lending, staking, bridges, Solana swaps, or non-Base networks.",
+    parameters: {
+      type: "object",
+      properties: {
+        scope: { type: "string", enum: ["base_swaps"] },
+        purpose: { type: "string" },
+        user_intent: { type: "boolean" },
+      },
+      required: ["scope", "purpose", "user_intent"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "agentlayer_autonomous_revoke",
+    description: "Disable high-trust autonomous execution for a scope. Currently supports only scope=base_swaps.",
+    parameters: {
+      type: "object",
+      properties: {
+        scope: { type: "string", enum: ["base_swaps"] },
+      },
+      required: ["scope"],
       additionalProperties: false,
     },
   },

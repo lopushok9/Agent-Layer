@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from agent_wallet.wallet_layer.base import WalletBackendError
@@ -38,9 +39,20 @@ class SpendingConfig:
 class SpendingLedger:
     """Records executed spends and rejects operations that exceed limits."""
 
-    def __init__(self, config: SpendingConfig) -> None:
+    def __init__(
+        self,
+        config: SpendingConfig,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        entries: list[tuple[float, int]] | None = None,
+    ) -> None:
         self.config = config
-        self._entries: list[tuple[float, int]] = []  # (monotonic-ts, lamports)
+        # (timestamp, lamports) pairs in the unit returned by ``clock``.
+        # Defaults to ``time.monotonic`` for in-process use; pass
+        # ``time.time`` (wall-clock) when entries must be persisted and
+        # reloaded across processes.
+        self._clock = clock
+        self._entries: list[tuple[float, int]] = list(entries or [])
         self._lock = threading.Lock()
 
     # -- public API ----------------------------------------------------------
@@ -51,7 +63,7 @@ class SpendingLedger:
         Raises ``WalletBackendError`` if any limit would be exceeded.
         """
         with self._lock:
-            now = time.monotonic()
+            now = self._clock()
             self._cleanup(now)
 
             # Per-transaction cap
@@ -93,6 +105,12 @@ class SpendingLedger:
                     )
 
             self._entries.append((now, lamports))
+
+    def export(self) -> list[tuple[float, int]]:
+        """Return a copy of the (timestamp, lamports) entries for persistence."""
+        with self._lock:
+            self._cleanup(self._clock())
+            return list(self._entries)
 
     # -- internal ------------------------------------------------------------
 
