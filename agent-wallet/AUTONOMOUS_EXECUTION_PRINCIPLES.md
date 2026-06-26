@@ -138,7 +138,7 @@ deployments, an append-only audit log of autonomous decisions, and EVM-calldata
 verifiers (allow-listed routers/spenders, approval-amount caps) analogous to the
 existing Solana `transaction_policy` checks.
 
-## High-trust permission mode for Base swaps
+## High-trust permission mode
 
 There is also a separate, less restrictive UX model for users who explicitly
 want coding-CLI-style permissions: approve a capability once, then let the
@@ -150,18 +150,26 @@ Current scope:
 
 - `agentlayer_autonomous_approve { "scope": "base_swaps", ... }`
 - `agentlayer_autonomous_revoke { "scope": "base_swaps" }`
+- `agentlayer_autonomous_approve { "scope": "defi_tools", ... }`
+- `agentlayer_autonomous_revoke { "scope": "defi_tools" }`
 - `agentlayer_autonomous_status`
-- applies only to `swap_evm_tokens` (Velora) and `swap_evm_uniswap_tokens`
-- applies only when the active EVM network is `base`
-- does not apply to transfers, withdrawals, lending, staking, bridges,
-  Solana swaps, or non-Base networks
+- `base_swaps` and `defi_tools` are compatibility scope labels for one
+  combined autonomous permission group; approving either enables both, and
+  revoking either disables both
+- the combined group covers `swap_evm_tokens` (Velora) and
+  `swap_evm_uniswap_tokens` only when the active EVM network is `base`
+- the combined group also covers supported EVM DeFi management tools on `base`
+  and `ethereum`: Aave, Morpho vault/market, and Lido staking/withdrawal tools
+- it does not apply to transfers, bridges, Solana swaps, or generic contract
+  calls
 
-When enabled, a Base swap execute call with no `approval_token` fetches a fresh
+When enabled, a covered execute call with no `approval_token` fetches a fresh
 preview/quote, builds the exact confirmation summary, issues the same signed
-approval token internally with `issued_by="autonomous-permission:base-swaps"`,
-then runs the existing verification and send path. This preserves exact
-operation binding while removing the host confirmation step for this scope.
+approval token internally (`issued_by="autonomous-permission:*"`), then runs
+the existing verification and send path. This preserves exact operation binding
+while removing the host confirmation step for the combined permission group.
 
 This mode is high-trust by design. It is appropriate only when the user wants
-the agent to have the same practical Base swap authority as the wallet surface
-already exposes, while still excluding direct fund withdrawals/transfers.
+the agent to have the same practical authority as the covered wallet surfaces
+already expose, while still excluding direct fund transfers and generic
+contract calls.

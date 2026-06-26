@@ -18,6 +18,17 @@ const PREVIEW_BOUND_SWAP_TOOLS = new Set([
   "flash_trade_open_position",
   "flash_trade_close_position",
 ]);
+const AUTONOMOUS_BASE_SWAP_TOOLS = new Set([
+  "swap_evm_tokens",
+  "swap_evm_uniswap_tokens",
+]);
+const AUTONOMOUS_DEFI_TOOLS = new Set([
+  "manage_evm_aave_position",
+  "manage_evm_lido_position",
+  "manage_evm_lido_withdrawal",
+  "manage_evm_morpho_market_position",
+  "manage_evm_morpho_vault_position",
+]);
 const approvalPreviewCache = new Map();
 const WALLET_TOOL_ONLY_GUIDANCE =
   "Use this wallet tool instead of shelling out to solana CLI, spl-token CLI, curl, or exec. If it fails, surface the wallet-tool error and stop rather than falling back to terminal commands.";
@@ -125,6 +136,17 @@ function isSolanaSwapIntentExecute(params) {
 function requiresApprovedPreviewPayload(toolName, params = null) {
   if (toolName === "swap_solana_tokens" && isSolanaSwapIntentExecute(params)) return false;
   return PREVIEW_BOUND_SWAP_TOOLS.has(toolName);
+}
+
+function shouldLetBackendAuthorizeAutonomousExecution(toolName, params, config) {
+  const isBaseSwapTool = AUTONOMOUS_BASE_SWAP_TOOLS.has(toolName);
+  const isDefiTool = AUTONOMOUS_DEFI_TOOLS.has(toolName);
+  if (!isBaseSwapTool && !isDefiTool) return false;
+  if (String(params?.mode || "") !== "execute") return false;
+  if (typeof params?.approval_token === "string" && params.approval_token.trim()) return false;
+  const network = String(params?.network || config?.network || selectedEvmNetwork || "").trim().toLowerCase();
+  if (isBaseSwapTool) return network === "base";
+  return network === "base" || network === "ethereum";
 }
 
 function looksLikeApprovalContextError(message) {
@@ -516,6 +538,7 @@ async function attachApprovalForExecute(api, config, userId, toolName, effective
   }
 
   if (effectiveParams.approval_token) return null;
+  if (shouldLetBackendAuthorizeAutonomousExecution(toolName, effectiveParams, config)) return null;
 
   throw new Error(APPROVAL_CONTEXT_MISSING_MESSAGE);
 }
@@ -694,6 +717,38 @@ const walletSessionToolDefinitions = [
           description: "Optional wallet address override.",
         },
       },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "agentlayer_autonomous_status",
+    description: "Return AgentLayer high-trust autonomous permission status for the combined base_swaps + defi_tools permission group.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "agentlayer_autonomous_approve",
+    description:
+      "Enable high-trust autonomous execution for the combined permission group. The scope parameter is kept for compatibility; choosing base_swaps or defi_tools enables both Base Velora/Uniswap swaps and supported EVM DeFi management tools until revoked. This does not cover transfers, bridges, Solana swaps, or generic contract calls.",
+    parameters: {
+      type: "object",
+      properties: {
+        scope: { type: "string", enum: ["base_swaps", "defi_tools"], description: "Compatibility scope; either value enables the full autonomous permission group." },
+        purpose: { type: "string" },
+        user_intent: { type: "boolean" },
+      },
+      required: ["scope", "purpose", "user_intent"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "agentlayer_autonomous_revoke",
+    description: "Disable the full high-trust autonomous permission group. The scope parameter is kept for compatibility; either value revokes base_swaps and defi_tools together.",
+    parameters: {
+      type: "object",
+      properties: {
+        scope: { type: "string", enum: ["base_swaps", "defi_tools"], description: "Compatibility scope; either value revokes the full autonomous permission group." },
+      },
+      required: ["scope"],
       additionalProperties: false,
     },
   },
@@ -1686,6 +1741,105 @@ const evmToolDefinitions = [
         network: { type: "string", enum: ["ethereum"] },
       },
       required: ["operation", "mode", "purpose"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_evm_morpho_vaults",
+    description: "Get read-only Morpho vault discovery and detail data for the configured EVM network on supported mainnet chains. When listing, results are ordered (default: largest TVL first) and can be filtered by underlying asset.",
+    parameters: {
+      type: "object",
+      properties: {
+        vault_address: { type: "string", description: "Optional explicit vault address for a single-vault lookup." },
+        limit: { type: "integer", minimum: 1, maximum: 500 },
+        listed_only: { type: "boolean", description: "Filter to listed vaults only. Defaults to true." },
+        asset_address: { type: "string", description: "Optional underlying asset address filter (e.g. only USDC vaults)." },
+        order_by: {
+          type: "string",
+          enum: ["TotalAssetsUsd", "TotalAssets", "TotalSupply", "Liquidity", "LiquidityUsd", "Apy", "NetApy", "Address"],
+          description: "Sort field when listing. Defaults to TotalAssetsUsd.",
+        },
+        order_direction: { type: "string", enum: ["asc", "desc"], description: "Sort direction. Defaults to desc." },
+        network: { type: "string", enum: ["ethereum", "base"] },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_evm_morpho_markets",
+    description: "Get read-only Morpho market discovery and detail data for the configured EVM network on supported mainnet chains. When listing, results are ordered (default: largest supply first) and can be filtered by free-text search or by collateral/loan asset.",
+    parameters: {
+      type: "object",
+      properties: {
+        market_id: { type: "string", description: "Optional explicit market id (32-byte hex) for a single-market lookup." },
+        limit: { type: "integer", minimum: 1, maximum: 500 },
+        listed_only: { type: "boolean", description: "Filter to listed markets only. Defaults to true." },
+        search: { type: "string", description: "Optional free-text search over market/asset symbols (e.g. 'wstETH')." },
+        collateral_asset_address: { type: "string", description: "Optional collateral asset address filter." },
+        loan_asset_address: { type: "string", description: "Optional loan asset address filter." },
+        order_by: {
+          type: "string",
+          enum: ["SupplyAssetsUsd", "BorrowAssetsUsd", "SupplyApy", "NetSupplyApy", "BorrowApy", "NetBorrowApy", "Utilization", "TotalLiquidityUsd", "Lltv"],
+          description: "Sort field when listing. Defaults to SupplyAssetsUsd.",
+        },
+        order_direction: { type: "string", enum: ["asc", "desc"], description: "Sort direction. Defaults to desc." },
+        network: { type: "string", enum: ["ethereum", "base"] },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_evm_morpho_positions",
+    description: "Get read-only Morpho vault and market positions for the configured EVM wallet on supported mainnet chains.",
+    parameters: {
+      type: "object",
+      properties: {
+        network: { type: "string", enum: ["ethereum", "base"] },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "manage_evm_morpho_vault_position",
+    description: "Preview, prepare, or execute a narrow Morpho vault operation on supported EVM mainnet networks. Supported operations are supply and withdraw. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
+    optional: true,
+    parameters: {
+      type: "object",
+      properties: {
+        operation: { type: "string", enum: ["supply", "withdraw"] },
+        token_address: { type: "string" },
+        vault_address: { type: "string" },
+        vault_preset: { type: "string" },
+        amount_raw: { type: "string" },
+        native_amount_raw: { type: "string" },
+        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
+        purpose: { type: "string" },
+        user_intent: { type: "boolean" },
+        network: { type: "string", enum: ["ethereum", "base"] },
+      },
+      required: ["operation", "token_address", "mode", "purpose"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "manage_evm_morpho_market_position",
+    description: "Preview, prepare, or execute a narrow Morpho market operation on supported EVM mainnet networks. Supported operations are supply_collateral, borrow, repay, and withdraw_collateral. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
+    optional: true,
+    parameters: {
+      type: "object",
+      properties: {
+        operation: { type: "string", enum: ["supply_collateral", "borrow", "repay", "withdraw_collateral"] },
+        token_address: { type: "string" },
+        market_id: { type: "string" },
+        market_preset: { type: "string" },
+        amount_raw: { type: "string" },
+        native_amount_raw: { type: "string" },
+        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
+        purpose: { type: "string" },
+        user_intent: { type: "boolean" },
+        network: { type: "string", enum: ["ethereum", "base"] },
+      },
+      required: ["operation", "token_address", "mode", "purpose"],
       additionalProperties: false,
     },
   },

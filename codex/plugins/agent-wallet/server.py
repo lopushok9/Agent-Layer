@@ -60,6 +60,13 @@ PREVIEW_BOUND_SWAP_TOOLS = {
     "flash_trade_close_position",
 }
 AUTONOMOUS_BASE_SWAP_TOOLS = {"swap_evm_tokens", "swap_evm_uniswap_tokens"}
+AUTONOMOUS_DEFI_TOOLS = {
+    "manage_evm_aave_position",
+    "manage_evm_lido_position",
+    "manage_evm_lido_withdrawal",
+    "manage_evm_morpho_market_position",
+    "manage_evm_morpho_vault_position",
+}
 APPROVAL_PREVIEW_TOOL_ALIASES = {
     "x402_pay_request": "x402_preview_request",
 }
@@ -643,19 +650,23 @@ def _requires_approved_preview_payload(tool_name: str, params: dict[str, Any]) -
     return tool_name in PREVIEW_BOUND_SWAP_TOOLS
 
 
-def _should_let_backend_authorize_autonomous_base_swap(
+def _should_let_backend_authorize_autonomous_execution(
     tool_name: str,
     params: dict[str, Any],
     config: dict[str, Any],
 ) -> bool:
-    if tool_name not in AUTONOMOUS_BASE_SWAP_TOOLS:
+    is_base_swap_tool = tool_name in AUTONOMOUS_BASE_SWAP_TOOLS
+    is_defi_tool = tool_name in AUTONOMOUS_DEFI_TOOLS
+    if not is_base_swap_tool and not is_defi_tool:
         return False
     if str(params.get("mode") or "") != "execute":
         return False
     if str(params.get("approval_token") or "").strip():
         return False
     network = str(params.get("network") or config.get("network") or selected_evm_network or "").strip().lower()
-    return network == "base"
+    if is_base_swap_tool:
+        return network == "base"
+    return network in {"base", "ethereum"}
 
 
 def _looks_like_approval_context_error(message: str) -> bool:
@@ -712,7 +723,7 @@ def _attach_approval_for_execute(
             effective_params["_approved_preview"] = cached_preview
     if effective_params.get("approval_token"):
         return None
-    if _should_let_backend_authorize_autonomous_base_swap(tool_name, effective_params, config):
+    if _should_let_backend_authorize_autonomous_execution(tool_name, effective_params, config):
         return None
     raise RuntimeError(APPROVAL_CONTEXT_MISSING_MESSAGE)
 

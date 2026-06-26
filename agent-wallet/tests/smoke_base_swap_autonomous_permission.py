@@ -163,7 +163,7 @@ async def main() -> None:
         boot_key="test-boot-key-for-base-swap-autonomous-smoke",
         approval_secret="base-swap-autonomous-secret",
     )
-    autonomous_permissions.revoke_base_swaps()
+    autonomous_permissions.revoke_all()
 
     backend = FakeBaseSwapBackend("base")
     adapter = OpenClawWalletAdapter(backend)
@@ -187,7 +187,9 @@ async def main() -> None:
         {"scope": "base_swaps", "purpose": "test base swaps", "user_intent": True},
     )
     assert approved.ok is True
+    assert approved.data["active"] is True
     assert approved.data["scopes"]["base_swaps"]["enabled"] is True
+    assert approved.data["scopes"]["defi_tools"]["enabled"] is True
 
     velora = await adapter.invoke("swap_evm_tokens", _velora_args())
     assert velora.ok is True
@@ -217,7 +219,9 @@ async def main() -> None:
 
     revoked = await adapter.invoke("agentlayer_autonomous_revoke", {"scope": "base_swaps"})
     assert revoked.ok is True
+    assert revoked.data["active"] is False
     assert revoked.data["scopes"]["base_swaps"]["enabled"] is False
+    assert revoked.data["scopes"]["defi_tools"]["enabled"] is False
     after_revoke = await adapter.invoke("swap_evm_tokens", _velora_args())
     assert after_revoke.ok is False
 

@@ -22,6 +22,13 @@ const AUTONOMOUS_BASE_SWAP_TOOLS = new Set([
   "swap_evm_tokens",
   "swap_evm_uniswap_tokens",
 ]);
+const AUTONOMOUS_DEFI_TOOLS = new Set([
+  "manage_evm_aave_position",
+  "manage_evm_lido_position",
+  "manage_evm_lido_withdrawal",
+  "manage_evm_morpho_market_position",
+  "manage_evm_morpho_vault_position",
+]);
 const approvalPreviewCache = new Map();
 const WALLET_TOOL_ONLY_GUIDANCE =
   "Use this wallet tool instead of shelling out to solana CLI, spl-token CLI, curl, or exec. If it fails, surface the wallet-tool error and stop rather than falling back to terminal commands.";
@@ -131,12 +138,15 @@ function requiresApprovedPreviewPayload(toolName, params = null) {
   return PREVIEW_BOUND_SWAP_TOOLS.has(toolName);
 }
 
-function shouldLetBackendAuthorizeAutonomousBaseSwap(toolName, params, config) {
-  if (!AUTONOMOUS_BASE_SWAP_TOOLS.has(toolName)) return false;
+function shouldLetBackendAuthorizeAutonomousExecution(toolName, params, config) {
+  const isBaseSwapTool = AUTONOMOUS_BASE_SWAP_TOOLS.has(toolName);
+  const isDefiTool = AUTONOMOUS_DEFI_TOOLS.has(toolName);
+  if (!isBaseSwapTool && !isDefiTool) return false;
   if (String(params?.mode || "") !== "execute") return false;
   if (typeof params?.approval_token === "string" && params.approval_token.trim()) return false;
   const network = String(params?.network || config?.network || selectedEvmNetwork || "").trim().toLowerCase();
-  return network === "base";
+  if (isBaseSwapTool) return network === "base";
+  return network === "base" || network === "ethereum";
 }
 
 function looksLikeApprovalContextError(message) {
@@ -528,7 +538,7 @@ async function attachApprovalForExecute(api, config, userId, toolName, effective
   }
 
   if (effectiveParams.approval_token) return null;
-  if (shouldLetBackendAuthorizeAutonomousBaseSwap(toolName, effectiveParams, config)) return null;
+  if (shouldLetBackendAuthorizeAutonomousExecution(toolName, effectiveParams, config)) return null;
 
   throw new Error(APPROVAL_CONTEXT_MISSING_MESSAGE);
 }
@@ -712,17 +722,17 @@ const walletSessionToolDefinitions = [
   },
   {
     name: "agentlayer_autonomous_status",
-    description: "Return AgentLayer high-trust autonomous permission status. Currently supports only scope=base_swaps.",
+    description: "Return AgentLayer high-trust autonomous permission status for the combined base_swaps + defi_tools permission group.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "agentlayer_autonomous_approve",
     description:
-      "Enable high-trust autonomous Base swaps. scope=base_swaps lets Base Velora/Uniswap swap execute calls run without per-transaction human approval until revoked. This does not cover transfers, withdrawals, lending, staking, bridges, Solana swaps, or non-Base networks.",
+      "Enable high-trust autonomous execution for the combined permission group. The scope parameter is kept for compatibility; choosing base_swaps or defi_tools enables both Base Velora/Uniswap swaps and supported EVM DeFi management tools until revoked. This does not cover transfers, bridges, Solana swaps, or generic contract calls.",
     parameters: {
       type: "object",
       properties: {
-        scope: { type: "string", enum: ["base_swaps"] },
+        scope: { type: "string", enum: ["base_swaps", "defi_tools"], description: "Compatibility scope; either value enables the full autonomous permission group." },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
       },
@@ -732,11 +742,11 @@ const walletSessionToolDefinitions = [
   },
   {
     name: "agentlayer_autonomous_revoke",
-    description: "Disable high-trust autonomous execution for a scope. Currently supports only scope=base_swaps.",
+    description: "Disable the full high-trust autonomous permission group. The scope parameter is kept for compatibility; either value revokes base_swaps and defi_tools together.",
     parameters: {
       type: "object",
       properties: {
-        scope: { type: "string", enum: ["base_swaps"] },
+        scope: { type: "string", enum: ["base_swaps", "defi_tools"], description: "Compatibility scope; either value revokes the full autonomous permission group." },
       },
       required: ["scope"],
       additionalProperties: false,

@@ -224,21 +224,22 @@ def _run_autonomous_permission(action: str, scope: str) -> dict[str, Any]:
     from agent_wallet import autonomous_permissions
 
     normalized_scope = str(scope or "").strip()
-    if normalized_scope != autonomous_permissions.BASE_SWAP_SCOPE:
-        raise WalletBackendError("Only scope=base_swaps is currently supported.")
+    if normalized_scope not in autonomous_permissions.SUPPORTED_SCOPES:
+        raise WalletBackendError("scope must be one of: base_swaps, defi_tools.")
 
     normalized_action = str(action or "").strip().lower()
     if normalized_action == "approve":
+        data = autonomous_permissions.approve_all(approved_by="openclaw_cli")
         return {
             "ok": True,
             "action": normalized_action,
-            "data": autonomous_permissions.approve_base_swaps(approved_by="openclaw_cli"),
+            "data": data,
         }
     if normalized_action == "revoke":
         return {
             "ok": True,
             "action": normalized_action,
-            "data": autonomous_permissions.revoke_base_swaps(),
+            "data": autonomous_permissions.revoke_all(),
         }
     if normalized_action == "status":
         return {
@@ -464,7 +465,7 @@ def main() -> int:
 
     autonomous_permission_parser = subparsers.add_parser("autonomous-permission")
     autonomous_permission_parser.add_argument("--action", choices=["approve", "revoke", "status"], required=True)
-    autonomous_permission_parser.add_argument("--scope", choices=["base_swaps"], required=True)
+    autonomous_permission_parser.add_argument("--scope", choices=["base_swaps", "defi_tools"], required=True)
     autonomous_permission_parser.add_argument("--config-json", default="{}")
 
     btc_get_parser = subparsers.add_parser("btc-wallet-get")

@@ -63,6 +63,17 @@ def main() -> None:
     )
     assert "approval_token" not in autonomous_params
 
+    autonomous_defi_params = {"mode": "execute", "network": "ethereum"}
+    assert (
+        module._attach_approval_for_execute(
+            "manage_evm_lido_position",
+            {"network": "ethereum"},
+            autonomous_defi_params,
+        )
+        is None
+    )
+    assert "approval_token" not in autonomous_defi_params
+
     try:
         module._attach_approval_for_execute(
             "swap_evm_tokens",
