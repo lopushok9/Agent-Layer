@@ -18,10 +18,15 @@ redeploy — point it at a mounted volume or swap in Postgres for durable histor
 from __future__ import annotations
 
 import os
+import json
 import re
 import sqlite3
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +56,10 @@ _VERSION_RE = re.compile(r"^[0-9A-Za-z.\-+]{1,32}$")
 ALLOWED_KEYS = {"event", "install_id", "host", "tool", "backend", "plugin_version", "ok", "ts"}
 
 MAX_BODY_BYTES = 2048
+NPM_DOWNLOADS_PACKAGE = "@agentlayer.tech/wallet"
+NPM_DOWNLOADS_SINCE = "2026-05-01"
+NPM_DOWNLOADS_CACHE_TTL_SECONDS = int(os.getenv("NPM_DOWNLOADS_CACHE_TTL_SECONDS", "21600") or "21600")
+NPM_DOWNLOADS_HTTP_TIMEOUT_SECONDS = float(os.getenv("NPM_DOWNLOADS_HTTP_TIMEOUT_SECONDS", "1.0") or "1.0")
 
 
 class TelemetryValidationError(ValueError):
@@ -123,6 +132,9 @@ def validate_event(raw: Any) -> dict[str, Any]:
 
 _DB_LOCK = threading.Lock()
 _CONN: sqlite3.Connection | None = None
+_NPM_CACHE_LOCK = threading.Lock()
+_NPM_CACHE: dict[str, Any] | None = None
+_NPM_CACHE_TS = 0.0
 
 
 def _db_path() -> Path:
@@ -189,6 +201,87 @@ def record_event(event: dict[str, Any]) -> None:
         conn.commit()
 
 
+def _downloads_end_date() -> str:
+    # npm daily downloads are complete for past UTC days; avoid partial today.
+    return (date.today() - timedelta(days=1)).isoformat()
+
+
+def _fetch_npm_downloads_range(start: str, end: str) -> dict[str, Any]:
+    package = os.getenv("NPM_DOWNLOADS_PACKAGE", NPM_DOWNLOADS_PACKAGE).strip() or NPM_DOWNLOADS_PACKAGE
+    quoted_package = urllib.parse.quote(package, safe="")
+    url = f"https://api.npmjs.org/downloads/range/{start}:{end}/{quoted_package}"
+    req = urllib.request.Request(url, headers={"User-Agent": "AgentLayer/provider-gateway telemetry stats"})
+    with urllib.request.urlopen(req, timeout=NPM_DOWNLOADS_HTTP_TIMEOUT_SECONDS) as resp:
+        payload = json.loads(resp.read().decode("utf-8"))
+    if not isinstance(payload, dict) or not isinstance(payload.get("downloads"), list):
+        raise RuntimeError("npm downloads response has unexpected shape")
+    return payload
+
+
+def npm_downloads_summary() -> dict[str, Any]:
+    """Return cached npm download totals for the public installer package.
+
+    This runs only from the privileged stats endpoint, never from telemetry
+    ingest or RPC handlers. On npm failures it returns stale cache when
+    available, preserving stats endpoint availability.
+    """
+    global _NPM_CACHE, _NPM_CACHE_TS
+
+    if os.getenv("NPM_DOWNLOADS_ENABLED", "true").strip().lower() in {"0", "false", "no", "off"}:
+        return {"ok": False, "disabled": True}
+
+    now = time.time()
+    with _NPM_CACHE_LOCK:
+        if _NPM_CACHE and (now - _NPM_CACHE_TS) < NPM_DOWNLOADS_CACHE_TTL_SECONDS:
+            return {**_NPM_CACHE, "cached": True, "stale": False}
+
+    package = os.getenv("NPM_DOWNLOADS_PACKAGE", NPM_DOWNLOADS_PACKAGE).strip() or NPM_DOWNLOADS_PACKAGE
+    since = os.getenv("NPM_DOWNLOADS_SINCE", NPM_DOWNLOADS_SINCE).strip() or NPM_DOWNLOADS_SINCE
+    end = _downloads_end_date()
+    try:
+        payload = _fetch_npm_downloads_range(since, end)
+        daily = [
+            {
+                "day": str(item.get("day", "")),
+                "downloads": int(item.get("downloads", 0) or 0),
+            }
+            for item in payload.get("downloads", [])
+            if isinstance(item, dict)
+        ]
+        total = sum(item["downloads"] for item in daily)
+        last_30_days = sum(item["downloads"] for item in daily[-30:])
+        last_7_days = sum(item["downloads"] for item in daily[-7:])
+        result = {
+            "ok": True,
+            "package": package,
+            "since": str(payload.get("start") or since),
+            "through": str(payload.get("end") or end),
+            "all_time": total,
+            "last_30_days": last_30_days,
+            "last_7_days": last_7_days,
+            "days": len(daily),
+            "cached": False,
+            "stale": False,
+        }
+        with _NPM_CACHE_LOCK:
+            _NPM_CACHE = result
+            _NPM_CACHE_TS = now
+        return result
+    except (OSError, urllib.error.URLError, json.JSONDecodeError, RuntimeError, ValueError) as exc:
+        with _NPM_CACHE_LOCK:
+            if _NPM_CACHE:
+                return {**_NPM_CACHE, "cached": True, "stale": True, "error": str(exc)}
+        return {
+            "ok": False,
+            "package": package,
+            "since": since,
+            "through": end,
+            "error": str(exc),
+            "cached": False,
+            "stale": False,
+        }
+
+
 def summary(window_days: int = 30) -> dict[str, Any]:
     """Aggregate adoption metrics over the trailing ``window_days``."""
     since = int(time.time()) - window_days * 86400
@@ -246,4 +339,5 @@ def summary(window_days: int = 30) -> dict[str, Any]:
         "by_tool": _breakdown("tool"),
         "by_backend": _breakdown("backend"),
         "by_version": _breakdown("plugin_version"),
+        "npm_downloads": npm_downloads_summary(),
     }
