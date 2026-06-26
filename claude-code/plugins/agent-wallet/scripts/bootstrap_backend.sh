@@ -113,7 +113,7 @@ fi
 
 log "Installing the AgentLayer wallet backend runtime via npm (this may take a minute)…"
 log "  -> npx $PACKAGE_SPEC install --yes"
-if ! npx -y "$PACKAGE_SPEC" install --yes; then
+if ! AGENT_WALLET_INSTALL_SOURCE=claude_marketplace_bootstrap npx -y "$PACKAGE_SPEC" install --yes; then
   log "Backend install failed. Ensure Node.js 18+ and Python >= 3.10 (with venv) are installed, then re-run /wallet-setup."
   exit 1
 fi
@@ -123,7 +123,7 @@ fi
 # --skip-enable: the plugin is already registered via the marketplace, so we only
 # want the file pinning, not another `claude plugin install`.
 log "Wiring the Claude Code bridge to the installed runtime…"
-npx -y "$PACKAGE_SPEC" claude-code install --yes --skip-enable || \
+AGENT_WALLET_INSTALL_SOURCE=claude_marketplace_bootstrap npx -y "$PACKAGE_SPEC" claude-code install --yes --skip-enable || \
   log "Note: could not re-pin the Claude Code bridge automatically; it will still resolve the default runtime."
 
 if backend_ready; then

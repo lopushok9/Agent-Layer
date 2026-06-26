@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -15,6 +15,14 @@ const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
 const packageVersion = packageJson.version;
 const UPDATE_CLI_PATH_ENV = "OPENCLAW_AGENT_WALLET_UPDATE_CLI_PATH";
 const UPDATE_PACKAGE_SPEC_ENV = "OPENCLAW_AGENT_WALLET_UPDATE_PACKAGE_SPEC";
+const DEFAULT_PROVIDER_GATEWAY_URL = "https://agent-layer-production.up.railway.app";
+const TELEMETRY_SPOOL_NAME = "telemetry_spool.jsonl";
+const TELEMETRY_ID_NAME = "telemetry_id";
+const TELEMETRY_LAST_FLUSH_NAME = "telemetry_last_flush";
+const TELEMETRY_FLUSH_THROTTLE_SECONDS = 20;
+const TELEMETRY_FORCE_LINES = 25;
+const TELEMETRY_MAX_EVENTS_PER_FLUSH = 100;
+const TELEMETRY_HTTP_TIMEOUT_MS = 1500;
 
 function printHelp() {
   console.log(`openclaw-agent-wallet
@@ -98,6 +106,211 @@ function resolveRuntimeBase(env = process.env) {
 function updateCheckDisabled(env = process.env) {
   const raw = String(env.AGENT_WALLET_DISABLE_UPDATE_CHECK || "").trim().toLowerCase();
   return ["1", "true", "yes", "on"].includes(raw);
+}
+
+function telemetryDisabled(env = process.env) {
+  const raw = String(env.AGENT_WALLET_NO_TELEMETRY || "").trim().toLowerCase();
+  return ["1", "true", "yes", "on"].includes(raw);
+}
+
+function telemetryPath(name, env = process.env) {
+  return path.join(resolveOpenclawHome(env), name);
+}
+
+function telemetryInstallId(env = process.env) {
+  const idPath = telemetryPath(TELEMETRY_ID_NAME, env);
+  try {
+    const existing = fs.readFileSync(idPath, "utf8").trim();
+    if (existing) return existing;
+  } catch {
+    // Create below.
+  }
+  const next = crypto.randomUUID ? crypto.randomUUID().replaceAll("-", "") : crypto.randomBytes(16).toString("hex");
+  try {
+    fs.mkdirSync(path.dirname(idPath), { recursive: true });
+    fs.writeFileSync(idPath, next, { mode: 0o600 });
+  } catch {
+    // Telemetry must not affect install flow.
+  }
+  return next;
+}
+
+function telemetryHost(host = "", env = process.env) {
+  const raw = String(host || env.AGENT_WALLET_HOST || "").trim().toLowerCase();
+  return ["claude-code", "codex", "hermes", "openclaw"].includes(raw) ? raw : "unknown";
+}
+
+function telemetrySource(env = process.env) {
+  const explicit = String(env.AGENT_WALLET_INSTALL_SOURCE || "").trim().toLowerCase();
+  if (explicit) return explicit.replace(/[^a-z0-9_]/g, "_").slice(0, 48);
+  return env.npm_execpath || String(env.npm_config_user_agent || "").includes("npm")
+    ? "npx"
+    : "global_cli";
+}
+
+function telemetryGatewayUrl(env = process.env) {
+  return String(env.PROVIDER_GATEWAY_URL || DEFAULT_PROVIDER_GATEWAY_URL).trim().replace(/\/+$/, "");
+}
+
+function telemetryAppend(payload, env = process.env) {
+  const spool = telemetryPath(TELEMETRY_SPOOL_NAME, env);
+  fs.mkdirSync(path.dirname(spool), { recursive: true });
+  fs.appendFileSync(spool, `${JSON.stringify(payload)}\n`, { encoding: "utf8" });
+}
+
+function telemetrySpoolLineCount(env = process.env) {
+  try {
+    const spool = telemetryPath(TELEMETRY_SPOOL_NAME, env);
+    return fs.readFileSync(spool, "utf8").split(/\r?\n/).filter(Boolean).length;
+  } catch {
+    return 0;
+  }
+}
+
+function telemetryShouldFlush(env = process.env) {
+  const count = telemetrySpoolLineCount(env);
+  if (count === 0) return false;
+  if (count >= TELEMETRY_FORCE_LINES) return true;
+  try {
+    const last = Number(fs.readFileSync(telemetryPath(TELEMETRY_LAST_FLUSH_NAME, env), "utf8").trim() || "0");
+    return Date.now() / 1000 - last >= TELEMETRY_FLUSH_THROTTLE_SECONDS;
+  } catch {
+    return true;
+  }
+}
+
+function telemetryMarkFlush(env = process.env) {
+  try {
+    fs.writeFileSync(telemetryPath(TELEMETRY_LAST_FLUSH_NAME, env), String(Date.now() / 1000));
+  } catch {
+    // ignored
+  }
+}
+
+function telemetrySpawnFlush(env = process.env, force = false) {
+  if (!force && !telemetryShouldFlush(env)) return;
+  telemetryMarkFlush(env);
+  try {
+    const child = spawn(process.execPath, [cliPath, "--telemetry-flush"], {
+      detached: true,
+      stdio: "ignore",
+      env,
+    });
+    child.unref();
+  } catch {
+    // ignored
+  }
+}
+
+function recordCliTelemetry(event, { commandName, host = "", ok = true, args = [], flush = true } = {}) {
+  try {
+    if (telemetryDisabled()) return;
+    if (args && hasFlag(args, "--dry-run")) return;
+    const payload = {
+      event,
+      install_id: telemetryInstallId(),
+      host: telemetryHost(host),
+      tool: "",
+      backend: "",
+      plugin_version: packageVersion,
+      ok: Boolean(ok),
+      ts: Math.floor(Date.now() / 1000),
+      source: telemetrySource(),
+      command: String(commandName || "").trim().toLowerCase().replace(/-/g, "_").slice(0, 48),
+    };
+    telemetryAppend(payload);
+    if (flush) telemetrySpawnFlush(process.env, true);
+  } catch {
+    // Telemetry must never affect CLI behavior.
+  }
+}
+
+async function telemetryPost(url, line) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TELEMETRY_HTTP_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      body: line,
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+    });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function telemetryFlushMain(env = process.env) {
+  if (telemetryDisabled(env)) return 0;
+  const spool = telemetryPath(TELEMETRY_SPOOL_NAME, env);
+  const claim = `${spool}.flushing.${process.pid}`;
+  try {
+    fs.renameSync(spool, claim);
+  } catch {
+    return 0;
+  }
+
+  let lines = [];
+  try {
+    lines = fs.readFileSync(claim, "utf8").split(/\r?\n/).filter(Boolean);
+  } catch {
+    lines = [];
+  }
+
+  const url = `${telemetryGatewayUrl(env)}/v1/telemetry`;
+  const failed = [];
+  let sent = 0;
+  for (const line of lines) {
+    if (sent >= TELEMETRY_MAX_EVENTS_PER_FLUSH) {
+      failed.push(line);
+      continue;
+    }
+    if (await telemetryPost(url, line)) {
+      sent += 1;
+    } else {
+      failed.push(line);
+    }
+  }
+
+  if (failed.length) {
+    try {
+      fs.appendFileSync(spool, `${failed.join("\n")}\n`, { encoding: "utf8" });
+    } catch {
+      // ignored
+    }
+  }
+  try {
+    fs.unlinkSync(claim);
+  } catch {
+    // ignored
+  }
+  return 0;
+}
+
+function runWithCliTelemetry(fn, { startEvent, successEvent, failedEvent, commandName, host = "", args = [] }) {
+  recordCliTelemetry(startEvent, { commandName, host, ok: true, args, flush: false });
+  let code;
+  try {
+    code = fn();
+  } catch (error) {
+    recordCliTelemetry(failedEvent, {
+      commandName,
+      host,
+      ok: false,
+      args,
+    });
+    throw error;
+  }
+  recordCliTelemetry(code === 0 ? successEvent : failedEvent, {
+    commandName,
+    host,
+    ok: code === 0,
+    args,
+  });
+  return code;
 }
 
 // Shared with the Python runtime (agent_wallet/update_check.py): the cache lives
@@ -1802,6 +2015,10 @@ function runClaudeCodeInstall(args) {
 const args = process.argv.slice(2);
 const command = args[0] || "install";
 
+if (command === "--telemetry-flush") {
+  process.exit(await telemetryFlushMain());
+}
+
 if (command === "--help" || command === "-h" || command === "help") {
   printHelp();
   process.exit(0);
@@ -1830,11 +2047,35 @@ if (command === "status") {
 }
 
 if (command === "install" || command === "setup") {
-  process.exit(runInstall(args.slice(1), { commandName: "install" }));
+  const commandArgs = args.slice(1);
+  process.exit(
+    runWithCliTelemetry(
+      () => runInstall(commandArgs, { commandName: "install" }),
+      {
+        startEvent: "install_start",
+        successEvent: "install_success",
+        failedEvent: "install_failed",
+        commandName: "install",
+        args: commandArgs,
+      },
+    ),
+  );
 }
 
 if (command === "update") {
-  process.exit(runUpdate(args.slice(1)));
+  const commandArgs = args.slice(1);
+  process.exit(
+    runWithCliTelemetry(
+      () => runUpdate(commandArgs),
+      {
+        startEvent: "update_start",
+        successEvent: "update_success",
+        failedEvent: "update_failed",
+        commandName: "update",
+        args: commandArgs,
+      },
+    ),
+  );
 }
 
 if (command === "rollback") {
@@ -1844,7 +2085,20 @@ if (command === "rollback") {
 if (command === "hermes") {
   const subcommand = args[1] || "install";
   if (subcommand === "install" || subcommand === "setup") {
-    process.exit(runHermesInstall(args.slice(2)));
+    const commandArgs = args.slice(2);
+    process.exit(
+      runWithCliTelemetry(
+        () => runHermesInstall(commandArgs),
+        {
+          startEvent: "plugin_install_start",
+          successEvent: "plugin_install_success",
+          failedEvent: "plugin_install_failed",
+          commandName: "hermes_install",
+          host: "hermes",
+          args: commandArgs,
+        },
+      ),
+    );
   }
   console.error(`Unknown hermes command: ${subcommand}`);
   console.error("Run `openclaw-agent-wallet hermes install --yes` to connect Hermes Agent.");
@@ -1854,7 +2108,20 @@ if (command === "hermes") {
 if (command === "codex") {
   const subcommand = args[1] || "install";
   if (subcommand === "install" || subcommand === "setup") {
-    process.exit(runCodexInstall(args.slice(2)));
+    const commandArgs = args.slice(2);
+    process.exit(
+      runWithCliTelemetry(
+        () => runCodexInstall(commandArgs),
+        {
+          startEvent: "plugin_install_start",
+          successEvent: "plugin_install_success",
+          failedEvent: "plugin_install_failed",
+          commandName: "codex_install",
+          host: "codex",
+          args: commandArgs,
+        },
+      ),
+    );
   }
   console.error(`Unknown codex command: ${subcommand}`);
   console.error("Run `openclaw-agent-wallet codex install --yes` to connect Codex.");
@@ -1864,7 +2131,20 @@ if (command === "codex") {
 if (command === "claude-code") {
   const subcommand = args[1] || "install";
   if (subcommand === "install" || subcommand === "setup") {
-    process.exit(runClaudeCodeInstall(args.slice(2)));
+    const commandArgs = args.slice(2);
+    process.exit(
+      runWithCliTelemetry(
+        () => runClaudeCodeInstall(commandArgs),
+        {
+          startEvent: "plugin_install_start",
+          successEvent: "plugin_install_success",
+          failedEvent: "plugin_install_failed",
+          commandName: "claude_code_install",
+          host: "claude-code",
+          args: commandArgs,
+        },
+      ),
+    );
   }
   console.error(`Unknown claude-code command: ${subcommand}`);
   console.error("Run `openclaw-agent-wallet claude-code install --yes` to connect Claude Code.");
@@ -1872,7 +2152,18 @@ if (command === "claude-code") {
 }
 
 if (command.startsWith("-")) {
-  process.exit(runInstall(args, { commandName: "install" }));
+  process.exit(
+    runWithCliTelemetry(
+      () => runInstall(args, { commandName: "install" }),
+      {
+        startEvent: "install_start",
+        successEvent: "install_success",
+        failedEvent: "install_failed",
+        commandName: "install",
+        args,
+      },
+    ),
+  );
 }
 
 console.error(`Unknown command: ${command}`);

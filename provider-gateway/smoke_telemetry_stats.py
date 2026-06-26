@@ -50,13 +50,30 @@ def main() -> None:
                 }
             )
             telemetry_store.record_event(event)
+            install_event = telemetry_store.validate_event(
+                {
+                    "event": "install_success",
+                    "install_id": "abcdef1234567890",
+                    "host": "unknown",
+                    "source": "npx",
+                    "command": "install",
+                    "plugin_version": "0.1.49",
+                    "ok": True,
+                    "ts": 2,
+                }
+            )
+            telemetry_store.record_event(install_event)
 
             stats = telemetry_store.summary(30)
             assert stats["ok"] is True
-            assert stats["total_events"] == 1
+            assert stats["total_events"] == 2
             assert stats["active_installs"] == 1
-            assert stats["by_host"] == [{"key": "codex", "calls": 1, "installs": 1}]
+            assert {"key": "codex", "calls": 1, "installs": 1} in stats["by_host"]
+            assert {"key": "unknown", "calls": 1, "installs": 1} in stats["by_host"]
             assert stats["by_tool"] == [{"key": "get_wallet_balance", "calls": 1, "installs": 1}]
+            assert {"key": "install_success", "calls": 1, "installs": 1} in stats["by_event"]
+            assert {"key": "npx", "calls": 1, "installs": 1} in stats["by_source"]
+            assert {"key": "install", "calls": 1, "installs": 1} in stats["by_command"]
             assert stats["npm_downloads"]["ok"] is True
             assert stats["npm_downloads"]["all_time"] == 30
             assert stats["npm_downloads"]["last_30_days"] == 30

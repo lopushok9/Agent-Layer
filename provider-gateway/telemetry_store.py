@@ -32,7 +32,19 @@ from typing import Any
 
 # --- allowlist / validation rules -------------------------------------------
 
-ALLOWED_EVENTS = {"tool_invoke", "session_start"}
+ALLOWED_EVENTS = {
+    "tool_invoke",
+    "session_start",
+    "install_start",
+    "install_success",
+    "install_failed",
+    "plugin_install_start",
+    "plugin_install_success",
+    "plugin_install_failed",
+    "update_start",
+    "update_success",
+    "update_failed",
+}
 ALLOWED_HOSTS = {"claude-code", "codex", "hermes", "openclaw", "unknown"}
 ALLOWED_BACKENDS = {
     "solana_local",
@@ -50,10 +62,23 @@ _INSTALL_ID_RE = re.compile(r"^[0-9a-f\-]{8,64}$")
 # is upstream: the CLI only ever emits the invoked tool's registered name.
 _TOOL_RE = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 _VERSION_RE = re.compile(r"^[0-9A-Za-z.\-+]{1,32}$")
+_SOURCE_RE = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
+_COMMAND_RE = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 
 # Only these keys are ever read from an inbound payload. Everything else is
 # dropped, so a client cannot smuggle a wallet address into an extra field.
-ALLOWED_KEYS = {"event", "install_id", "host", "tool", "backend", "plugin_version", "ok", "ts"}
+ALLOWED_KEYS = {
+    "event",
+    "install_id",
+    "host",
+    "tool",
+    "backend",
+    "plugin_version",
+    "ok",
+    "ts",
+    "source",
+    "command",
+}
 
 MAX_BODY_BYTES = 2048
 NPM_DOWNLOADS_PACKAGE = "@agentlayer.tech/wallet"
@@ -106,6 +131,14 @@ def validate_event(raw: Any) -> dict[str, Any]:
     if plugin_version and not _VERSION_RE.match(plugin_version):
         raise TelemetryValidationError("plugin_version has invalid characters")
 
+    source = str(raw.get("source", "")).strip().lower()
+    if source and not _SOURCE_RE.match(source):
+        raise TelemetryValidationError("source has invalid characters")
+
+    command = str(raw.get("command", "")).strip().lower().replace("-", "_")
+    if command and not _COMMAND_RE.match(command):
+        raise TelemetryValidationError("command has invalid characters")
+
     ok_raw = raw.get("ok", True)
     if not isinstance(ok_raw, bool):
         raise TelemetryValidationError("ok must be a boolean")
@@ -125,6 +158,8 @@ def validate_event(raw: Any) -> dict[str, Any]:
         "plugin_version": plugin_version,
         "ok": 1 if ok_raw else 0,
         "ts": ts,
+        "source": source,
+        "command": command,
     }
 
 
@@ -170,6 +205,11 @@ def _connect() -> sqlite3.Connection:
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_events_received ON events(received_ts)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_events_install ON events(install_id)")
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(events)").fetchall()}
+    if "source" not in columns:
+        conn.execute("ALTER TABLE events ADD COLUMN source TEXT NOT NULL DEFAULT ''")
+    if "command" not in columns:
+        conn.execute("ALTER TABLE events ADD COLUMN command TEXT NOT NULL DEFAULT ''")
     conn.commit()
     _CONN = conn
     return conn
@@ -183,8 +223,8 @@ def record_event(event: dict[str, Any]) -> None:
         conn.execute(
             """
             INSERT INTO events
-                (event, install_id, host, tool, backend, plugin_version, ok, client_ts, received_ts)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (event, install_id, host, tool, backend, plugin_version, ok, client_ts, received_ts, source, command)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 event["event"],
@@ -196,6 +236,8 @@ def record_event(event: dict[str, Any]) -> None:
                 event["ok"],
                 event["ts"],
                 received_ts,
+                event["source"],
+                event["command"],
             ),
         )
         conn.commit()
@@ -305,7 +347,8 @@ def summary(window_days: int = 30) -> dict[str, Any]:
             (day_ago,),
         )
 
-        def _breakdown(column: str, limit: int = 20) -> list[dict[str, Any]]:
+        def _breakdown(column: str, limit: int = 20, *, non_empty: bool = False) -> list[dict[str, Any]]:
+            value_filter = f"AND {column} != ''" if non_empty else ""
             rows = conn.execute(
                 f"""
                 SELECT {column} AS k,
@@ -313,6 +356,7 @@ def summary(window_days: int = 30) -> dict[str, Any]:
                        COUNT(DISTINCT install_id) AS installs
                 FROM events
                 WHERE received_ts >= ?
+                  {value_filter}
                 GROUP BY {column}
                 ORDER BY calls DESC
                 LIMIT ?
@@ -335,9 +379,12 @@ def summary(window_days: int = 30) -> dict[str, Any]:
         "active_installs": active_installs,
         "dau": dau,
         "success_rate": success_rate,
+        "by_event": _breakdown("event"),
         "by_host": _breakdown("host"),
-        "by_tool": _breakdown("tool"),
-        "by_backend": _breakdown("backend"),
+        "by_tool": _breakdown("tool", non_empty=True),
+        "by_backend": _breakdown("backend", non_empty=True),
         "by_version": _breakdown("plugin_version"),
+        "by_source": _breakdown("source", non_empty=True),
+        "by_command": _breakdown("command", non_empty=True),
         "npm_downloads": npm_downloads_summary(),
     }
