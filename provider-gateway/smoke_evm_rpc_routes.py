@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 
 from starlette.testclient import TestClient
 
@@ -18,10 +19,13 @@ def main() -> None:
         "ALCHEMY_BASE_RPC_URL": os.environ.get("ALCHEMY_BASE_RPC_URL"),
         "SHARED_EVM_ETHEREUM_RPC_URL": os.environ.get("SHARED_EVM_ETHEREUM_RPC_URL"),
         "SHARED_EVM_BASE_RPC_URL": os.environ.get("SHARED_EVM_BASE_RPC_URL"),
+        "TELEMETRY_DB_PATH": os.environ.get("TELEMETRY_DB_PATH"),
+        "RPC_USAGE_FLUSH_INTERVAL_SECONDS": os.environ.get("RPC_USAGE_FLUSH_INTERVAL_SECONDS"),
     }
     original_http_post = gateway_app._http_post
 
     seen: dict[str, object] = {}
+    tmp: tempfile.TemporaryDirectory | None = None
 
     async def fake_http_post(url: str, *, headers=None, json_body=None):
         seen["post"] = {"url": url, "headers": headers, "json_body": json_body}
@@ -33,13 +37,18 @@ def main() -> None:
         return 200, {"jsonrpc": "2.0", "id": json_body.get("id"), "result": "0x1"}
 
     try:
+        tmp = tempfile.TemporaryDirectory()
         os.environ["REQUIRE_BEARER_AUTH"] = "true"
         os.environ["PROVIDER_GATEWAY_BEARER_TOKEN"] = "test-token"
         os.environ["ALCHEMY_API_KEY"] = "alchemy-key"
+        os.environ["TELEMETRY_DB_PATH"] = os.path.join(tmp.name, "telemetry.db")
+        os.environ["RPC_USAGE_FLUSH_INTERVAL_SECONDS"] = "3600"
         os.environ.pop("ALCHEMY_ETHEREUM_RPC_URL", None)
         os.environ.pop("ALCHEMY_BASE_RPC_URL", None)
         os.environ.pop("SHARED_EVM_ETHEREUM_RPC_URL", None)
         os.environ.pop("SHARED_EVM_BASE_RPC_URL", None)
+        gateway_app.telemetry_store._CONN = None
+        gateway_app.telemetry_store._RPC_PENDING.clear()
 
         gateway_app._http_post = fake_http_post
 
@@ -113,10 +122,20 @@ def main() -> None:
             json={"jsonrpc": "2.0", "id": 4, "method": "eth_chainId", "params": []},
         )
         assert unsupported_network.status_code == 403
+        gateway_app.telemetry_store.flush_rpc_usage()
+        rpc_usage = gateway_app.telemetry_store.rpc_usage_summary(30)
+        assert rpc_usage["total_calls"] >= 5
+        assert {"key": "evm_rpc", "calls": rpc_usage["total_calls"]} in rpc_usage["by_endpoint"]
+        assert any(item["key"] == "eth_chainId" for item in rpc_usage["by_method"])
+        assert any(item["key"] == "alchemy" for item in rpc_usage["by_provider"])
 
         print("smoke_evm_rpc_routes: ok")
     finally:
         gateway_app._http_post = original_http_post
+        gateway_app.telemetry_store._CONN = None
+        gateway_app.telemetry_store._RPC_PENDING.clear()
+        if tmp is not None:
+            tmp.cleanup()
         for key, value in original_env.items():
             if value is None:
                 os.environ.pop(key, None)

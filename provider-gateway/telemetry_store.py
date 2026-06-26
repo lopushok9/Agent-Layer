@@ -170,6 +170,10 @@ _CONN: sqlite3.Connection | None = None
 _NPM_CACHE_LOCK = threading.Lock()
 _NPM_CACHE: dict[str, Any] | None = None
 _NPM_CACHE_TS = 0.0
+_RPC_LOCK = threading.Lock()
+_RPC_PENDING: dict[tuple[str, str, str, str, str, str, str], int] = {}
+_RPC_FLUSH_THREAD_STARTED = False
+_RPC_FIELD_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,63}$")
 
 
 def _db_path() -> Path:
@@ -210,6 +214,22 @@ def _connect() -> sqlite3.Connection:
         conn.execute("ALTER TABLE events ADD COLUMN source TEXT NOT NULL DEFAULT ''")
     if "command" not in columns:
         conn.execute("ALTER TABLE events ADD COLUMN command TEXT NOT NULL DEFAULT ''")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS rpc_usage_rollups (
+            day            TEXT NOT NULL,
+            endpoint       TEXT NOT NULL,
+            network        TEXT NOT NULL,
+            provider       TEXT NOT NULL,
+            method         TEXT NOT NULL,
+            status_bucket  TEXT NOT NULL,
+            latency_bucket TEXT NOT NULL,
+            count          INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (day, endpoint, network, provider, method, status_bucket, latency_bucket)
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_rpc_usage_day ON rpc_usage_rollups(day)")
     conn.commit()
     _CONN = conn
     return conn
@@ -241,6 +261,160 @@ def record_event(event: dict[str, Any]) -> None:
             ),
         )
         conn.commit()
+
+
+def _rpc_enabled() -> bool:
+    raw = os.getenv("RPC_USAGE_TELEMETRY_ENABLED", "true").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
+def _rpc_flush_interval_seconds() -> float:
+    raw = os.getenv("RPC_USAGE_FLUSH_INTERVAL_SECONDS", "30").strip() or "30"
+    try:
+        return max(float(raw), 1.0)
+    except ValueError:
+        return 30.0
+
+
+def _clean_rpc_field(value: str, fallback: str = "unknown") -> str:
+    value = str(value or "").strip()
+    return value if _RPC_FIELD_RE.match(value) else fallback
+
+
+def _rpc_day(ts: int | None = None) -> str:
+    return date.fromtimestamp(ts or int(time.time())).isoformat()
+
+
+def _start_rpc_flush_thread() -> None:
+    global _RPC_FLUSH_THREAD_STARTED
+    if _RPC_FLUSH_THREAD_STARTED:
+        return
+    _RPC_FLUSH_THREAD_STARTED = True
+
+    def _loop() -> None:
+        while True:
+            time.sleep(_rpc_flush_interval_seconds())
+            try:
+                flush_rpc_usage()
+            except Exception:
+                pass
+
+    thread = threading.Thread(target=_loop, name="rpc-usage-flush", daemon=True)
+    thread.start()
+
+
+def record_rpc_usage(
+    *,
+    endpoint: str,
+    network: str,
+    provider: str,
+    method: str,
+    status_bucket: str,
+    latency_bucket: str,
+    count: int = 1,
+) -> None:
+    """Record one aggregate RPC usage counter without touching SQLite.
+
+    The hot path only normalizes a few short identifiers and increments an
+    in-memory counter. A daemon thread flushes rollups to SQLite later.
+    """
+    if not _rpc_enabled():
+        return
+    try:
+        safe_count = max(int(count), 1)
+    except (TypeError, ValueError):
+        safe_count = 1
+    key = (
+        _rpc_day(),
+        _clean_rpc_field(endpoint),
+        _clean_rpc_field(network),
+        _clean_rpc_field(provider),
+        _clean_rpc_field(method),
+        _clean_rpc_field(status_bucket),
+        _clean_rpc_field(latency_bucket),
+    )
+    with _RPC_LOCK:
+        _RPC_PENDING[key] = _RPC_PENDING.get(key, 0) + safe_count
+    _start_rpc_flush_thread()
+
+
+def flush_rpc_usage() -> int:
+    """Flush pending RPC counters to SQLite rollups. Never called on hot path."""
+    with _RPC_LOCK:
+        if not _RPC_PENDING:
+            return 0
+        pending = dict(_RPC_PENDING)
+        _RPC_PENDING.clear()
+
+    try:
+        with _DB_LOCK:
+            conn = _connect()
+            conn.executemany(
+                """
+                INSERT INTO rpc_usage_rollups
+                    (day, endpoint, network, provider, method, status_bucket, latency_bucket, count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(day, endpoint, network, provider, method, status_bucket, latency_bucket)
+                DO UPDATE SET count = count + excluded.count
+                """,
+                [(*key, count) for key, count in pending.items()],
+            )
+            conn.commit()
+        return sum(pending.values())
+    except Exception:
+        with _RPC_LOCK:
+            for key, count in pending.items():
+                _RPC_PENDING[key] = _RPC_PENDING.get(key, 0) + count
+        return 0
+
+
+def rpc_usage_summary(window_days: int = 30) -> dict[str, Any]:
+    flush_rpc_usage()
+    since_day = date.fromtimestamp(int(time.time()) - window_days * 86400).isoformat()
+    with _DB_LOCK:
+        conn = _connect()
+
+        def _rows(column: str, limit: int = 20) -> list[dict[str, Any]]:
+            rows = conn.execute(
+                f"""
+                SELECT {column} AS k, SUM(count) AS calls
+                FROM rpc_usage_rollups
+                WHERE day >= ?
+                GROUP BY {column}
+                ORDER BY calls DESC
+                LIMIT ?
+                """,
+                (since_day, limit),
+            ).fetchall()
+            return [{"key": r[0], "calls": int(r[1] or 0)} for r in rows]
+
+        total_row = conn.execute(
+            "SELECT SUM(count) FROM rpc_usage_rollups WHERE day >= ?",
+            (since_day,),
+        ).fetchone()
+        total_calls = int(total_row[0] or 0) if total_row else 0
+        by_endpoint = _rows("endpoint")
+        by_network = _rows("network")
+        by_provider = _rows("provider")
+        by_method = _rows("method")
+        by_status = _rows("status_bucket")
+        by_latency = _rows("latency_bucket")
+
+    with _RPC_LOCK:
+        pending = sum(_RPC_PENDING.values())
+
+    return {
+        "ok": True,
+        "window_days": window_days,
+        "total_calls": total_calls,
+        "pending_flush": pending,
+        "by_endpoint": by_endpoint,
+        "by_network": by_network,
+        "by_provider": by_provider,
+        "by_method": by_method,
+        "by_status": by_status,
+        "by_latency": by_latency,
+    }
 
 
 def _downloads_end_date() -> str:
@@ -370,6 +544,13 @@ def summary(window_days: int = 30) -> dict[str, Any]:
         ok_calls = _scalar(
             "SELECT COUNT(*) FROM events WHERE received_ts >= ? AND ok = 1", (since,)
         )
+        by_event = _breakdown("event")
+        by_host = _breakdown("host")
+        by_tool = _breakdown("tool", non_empty=True)
+        by_backend = _breakdown("backend", non_empty=True)
+        by_version = _breakdown("plugin_version")
+        by_source = _breakdown("source", non_empty=True)
+        by_command = _breakdown("command", non_empty=True)
 
     success_rate = (ok_calls / total_events) if total_events else None
     return {
@@ -379,12 +560,13 @@ def summary(window_days: int = 30) -> dict[str, Any]:
         "active_installs": active_installs,
         "dau": dau,
         "success_rate": success_rate,
-        "by_event": _breakdown("event"),
-        "by_host": _breakdown("host"),
-        "by_tool": _breakdown("tool", non_empty=True),
-        "by_backend": _breakdown("backend", non_empty=True),
-        "by_version": _breakdown("plugin_version"),
-        "by_source": _breakdown("source", non_empty=True),
-        "by_command": _breakdown("command", non_empty=True),
+        "by_event": by_event,
+        "by_host": by_host,
+        "by_tool": by_tool,
+        "by_backend": by_backend,
+        "by_version": by_version,
+        "by_source": by_source,
+        "by_command": by_command,
         "npm_downloads": npm_downloads_summary(),
+        "rpc_usage": rpc_usage_summary(window_days),
     }

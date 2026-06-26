@@ -63,6 +63,14 @@ def main() -> None:
                 }
             )
             telemetry_store.record_event(install_event)
+            telemetry_store.record_rpc_usage(
+                endpoint="evm_rpc",
+                network="base",
+                provider="alchemy",
+                method="eth_chainId",
+                status_bucket="2xx",
+                latency_bucket="lt_100ms",
+            )
 
             stats = telemetry_store.summary(30)
             assert stats["ok"] is True
@@ -77,6 +85,9 @@ def main() -> None:
             assert stats["npm_downloads"]["ok"] is True
             assert stats["npm_downloads"]["all_time"] == 30
             assert stats["npm_downloads"]["last_30_days"] == 30
+            assert stats["rpc_usage"]["total_calls"] == 1
+            assert stats["rpc_usage"]["by_endpoint"] == [{"key": "evm_rpc", "calls": 1}]
+            assert stats["rpc_usage"]["by_method"] == [{"key": "eth_chainId", "calls": 1}]
 
         print("smoke_telemetry_stats: ok")
     finally:

@@ -84,6 +84,49 @@ def _json_error(message: str, status_code: int = 400, extra: dict[str, Any] | No
     return JSONResponse(payload, status_code=status_code)
 
 
+def _status_bucket(status_code: int) -> str:
+    if status_code < 300:
+        return "2xx"
+    if status_code < 400:
+        return "3xx"
+    if status_code < 500:
+        return "4xx"
+    return "5xx"
+
+
+def _latency_bucket(started: float) -> str:
+    elapsed_ms = max((time.monotonic() - started) * 1000, 0)
+    if elapsed_ms < 100:
+        return "lt_100ms"
+    if elapsed_ms < 500:
+        return "100_500ms"
+    if elapsed_ms < 2000:
+        return "500ms_2s"
+    return "gt_2s"
+
+
+def _record_rpc_usage(
+    *,
+    endpoint: str,
+    network: str,
+    provider: str,
+    method: str,
+    status_code: int,
+    started: float,
+) -> None:
+    try:
+        telemetry_store.record_rpc_usage(
+            endpoint=endpoint,
+            network=network,
+            provider=provider,
+            method=method,
+            status_bucket=_status_bucket(status_code),
+            latency_bucket=_latency_bucket(started),
+        )
+    except Exception:
+        pass
+
+
 def _require_bearer(request: Request) -> str | None:
     if not _bool_env("REQUIRE_BEARER_AUTH", False):
         return None
@@ -607,6 +650,7 @@ async def rpc_proxy(request: Request) -> JSONResponse:
     auth_error = _require_bearer(request)
     if auth_error:
         return _json_error(auth_error, 401)
+    started = time.monotonic()
 
     try:
         body = await request.json()
@@ -636,15 +680,41 @@ async def rpc_proxy(request: Request) -> JSONResponse:
     try:
         resolved_provider, rpc_url = _resolve_rpc_url(provider, network)
     except Exception as exc:
-        return _json_error(str(exc), 403 if "mainnet-only" in str(exc) else 500)
+        status_code = 403 if "mainnet-only" in str(exc) else 500
+        _record_rpc_usage(
+            endpoint="solana_rpc",
+            network=network,
+            provider=provider,
+            method=method,
+            status_code=status_code,
+            started=started,
+        )
+        return _json_error(str(exc), status_code)
 
     payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
 
     try:
         status_code, upstream = await _http_post(rpc_url, json_body=payload)
     except httpx.HTTPError as exc:
+        _record_rpc_usage(
+            endpoint="solana_rpc",
+            network=network,
+            provider=resolved_provider,
+            method=method,
+            status_code=502,
+            started=started,
+        )
         return _json_error(f"RPC upstream error: {exc}", 502)
 
+    response_status = 200 if status_code < 500 else 502
+    _record_rpc_usage(
+        endpoint="solana_rpc",
+        network=network,
+        provider=resolved_provider,
+        method=method,
+        status_code=response_status,
+        started=started,
+    )
     return JSONResponse(
         {
             "ok": status_code < 500,
@@ -652,7 +722,7 @@ async def rpc_proxy(request: Request) -> JSONResponse:
             "upstream_status": status_code,
             "rpc": upstream,
         },
-        status_code=200 if status_code < 500 else 502,
+        status_code=response_status,
     )
 
 
@@ -660,6 +730,7 @@ async def evm_rpc_proxy(request: Request) -> JSONResponse:
     auth_error = _require_machine_token(request)
     if auth_error:
         return _json_error(auth_error, 401)
+    started = time.monotonic()
 
     try:
         body = await request.json()
@@ -685,14 +756,40 @@ async def evm_rpc_proxy(request: Request) -> JSONResponse:
     try:
         resolved_provider, rpc_url = _resolve_evm_rpc_url(provider, network)
     except Exception as exc:
-        return _json_error(str(exc), 403 if "supports only" in str(exc) else 500)
+        status_code = 403 if "supports only" in str(exc) else 500
+        _record_rpc_usage(
+            endpoint="evm_rpc",
+            network=network,
+            provider=provider,
+            method=method,
+            status_code=status_code,
+            started=started,
+        )
+        return _json_error(str(exc), status_code)
 
     try:
         status_code, upstream = await _http_post(rpc_url, json_body=payload)
     except httpx.HTTPError as exc:
+        _record_rpc_usage(
+            endpoint="evm_rpc",
+            network=network,
+            provider=resolved_provider,
+            method=method,
+            status_code=502,
+            started=started,
+        )
         return _json_error(f"EVM RPC upstream error: {exc}", 502)
 
-    response = JSONResponse(upstream, status_code=200 if status_code < 500 else 502)
+    response_status = 200 if status_code < 500 else 502
+    _record_rpc_usage(
+        endpoint="evm_rpc",
+        network=network,
+        provider=resolved_provider,
+        method=method,
+        status_code=response_status,
+        started=started,
+    )
+    response = JSONResponse(upstream, status_code=response_status)
     response.headers["X-Provider-Gateway-Upstream"] = resolved_provider
     response.headers["X-Provider-Gateway-Network"] = network
     return response
