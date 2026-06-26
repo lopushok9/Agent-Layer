@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## v0.1.52 - 2026-06-26
+## v0.1.53 - 2026-06-26
 
 - Fixed Morpho vault and market quote (preview) requests timing out under the
   default 10 s HTTP budget. The Morpho SDK fetches vault state from
