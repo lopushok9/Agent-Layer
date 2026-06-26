@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+## v0.1.52 - 2026-06-26
+
+- Fixed Morpho vault and market quote (preview) requests timing out under the
+  default 10 s HTTP budget. The Morpho SDK fetches vault state from
+  `api.morpho.org/graphql` and runs on-chain simulation before returning a
+  quote, which regularly exceeds 10 s. Added all six quote paths
+  (`/v1/evm/morpho/vault/{supply,withdraw}/quote` and
+  `/v1/evm/morpho/market/{supply_collateral,borrow,repay,withdraw_collateral}/quote`)
+  to `LONG_RUNNING_POST_PATHS` so they share the 120 s budget already applied
+  to the corresponding send paths.
+  - `agent-wallet/agent_wallet/providers/wdk_evm_local.py`
+- Extended the high-trust autonomous permission mode beyond Base swaps and made
+  it a single combined permission group. `/agentlayer-autonomous-approve`
+  enables both Base Velora/Uniswap swaps and supported EVM DeFi write tools
+  (Aave, Morpho vault/market, and Lido staking/withdrawal) on Ethereum/Base;
+  `/agentlayer-autonomous-revoke` disables both together. Covered execute calls
+  use the same fresh-preview/internal-approval path while retaining exact
+  summary and quote-fingerprint binding. Transfers, bridges, Solana swaps, and
+  generic contract calls remain outside this standing permission.
+
 ## v0.1.47 - 2026-06-16
 
 - Fixed Solana swaps of Token-2022 tokens with complex extensions (e.g. Backpack
