@@ -86,35 +86,37 @@ openclaw plugins install clawhub:@agentlayertech/agent-wallet-plugin
 
 The ClawHub package does not replace the npm installer. `npx @agentlayer.tech/wallet install --yes` installs the local runtime, Python backend, and helper services. ClawHub only installs the OpenClaw plugin surface that points at that runtime.
 
-Or install the CLI globally:
+Or install the CLI globally for shorter commands:
 
 ```bash
 npm install -g @agentlayer.tech/wallet
 wallet install --yes
 ```
 
+> **Why install globally?** Without the global install, `wallet` is not in your `PATH` and commands like `wallet update --yes` return `zsh: command not found: wallet`. The global install adds the `wallet` binary once; after that all `wallet <cmd>` shortcuts work. If you skip the global install, prefix every command with `npx @agentlayer.tech/wallet` instead (see the Updating section below).
+
 The CLI uses a versioned runtime layout:
 
 ```bash
-~/.openclaw/agent-wallet-runtime/releases/<version>
-~/.openclaw/agent-wallet-runtime/current
+~/.openclaw/agent-wallet-runtime/releases/<version>   # immutable per-version snapshots
+~/.openclaw/agent-wallet-runtime/current              # symlink → active release
 ```
 
 On first install, `--yes` generates local runtime secrets. The installer stores `master_key` and `approval_secret` in `~/.openclaw/sealed_keys.json`; only the boot key needed to unlock that sealed bundle is written to the runtime `.env`.
 
-Useful npm CLI commands:
+Useful CLI commands (require the global install above):
 
 ```bash
-wallet status
-wallet doctor
-wallet hermes install --yes
-wallet codex install --yes
-wallet update --yes
-wallet update --yes --dry-run
-wallet rollback
+wallet status                    # show active runtime version and health
+wallet doctor                    # diagnose common config problems
+wallet update --yes              # upgrade to the latest published version
+wallet update --yes --dry-run    # preview the upgrade without applying it
+wallet rollback                  # revert to the previous release
+wallet hermes install --yes      # (re)connect Hermes to the current runtime
+wallet codex install --yes       # (re)connect Codex to the current runtime
 ```
 
-`wallet update --yes` delegates to the latest published npm package and reuses shared Python and Node dependency snapshots when possible. Use `wallet update --yes --dry-run` to inspect the target version and dependency plan before switching `current`.
+`wallet update --yes` fetches the latest npm package, installs it under `releases/<version>`, and flips the `current` symlink. Python and Node dependency snapshots are reused when the dependency fingerprint has not changed, so subsequent updates are fast. All frameworks that read from `current/` (Claude Code, Codex, Hermes) pick up the new code automatically on their next session start; OpenClaw requires a gateway restart to reload its TypeScript extension.
 
 ## Native OpenClaw plugin installs
 
