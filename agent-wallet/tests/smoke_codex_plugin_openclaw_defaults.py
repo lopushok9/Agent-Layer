@@ -91,6 +91,24 @@ def main() -> None:
         assert result["tool"] == "get_wallet_balance"
         assert result["backend"] == "solana_local"
 
+        overview = asyncio.run(module._handle_get_wallet_overview({"backend": "solana"}))
+        assert overview["tool"] == "get_wallet_balance"
+        assert overview["backend"] == "solana_local"
+        assert overview["arguments"] == {}
+        assert overview["requested_backend"] == "solana"
+        assert overview["requested_network"] == "mainnet"
+
+        base_overview = asyncio.run(module._handle_get_wallet_overview({"backend": "base"}))
+        assert base_overview["tool"] == "get_wallet_balance"
+        assert base_overview["backend"] == "wdk_evm_local"
+        assert base_overview["arguments"] == {}
+        assert base_overview["requested_backend"] == "evm"
+        assert base_overview["requested_network"] == "base"
+
+        base_switch = asyncio.run(module._handle_set_wallet_backend({"backend": "base"}))
+        assert base_switch["selected_backend"] == "wdk_evm_local"
+        assert base_switch["selected_network"] == "base"
+
     for name, value in previous_env.items():
         if value is None:
             os.environ.pop(name, None)

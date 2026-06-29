@@ -361,6 +361,15 @@ def _normalize_selectable_evm_network(value: Any) -> str:
     return network
 
 
+def _implied_evm_network_from_backend_alias(value: Any) -> str | None:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"base", "base-mainnet"}:
+        return "base"
+    if normalized in {"ethereum", "eth", "mainnet", "eth-mainnet"}:
+        return "ethereum"
+    return None
+
+
 def _normalize_solana_network(value: Any) -> str | None:
     network = str(value or "").strip().lower()
     if not network:
@@ -492,12 +501,17 @@ def _reject_secret_config_json(config: dict[str, Any]) -> None:
 
 
 def _base_config(args: dict[str, Any], *, tool_name: str = "") -> dict[str, Any]:
+    requested_backend = args.get("backend")
     backend = (
-        _normalize_wallet_backend(args.get("backend"))
-        if args.get("backend") is not None
+        _normalize_wallet_backend(requested_backend)
+        if requested_backend is not None
         else _active_backend_for_tool(tool_name)
     )
     config = _effective_config_for_backend(backend)
+    if backend == "wdk_evm_local":
+        implied_evm_network = _implied_evm_network_from_backend_alias(requested_backend)
+        if implied_evm_network and args.get("network") is None:
+            config["network"] = implied_evm_network
     if "config" in args:
         extra = args.get("config")
         if not isinstance(extra, dict):
@@ -808,6 +822,33 @@ def _sanitize_schema(schema: dict[str, Any]) -> dict[str, Any]:
 def _manual_tool_definitions() -> list[dict[str, Any]]:
     return [
         {
+            "name": "get_wallet_overview",
+            "description": (
+                "Get a one-off wallet overview for a requested backend/network without changing the "
+                "active Codex wallet session. Returns the same enriched balance payload used by "
+                "get_wallet_balance."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "backend": {
+                        "type": "string",
+                        "description": "solana, evm, base, ethereum, btc, or bitcoin.",
+                    },
+                    "network": {
+                        "type": "string",
+                        "description": "Optional network override. Use base or ethereum for EVM.",
+                    },
+                    "address": {
+                        "type": "string",
+                        "description": "Optional wallet address override.",
+                    },
+                },
+                "additionalProperties": False,
+            },
+            "read_only": True,
+        },
+        {
             "name": "get_active_wallet_backend",
             "description": (
                 "Show which wallet backend is active for this Codex MCP session and whether it "
@@ -909,7 +950,13 @@ async def _handle_set_wallet_backend(params: dict[str, Any]) -> dict[str, Any]:
     # globals after the validating wallet call succeeds, so a failed switch never
     # leaves a stale backend paired with a freshly mutated network selection.
     if backend == "wdk_evm_local":
-        implied = params.get("network") or selected_evm_network or _default_evm_network() or "ethereum"
+        implied = (
+            params.get("network")
+            or _implied_evm_network_from_backend_alias(requested)
+            or selected_evm_network
+            or _default_evm_network()
+            or "ethereum"
+        )
         resolved_network = _normalize_selectable_evm_network(implied)
     elif backend == "wdk_btc_local":
         resolved_network = _normalize_btc_network(
@@ -976,6 +1023,29 @@ async def _handle_set_evm_network(params: dict[str, Any]) -> dict[str, Any]:
         ),
         "data": payload.get("data", {}),
     }
+
+
+async def _handle_get_wallet_overview(params: dict[str, Any]) -> dict[str, Any]:
+    config = _base_config(params, tool_name="get_wallet_balance")
+    backend = _normalize_wallet_backend(config.get("backend"))
+
+    effective_params: dict[str, Any] = {}
+    if params.get("address") is not None:
+        effective_params["address"] = params.get("address")
+
+    payload = await asyncio.to_thread(_invoke_tool, "get_wallet_balance", effective_params, config)
+    if payload.get("ok") is False:
+        raise RuntimeError(str(payload.get("error") or "get_wallet_overview failed"))
+    data = payload.get("data", {})
+    if not isinstance(data, dict):
+        return {
+            "requested_backend": _backend_label(backend),
+            "requested_network": config.get("network"),
+            "data": data,
+        }
+    data.setdefault("requested_backend", _backend_label(backend))
+    data.setdefault("requested_network", config.get("network"))
+    return data
 
 
 def _invoke_wallet_tool_blocking(
@@ -1068,6 +1138,8 @@ def build_server():
 
     async def _dispatch(tool_name: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         params = params or {}
+        if tool_name == "get_wallet_overview":
+            return await _handle_get_wallet_overview(params)
         if tool_name == "get_active_wallet_backend":
             return await _handle_get_active_wallet_backend()
         if tool_name == "set_wallet_backend":
