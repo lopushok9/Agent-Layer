@@ -51,10 +51,11 @@ no-op once the backend is healthy.
 - `/wallet-setup` — install (or repair) the backend explicitly instead of
   waiting for the hook (requires `/reload-plugins` first so the command is
   registered).
-- `/wallet-sol` — switch the Claude Code wallet session to Solana and print the
-  current Solana wallet overview directly in chat.
-- `/wallet-evm` — switch the Claude Code wallet session to EVM and print the
-  wallet overview for the current/default EVM network directly in chat.
+- `/wallet-sol` — print the current Solana wallet overview directly in chat.
+- `/wallet-evm` — print the wallet overview for the current/default EVM network
+  directly in chat.
+- `/wallet-base` — print the Base EVM wallet overview directly in chat.
+- `/wallet-ethereum` — print the Ethereum EVM wallet overview directly in chat.
 - `/agentlayer-autonomous-approve` — enable high-trust autonomous Base swaps
   (`swap_evm_tokens` / `swap_evm_uniswap_tokens` on Base only) without
   per-transaction approvals. In Claude Code this command now asks for an
