@@ -1,6 +1,7 @@
 ---
 description: Disable AgentLayer autonomous Base swaps and EVM DeFi tools.
 allowed-tools: mcp__agent_wallet__agentlayer_autonomous_revoke, mcp__agent_wallet__agentlayer_autonomous_status
+disable-model-invocation: true
 ---
 
 Disable the full high-trust autonomous AgentLayer permission group.

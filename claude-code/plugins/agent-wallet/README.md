@@ -53,9 +53,10 @@ no-op once the backend is healthy.
   registered).
 - `/agentlayer-autonomous-approve` — enable high-trust autonomous Base swaps
   (`swap_evm_tokens` / `swap_evm_uniswap_tokens` on Base only) without
-  per-transaction approvals.
-- `/agentlayer-autonomous-revoke` — disable that autonomous Base swap
-  permission.
+  per-transaction approvals. In Claude Code this command now asks for an
+  explicit in-command confirmation before enabling the standing permission.
+- `/agentlayer-autonomous-revoke` — disable the combined autonomous permission
+  group for Base swaps and supported EVM DeFi tools.
 - `AGENT_WALLET_AUTO_BOOTSTRAP=0` — opt out of the auto-install: the
   `SessionStart` hook then only reminds you to run `/wallet-setup` instead of
   installing the backend itself.

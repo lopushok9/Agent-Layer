@@ -1,11 +1,24 @@
 ---
 description: Enable AgentLayer autonomous Base swaps and EVM DeFi tools without per-transaction approvals.
-allowed-tools: mcp__agent_wallet__agentlayer_autonomous_approve, mcp__agent_wallet__agentlayer_autonomous_status
+allowed-tools: AskUserQuestion, mcp__agent_wallet__agentlayer_autonomous_approve, mcp__agent_wallet__agentlayer_autonomous_status
+disable-model-invocation: true
 ---
 
 Enable the high-trust autonomous AgentLayer permission group.
 
-Call `agentlayer_autonomous_approve` with:
+First call `agentlayer_autonomous_status`.
+
+If both `base_swaps` and `defi_tools` are already enabled, report that the combined autonomous permission group is already active and remind the user that `/agentlayer-autonomous-revoke` disables it.
+
+Otherwise, use `AskUserQuestion` to confirm:
+
+- header: `Autonomy`
+- question: `Enable AgentLayer autonomous Base swaps and EVM DeFi tools without per-transaction approvals?`
+- options:
+  - `Enable` — `Turns on the combined autonomous permission group until revoked.`
+  - `Cancel` — `Leaves per-transaction approvals in place and does not change permissions.`
+
+Only if the user selects `Enable`, call `agentlayer_autonomous_approve` with:
 
 ```json
 {
@@ -16,6 +29,8 @@ Call `agentlayer_autonomous_approve` with:
 ```
 
 Then call `agentlayer_autonomous_status` and report whether both `base_swaps` and `defi_tools` are enabled.
+
+If the user selects `Cancel`, do not call any write tool. State that autonomous permissions were not changed.
 
 Be explicit in the response:
 
