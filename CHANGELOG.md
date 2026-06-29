@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## v0.1.54 - 2026-06-29
+
+- Fixed Claude Code autonomous-mode slash command activation so
+  `/agentlayer-autonomous-approve` no longer relies on the model treating the
+  slash invocation itself as sufficient consent. The command now uses an
+  explicit in-command confirmation step before enabling the standing
+  permission, and both autonomous toggle commands are marked manual-only in the
+  Claude Code command metadata.
+  - `claude-code/plugins/agent-wallet/commands/agentlayer-autonomous-approve.md`
+  - `claude-code/plugins/agent-wallet/commands/agentlayer-autonomous-revoke.md`
+  - `claude-code/plugins/agent-wallet/README.md`
+
 ## v0.1.53 - 2026-06-26
 
 - Fixed Morpho vault and market quote (preview) requests timing out under the
