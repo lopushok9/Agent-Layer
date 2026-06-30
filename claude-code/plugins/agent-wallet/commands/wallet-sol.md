@@ -1,17 +1,15 @@
 ---
-description: Show the connected Solana wallet overview directly in chat.
-allowed-tools: mcp__agent_wallet__get_wallet_overview
+description: Show the connected Solana wallet portfolio directly in chat.
+allowed-tools: mcp__agent_wallet__get_wallet_portfolio
 disable-model-invocation: true
 ---
 
-Show the connected Solana wallet overview directly in chat.
+Show the connected Solana wallet portfolio directly in chat.
 
-1. Call `get_wallet_overview` with:
+1. Call `get_wallet_portfolio` with:
 
 ```json
-{
-  "backend": "solana"
-}
+{}
 ```
 
 2. Format the response as a compact wallet report:
