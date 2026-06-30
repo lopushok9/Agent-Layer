@@ -123,6 +123,9 @@ def _apply_config_overrides(config: dict[str, Any]) -> None:
         if not allow_override and os.getenv(env_name, "").strip():
             continue
         os.environ[env_name] = text
+    from agent_wallet.config import reload_settings
+
+    reload_settings()
 
 
 def _load_json(raw: str | None, default: dict[str, Any] | None = None) -> dict[str, Any]:

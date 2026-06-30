@@ -74,6 +74,14 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
+def reload_settings() -> Settings:
+    """Reload settings from the current environment without changing object identity."""
+    refreshed = Settings()
+    for field_name in Settings.model_fields:
+        setattr(settings, field_name, getattr(refreshed, field_name))
+    return settings
+
+
 def normalize_solana_network(network: str | None) -> str:
     """Canonicalize supported Solana network names and reject test clusters."""
     normalized = str(network or "").strip().lower() or "mainnet"
