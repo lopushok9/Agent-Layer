@@ -10,9 +10,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agent_wallet.config import (  # noqa: E402
     DEFAULT_PROVIDER_GATEWAY_URL,
+    reload_settings,
     resolve_runtime_solana_rpc_config,
     resolve_runtime_solana_rpc_urls,
     resolve_runtime_solana_swap_config,
+    settings,
 )
 from agent_wallet.openclaw_cli import _apply_config_overrides  # noqa: E402
 from agent_wallet.wallet_layer.base import WalletBackendError  # noqa: E402
@@ -41,6 +43,7 @@ def main() -> None:
         "PROVIDER_GATEWAY_URL": os.environ.get("PROVIDER_GATEWAY_URL"),
         "PROVIDER_GATEWAY_RPC_PROVIDER": os.environ.get("PROVIDER_GATEWAY_RPC_PROVIDER"),
         "SOLANA_SWAP_PROVIDER": os.environ.get("SOLANA_SWAP_PROVIDER"),
+        "SOLANA_AGENT_KEYPAIR_PATH": os.environ.get("SOLANA_AGENT_KEYPAIR_PATH"),
     }
     try:
         os.environ["SOLANA_RPC_URLS"] = "https://alchemy.example,https://helius.example"
@@ -124,12 +127,14 @@ def main() -> None:
                 "providerGatewayUrl": "https://providers.from-plugin.example",
                 "providerGatewayRpcProvider": "shared",
                 "heliusApiKey": "plugin-helius-key",
+                "keypairPath": "/tmp/plugin-wallet.json",
             }
         )
         assert os.environ["SOLANA_RPC_PROVIDER_MODE"] == "shared_proxy"
         assert os.environ["PROVIDER_GATEWAY_URL"] == "https://providers.from-plugin.example"
         assert os.environ["PROVIDER_GATEWAY_RPC_PROVIDER"] == "shared"
         assert os.environ["HELIUS_API_KEY"] == "plugin-helius-key"
+        assert settings.solana_agent_keypair_path == "/tmp/plugin-wallet.json"
 
         os.environ.pop("HELIUS_API_KEY", None)
         os.environ["ALCHEMY_API_KEY"] = "test-alchemy-key"
@@ -159,7 +164,7 @@ def main() -> None:
 
         _assert_sol_network_rejected("testnet")
 
-        os.environ.pop("HELIUS_API_KEY", None)
+        os.environ["HELIUS_API_KEY"] = ""
         os.environ["SOLANA_RPC_PROVIDER_MODE"] = "shared_proxy"
         os.environ["PROVIDER_GATEWAY_URL"] = "https://providers.example"
         os.environ["PROVIDER_GATEWAY_RPC_PROVIDER"] = "helius"
@@ -217,6 +222,7 @@ def main() -> None:
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
+        reload_settings()
 
     print("smoke_runtime_rpc_config: ok")
 

@@ -87,6 +87,7 @@ def onboard_openclaw_user_wallet(
     *,
     backend: str | None = None,
     sign_only: bool | None = None,
+    read_only: bool = False,
     network: str | None = None,
     rpc_url: str | None = None,
     wdk_btc_service_url: str | None = None,
@@ -98,6 +99,9 @@ def onboard_openclaw_user_wallet(
 ) -> OpenClawWalletRuntimeContext:
     """Provision and assemble a runtime-ready wallet context for one OpenClaw user."""
     backend_name = str(backend or settings.agent_wallet_backend).strip().lower()
+    effective_sign_only = True if read_only else (
+        settings.agent_wallet_sign_only if sign_only is None else sign_only
+    )
     if backend_name in {"wdk_btc_local", "wdk-btc-local", "btc_local", "btc-local"}:
         service_url = str(wdk_btc_service_url or settings.wdk_btc_service_url).strip()
         account_index = (
@@ -133,7 +137,7 @@ def onboard_openclaw_user_wallet(
             wallet_id=wallet_id,
             network=effective_network,
             account_index=account_index,
-            sign_only=settings.agent_wallet_sign_only if sign_only is None else sign_only,
+            sign_only=effective_sign_only,
             address=str(address_payload.get("address") or "").strip() or None,
         )
         wallet_info = {
@@ -188,7 +192,7 @@ def onboard_openclaw_user_wallet(
             wallet_id=wallet_id,
             network=effective_network,
             account_index=account_index,
-            sign_only=settings.agent_wallet_sign_only if sign_only is None else sign_only,
+            sign_only=effective_sign_only,
             address=resolved_address or None,
         )
         wallet_info = {
@@ -213,7 +217,8 @@ def onboard_openclaw_user_wallet(
 
     backend, wallet_info, created_now = create_openclaw_solana_backend(
         user_id,
-        sign_only=sign_only,
+        sign_only=effective_sign_only,
+        read_only=read_only,
         network=network,
         rpc_url=rpc_url,
     )

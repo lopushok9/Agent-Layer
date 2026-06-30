@@ -33,6 +33,12 @@ def _parse_csv(value: Any) -> str:
 
 
 SECRET_CONFIG_KEYS = {"privateKey", "masterKey", "approvalSecret"}
+READ_ONLY_WORKER_TOOLS = frozenset(
+    {
+        "get_wallet_balance",
+        "get_wallet_portfolio",
+    }
+)
 
 
 def _reject_secret_config_json(config: dict[str, Any]) -> None:
@@ -117,6 +123,9 @@ def _apply_config_overrides(config: dict[str, Any]) -> None:
         if not allow_override and os.getenv(env_name, "").strip():
             continue
         os.environ[env_name] = text
+    from agent_wallet.config import reload_settings
+
+    reload_settings()
 
 
 def _load_json(raw: str | None, default: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -138,10 +147,23 @@ def _read_stdin_secret(field_name: str) -> str:
 async def _run_onboard(user_id: str, config: dict[str, Any]) -> dict[str, Any]:
     from agent_wallet.openclaw_runtime import onboard_openclaw_user_wallet
 
-    context = onboard_openclaw_user_wallet(
+    context = _build_runtime_context(user_id, config)
+    return context.serializable_bundle()
+
+
+def _build_runtime_context(
+    user_id: str,
+    config: dict[str, Any],
+    *,
+    read_only: bool = False,
+) -> Any:
+    from agent_wallet.openclaw_runtime import onboard_openclaw_user_wallet
+
+    return onboard_openclaw_user_wallet(
         user_id,
         backend=config.get("backend"),
         sign_only=config.get("signOnly"),
+        read_only=read_only,
         network=config.get("network"),
         rpc_url=config.get("rpcUrl"),
         wdk_btc_service_url=config.get("wdkBtcServiceUrl"),
@@ -151,7 +173,6 @@ async def _run_onboard(user_id: str, config: dict[str, Any]) -> dict[str, Any]:
         wdk_evm_wallet_id=config.get("wdkEvmWalletId"),
         wdk_evm_account_index=config.get("wdkEvmAccountIndex"),
     )
-    return context.serializable_bundle()
 
 
 async def _run_invoke(
@@ -160,21 +181,7 @@ async def _run_invoke(
     arguments: dict[str, Any],
     config: dict[str, Any],
 ) -> dict[str, Any]:
-    from agent_wallet.openclaw_runtime import onboard_openclaw_user_wallet
-
-    context = onboard_openclaw_user_wallet(
-        user_id,
-        backend=config.get("backend"),
-        sign_only=config.get("signOnly"),
-        network=config.get("network"),
-        rpc_url=config.get("rpcUrl"),
-        wdk_btc_service_url=config.get("wdkBtcServiceUrl"),
-        wdk_btc_wallet_id=config.get("wdkBtcWalletId"),
-        wdk_btc_account_index=config.get("wdkBtcAccountIndex"),
-        wdk_evm_service_url=config.get("wdkEvmServiceUrl"),
-        wdk_evm_wallet_id=config.get("wdkEvmWalletId"),
-        wdk_evm_account_index=config.get("wdkEvmAccountIndex"),
-    )
+    context = _build_runtime_context(user_id, config)
     result = await context.adapter.invoke(tool_name, arguments)
     return result.model_dump()
 
@@ -188,21 +195,7 @@ async def _run_issue_approval(
     mainnet_confirmed: bool = False,
     ttl_seconds: int | None = None,
 ) -> dict[str, Any]:
-    from agent_wallet.openclaw_runtime import onboard_openclaw_user_wallet
-
-    context = onboard_openclaw_user_wallet(
-        user_id,
-        backend=config.get("backend"),
-        sign_only=config.get("signOnly"),
-        network=config.get("network"),
-        rpc_url=config.get("rpcUrl"),
-        wdk_btc_service_url=config.get("wdkBtcServiceUrl"),
-        wdk_btc_wallet_id=config.get("wdkBtcWalletId"),
-        wdk_btc_account_index=config.get("wdkBtcAccountIndex"),
-        wdk_evm_service_url=config.get("wdkEvmServiceUrl"),
-        wdk_evm_wallet_id=config.get("wdkEvmWalletId"),
-        wdk_evm_account_index=config.get("wdkEvmAccountIndex"),
-    )
+    context = _build_runtime_context(user_id, config)
     token = context.issue_execute_approval(
         tool_name=tool_name,
         confirmation_summary=summary,
@@ -248,6 +241,69 @@ def _run_autonomous_permission(action: str, scope: str) -> dict[str, Any]:
             "data": autonomous_permissions.status(),
         }
     raise WalletBackendError("action must be approve, revoke, or status.")
+
+
+def _error_payload_for_exception(exc: Exception) -> dict[str, Any]:
+    payload: dict[str, Any] = {"ok": False, "error": str(exc)}
+    if isinstance(exc, WalletBackendError):
+        if exc.code:
+            payload["code"] = exc.code
+        if exc.details is not None:
+            payload["details"] = exc.details
+    return payload
+
+
+async def _run_read_worker_tool(context: Any, request: dict[str, Any]) -> dict[str, Any]:
+    tool_name = str(request.get("tool") or "").strip()
+    if tool_name not in READ_ONLY_WORKER_TOOLS:
+        raise WalletBackendError(
+            f"read-worker only allows read-only tools: {', '.join(sorted(READ_ONLY_WORKER_TOOLS))}."
+        )
+    arguments = request.get("arguments") or {}
+    if not isinstance(arguments, dict):
+        raise WalletBackendError("read-worker request arguments must be a JSON object.")
+    result = await context.adapter.invoke(tool_name, arguments)
+    return result.model_dump()
+
+
+async def _serve_read_worker(user_id: str, config: dict[str, Any]) -> int:
+    context = _build_runtime_context(user_id, config, read_only=True)
+    while True:
+        line = sys.stdin.readline()
+        if not line:
+            break
+        text = line.strip()
+        if not text:
+            continue
+        request_id: str | None = None
+        try:
+            request = _load_json(text)
+            request_id = str(request.get("id") or "").strip() or None
+            if request.get("op") == "shutdown":
+                print(json.dumps({"id": request_id, "ok": True, "stopped": True}), flush=True)
+                break
+            payload = await _run_read_worker_tool(context, request)
+            print(
+                json.dumps(
+                    {
+                        "id": request_id,
+                        "ok": True,
+                        "payload": payload,
+                    }
+                ),
+                flush=True,
+            )
+        except Exception as exc:
+            print(
+                json.dumps(
+                    {
+                        "id": request_id,
+                        **_error_payload_for_exception(exc),
+                    }
+                ),
+                flush=True,
+            )
+    return 0
 
 
 async def _run_btc_wallet_get(user_id: str, config: dict[str, Any]) -> dict[str, Any]:
@@ -522,6 +578,10 @@ def main() -> int:
     evm_lock_parser.add_argument("--user-id", required=True)
     evm_lock_parser.add_argument("--config-json", default="{}")
 
+    read_worker_parser = subparsers.add_parser("read-worker")
+    read_worker_parser.add_argument("--user-id", required=True)
+    read_worker_parser.add_argument("--config-json", default="{}")
+
     args = parser.parse_args()
 
     try:
@@ -643,6 +703,8 @@ def main() -> int:
             )
         elif args.command == "evm-wallet-lock":
             payload = asyncio.run(_run_evm_wallet_lock(args.user_id, config))
+        elif args.command == "read-worker":
+            return asyncio.run(_serve_read_worker(args.user_id, config))
         else:
             payload = asyncio.run(
                 _run_invoke(
@@ -662,13 +724,7 @@ def main() -> int:
                 backend=str(locals().get("config", {}).get("backend", "") or ""),
                 ok=False,
             )
-        error_payload: dict[str, Any] = {"ok": False, "error": str(exc)}
-        if isinstance(exc, WalletBackendError):
-            if exc.code:
-                error_payload["code"] = exc.code
-            if exc.details is not None:
-                error_payload["details"] = exc.details
-        print(json.dumps(error_payload), file=sys.stderr)
+        print(json.dumps(_error_payload_for_exception(exc)), file=sys.stderr)
         return 1
 
     if getattr(args, "command", "") == "invoke":

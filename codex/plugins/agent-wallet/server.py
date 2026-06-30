@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import atexit
 import asyncio
 import copy
 import base64
 import hashlib
 import json
 import os
+import selectors
 import subprocess
 import sys
 import threading
@@ -75,15 +77,21 @@ APPROVAL_CONTEXT_MISSING_MESSAGE = (
     "operation again, wait for explicit user confirmation, then retry execute. Do not ask the "
     "user for a manual approval token."
 )
+RESIDENT_READ_ONLY_TOOLS = {
+    "get_wallet_balance",
+    "get_wallet_portfolio",
+}
 
 selected_wallet_backend: str | None = None
 selected_solana_network: str | None = None
 selected_evm_network: str | None = None
 selected_btc_network: str | None = None
 approval_preview_cache: dict[str, dict[str, Any]] = {}
+resident_read_workers: dict[str, "_ResidentReadWorker"] = {}
 # Guards approval_preview_cache against races once wallet calls run concurrently
 # via asyncio.to_thread. Reentrant so prune helpers can be nested under writers.
 _approval_cache_lock = threading.RLock()
+_resident_worker_lock = threading.RLock()
 
 
 class WalletCliError(RuntimeError):
@@ -91,6 +99,10 @@ class WalletCliError(RuntimeError):
         super().__init__(message)
         self.code = code
         self.details = details or {}
+
+
+class ResidentReadWorkerTransportError(RuntimeError):
+    """Raised when the long-lived read worker transport fails."""
 
 
 def _plugin_root() -> Path:
@@ -625,6 +637,202 @@ def _invoke_tool(tool_name: str, arguments: dict[str, Any], config: dict[str, An
     )
 
 
+class _ResidentReadWorker:
+    def __init__(self, *, user_id: str, config: dict[str, Any]):
+        self.user_id = user_id
+        self.config = copy.deepcopy(config)
+        self.package_root = _resolve_package_root()
+        self._process: subprocess.Popen[str] | None = None
+        self._lock = threading.RLock()
+        self._request_id = 0
+        self._stderr_lines: list[str] = []
+        self._stderr_thread: threading.Thread | None = None
+
+    def _command(self) -> list[str]:
+        return [
+            _python_bin(self.package_root),
+            "-m",
+            "agent_wallet.openclaw_cli",
+            "read-worker",
+            "--user-id",
+            self.user_id,
+            "--config-json",
+            json.dumps(self.config),
+        ]
+
+    def _drain_stderr(self) -> None:
+        process = self._process
+        if process is None or process.stderr is None:
+            return
+        try:
+            for raw_line in process.stderr:
+                line = raw_line.strip()
+                if not line:
+                    continue
+                with self._lock:
+                    self._stderr_lines.append(line)
+                    if len(self._stderr_lines) > 20:
+                        self._stderr_lines = self._stderr_lines[-20:]
+        except Exception:
+            return
+
+    def _stderr_summary(self) -> str:
+        with self._lock:
+            if not self._stderr_lines:
+                return ""
+            return " | ".join(self._stderr_lines[-5:])
+
+    def _ensure_started(self) -> subprocess.Popen[str]:
+        with self._lock:
+            process = self._process
+            if process is not None and process.poll() is None:
+                return process
+            try:
+                process = subprocess.Popen(
+                    self._command(),
+                    cwd=str(self.package_root),
+                    env=_cli_env(self.package_root),
+                    text=True,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    bufsize=1,
+                )
+            except Exception as exc:
+                raise ResidentReadWorkerTransportError(
+                    f"Could not start resident read worker: {exc}"
+                ) from exc
+            self._process = process
+            self._stderr_lines = []
+            self._stderr_thread = threading.Thread(
+                target=self._drain_stderr,
+                name="agent-wallet-read-worker-stderr",
+                daemon=True,
+            )
+            self._stderr_thread.start()
+            return process
+
+    def close(self) -> None:
+        with self._lock:
+            process = self._process
+            self._process = None
+        if process is None:
+            return
+        try:
+            if process.poll() is None and process.stdin is not None:
+                process.stdin.write(json.dumps({"op": "shutdown"}) + "\n")
+                process.stdin.flush()
+        except Exception:
+            pass
+        try:
+            process.wait(timeout=1)
+        except Exception:
+            try:
+                process.terminate()
+                process.wait(timeout=1)
+            except Exception:
+                try:
+                    process.kill()
+                except Exception:
+                    pass
+
+    def invoke(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            process = self._ensure_started()
+            if process.stdin is None or process.stdout is None:
+                self.close()
+                raise ResidentReadWorkerTransportError("Resident read worker stdio is unavailable.")
+            self._request_id += 1
+            request_id = str(self._request_id)
+            request = {
+                "id": request_id,
+                "tool": tool_name,
+                "arguments": arguments,
+            }
+            try:
+                process.stdin.write(json.dumps(request) + "\n")
+                process.stdin.flush()
+            except Exception as exc:
+                self.close()
+                raise ResidentReadWorkerTransportError(
+                    f"Could not write to resident read worker: {exc}"
+                ) from exc
+
+            selector = selectors.DefaultSelector()
+            selector.register(process.stdout, selectors.EVENT_READ)
+            events = selector.select(timeout=_cli_timeout_seconds())
+            selector.close()
+            if not events:
+                self.close()
+                raise ResidentReadWorkerTransportError(
+                    f"Resident read worker timed out after {_cli_timeout_seconds():g}s."
+                )
+            response_line = process.stdout.readline()
+            if not response_line:
+                self.close()
+                stderr_summary = self._stderr_summary()
+                detail = f" Worker stderr: {stderr_summary}" if stderr_summary else ""
+                raise ResidentReadWorkerTransportError(
+                    "Resident read worker exited without a response." + detail
+                )
+            try:
+                response = json.loads(response_line)
+            except json.JSONDecodeError as exc:
+                self.close()
+                raise ResidentReadWorkerTransportError(
+                    f"Resident read worker returned invalid JSON: {exc}"
+                ) from exc
+            if str(response.get("id") or "") != request_id:
+                self.close()
+                raise ResidentReadWorkerTransportError(
+                    "Resident read worker response id did not match the request."
+                )
+            if response.get("ok") is False:
+                raise WalletCliError(
+                    str(response.get("error") or "resident read worker failed."),
+                    code=str(response.get("code") or ""),
+                    details=response.get("details")
+                    if isinstance(response.get("details"), dict)
+                    else {},
+                )
+            payload = response.get("payload")
+            if not isinstance(payload, dict):
+                raise ResidentReadWorkerTransportError(
+                    "Resident read worker returned a non-object payload."
+                )
+            return payload
+
+
+def _resident_worker_cache_key(user_id: str, config: dict[str, Any]) -> str:
+    return _canonical_json_text(
+        {
+            "user_id": user_id,
+            "config": config,
+        }
+    )
+
+
+def _resident_read_worker_for_config(user_id: str, config: dict[str, Any]) -> _ResidentReadWorker:
+    key = _resident_worker_cache_key(user_id, config)
+    with _resident_worker_lock:
+        worker = resident_read_workers.get(key)
+        if worker is None:
+            worker = _ResidentReadWorker(user_id=user_id, config=config)
+            resident_read_workers[key] = worker
+        return worker
+
+
+def _shutdown_resident_read_workers() -> None:
+    with _resident_worker_lock:
+        workers = list(resident_read_workers.values())
+        resident_read_workers.clear()
+    for worker in workers:
+        worker.close()
+
+
+atexit.register(_shutdown_resident_read_workers)
+
+
 def _issue_approval_token(
     tool_name: str,
     config: dict[str, Any],
@@ -652,6 +860,15 @@ def _issue_approval_token(
     if not token:
         raise RuntimeError(f"issue-approval did not return an approval_token for {tool_name}.")
     return token
+
+
+def _invoke_resident_read_tool(tool_name: str, arguments: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+    worker = _resident_read_worker_for_config(_user_id(), config)
+    try:
+        return worker.invoke(tool_name, arguments)
+    except ResidentReadWorkerTransportError:
+        worker.close()
+        raise
 
 
 def _is_solana_swap_intent_execute(params: dict[str, Any]) -> bool:
@@ -1033,7 +1250,9 @@ async def _handle_get_wallet_overview(params: dict[str, Any]) -> dict[str, Any]:
     if params.get("address") is not None:
         effective_params["address"] = params.get("address")
 
-    payload = await asyncio.to_thread(_invoke_tool, "get_wallet_balance", effective_params, config)
+    payload = await asyncio.to_thread(
+        _invoke_read_tool_blocking, "get_wallet_balance", effective_params, config
+    )
     if payload.get("ok") is False:
         raise RuntimeError(str(payload.get("error") or "get_wallet_overview failed"))
     data = payload.get("data", {})
@@ -1072,6 +1291,19 @@ def _invoke_wallet_tool_blocking(
     return payload
 
 
+def _invoke_read_tool_blocking(
+    tool_name: str,
+    effective_params: dict[str, Any],
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    if tool_name not in RESIDENT_READ_ONLY_TOOLS:
+        return _invoke_tool(tool_name, effective_params, config)
+    try:
+        return _invoke_resident_read_tool(tool_name, effective_params, config)
+    except ResidentReadWorkerTransportError:
+        return _invoke_tool(tool_name, effective_params, config)
+
+
 async def _handle_wallet_tool(tool_name: str, params: dict[str, Any]) -> dict[str, Any]:
     config = _base_config(params, tool_name=tool_name)
     backend = _normalize_wallet_backend(config.get("backend"))
@@ -1080,9 +1312,14 @@ async def _handle_wallet_tool(tool_name: str, params: dict[str, Any]) -> dict[st
         config["network"] = selected_evm_network
 
     effective_params = dict(params)
-    payload = await asyncio.to_thread(
-        _invoke_wallet_tool_blocking, tool_name, config, effective_params
-    )
+    if tool_name in RESIDENT_READ_ONLY_TOOLS:
+        payload = await asyncio.to_thread(
+            _invoke_read_tool_blocking, tool_name, effective_params, config
+        )
+    else:
+        payload = await asyncio.to_thread(
+            _invoke_wallet_tool_blocking, tool_name, config, effective_params
+        )
 
     if payload.get("ok") is False:
         raise RuntimeError(str(payload.get("error") or f"{tool_name} failed"))
