@@ -362,6 +362,7 @@ def create_openclaw_solana_backend(
     user_id: str,
     *,
     sign_only: bool | None = None,
+    read_only: bool = False,
     network: str | None = None,
     rpc_url: str | None = None,
 ) -> tuple[SolanaWalletBackend, dict[str, str], bool]:
@@ -396,6 +397,11 @@ def create_openclaw_solana_backend(
         raise WalletBackendError(
             "Configured Solana publicKey does not match the signer derived from keypairPath/runtime secret."
         )
+    effective_sign_only = True if read_only else (
+        settings.agent_wallet_sign_only if sign_only is None else sign_only
+    )
+    if read_only:
+        signer = None
 
     rpc_config = resolve_runtime_solana_rpc_config(
         effective_network,
@@ -411,7 +417,7 @@ def create_openclaw_solana_backend(
             network=effective_network,
             signer=signer,
             address=resolved_address or None,
-            sign_only=settings.agent_wallet_sign_only if sign_only is None else sign_only,
+            sign_only=effective_sign_only,
             rpc_provider_mode=str(rpc_config["mode"]),
             rpc_provider=str(rpc_config["provider"]),
             rpc_transport=str(rpc_config["transport"]),
@@ -429,11 +435,27 @@ def create_openclaw_solana_backend(
 
     wallet_path = resolve_user_wallet_path(user_id, network=effective_network)
     created_now = not wallet_path.exists()
+    wallet_info = ensure_user_solana_wallet(user_id, network=effective_network)
+    if read_only:
+        backend = SolanaWalletBackend(
+            rpc_url=rpc_config["rpc_urls"],
+            commitment=settings.solana_commitment,
+            network=effective_network,
+            signer=None,
+            address=wallet_info["address"] or None,
+            sign_only=effective_sign_only,
+            rpc_provider_mode=str(rpc_config["mode"]),
+            rpc_provider=str(rpc_config["provider"]),
+            rpc_transport=str(rpc_config["transport"]),
+            swap_provider=str(swap_config["provider"]),
+            swap_transport=str(swap_config["transport"]),
+        )
+        return backend, wallet_info, created_now
+
     backend = create_wallet_backend_for_user(
         user_id,
         sign_only=sign_only,
         network=effective_network,
         rpc_url=rpc_url,
     )
-    wallet_info = ensure_user_solana_wallet(user_id, network=effective_network)
     return backend, wallet_info, created_now
