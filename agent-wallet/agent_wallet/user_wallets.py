@@ -147,10 +147,31 @@ def _load_user_wallet_secret_material(
     )
 
 
-def ensure_user_solana_wallet(user_id: str, network: str | None = None) -> dict[str, str]:
+def ensure_user_solana_wallet(
+    user_id: str,
+    network: str | None = None,
+    *,
+    read_only: bool = False,
+) -> dict[str, str]:
     """Provision a per-user Solana wallet if it does not exist yet."""
     effective_network = _resolve_effective_network(network)
     path = resolve_user_wallet_path(user_id, network=effective_network)
+    if read_only and path.exists():
+        # Read-only callers only need the address. The pin file already stores
+        # it in plaintext, so skip decrypting the wallet secret material and
+        # deriving the signer entirely rather than paying for a KDF unseal +
+        # keypair derivation just to read (and immediately discard) a private
+        # key. Falls through to the full decrypt path below if no pin exists
+        # yet (e.g. a wallet file predating pin files).
+        pin = load_wallet_pin(path)
+        if pin is not None and pin["network"] == effective_network:
+            return {
+                "user_id": user_id,
+                "address": pin["address"],
+                "path": str(path),
+                "storage_format": "encrypted",
+                "key_scope": "pinned-address-only",
+            }
     if path.exists():
         secret_material, storage_format, key_scope = _load_user_wallet_secret_material(
             path,
@@ -435,7 +456,7 @@ def create_openclaw_solana_backend(
 
     wallet_path = resolve_user_wallet_path(user_id, network=effective_network)
     created_now = not wallet_path.exists()
-    wallet_info = ensure_user_solana_wallet(user_id, network=effective_network)
+    wallet_info = ensure_user_solana_wallet(user_id, network=effective_network, read_only=read_only)
     if read_only:
         backend = SolanaWalletBackend(
             rpc_url=rpc_config["rpc_urls"],
