@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+## v0.1.57 - 2026-07-01
+
+- Added a bundled Codex `wallet-sol` skill so Codex users can render the
+  connected Solana wallet portfolio in chat the same way Claude Code's
+  `/wallet-sol` command does.
+  - `codex/plugins/agent-wallet/skills/wallet-sol/SKILL.md`
+  - `codex/plugins/agent-wallet/README.md`
+- Fixed the resident read worker (used by `get_wallet_balance` /
+  `get_wallet_portfolio`, e.g. `/wallet-sol`) decrypting the wallet's private
+  key on every read-only cold start even though it never needed it. Read-only
+  onboarding now resolves the address from the existing plaintext wallet pin
+  file once a wallet has been provisioned, instead of unsealing secrets and
+  deriving a signer just to discard it.
+  - `agent-wallet/agent_wallet/user_wallets.py`
+- Reduced `/wallet-sol` context payload by dropping the unused raw Jupiter
+  price blob (`price_raw`) from portfolio token entries.
+  - `agent-wallet/agent_wallet/wallet_layer/solana.py`
+- Parallelized Jupiter price batch fetches in `get_portfolio` instead of
+  awaiting each 20-mint batch sequentially, speeding up portfolio lookups for
+  wallets with many SPL token accounts.
+  - `agent-wallet/agent_wallet/wallet_layer/solana.py`
+- Added a background prewarm of the resident read worker at MCP server
+  startup so interpreter boot and onboarding overlap with the user issuing
+  the first read-only command instead of blocking it. Opt out with
+  `AGENT_WALLET_PREWARM_READ_WORKER=0`.
+  - `codex/plugins/agent-wallet/server.py`
+- Added idle eviction for resident read workers left over from a stale
+  config (e.g. after switching Solana network or wallet backend), bounded by
+  `AGENT_WALLET_READ_WORKER_IDLE_SECONDS` (default 10 minutes), and closed
+  resident read workers on SIGTERM in addition to the existing `atexit`
+  cleanup, since Python does not run `atexit` hooks on signal termination.
+  - `codex/plugins/agent-wallet/server.py`
+
 ## v0.1.54 - 2026-06-29
 
 - Fixed Claude Code autonomous-mode slash command activation so
