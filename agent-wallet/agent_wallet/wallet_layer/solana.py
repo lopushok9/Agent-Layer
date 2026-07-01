@@ -385,7 +385,6 @@ class SolanaWalletBackend(AgentWalletBackend):
                     "price_usd": str(price) if price is not None else None,
                     "value_usd": _format_decimal(value),
                     "pricing_source": "jupiter-price" if price is not None else None,
-                    "price_raw": price_data_by_mint.get(mint),
                 }
             )
 
