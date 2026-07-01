@@ -647,6 +647,13 @@ class _ResidentReadWorker:
         self._request_id = 0
         self._stderr_lines: list[str] = []
         self._stderr_thread: threading.Thread | None = None
+        self._last_used = time.monotonic()
+
+    def touch(self) -> None:
+        self._last_used = time.monotonic()
+
+    def idle_seconds(self) -> float:
+        return time.monotonic() - self._last_used
 
     def _command(self) -> list[str]:
         return [
@@ -749,6 +756,7 @@ class _ResidentReadWorker:
 
     def invoke(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
+            self.touch()
             process = self._ensure_started()
             if process.stdin is None or process.stdout is None:
                 self.close()
@@ -823,8 +831,43 @@ def _resident_worker_cache_key(user_id: str, config: dict[str, Any]) -> str:
     )
 
 
+def _resident_worker_idle_seconds() -> float:
+    """Idle threshold (seconds) after which an unused resident worker for a
+    config that is no longer the active one gets reaped. Falls back to 10
+    minutes on bad values."""
+    raw = os.getenv("AGENT_WALLET_READ_WORKER_IDLE_SECONDS", "600")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return 600.0
+    return value if value > 0 else 600.0
+
+
+def _evict_idle_resident_read_workers(*, keep_key: str) -> None:
+    """Close resident workers other than `keep_key` that have been idle past
+    the configured threshold.
+
+    Each distinct (user_id, config) pair (e.g. switching Solana network or
+    wallet backend mid-session) keeps its own resident subprocess alive
+    indefinitely otherwise, since nothing previously evicted them. This
+    bounds that growth without adding a background timer thread: eviction
+    piggybacks on the next lookup instead.
+    """
+    idle_limit = _resident_worker_idle_seconds()
+    with _resident_worker_lock:
+        stale_keys = [
+            key
+            for key, worker in resident_read_workers.items()
+            if key != keep_key and worker.idle_seconds() > idle_limit
+        ]
+        stale_workers = [resident_read_workers.pop(key) for key in stale_keys]
+    for worker in stale_workers:
+        worker.close()
+
+
 def _resident_read_worker_for_config(user_id: str, config: dict[str, Any]) -> _ResidentReadWorker:
     key = _resident_worker_cache_key(user_id, config)
+    _evict_idle_resident_read_workers(keep_key=key)
     with _resident_worker_lock:
         worker = resident_read_workers.get(key)
         if worker is None:
