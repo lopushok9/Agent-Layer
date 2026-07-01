@@ -712,6 +712,17 @@ class _ResidentReadWorker:
             self._stderr_thread.start()
             return process
 
+    def warm(self) -> None:
+        """Spawn the worker eagerly, without waiting for a request/response.
+
+        Lets the interpreter boot, module imports, and read-only onboarding
+        happen off the critical path of the first real read-only tool call.
+        """
+        try:
+            self._ensure_started()
+        except ResidentReadWorkerTransportError:
+            pass
+
     def close(self) -> None:
         with self._lock:
             process = self._process
@@ -831,6 +842,35 @@ def _shutdown_resident_read_workers() -> None:
 
 
 atexit.register(_shutdown_resident_read_workers)
+
+
+def _prewarm_resident_read_worker() -> None:
+    """Best-effort background warm-up of the default resident read worker.
+
+    server.py is a persistent stdio MCP process kept alive for the whole
+    host session, but the resident worker itself only used to spawn lazily
+    on the first read-only tool call (get_wallet_balance /
+    get_wallet_portfolio, e.g. /wallet-sol), putting interpreter boot +
+    onboarding on the critical path of that first call. Kick it off in a
+    daemon thread instead so it overlaps with the user issuing the command.
+    Failures here are silently ignored: the lazy path in
+    _invoke_read_tool_blocking remains the source of truth and will retry.
+    """
+    if os.getenv("AGENT_WALLET_PREWARM_READ_WORKER", "1").strip().lower() in {"0", "false", "no"}:
+        return
+
+    def _run() -> None:
+        try:
+            config = _base_config({}, tool_name="get_wallet_portfolio")
+            _resident_read_worker_for_config(_user_id(), config).warm()
+        except Exception:
+            pass
+
+    threading.Thread(
+        target=_run,
+        name="agent-wallet-read-worker-prewarm",
+        daemon=True,
+    ).start()
 
 
 def _issue_approval_token(
@@ -1410,6 +1450,7 @@ def build_server():
 
 
 def main() -> None:
+    _prewarm_resident_read_worker()
     build_server().run(show_banner=False)
 
 
