@@ -24,11 +24,6 @@ Show the connected Solana wallet portfolio directly in chat.
   - usd value: `value_usd`, then `balance_usd`
 - omit zero-value rows only when both the amount and USD value are clearly zero
 - if no asset rows are available, still report the native balance summary in prose
+- do not include source metadata lines or footer fields such as `source`, `token_discovery_source`, `pricing_source`, or `pricing_errors`
 
-3. After the table, add one short metadata line with any available sources:
-
-- `source`
-- `token_discovery_source`
-- `pricing_source`
-
-4. Do not suggest transfers, swaps, or other write actions unless the user explicitly asks for them.
+3. Do not suggest transfers, swaps, or other write actions unless the user explicitly asks for them.

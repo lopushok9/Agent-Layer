@@ -23,5 +23,6 @@ Formatting rules:
 - For the asset type, use `asset_type` when present; otherwise infer `native` for the native asset and `token` for the rest.
 - For the amount, prefer `amount_ui`, then `balance_ui`, then `balance_native`, then `amount_raw`.
 - For the USD value, prefer `value_usd`, then `balance_usd`.
+- Do not include source metadata lines or extra footer fields such as `source`, `token_discovery_source`, `pricing_source`, or `pricing_errors`.
 - Keep the response concise. Do not add strategy suggestions, swap ideas, or write actions unless the user explicitly asks for them.
 - If the wallet tool fails, surface the tool error plainly and stop.
