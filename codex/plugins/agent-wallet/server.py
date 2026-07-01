@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import selectors
+import signal
 import subprocess
 import sys
 import threading
@@ -887,6 +888,32 @@ def _shutdown_resident_read_workers() -> None:
 atexit.register(_shutdown_resident_read_workers)
 
 
+def _handle_termination_signal(signum: int, frame: Any) -> None:
+    """Close resident read worker subprocesses on SIGTERM, then terminate
+    normally.
+
+    atexit handlers only run on normal interpreter shutdown; Python's
+    default SIGTERM disposition terminates the process immediately without
+    unwinding to atexit. Hosts that gracefully stop this MCP server (e.g.
+    closing a Claude Code / Codex session) send SIGTERM, so without this the
+    resident worker subprocesses leaked past every normal shutdown, not just
+    an abrupt kill -9. (SIGINT is not handled here: Python's default handler
+    raises KeyboardInterrupt, which unwinds to a normal interpreter
+    shutdown and already triggers the atexit hook above.)
+    """
+    _shutdown_resident_read_workers()
+    signal.signal(signum, signal.SIG_DFL)
+    os.kill(os.getpid(), signum)
+
+
+def _install_termination_signal_handlers() -> None:
+    try:
+        signal.signal(signal.SIGTERM, _handle_termination_signal)
+    except (ValueError, OSError):
+        # e.g. signal.signal() called outside the main thread.
+        pass
+
+
 def _prewarm_resident_read_worker() -> None:
     """Best-effort background warm-up of the default resident read worker.
 
@@ -1493,6 +1520,7 @@ def build_server():
 
 
 def main() -> None:
+    _install_termination_signal_handlers()
     _prewarm_resident_read_worker()
     build_server().run(show_banner=False)
 
