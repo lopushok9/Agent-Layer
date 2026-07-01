@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     jupiter_swap_v2_api_base_url: str = "https://api.jup.ag/swap/v2"
     jupiter_ultra_api_base_url: str = "https://lite-api.jup.ag/ultra/v1"
     jupiter_price_api_base_url: str = "https://lite-api.jup.ag/price/v3"
+    jupiter_token_search_api_base_url: str = "https://lite-api.jup.ag/tokens/v2"
     jupiter_api_key: str = ""
     lifi_api_base_url: str = "https://li.quest/v1"
     lifi_api_key: str = ""

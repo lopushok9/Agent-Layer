@@ -483,3 +483,37 @@ async def fetch_prices(
     if not isinstance(data, dict):
         raise ProviderError("jupiter", "Unexpected price response from Jupiter.")
     return data
+
+
+async def fetch_token_metadata(*, mints: list[str]) -> dict[str, dict[str, Any]]:
+    """Look up token symbol/name for a batch of mints via Jupiter's token
+    search API. Keyed by mint address; mints Jupiter doesn't index (very new
+    or illiquid tokens) are simply absent from the result rather than
+    raising, since this is display-only enrichment on top of the price data.
+    """
+    if not mints:
+        return {}
+    client = get_client()
+    params = {"query": ",".join(mints)}
+    response = await client.get(
+        f"{settings.jupiter_token_search_api_base_url.rstrip('/')}/search",
+        params=params,
+        headers=_headers(),
+    )
+    if response.status_code != 200:
+        raise ProviderError("jupiter", f"HTTP {response.status_code}: {response.text[:300]}")
+    data = response.json()
+    if not isinstance(data, list):
+        raise ProviderError("jupiter", "Unexpected token search response from Jupiter.")
+    result: dict[str, dict[str, Any]] = {}
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        mint = str(item.get("id") or "").strip()
+        if not mint:
+            continue
+        result[mint] = {
+            "symbol": item.get("symbol"),
+            "name": item.get("name"),
+        }
+    return result

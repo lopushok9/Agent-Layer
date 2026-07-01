@@ -19,7 +19,8 @@ Workflow:
 Formatting rules:
 
 - Use `assets` when present.
-- For the asset label, prefer `symbol`, then `mint`, then `token_address`, then `asset_type`.
+- For the asset label, prefer `symbol`, then `name`, then `mint`, then `token_address`, then `asset_type`.
+- When the label came from `symbol`/`name` (not the mint/token_address itself) and a `mint` or `token_address` is present, append it shortened in parentheses next to the label as `first6…last4` (e.g. `USDC (EPjFWd…TDt1v)`) — keep the contract visible but compact, never show it twice.
 - For the asset type, use `asset_type` when present; otherwise infer `native` for the native asset and `token` for the rest.
 - For the amount, prefer `amount_ui`, then `balance_ui`, then `balance_native`, then `amount_raw`.
 - For the USD value, prefer `value_usd`, then `balance_usd`.

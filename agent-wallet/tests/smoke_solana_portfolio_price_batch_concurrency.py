@@ -28,6 +28,7 @@ async def main() -> None:
     original_fetch_balance = solana_rpc.fetch_balance
     original_fetch_token_accounts = solana_rpc.fetch_token_accounts_by_owner
     original_fetch_prices = jupiter.fetch_prices
+    original_fetch_token_metadata = jupiter.fetch_token_metadata
 
     in_flight = 0
     max_in_flight = 0
@@ -89,9 +90,13 @@ async def main() -> None:
             async with lock:
                 in_flight -= 1
 
+    async def fake_fetch_token_metadata(*, mints):
+        return {}
+
     solana_rpc.fetch_balance = fake_fetch_balance
     solana_rpc.fetch_token_accounts_by_owner = fake_fetch_token_accounts_by_owner
     jupiter.fetch_prices = fake_fetch_prices
+    jupiter.fetch_token_metadata = fake_fetch_token_metadata
 
     try:
         backend = SolanaWalletBackend(
@@ -105,6 +110,7 @@ async def main() -> None:
         solana_rpc.fetch_balance = original_fetch_balance
         solana_rpc.fetch_token_accounts_by_owner = original_fetch_token_accounts
         jupiter.fetch_prices = original_fetch_prices
+        jupiter.fetch_token_metadata = original_fetch_token_metadata
 
     assert max_in_flight >= 2, "price batches did not run concurrently"
     assert len(overview["pricing_errors"]) == 1

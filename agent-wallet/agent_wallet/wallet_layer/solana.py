@@ -339,14 +339,20 @@ class SolanaWalletBackend(AgentWalletBackend):
 
         price_data_by_mint: dict[str, dict[str, Any]] = {}
         price_errors: list[str] = []
+        token_metadata_by_mint: dict[str, dict[str, Any]] = {}
+        token_metadata_errors: list[str] = []
         price_batches = [mints[index : index + 20] for index in range(0, len(mints), 20)]
         # Independent HTTP calls against a shared async client, so fetch every
-        # batch concurrently instead of paying N sequential round trips for
-        # wallets with many SPL token accounts.
-        batch_results = await asyncio.gather(
+        # price batch AND every token symbol/name lookup batch concurrently
+        # instead of paying sequential round trips for wallets with many SPL
+        # token accounts.
+        all_results = await asyncio.gather(
             *(jupiter.fetch_prices(mints=batch) for batch in price_batches),
+            *(jupiter.fetch_token_metadata(mints=batch) for batch in price_batches),
             return_exceptions=True,
         )
+        batch_results = all_results[: len(price_batches)]
+        metadata_batch_results = all_results[len(price_batches) :]
         for batch, result in zip(price_batches, batch_results):
             if isinstance(result, ProviderError):
                 price_errors.append(str(result))
@@ -357,6 +363,13 @@ class SolanaWalletBackend(AgentWalletBackend):
                 entry = _jupiter_price_entry(result, mint)
                 if entry is not None:
                     price_data_by_mint[mint] = entry
+        for result in metadata_batch_results:
+            if isinstance(result, ProviderError):
+                token_metadata_errors.append(str(result))
+                continue
+            if isinstance(result, BaseException):
+                raise result
+            token_metadata_by_mint.update(result)
 
         native_price = _jupiter_usd_price(price_data_by_mint.get(NATIVE_SOL_MINT))
         native_amount = _coerce_decimal(native_balance.get("balance_native"))
@@ -386,9 +399,12 @@ class SolanaWalletBackend(AgentWalletBackend):
             if value is not None:
                 total_value += value
                 priced_asset_count += 1
+            metadata = token_metadata_by_mint.get(mint) or {}
             enriched_tokens.append(
                 {
                     **token,
+                    "symbol": metadata.get("symbol"),
+                    "name": metadata.get("name"),
                     "price_usd": str(price) if price is not None else None,
                     "value_usd": _format_decimal(value),
                     "pricing_source": "jupiter-price" if price is not None else None,
@@ -416,6 +432,8 @@ class SolanaWalletBackend(AgentWalletBackend):
             {
                 "asset_type": "spl-token",
                 "mint": token.get("mint"),
+                "symbol": token.get("symbol"),
+                "name": token.get("name"),
                 "token_account": token.get("token_account"),
                 "amount_raw": token.get("amount_raw"),
                 "amount_ui": token.get("amount_ui"),
@@ -448,6 +466,8 @@ class SolanaWalletBackend(AgentWalletBackend):
             "total_value_usd": formatted_total_value,
             "pricing_source": "jupiter-price" if price_data_by_mint else None,
             "pricing_errors": price_errors,
+            "token_metadata_source": "jupiter-token-search" if token_metadata_by_mint else None,
+            "token_metadata_errors": token_metadata_errors,
             "token_discovery_source": "solana-rpc",
             "source": "solana-rpc+jupiter-price",
         }
