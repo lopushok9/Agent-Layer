@@ -13,13 +13,15 @@ def main() -> None:
     mcp_path = plugin_root / ".mcp.json"
     server_path = plugin_root / "server.py"
     script_path = plugin_root / "scripts" / "run_mcp.sh"
-    skill_path = plugin_root / "skills" / "wallet-operator" / "SKILL.md"
+    wallet_operator_path = plugin_root / "skills" / "wallet-operator" / "SKILL.md"
+    wallet_sol_path = plugin_root / "skills" / "wallet-sol" / "SKILL.md"
 
     assert manifest_path.exists(), "Codex plugin manifest is missing"
     assert mcp_path.exists(), "Codex plugin MCP config is missing"
     assert server_path.exists(), "Codex plugin server is missing"
     assert script_path.exists(), "Codex plugin launch script is missing"
-    assert skill_path.exists(), "Codex wallet operator skill is missing"
+    assert wallet_operator_path.exists(), "Codex wallet operator skill is missing"
+    assert wallet_sol_path.exists(), "Codex wallet-sol skill is missing"
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     mcp = json.loads(mcp_path.read_text(encoding="utf-8"))

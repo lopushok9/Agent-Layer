@@ -21,12 +21,21 @@ Primary design rules:
 - session wallet selection with `set_wallet_backend`
 - EVM network selection with `set_evm_network`
 - auto-managed approval binding for `preview -> execute` write flows
+- bundled Codex skills, including `wallet-sol` for showing the Solana wallet
+  portfolio directly in chat
 
 ## Runtime requirements
 
 - install the AgentLayer runtime first with `npx @agentlayer.tech/wallet install --yes`
 - keep the local wallet files and `~/.openclaw/sealed_keys.json` in place
 - use `wallet codex install --yes` to install this plugin into Codex
+
+## Bundled skill
+
+After `wallet codex install --yes` and a Codex restart, the plugin ships a
+bundled `wallet-sol` skill. In Codex you can invoke it from the slash menu or
+explicitly as `$wallet-sol` to render the connected Solana wallet portfolio as a
+compact chat table.
 
 ## Path resolution
 
