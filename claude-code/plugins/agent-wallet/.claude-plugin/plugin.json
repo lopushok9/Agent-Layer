@@ -1,7 +1,7 @@
 {
   "name": "agent-wallet",
   "displayName": "Agent Wallet",
-  "version": "0.1.57",
+  "version": "0.1.58",
   "description": "Claude Code bridge for the existing AgentLayer wallet runtime. Connects to Solana, Bitcoin, and EVM wallets without creating a new one.",
   "author": {
     "name": "AgentLayer"

@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## v0.1.58 - 2026-07-01
+
+- Resolved SPL token symbol/name in `get_wallet_portfolio` via a batched,
+  concurrent Jupiter token-search lookup, so `/wallet-sol` shows tickers
+  (e.g. `USDC`) instead of raw mint addresses. The mint/token_address is
+  still returned in full and rendered shortened next to the label rather
+  than dropped. Falls back gracefully (symbol=None) when a mint isn't
+  indexed or the lookup provider is unavailable.
+  - `agent-wallet/agent_wallet/providers/jupiter.py`
+  - `agent-wallet/agent_wallet/wallet_layer/solana.py`
+  - `claude-code/plugins/agent-wallet/commands/wallet-sol.md`
+  - `codex/plugins/agent-wallet/skills/wallet-sol/SKILL.md`
+- Dropped the `/wallet-sol` source-metadata footer line (`source`,
+  `token_discovery_source`, `pricing_source`, `pricing_errors`) from the
+  rendered chat output for a more compact report.
+  - `claude-code/plugins/agent-wallet/commands/wallet-sol.md`
+  - `codex/plugins/agent-wallet/skills/wallet-sol/SKILL.md`
+
 ## v0.1.57 - 2026-07-01
 
 - Added a bundled Codex `wallet-sol` skill so Codex users can render the
