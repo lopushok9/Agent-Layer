@@ -339,15 +339,22 @@ class SolanaWalletBackend(AgentWalletBackend):
 
         price_data_by_mint: dict[str, dict[str, Any]] = {}
         price_errors: list[str] = []
-        for index in range(0, len(mints), 20):
-            batch = mints[index : index + 20]
-            try:
-                price_data = await jupiter.fetch_prices(mints=batch)
-            except ProviderError as exc:
-                price_errors.append(str(exc))
+        price_batches = [mints[index : index + 20] for index in range(0, len(mints), 20)]
+        # Independent HTTP calls against a shared async client, so fetch every
+        # batch concurrently instead of paying N sequential round trips for
+        # wallets with many SPL token accounts.
+        batch_results = await asyncio.gather(
+            *(jupiter.fetch_prices(mints=batch) for batch in price_batches),
+            return_exceptions=True,
+        )
+        for batch, result in zip(price_batches, batch_results):
+            if isinstance(result, ProviderError):
+                price_errors.append(str(result))
                 continue
+            if isinstance(result, BaseException):
+                raise result
             for mint in batch:
-                entry = _jupiter_price_entry(price_data, mint)
+                entry = _jupiter_price_entry(result, mint)
                 if entry is not None:
                     price_data_by_mint[mint] = entry
 
