@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from agent_wallet.approval import issue_approval_token
+from agent_wallet.boot_key_migration import migrate_boot_key_to_keystore
 from agent_wallet.btc_user_wallets import get_user_btc_wallet_binding
 from agent_wallet.config import normalize_btc_network, normalize_evm_network, settings
 from agent_wallet.evm_user_wallets import ensure_user_evm_wallet_ready
@@ -18,6 +19,24 @@ from agent_wallet.user_wallets import create_openclaw_solana_backend
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendError
 from agent_wallet.wallet_layer.wdk_evm import WdkEvmLocalWalletBackend
 from agent_wallet.wallet_layer.wdk_btc import WdkBtcLocalWalletBackend
+
+_boot_key_migration_done = False
+
+
+def ensure_boot_key_migrated_once() -> None:
+    """Run the boot-key keystore migration at most once per process. Never raises.
+
+    Best-effort: a failure here must never block wallet onboarding — the legacy
+    plaintext sources still resolve via ``resolve_boot_key``.
+    """
+    global _boot_key_migration_done
+    if _boot_key_migration_done:
+        return
+    _boot_key_migration_done = True
+    try:
+        migrate_boot_key_to_keystore()
+    except Exception:
+        pass
 
 
 @dataclass(slots=True)
@@ -98,6 +117,7 @@ def onboard_openclaw_user_wallet(
     wdk_evm_account_index: int | None = None,
 ) -> OpenClawWalletRuntimeContext:
     """Provision and assemble a runtime-ready wallet context for one OpenClaw user."""
+    ensure_boot_key_migrated_once()
     backend_name = str(backend or settings.agent_wallet_backend).strip().lower()
     effective_sign_only = True if read_only else (
         settings.agent_wallet_sign_only if sign_only is None else sign_only
