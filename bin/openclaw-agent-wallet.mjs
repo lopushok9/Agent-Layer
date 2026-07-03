@@ -900,6 +900,58 @@ function ensureBootKeyFile(env = process.env) {
   return { path: keyFile, status: "created" };
 }
 
+// Read the boot key from the OS keystore via the current runtime's Python
+// (best-effort, "" on any failure). Lets a re-install after the runtime migration
+// — which moves the key into the keystore and deletes every plaintext copy — still
+// resolve the existing boot key instead of refusing to touch sealed secrets.
+function readBootKeyFromKeystore(env = process.env) {
+  const runtimeRoot = resolvedCurrentRuntimeRoot(env);
+  if (!runtimeRoot) return "";
+  const py = resolveVenvPython(runtimeRoot);
+  if (!py) return "";
+  try {
+    const res = spawnSync(
+      py,
+      ["-c", "from agent_wallet.config import read_boot_key_from_keystore as r; print(r())"],
+      {
+        cwd: path.join(runtimeRoot, "agent-wallet"),
+        encoding: "utf8",
+        env: { ...env, OPENCLAW_HOME: resolveOpenclawHome(env) },
+      },
+    );
+    if ((res.status ?? 1) !== 0) return "";
+    return String(res.stdout || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+// Provision the boot key into the OS keystore via the freshly installed runtime's
+// Python. Returns true only when the import stored AND verified the key, so the
+// caller may safely drop the plaintext .env copy. Best-effort: false on any failure
+// (e.g. no usable keystore), in which case the caller keeps the legacy .env write.
+function provisionBootKeyToKeystore(releaseRoot, env, bootKey) {
+  const key = String(bootKey || "").trim();
+  if (!key) return false;
+  const py = resolveVenvPython(releaseRoot);
+  if (!py) return false;
+  try {
+    const res = spawnSync(
+      py,
+      ["-m", "agent_wallet.openclaw_cli", "boot-key-import", "--key-stdin"],
+      {
+        cwd: path.join(releaseRoot, "agent-wallet"),
+        input: key,
+        encoding: "utf8",
+        env: { ...env, OPENCLAW_HOME: resolveOpenclawHome(env) },
+      },
+    );
+    return (res.status ?? 1) === 0;
+  } catch {
+    return false;
+  }
+}
+
 function resolveVenvPython(releaseRoot) {
   const candidates = [
     path.join(releaseRoot, "agent-wallet", ".venv", "bin", "python"),
@@ -1169,7 +1221,8 @@ function buildInstallerEnv(args) {
     const existingBootKey =
       resolveBootKeyFromFile(env) ||
       readTextIfExists(defaultBootKeyFile(env)).trim() ||
-      currentBootKey(env);
+      currentBootKey(env) ||
+      readBootKeyFromKeystore(env);
     if (existingBootKey) {
       env.AGENT_WALLET_BOOT_KEY = existingBootKey;
     }
@@ -1318,9 +1371,17 @@ function runInstall(args, { commandName = "install" } = {}) {
   }
 
   if (env.AGENT_WALLET_BOOT_KEY) {
-    envFileSet(path.join(releaseRoot, "agent-wallet", ".env"), {
-      AGENT_WALLET_BOOT_KEY: env.AGENT_WALLET_BOOT_KEY,
-    });
+    const envPath = path.join(releaseRoot, "agent-wallet", ".env");
+    // Prefer the OS keystore: provision the boot key there and keep the plaintext
+    // out of the release .env entirely. Only fall back to the legacy .env write when
+    // no keystore round-trip is possible, so the runtime can still resolve the key.
+    if (provisionBootKeyToKeystore(releaseRoot, env, env.AGENT_WALLET_BOOT_KEY)) {
+      envFileUnset(envPath, ["AGENT_WALLET_BOOT_KEY"]);
+    } else {
+      envFileSet(envPath, {
+        AGENT_WALLET_BOOT_KEY: env.AGENT_WALLET_BOOT_KEY,
+      });
+    }
   }
 
   const pythonInfo = activePythonRuntimeInfo(env);
