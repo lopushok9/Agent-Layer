@@ -13,6 +13,7 @@ BOOT_KEY_KEYCHAIN_ARCHITECTURE.md.
 
 from __future__ import annotations
 
+import os
 import platform
 import shutil
 import subprocess
@@ -27,6 +28,12 @@ BOOT_KEY_ITEM = "boot_key"
 
 _SECURITY_BIN = "/usr/bin/security"
 _SUBPROCESS_TIMEOUT = 10.0
+
+
+def _service() -> str:
+    """Keychain/Secret-Service service name. Overridable so tests never touch the
+    real shared slot (the OS keychain is global, not scoped to OPENCLAW_HOME)."""
+    return os.getenv("AGENT_WALLET_KEYSTORE_SERVICE", "").strip() or KEYSTORE_SERVICE
 
 
 class KeyStoreError(Exception):
@@ -61,7 +68,7 @@ class MacKeychainStore:
         return platform.system() == "Darwin" and Path(_SECURITY_BIN).exists()
 
     def get(self, name: str) -> str | None:
-        proc = _run([_SECURITY_BIN, "find-generic-password", "-s", KEYSTORE_SERVICE, "-a", name, "-w"])
+        proc = _run([_SECURITY_BIN, "find-generic-password", "-s", _service(), "-a", name, "-w"])
         if proc.returncode != 0:
             return None  # item not found (44) or other non-fatal lookup miss
         value = proc.stdout.rstrip("\n")
@@ -72,7 +79,7 @@ class MacKeychainStore:
         # so background reads via find-generic-password do not prompt.
         proc = _run([
             _SECURITY_BIN, "add-generic-password",
-            "-s", KEYSTORE_SERVICE, "-a", name,
+            "-s", _service(), "-a", name,
             "-w", value, "-U", "-T", _SECURITY_BIN,
         ])
         if proc.returncode != 0:
@@ -80,12 +87,12 @@ class MacKeychainStore:
         # Suppress the Sierra+ partition-list ACL prompt for non-interactive reads.
         _run([
             _SECURITY_BIN, "set-generic-password-partition-list",
-            "-s", KEYSTORE_SERVICE, "-a", name,
+            "-s", _service(), "-a", name,
             "-S", "unsigned:", "-k", "",
         ])
 
     def delete(self, name: str) -> None:
-        _run([_SECURITY_BIN, "delete-generic-password", "-s", KEYSTORE_SERVICE, "-a", name])
+        _run([_SECURITY_BIN, "delete-generic-password", "-s", _service(), "-a", name])
 
 
 class WindowsDpapiStore:
@@ -146,13 +153,13 @@ class LinuxSecretServiceStore:
         # A probe lookup succeeds (rc 0/1) only when a Secret Service answers;
         # a missing/unreachable service errors out (rc >1) or times out.
         try:
-            proc = _run(["secret-tool", "lookup", "service", KEYSTORE_SERVICE, "account", "__probe__"])
+            proc = _run(["secret-tool", "lookup", "service", _service(), "account", "__probe__"])
         except subprocess.TimeoutExpired:
             return False
         return proc.returncode in (0, 1)
 
     def get(self, name: str) -> str | None:
-        proc = _run(["secret-tool", "lookup", "service", KEYSTORE_SERVICE, "account", name])
+        proc = _run(["secret-tool", "lookup", "service", _service(), "account", name])
         if proc.returncode != 0:
             return None
         value = proc.stdout.rstrip("\n")
@@ -160,15 +167,15 @@ class LinuxSecretServiceStore:
 
     def set(self, name: str, value: str) -> None:
         proc = _run(
-            ["secret-tool", "store", "--label", f"{KEYSTORE_SERVICE} {name}",
-             "service", KEYSTORE_SERVICE, "account", name],
+            ["secret-tool", "store", "--label", f"{_service()} {name}",
+             "service", _service(), "account", name],
             input_text=value,
         )
         if proc.returncode != 0:
             raise KeyStoreError(f"secret-tool store failed: {proc.stderr.strip()}")
 
     def delete(self, name: str) -> None:
-        _run(["secret-tool", "clear", "service", KEYSTORE_SERVICE, "account", name])
+        _run(["secret-tool", "clear", "service", _service(), "account", name])
 
 
 class PlaintextFileStore:

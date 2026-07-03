@@ -19,6 +19,7 @@ def main() -> None:
     if temp_home.exists():
         shutil.rmtree(temp_home)
     os.environ["OPENCLAW_HOME"] = str(temp_home)
+    os.environ["AGENT_WALLET_KEYSTORE_SERVICE"] = "ai.agentlayer.wallet.smoketest"
 
     # PlaintextFileStore round-trips and is always available.
     store = PlaintextFileStore()

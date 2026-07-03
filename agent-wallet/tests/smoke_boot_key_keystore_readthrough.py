@@ -16,6 +16,7 @@ def main() -> None:
     if temp_home.exists():
         shutil.rmtree(temp_home)
     os.environ["OPENCLAW_HOME"] = str(temp_home)
+    os.environ["AGENT_WALLET_KEYSTORE_SERVICE"] = "ai.agentlayer.wallet.smoketest"
     for var in ("AGENT_WALLET_BOOT_KEY", "AGENT_WALLET_BOOT_KEY_FILE"):
         os.environ.pop(var, None)
 

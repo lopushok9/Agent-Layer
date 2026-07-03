@@ -35,37 +35,53 @@ def _read_legacy_boot_key() -> str:
     return ""
 
 
-def _strip_boot_key_line(env_path: Path) -> bool:
-    """Remove only the AGENT_WALLET_BOOT_KEY line; preserve all other vars.
+def _env_boot_key_value(line: str) -> str | None:
+    """Return the boot-key value on an AGENT_WALLET_BOOT_KEY= line, else None."""
+    stripped = line.strip()
+    if not stripped.startswith(_ENV_LINE_PREFIX):
+        return None
+    return stripped[len(_ENV_LINE_PREFIX):].strip().strip('"').strip("'")
 
-    Returns True if the file changed.
+
+def _strip_boot_key_line(env_path: Path, expected: str) -> bool:
+    """Remove only the AGENT_WALLET_BOOT_KEY line whose value == expected.
+
+    Preserve all other vars, and never strip a line carrying a *different* value
+    (that would signal a key mismatch a human should look at). Returns True if
+    the file changed.
     """
     try:
         lines = env_path.read_text(encoding="utf-8").splitlines()
     except OSError:
         return False
-    kept = [ln for ln in lines if not ln.strip().startswith(_ENV_LINE_PREFIX)]
+    kept = [ln for ln in lines if _env_boot_key_value(ln) != expected]
     if len(kept) == len(lines):
         return False
     atomic_write_text(env_path, ("\n".join(kept) + "\n") if kept else "", mode=0o600)
     return True
 
 
-def _sweep_plaintext(home: Path) -> tuple[int, bool]:
-    """Strip the boot-key line from every runtime .env; delete the shared boot-key file."""
+def _sweep_plaintext(home: Path, expected: str) -> tuple[int, bool]:
+    """Strip matching boot-key lines from every runtime .env; delete the boot-key file.
+
+    Idempotent and value-scoped: only plaintext equal to the authoritative
+    keystore key is removed, so re-running after a fresh installer write (which
+    re-emits the same key) cleans it up on the next start.
+    """
     runtime = home / "agent-wallet-runtime"
     swept = 0
     for env_path in runtime.glob("**/.env"):
         try:
-            if _strip_boot_key_line(env_path):
+            if _strip_boot_key_line(env_path, expected):
                 swept += 1
         except Exception:
             continue  # best-effort; re-runs next start
     removed = False
     boot_file = runtime / "boot-key"
     try:
-        boot_file.unlink()
-        removed = True
+        if boot_file.read_text(encoding="utf-8").strip() == expected:
+            boot_file.unlink()
+            removed = True
     except FileNotFoundError:
         pass
     except OSError:
@@ -74,20 +90,14 @@ def _sweep_plaintext(home: Path) -> tuple[int, bool]:
 
 
 def migrate_boot_key_to_keystore() -> dict:
-    """Move a legacy plaintext boot key into the keystore, verify, then sweep plaintext."""
+    """Move a legacy plaintext boot key into the keystore, verify, then sweep plaintext.
+
+    Runs on every startup (guarded once per process). When the keystore already
+    holds the key, it still re-sweeps any plaintext an installer re-emitted, so a
+    per-release .env write never re-establishes a permanent leak.
+    """
     store = resolve_keystore()
-
-    # Already migrated: keystore holds it and no plaintext file remains to sweep.
     home = resolve_openclaw_home()
-    boot_file = home / "agent-wallet-runtime" / "boot-key"
-    if read_boot_key_from_keystore() and not boot_file.exists():
-        return {"migrated": False, "backend": store.backend_id, "swept_env_files": 0,
-                "removed_boot_key_file": False, "reason": "already-migrated"}
-
-    legacy_key = _read_legacy_boot_key()
-    if not legacy_key:
-        return {"migrated": False, "backend": store.backend_id, "swept_env_files": 0,
-                "removed_boot_key_file": False, "reason": "no-legacy-key"}
 
     # Do not sweep into a plaintext fallback: that offers no at-rest improvement,
     # and the user explicitly chose to stay on the current file in that case.
@@ -95,17 +105,27 @@ def migrate_boot_key_to_keystore() -> dict:
         return {"migrated": False, "backend": store.backend_id, "swept_env_files": 0,
                 "removed_boot_key_file": False, "reason": "no-os-keystore"}
 
-    try:
-        store.set(BOOT_KEY_ITEM, legacy_key)
-    except Exception as exc:
-        return {"migrated": False, "backend": store.backend_id, "swept_env_files": 0,
-                "removed_boot_key_file": False, "reason": f"keystore-set-failed: {exc}"}
+    authoritative = read_boot_key_from_keystore()
+    first_time = False
+    if not authoritative:
+        legacy_key = _read_legacy_boot_key()
+        if not legacy_key:
+            return {"migrated": False, "backend": store.backend_id, "swept_env_files": 0,
+                    "removed_boot_key_file": False, "reason": "no-legacy-key"}
+        try:
+            store.set(BOOT_KEY_ITEM, legacy_key)
+        except Exception as exc:
+            return {"migrated": False, "backend": store.backend_id, "swept_env_files": 0,
+                    "removed_boot_key_file": False, "reason": f"keystore-set-failed: {exc}"}
+        # Verify-before-delete.
+        if read_boot_key_from_keystore() != legacy_key:
+            return {"migrated": False, "backend": store.backend_id, "swept_env_files": 0,
+                    "removed_boot_key_file": False, "reason": "verify-failed"}
+        authoritative = legacy_key
+        first_time = True
 
-    # Verify-before-delete.
-    if read_boot_key_from_keystore() != legacy_key:
-        return {"migrated": False, "backend": store.backend_id, "swept_env_files": 0,
-                "removed_boot_key_file": False, "reason": "verify-failed"}
-
-    swept, removed = _sweep_plaintext(home)
-    return {"migrated": True, "backend": store.backend_id, "swept_env_files": swept,
-            "removed_boot_key_file": removed, "reason": "ok"}
+    swept, removed = _sweep_plaintext(home, authoritative)
+    migrated = first_time or swept > 0 or removed
+    return {"migrated": migrated, "backend": store.backend_id, "swept_env_files": swept,
+            "removed_boot_key_file": removed,
+            "reason": "ok" if migrated else "already-clean"}

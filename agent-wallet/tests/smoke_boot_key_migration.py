@@ -16,6 +16,7 @@ def main() -> None:
     if temp_home.exists():
         shutil.rmtree(temp_home)
     os.environ["OPENCLAW_HOME"] = str(temp_home)
+    os.environ["AGENT_WALLET_KEYSTORE_SERVICE"] = "ai.agentlayer.wallet.smoketest"
     for var in ("AGENT_WALLET_BOOT_KEY", "AGENT_WALLET_BOOT_KEY_FILE"):
         os.environ.pop(var, None)
 
@@ -66,11 +67,32 @@ def main() -> None:
             assert "SOLANA_NETWORK=mainnet" in body
             assert "HTTP_TIMEOUT=10" in body
 
-        # Idempotent: a second run does nothing and does not error.
-        # (env file override is gone; keystore holds the key, boot-key file removed.)
+        # Idempotent: a second run with nothing left to sweep no-ops.
         os.environ.pop("AGENT_WALLET_BOOT_KEY_FILE", None)
         again = migrate_boot_key_to_keystore()
         assert again["migrated"] is False, again
+
+        # Treadmill guard: an installer re-emits the same key into a fresh .env.
+        # The next migration must re-sweep it (keystore already holds the key).
+        env_c = runtime / "releases" / "0.1.59" / "agent-wallet" / ".env"
+        env_c.parent.mkdir(parents=True, exist_ok=True)
+        env_c.write_text(
+            "SOLANA_NETWORK=mainnet\nAGENT_WALLET_BOOT_KEY=LIVE-BOOT-KEY\n",
+            encoding="utf-8",
+        )
+        reswept = migrate_boot_key_to_keystore()
+        assert reswept["migrated"] is True, reswept
+        assert reswept["swept_env_files"] == 1, reswept
+        assert "AGENT_WALLET_BOOT_KEY" not in env_c.read_text(encoding="utf-8")
+
+        # Safety: a DIFFERENT key value is left untouched (possible mismatch to
+        # surface to a human, not silently delete).
+        env_d = runtime / "releases" / "0.1.60" / "agent-wallet" / ".env"
+        env_d.parent.mkdir(parents=True, exist_ok=True)
+        env_d.write_text("AGENT_WALLET_BOOT_KEY=SOME-OTHER-KEY\n", encoding="utf-8")
+        guarded = migrate_boot_key_to_keystore()
+        assert guarded["swept_env_files"] == 0, guarded
+        assert "SOME-OTHER-KEY" in env_d.read_text(encoding="utf-8")
 
         print("smoke_boot_key_migration OK:", result["backend"])
     finally:
