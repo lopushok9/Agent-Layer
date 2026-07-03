@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "agent-layer": {
+      "source": "lopushok9/Agent-Layer",
+      "sourceType": "github",
+      "skillPath": "skills/agent-layer/SKILL.md",
+      "computedHash": "aaef10dba8f77d2a833678299f4d45039b643943c1855b0419bda039ae576bb3"
+    }
+  }
+}
