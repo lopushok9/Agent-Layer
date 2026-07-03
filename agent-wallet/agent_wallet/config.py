@@ -385,11 +385,31 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def read_boot_key_from_keystore() -> str:
+    """Read the boot key from the OS keystore. Never raises; '' on any failure."""
+    try:
+        from agent_wallet.keystore import BOOT_KEY_ITEM, resolve_keystore
+
+        value = resolve_keystore().get(BOOT_KEY_ITEM)
+        return value.strip() if isinstance(value, str) else ""
+    except Exception:
+        return ""
+
+
 def resolve_boot_key() -> str:
-    """Resolve the boot key used to unlock sealed secrets from disk."""
+    """Resolve the boot key used to unlock sealed secrets from disk.
+
+    Precedence (superset of the legacy lookup, so existing installs keep working):
+      1. AGENT_WALLET_BOOT_KEY env / settings override
+      2. OS keystore (the hardened path)
+      3. AGENT_WALLET_BOOT_KEY_FILE / boot-key file (legacy)
+    """
     direct = os.getenv("AGENT_WALLET_BOOT_KEY", settings.agent_wallet_boot_key).strip()
     if direct:
         return direct
+    from_keystore = read_boot_key_from_keystore()
+    if from_keystore:
+        return from_keystore
     key_file = os.getenv("AGENT_WALLET_BOOT_KEY_FILE", settings.agent_wallet_boot_key_file).strip()
     if not key_file:
         return ""
