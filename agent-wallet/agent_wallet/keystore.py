@@ -25,9 +25,11 @@ from agent_wallet.file_ops import atomic_write_text, chmod_if_exists
 
 KEYSTORE_SERVICE = "ai.agentlayer.wallet"
 BOOT_KEY_ITEM = "boot_key"
+_PROBE_ITEM = "__probe__"
 
 _SECURITY_BIN = "/usr/bin/security"
 _SUBPROCESS_TIMEOUT = 10.0
+_MACOS_PARTITION_LIST_TIMEOUT = 2.0
 
 
 def _service() -> str:
@@ -50,15 +52,39 @@ class KeyStore(Protocol):
     def delete(self, name: str) -> None: ...
 
 
-def _run(argv: list[str], *, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        argv,
-        input=input_text,
-        capture_output=True,
-        text=True,
-        timeout=_SUBPROCESS_TIMEOUT,
-        check=False,
-    )
+def _timeout_output(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode(errors="replace")
+    return value
+
+
+def _run(
+    argv: list[str],
+    *,
+    input_text: str | None = None,
+    timeout: float = _SUBPROCESS_TIMEOUT,
+) -> subprocess.CompletedProcess[str]:
+    kwargs: dict[str, object] = {
+        "capture_output": True,
+        "text": True,
+        "timeout": timeout,
+        "check": False,
+    }
+    if input_text is None:
+        kwargs["stdin"] = subprocess.DEVNULL
+    else:
+        kwargs["input"] = input_text
+    try:
+        return subprocess.run(argv, **kwargs)
+    except subprocess.TimeoutExpired as exc:
+        return subprocess.CompletedProcess(
+            argv,
+            124,
+            _timeout_output(exc.stdout),
+            _timeout_output(exc.stderr) or f"timed out after {timeout:g}s",
+        )
 
 
 class MacKeychainStore:
@@ -85,11 +111,14 @@ class MacKeychainStore:
         if proc.returncode != 0:
             raise KeyStoreError(f"security add-generic-password failed: {proc.stderr.strip()}")
         # Suppress the Sierra+ partition-list ACL prompt for non-interactive reads.
+        # This command can itself prompt/hang when an existing item has an old ACL,
+        # so it is intentionally best-effort and tightly bounded. The add/update
+        # above plus the read-back verification are the authoritative result.
         _run([
             _SECURITY_BIN, "set-generic-password-partition-list",
             "-s", _service(), "-a", name,
             "-S", "unsigned:", "-k", "",
-        ])
+        ], timeout=_MACOS_PARTITION_LIST_TIMEOUT)
 
     def delete(self, name: str) -> None:
         _run([_SECURITY_BIN, "delete-generic-password", "-s", _service(), "-a", name])
@@ -211,8 +240,34 @@ def resolve_keystore() -> KeyStore:
     """Return the first available OS-native backend, else the plaintext fallback."""
     for candidate in (MacKeychainStore(), WindowsDpapiStore(), LinuxSecretServiceStore()):
         try:
-            if candidate.available():
+            if candidate.available() and _backend_usable(candidate):
                 return candidate
         except Exception:
             continue
     return PlaintextFileStore()
+
+
+def _backend_usable(candidate: KeyStore) -> bool:
+    """Return true when a native backend can read the live key or write safely.
+
+    A desktop keystore binary can exist while the session cannot authorize
+    non-interactive writes. Treat that as unavailable so install/migration uses
+    the bounded fallback instead of hanging or repeatedly failing.
+    """
+    try:
+        if candidate.get(BOOT_KEY_ITEM):
+            return True
+    except Exception:
+        pass
+
+    probe_value = "ok"
+    try:
+        candidate.set(_PROBE_ITEM, probe_value)
+        return candidate.get(_PROBE_ITEM) == probe_value
+    except Exception:
+        return False
+    finally:
+        try:
+            candidate.delete(_PROBE_ITEM)
+        except Exception:
+            pass

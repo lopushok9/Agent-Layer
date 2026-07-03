@@ -23,6 +23,7 @@ const TELEMETRY_FLUSH_THROTTLE_SECONDS = 20;
 const TELEMETRY_FORCE_LINES = 25;
 const TELEMETRY_MAX_EVENTS_PER_FLUSH = 100;
 const TELEMETRY_HTTP_TIMEOUT_MS = 1500;
+const KEYSTORE_BRIDGE_TIMEOUT_MS = 30000;
 
 function printHelp() {
   console.log(`openclaw-agent-wallet
@@ -146,6 +147,11 @@ function telemetrySource(env = process.env) {
   return env.npm_execpath || String(env.npm_config_user_agent || "").includes("npm")
     ? "npx"
     : "global_cli";
+}
+
+function positiveIntEnv(name, fallback, env = process.env) {
+  const parsed = Number.parseInt(String(env[name] || ""), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function telemetryGatewayUrl(env = process.env) {
@@ -916,6 +922,7 @@ function readBootKeyFromKeystore(env = process.env) {
       {
         cwd: path.join(runtimeRoot, "agent-wallet"),
         encoding: "utf8",
+        timeout: positiveIntEnv("AGENT_WALLET_KEYSTORE_BRIDGE_TIMEOUT_MS", KEYSTORE_BRIDGE_TIMEOUT_MS, env),
         env: { ...env, OPENCLAW_HOME: resolveOpenclawHome(env) },
       },
     );
@@ -943,6 +950,7 @@ function provisionBootKeyToKeystore(releaseRoot, env, bootKey) {
         cwd: path.join(releaseRoot, "agent-wallet"),
         input: key,
         encoding: "utf8",
+        timeout: positiveIntEnv("AGENT_WALLET_KEYSTORE_BRIDGE_TIMEOUT_MS", KEYSTORE_BRIDGE_TIMEOUT_MS, env),
         env: { ...env, OPENCLAW_HOME: resolveOpenclawHome(env) },
       },
     );

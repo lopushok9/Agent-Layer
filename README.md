@@ -102,7 +102,7 @@ The CLI uses a versioned runtime layout:
 ~/.openclaw/agent-wallet-runtime/current              # symlink → active release
 ```
 
-On first install, `--yes` generates local runtime secrets. The installer stores `master_key` and `approval_secret` in `~/.openclaw/sealed_keys.json`; only the boot key needed to unlock that sealed bundle is written to the runtime `.env`.
+On first install, `--yes` generates local runtime secrets. The installer stores `master_key` and `approval_secret` in `~/.openclaw/sealed_keys.json`; the boot key needed to unlock that sealed bundle is provisioned into the OS keystore when a non-interactive keystore round-trip is available, with the legacy runtime `.env`/boot-key file used only as a fallback.
 
 Useful CLI commands (require the global install above):
 

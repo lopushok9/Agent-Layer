@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## v0.1.61 - 2026-07-04
+
+- Hardened boot-key installation and migration around desktop keystores:
+  - The npm installer provisions the boot key through the runtime Python
+    keystore bridge instead of unconditionally persisting it in the release
+    `.env`, while keeping a legacy `.env` fallback when no non-interactive
+    keystore round-trip is available.
+  - The Node keystore bridge is bounded by a timeout so a hung Python/keychain
+    operation cannot stall install or reinstall.
+  - macOS keychain writes now run with non-interactive stdin, convert timeouts
+    into failed command results, and make the problematic
+    `set-generic-password-partition-list` ACL update strictly best-effort.
+  - Keystore resolution now verifies that a native backend can read the live
+    boot key or complete a write/read/delete probe before selecting it, falling
+    back cleanly when the OS tool exists but cannot authorize writes.
+  - `agent-wallet/agent_wallet/keystore.py`
+  - `bin/openclaw-agent-wallet.mjs`
+  - `agent-wallet/tests/smoke_keystore.py`
+
 ## v0.1.58 - 2026-07-01
 
 - Resolved SPL token symbol/name in `get_wallet_portfolio` via a batched,
