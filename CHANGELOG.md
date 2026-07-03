@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## v0.1.62 - 2026-07-04
+
+- Made default boot-key storage prompt-free on macOS. The automatic keystore
+  selection no longer probes macOS Keychain because even a read/probe through
+  `/usr/bin/security` can open a GUI password dialog during install or session
+  startup. macOS Keychain remains available only through explicit opt-in with
+  `AGENT_WALLET_KEYSTORE_BACKEND=macos-keychain` (or `native`), while the
+  default path uses the local fallback without showing Keychain prompts.
+  - `agent-wallet/agent_wallet/keystore.py`
+  - `agent-wallet/tests/smoke_keystore.py`
+
 ## v0.1.61 - 2026-07-04
 
 - Hardened boot-key installation and migration around desktop keystores:

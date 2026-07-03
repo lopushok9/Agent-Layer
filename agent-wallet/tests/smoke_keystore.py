@@ -23,6 +23,7 @@ def main() -> None:
         shutil.rmtree(temp_home)
     os.environ["OPENCLAW_HOME"] = str(temp_home)
     os.environ["AGENT_WALLET_KEYSTORE_SERVICE"] = "ai.agentlayer.wallet.smoketest"
+    os.environ.pop("AGENT_WALLET_KEYSTORE_BACKEND", None)
 
     # PlaintextFileStore round-trips and is always available.
     store = PlaintextFileStore()
@@ -45,6 +46,36 @@ def main() -> None:
     assert resolved.get("boot_key") == "round-trip"
     resolved.delete("boot_key")
     assert resolved.get("boot_key") is None
+
+    original_macos_available = MacKeychainStore.available
+    try:
+        def fail_if_macos_probed(_self):
+            raise AssertionError("auto mode must not probe macOS Keychain")
+
+        MacKeychainStore.available = fail_if_macos_probed
+        os.environ.pop("AGENT_WALLET_KEYSTORE_BACKEND", None)
+        resolve_keystore()
+    finally:
+        MacKeychainStore.available = original_macos_available
+
+    original_macos_get = MacKeychainStore.get
+    original_macos_set = MacKeychainStore.set
+    original_macos_delete = MacKeychainStore.delete
+    try:
+        fake_store: dict[str, str] = {}
+
+        MacKeychainStore.available = lambda _self: True
+        MacKeychainStore.get = lambda _self, name: fake_store.get(name)
+        MacKeychainStore.set = lambda _self, name, value: fake_store.__setitem__(name, value)
+        MacKeychainStore.delete = lambda _self, name: fake_store.pop(name, None)
+        os.environ["AGENT_WALLET_KEYSTORE_BACKEND"] = "macos-keychain"
+        assert resolve_keystore().backend_id == "macos-keychain"
+    finally:
+        os.environ.pop("AGENT_WALLET_KEYSTORE_BACKEND", None)
+        MacKeychainStore.available = original_macos_available
+        MacKeychainStore.get = original_macos_get
+        MacKeychainStore.set = original_macos_set
+        MacKeychainStore.delete = original_macos_delete
 
     original_subprocess_run = keystore.subprocess.run
     try:

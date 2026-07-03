@@ -26,6 +26,7 @@ from agent_wallet.file_ops import atomic_write_text, chmod_if_exists
 KEYSTORE_SERVICE = "ai.agentlayer.wallet"
 BOOT_KEY_ITEM = "boot_key"
 _PROBE_ITEM = "__probe__"
+_KEYSTORE_BACKEND_ENV = "AGENT_WALLET_KEYSTORE_BACKEND"
 
 _SECURITY_BIN = "/usr/bin/security"
 _SUBPROCESS_TIMEOUT = 10.0
@@ -36,6 +37,17 @@ def _service() -> str:
     """Keychain/Secret-Service service name. Overridable so tests never touch the
     real shared slot (the OS keychain is global, not scoped to OPENCLAW_HOME)."""
     return os.getenv("AGENT_WALLET_KEYSTORE_SERVICE", "").strip() or KEYSTORE_SERVICE
+
+
+def _backend_preference() -> str:
+    """Selected keystore backend.
+
+    auto/default deliberately avoids macOS Keychain. Even a read/probe through
+    /usr/bin/security can open a GUI password prompt, which is unacceptable for
+    normal install/update/session startup. Users who explicitly want Keychain can
+    opt in with AGENT_WALLET_KEYSTORE_BACKEND=macos-keychain (or native).
+    """
+    return os.getenv(_KEYSTORE_BACKEND_ENV, "auto").strip().lower()
 
 
 class KeyStoreError(Exception):
@@ -238,7 +250,25 @@ class PlaintextFileStore:
 
 def resolve_keystore() -> KeyStore:
     """Return the first available OS-native backend, else the plaintext fallback."""
-    for candidate in (MacKeychainStore(), WindowsDpapiStore(), LinuxSecretServiceStore()):
+    preference = _backend_preference()
+    if preference in {"plain", "plaintext", "plaintext-file", "file"}:
+        return PlaintextFileStore()
+
+    candidates: list[KeyStore]
+    if preference in {"macos", "macos-keychain", "keychain"}:
+        candidates = [MacKeychainStore()]
+    elif preference in {"windows", "windows-dpapi", "dpapi"}:
+        candidates = [WindowsDpapiStore()]
+    elif preference in {"linux", "linux-secretservice", "secretservice"}:
+        candidates = [LinuxSecretServiceStore()]
+    elif preference == "native":
+        candidates = [MacKeychainStore(), WindowsDpapiStore(), LinuxSecretServiceStore()]
+    else:
+        # Auto mode must be prompt-free. macOS Keychain is opt-in because any
+        # security(1) lookup/probe can show a GUI password dialog.
+        candidates = [WindowsDpapiStore(), LinuxSecretServiceStore()]
+
+    for candidate in candidates:
         try:
             if candidate.available() and _backend_usable(candidate):
                 return candidate
