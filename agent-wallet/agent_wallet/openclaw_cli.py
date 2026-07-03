@@ -582,6 +582,15 @@ def main() -> int:
     read_worker_parser.add_argument("--user-id", required=True)
     read_worker_parser.add_argument("--config-json", default="{}")
 
+    subparsers.add_parser("boot-key-export")
+
+    boot_key_import_parser = subparsers.add_parser("boot-key-import")
+    boot_key_import_parser.add_argument(
+        "--key-stdin",
+        action="store_true",
+        help="Read the boot key to import from stdin.",
+    )
+
     args = parser.parse_args()
 
     try:
@@ -705,6 +714,17 @@ def main() -> int:
             payload = asyncio.run(_run_evm_wallet_lock(args.user_id, config))
         elif args.command == "read-worker":
             return asyncio.run(_serve_read_worker(args.user_id, config))
+        elif args.command == "boot-key-export":
+            from agent_wallet.boot_key_recovery import export_boot_key, export_warning
+
+            print(export_warning(), file=sys.stderr)
+            payload = {"boot_key": export_boot_key()}
+        elif args.command == "boot-key-import":
+            if not args.key_stdin:
+                raise WalletBackendError("boot-key-import requires --key-stdin.")
+            from agent_wallet.boot_key_recovery import import_boot_key
+
+            payload = import_boot_key(_read_stdin_secret("boot key"))
         else:
             payload = asyncio.run(
                 _run_invoke(
