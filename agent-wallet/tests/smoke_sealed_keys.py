@@ -28,6 +28,11 @@ def main() -> None:
         shutil.rmtree(temp_home)
 
     os.environ["OPENCLAW_HOME"] = str(temp_home)
+    # Force the plaintext keystore under the temp home so resolve_boot_key never
+    # reads the machine's real OS keychain slot (which is global, not scoped to
+    # OPENCLAW_HOME) — otherwise it would return the real boot key and fail to
+    # decrypt this test's file, which is sealed with the test key below.
+    os.environ["AGENT_WALLET_KEYSTORE_BACKEND"] = "plaintext"
     os.environ["AGENT_WALLET_BOOT_KEY"] = "test-boot-key-for-sealed-keys-smoke"
     os.environ.pop("AGENT_WALLET_MASTER_KEY", None)
     os.environ.pop("AGENT_WALLET_APPROVAL_SECRET", None)
