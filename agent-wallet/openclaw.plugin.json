@@ -119,7 +119,7 @@
       },
       "kaminoBaseUrl": {
         "type": "string",
-        "description": "Optional Kamino REST API base URL for lending reads and transaction building."
+        "description": "Optional Kamino REST API base URL for lending and Earn reads plus transaction building."
       },
       "kaminoProgramId": {
         "type": "string",

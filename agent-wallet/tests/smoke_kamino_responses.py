@@ -21,6 +21,9 @@ async def main() -> None:
     )
 
     original_fetch_markets = kamino.fetch_lend_markets
+    original_fetch_portfolio = kamino.fetch_portfolio
+    original_fetch_vaults = kamino.fetch_earn_vaults
+    original_fetch_earn_positions = kamino.fetch_earn_user_positions
     original_fetch_reserves = kamino.fetch_lend_market_reserves
     original_fetch_obligations = kamino.fetch_lend_user_obligations
     original_fetch_rewards = kamino.fetch_lend_user_rewards
@@ -32,6 +35,49 @@ async def main() -> None:
                     {
                         "lendingMarket": "7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF",
                         "name": "Main Market",
+                    }
+                ]
+            }
+
+        async def fake_fetch_portfolio(*, user: str) -> dict:
+            return {
+                "timestamp": "2026-07-04T00:00:00.000Z",
+                "sections": {
+                    "lending": {"indexed": True, "errors": []},
+                    "liquidity": {"indexed": True, "errors": []},
+                    "earn": {"indexed": True, "errors": []},
+                },
+                "lending": [{"market": "7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF"}],
+                "multiply": [],
+                "leverage": [],
+                "liquidity": [{"strategy": "FakeLiquidityStrategy1111111111111111111111111"}],
+                "earn": [{"vaultAddress": "HDsayqAsDWy3QvANGqh2yNraqcD8Fnjgh73Mhb3WRS5E"}],
+                "privateCredit": [],
+                "staking": [],
+            }
+
+        async def fake_fetch_vaults() -> dict:
+            return {
+                "vaults": [
+                    {
+                        "address": "HDsayqAsDWy3QvANGqh2yNraqcD8Fnjgh73Mhb3WRS5E",
+                        "state": {
+                            "name": "Fake SOL Earn",
+                            "tokenMint": "So11111111111111111111111111111111111111112",
+                        },
+                        "programId": "KvauGMspG5k6rtzrqqn7WNn3oZdyKqLKwK2XWQ8FLjd",
+                    }
+                ]
+            }
+
+        async def fake_fetch_earn_positions(*, user: str, network: str) -> dict:
+            return {
+                "positions": [
+                    {
+                        "vaultAddress": "HDsayqAsDWy3QvANGqh2yNraqcD8Fnjgh73Mhb3WRS5E",
+                        "stakedShares": "1.23",
+                        "unstakedShares": "4.56",
+                        "totalShares": "5.79",
                     }
                 ]
             }
@@ -90,6 +136,9 @@ async def main() -> None:
             }
 
         kamino.fetch_lend_markets = fake_fetch_markets
+        kamino.fetch_portfolio = fake_fetch_portfolio
+        kamino.fetch_earn_vaults = fake_fetch_vaults
+        kamino.fetch_earn_user_positions = fake_fetch_earn_positions
         kamino.fetch_lend_market_reserves = fake_fetch_reserves
         kamino.fetch_lend_user_obligations = fake_fetch_obligations
         kamino.fetch_lend_user_rewards = fake_fetch_rewards
@@ -104,6 +153,28 @@ async def main() -> None:
         )
         assert reserves["reserve_count"] == 1
         assert reserves["reserves"][0]["liquidityToken"] == "USDC"
+
+        portfolio = await backend.get_kamino_portfolio(
+            user="So11111111111111111111111111111111111111112"
+        )
+        assert portfolio["position_count"] == 3
+        assert portfolio["earn_count"] == 1
+
+        vaults = await backend.get_kamino_vaults()
+        assert vaults["vault_count"] == 1
+        assert vaults["vaults"][0]["state"]["name"] == "Fake SOL Earn"
+
+        earn_positions = await backend.get_kamino_earn_positions(
+            user="So11111111111111111111111111111111111111112"
+        )
+        assert earn_positions["position_count"] == 1
+        assert earn_positions["positions"][0]["totalShares"] == "5.79"
+
+        liquidity_positions = await backend.get_kamino_liquidity_positions(
+            user="So11111111111111111111111111111111111111112"
+        )
+        assert liquidity_positions["position_count"] == 1
+        assert liquidity_positions["positions"][0]["strategy"] == "FakeLiquidityStrategy1111111111111111111111111"
 
         obligations = await backend.get_kamino_lend_user_obligations(
             market="7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF",
@@ -127,6 +198,9 @@ async def main() -> None:
         assert positions["positions"][0]["loan_info"]["collateral"]["deposits"][0]["reserve_supply_apy"] == "0.05"
     finally:
         kamino.fetch_lend_markets = original_fetch_markets
+        kamino.fetch_portfolio = original_fetch_portfolio
+        kamino.fetch_earn_vaults = original_fetch_vaults
+        kamino.fetch_earn_user_positions = original_fetch_earn_positions
         kamino.fetch_lend_market_reserves = original_fetch_reserves
         kamino.fetch_lend_user_obligations = original_fetch_obligations
         kamino.fetch_lend_user_rewards = original_fetch_rewards

@@ -695,6 +695,100 @@ class FakeBackend(AgentWalletBackend):
             "source": "kamino+klend-loans",
         }
 
+    async def get_kamino_portfolio(self, user: str | None = None) -> dict:
+        owner = user or "Fake11111111111111111111111111111111111111111"
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "user": owner,
+            "timestamp": "2026-07-04T00:00:00.000Z",
+            "sections": {
+                "lending": {"indexed": True, "errors": []},
+                "multiply": {"indexed": True, "errors": []},
+                "leverage": {"indexed": True, "errors": []},
+                "liquidity": {"indexed": True, "errors": []},
+                "earn": {"indexed": True, "errors": []},
+                "staking": {"indexed": True, "errors": []},
+            },
+            "lending_count": 1,
+            "multiply_count": 0,
+            "leverage_count": 0,
+            "liquidity_count": 1,
+            "earn_count": 1,
+            "private_credit_count": 0,
+            "staking_count": 0,
+            "position_count": 3,
+            "lending": [{"market": "FakeKaminoMarket111111111111111111111111111111"}],
+            "multiply": [],
+            "leverage": [],
+            "liquidity": [{"strategy": "FakeLiquidityStrategy1111111111111111111111111", "shares": "12.34"}],
+            "earn": [{"vaultAddress": "FakeKaminoVault11111111111111111111111111111", "totalShares": "9.87"}],
+            "private_credit": [],
+            "staking": [],
+            "raw": {"liquidity": [{"strategy": "FakeLiquidityStrategy1111111111111111111111111"}]},
+            "source": "kamino",
+        }
+
+    async def get_kamino_vaults(self) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "vault_count": 1,
+            "vaults": [
+                {
+                    "address": "FakeKaminoVault11111111111111111111111111111",
+                    "programId": "KvauGMspG5k6rtzrqqn7WNn3oZdyKqLKwK2XWQ8FLjd",
+                    "state": {
+                        "name": "Fake SOL Earn",
+                        "tokenMint": "So11111111111111111111111111111111111111112",
+                    },
+                }
+            ],
+            "raw": {"vaults": [{"address": "FakeKaminoVault11111111111111111111111111111"}]},
+            "source": "kamino",
+        }
+
+    async def get_kamino_earn_positions(self, user: str | None = None) -> dict:
+        owner = user or "Fake11111111111111111111111111111111111111111"
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "user": owner,
+            "position_count": 1,
+            "positions": [
+                {
+                    "vaultAddress": "FakeKaminoVault11111111111111111111111111111",
+                    "stakedShares": "4.00",
+                    "unstakedShares": "5.87",
+                    "totalShares": "9.87",
+                }
+            ],
+            "raw": {"positions": [{"vaultAddress": "FakeKaminoVault11111111111111111111111111111"}]},
+            "source": "kamino",
+        }
+
+    async def get_kamino_liquidity_positions(self, user: str | None = None) -> dict:
+        owner = user or "Fake11111111111111111111111111111111111111111"
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "user": owner,
+            "timestamp": "2026-07-04T00:00:00.000Z",
+            "positions_indexed": True,
+            "positions_refreshed_on": "2026-07-04T00:00:00.000Z",
+            "prices_refreshed_on": "2026-07-04T00:00:00.000Z",
+            "errors": [],
+            "position_count": 1,
+            "positions": [
+                {
+                    "strategy": "FakeLiquidityStrategy1111111111111111111111111",
+                    "shares": "12.34",
+                }
+            ],
+            "raw": {"liquidity": [{"strategy": "FakeLiquidityStrategy1111111111111111111111111"}]},
+            "source": "kamino+portfolio",
+        }
+
     def get_capabilities(self) -> WalletCapabilities:
         return WalletCapabilities(
             backend=self.name,
@@ -1569,6 +1663,100 @@ class FakeBackend(AgentWalletBackend):
             "source": "kamino",
         }
 
+    async def preview_kamino_earn_deposit(
+        self,
+        kvault: str,
+        amount_ui: str,
+    ) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "preview",
+            "asset_type": "kamino-earn-deposit",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "kvault": kvault,
+            "amount_ui": amount_ui,
+            "vault_info": {
+                "address": kvault,
+                "state": {"name": "Fake SOL Earn", "tokenMint": "So11111111111111111111111111111111111111112"},
+            },
+            "sign_only": False,
+            "can_send": True,
+            "source": "kamino",
+        }
+
+    async def execute_kamino_earn_deposit(
+        self,
+        kvault: str,
+        amount_ui: str,
+        approved_preview: dict | None = None,
+    ) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "execute",
+            "asset_type": "kamino-earn-deposit",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "kvault": kvault,
+            "amount_ui": amount_ui,
+            "signature": "fake-kamino-earn-deposit-signature",
+            "broadcasted": True,
+            "confirmed": True,
+            "confirmation_status": "confirmed",
+            "slot": 1410,
+            "sign_only": False,
+            "source": "kamino",
+        }
+
+    async def preview_kamino_earn_withdraw(
+        self,
+        kvault: str,
+        amount_ui: str,
+    ) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "preview",
+            "asset_type": "kamino-earn-withdraw",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "kvault": kvault,
+            "amount_ui": amount_ui,
+            "vault_info": {
+                "address": kvault,
+                "state": {"name": "Fake SOL Earn", "tokenMint": "So11111111111111111111111111111111111111112"},
+            },
+            "position_info": {
+                "vaultAddress": kvault,
+                "totalShares": "9.87",
+            },
+            "sign_only": False,
+            "can_send": True,
+            "source": "kamino",
+        }
+
+    async def execute_kamino_earn_withdraw(
+        self,
+        kvault: str,
+        amount_ui: str,
+        approved_preview: dict | None = None,
+    ) -> dict:
+        return {
+            "chain": "solana",
+            "network": "mainnet",
+            "mode": "execute",
+            "asset_type": "kamino-earn-withdraw",
+            "owner": "Fake11111111111111111111111111111111111111111",
+            "kvault": kvault,
+            "amount_ui": amount_ui,
+            "signature": "fake-kamino-earn-withdraw-signature",
+            "broadcasted": True,
+            "confirmed": True,
+            "confirmation_status": "confirmed",
+            "slot": 1411,
+            "sign_only": False,
+            "source": "kamino",
+        }
+
     async def request_testnet_airdrop(self, amount_native: float) -> dict:
         return {
             "chain": "solana",
@@ -1923,9 +2111,9 @@ async def main() -> None:
     tool_names = {tool.name for tool in adapter.list_tools()}
     bundle_tool_names = {tool["name"] for tool in bundle["tools"]}
 
-    assert len(tool_names) == 37
+    assert len(tool_names) == 49
     assert bundle["manifest"]["id"] == "agent-wallet"
-    assert len(bundle_tool_names) == 37
+    assert len(bundle_tool_names) == 49
     assert "Wallet Operator" in bundle["instructions"]
     assert "get_lifi_supported_chains" in tool_names
     assert "get_lifi_quote" in tool_names
@@ -1944,14 +2132,22 @@ async def main() -> None:
     assert "flash_trade_open_position" in tool_names
     assert "flash_trade_close_position" in tool_names
     assert "get_kamino_lend_markets" in tool_names
+    assert "get_kamino_portfolio" in tool_names
+    assert "get_kamino_vaults" in tool_names
+    assert "get_kamino_earn_positions" in tool_names
+    assert "get_kamino_liquidity_positions" in tool_names
     assert "get_kamino_open_positions" in tool_names
     assert "kamino_lend_deposit" in tool_names
     assert "kamino_lend_borrow" in tool_names
+    assert "kamino_earn_deposit" in tool_names
+    assert "kamino_earn_withdraw" in tool_names
     assert "launch_bags_token" in tool_names
     assert "get_jupiter_portfolio" not in bundle_tool_names
     assert "jupiter_earn_deposit" not in bundle_tool_names
     assert "kamino_lend_deposit" in bundle_tool_names
+    assert "kamino_earn_deposit" in bundle_tool_names
     assert "get_kamino_open_positions" in bundle_tool_names
+    assert "get_kamino_portfolio" in bundle_tool_names
     assert "launch_bags_token" in bundle_tool_names
     assert "get_flash_trade_markets" in bundle_tool_names
     assert "get_flash_trade_positions" in bundle_tool_names
@@ -2115,6 +2311,18 @@ async def main() -> None:
 
     kamino_markets = await adapter.invoke("get_kamino_lend_markets")
     assert kamino_markets.ok and kamino_markets.data["market_count"] == 1
+
+    kamino_portfolio = await adapter.invoke("get_kamino_portfolio")
+    assert kamino_portfolio.ok and kamino_portfolio.data["position_count"] == 3
+
+    kamino_vaults = await adapter.invoke("get_kamino_vaults")
+    assert kamino_vaults.ok and kamino_vaults.data["vault_count"] == 1
+
+    kamino_earn_positions = await adapter.invoke("get_kamino_earn_positions")
+    assert kamino_earn_positions.ok and kamino_earn_positions.data["position_count"] == 1
+
+    kamino_liquidity_positions = await adapter.invoke("get_kamino_liquidity_positions")
+    assert kamino_liquidity_positions.ok and kamino_liquidity_positions.data["position_count"] == 1
 
     kamino_reserves = await adapter.invoke(
         "get_kamino_lend_market_reserves",
@@ -2323,6 +2531,106 @@ async def main() -> None:
         },
     )
     assert kamino_intent_mismatch.ok is False
+
+    kamino_earn_preview = await adapter.invoke(
+        "kamino_earn_deposit",
+        {
+            "kvault": "FakeKaminoVault11111111111111111111111111111",
+            "amount_ui": "2.50",
+            "mode": "preview",
+            "purpose": "test kamino earn deposit preview",
+        },
+    )
+    assert kamino_earn_preview.ok and kamino_earn_preview.data["mode"] == "preview"
+    assert kamino_earn_preview.data["confirmation_summary"]["operation"] == "Kamino Earn deposit"
+    assert kamino_earn_preview.data["confirmation_summary"]["kvault"] == "FakeKaminoVault11111111111111111111111111111"
+
+    kamino_earn_prepare = await adapter.invoke(
+        "kamino_earn_deposit",
+        {
+            "kvault": "FakeKaminoVault11111111111111111111111111111",
+            "amount_ui": "2.50",
+            "mode": "prepare",
+            "purpose": "test kamino earn deposit prepare",
+            "user_intent": True,
+        },
+    )
+    assert kamino_earn_prepare.ok and kamino_earn_prepare.data["execution_plan_only"] is True
+
+    kamino_earn_execute = await adapter.invoke(
+        "kamino_earn_deposit",
+        {
+            "kvault": "FakeKaminoVault11111111111111111111111111111",
+            "amount_ui": "2.50",
+            "mode": "execute",
+            "purpose": "test kamino earn deposit execute",
+            "approval_token": _issue_execute_approval(
+                tool_name="kamino_earn_deposit",
+                preview=kamino_earn_preview.data,
+                network="mainnet",
+            ),
+        },
+    )
+    assert kamino_earn_execute.ok and kamino_earn_execute.data["confirmed"] is True
+
+    kamino_earn_intent_preview = await adapter.invoke(
+        "kamino_earn_deposit",
+        {
+            "kvault": "FakeKaminoVault11111111111111111111111111111",
+            "amount_ui": "2.50",
+            "mode": "intent_preview",
+            "purpose": "test kamino earn deposit intent preview",
+            "valid_for_seconds": 75,
+        },
+    )
+    assert kamino_earn_intent_preview.ok
+    assert kamino_earn_intent_preview.data["asset_type"] == "kamino-earn-intent"
+    assert kamino_earn_intent_preview.data["kamino_operation"] == "kamino-earn-deposit"
+    assert kamino_earn_intent_preview.data["confirmation_summary"]["operation"] == "Kamino Earn deposit intent"
+
+    kamino_earn_intent_execute = await adapter.invoke(
+        "kamino_earn_deposit",
+        {
+            "kvault": "FakeKaminoVault11111111111111111111111111111",
+            "amount_ui": "2.50",
+            "mode": "intent_execute",
+            "purpose": "test kamino earn deposit intent execute",
+            "approval_token": _issue_execute_approval(
+                tool_name="kamino_earn_deposit",
+                preview=kamino_earn_intent_preview.data,
+                network="mainnet",
+            ),
+        },
+    )
+    assert kamino_earn_intent_execute.ok and kamino_earn_intent_execute.data["confirmed"] is True
+
+    kamino_earn_withdraw_preview = await adapter.invoke(
+        "kamino_earn_withdraw",
+        {
+            "kvault": "FakeKaminoVault11111111111111111111111111111",
+            "amount_ui": "1.00",
+            "mode": "preview",
+            "purpose": "test kamino earn withdraw preview",
+        },
+    )
+    assert kamino_earn_withdraw_preview.ok
+    assert kamino_earn_withdraw_preview.data["position_info"]["totalShares"] == "9.87"
+
+    kamino_earn_withdraw_execute = await adapter.invoke(
+        "kamino_earn_withdraw",
+        {
+            "kvault": "FakeKaminoVault11111111111111111111111111111",
+            "amount_ui": "1.00",
+            "mode": "execute",
+            "purpose": "test kamino earn withdraw execute",
+            "approval_token": _issue_execute_approval(
+                tool_name="kamino_earn_withdraw",
+                preview=kamino_earn_withdraw_preview.data,
+                network="mainnet",
+            ),
+        },
+    )
+    assert kamino_earn_withdraw_execute.ok and kamino_earn_withdraw_execute.data["confirmed"] is True
 
     multi_kamino_adapter = OpenClawWalletAdapter(MultiObligationKaminoBackend())
     multi_kamino_preview = await multi_kamino_adapter.invoke(

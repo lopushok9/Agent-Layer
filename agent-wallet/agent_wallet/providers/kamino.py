@@ -62,6 +62,51 @@ async def fetch_lend_markets() -> dict[str, Any]:
     )
 
 
+async def fetch_portfolio(*, user: str) -> dict[str, Any]:
+    """Fetch the unified Kamino product portfolio for one wallet."""
+    client = get_client()
+    response = await client.get(f"{_normalized_api_base()}/portfolio/{user}")
+    if response.status_code != 200:
+        raise ProviderError("kamino", f"HTTP {response.status_code}: {response.text[:300]}")
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ProviderError("kamino", "Unexpected portfolio response from Kamino.")
+    return data
+
+
+async def fetch_earn_vaults() -> dict[str, Any]:
+    """Fetch the list of Kamino Earn vaults."""
+    client = get_client()
+    response = await client.get(f"{_normalized_api_base()}/kvaults/vaults")
+    if response.status_code != 200:
+        raise ProviderError("kamino", f"HTTP {response.status_code}: {response.text[:300]}")
+    return _normalize_named_list_response(
+        response.json(),
+        key="vaults",
+        provider_name="kamino",
+    )
+
+
+async def fetch_earn_user_positions(
+    *,
+    user: str,
+    network: str,
+) -> dict[str, Any]:
+    """Fetch all Kamino Earn vault positions for a wallet."""
+    client = get_client()
+    response = await client.get(
+        f"{_normalized_api_base()}/kvaults/users/{user}/positions",
+        params={"env": _env_name(network)},
+    )
+    if response.status_code != 200:
+        raise ProviderError("kamino", f"HTTP {response.status_code}: {response.text[:300]}")
+    return _normalize_named_list_response(
+        response.json(),
+        key="positions",
+        provider_name="kamino",
+    )
+
+
 async def fetch_lend_market_reserves(
     *,
     market: str,
@@ -229,6 +274,50 @@ async def build_lend_repay_transaction(
             "wallet": wallet,
             "market": market,
             "reserve": reserve,
+            "amount": amount_ui,
+        },
+        timeout=KAMINO_BUILD_TIMEOUT_SECONDS,
+    )
+    if response.status_code != 200:
+        raise ProviderError("kamino", f"HTTP {response.status_code}: {response.text[:300]}")
+    return _normalized_tx_response(response.json(), provider_name="kamino")
+
+
+async def build_earn_deposit_transaction(
+    *,
+    wallet: str,
+    kvault: str,
+    amount_ui: str,
+) -> dict[str, Any]:
+    """Build an unsigned Kamino Earn deposit transaction."""
+    client = get_client()
+    response = await client.post(
+        f"{_normalized_api_base()}/ktx/kvault/deposit",
+        json={
+            "wallet": wallet,
+            "kvault": kvault,
+            "amount": amount_ui,
+        },
+        timeout=KAMINO_BUILD_TIMEOUT_SECONDS,
+    )
+    if response.status_code != 200:
+        raise ProviderError("kamino", f"HTTP {response.status_code}: {response.text[:300]}")
+    return _normalized_tx_response(response.json(), provider_name="kamino")
+
+
+async def build_earn_withdraw_transaction(
+    *,
+    wallet: str,
+    kvault: str,
+    amount_ui: str,
+) -> dict[str, Any]:
+    """Build an unsigned Kamino Earn withdraw transaction."""
+    client = get_client()
+    response = await client.post(
+        f"{_normalized_api_base()}/ktx/kvault/withdraw",
+        json={
+            "wallet": wallet,
+            "kvault": kvault,
             "amount": amount_ui,
         },
         timeout=KAMINO_BUILD_TIMEOUT_SECONDS,
