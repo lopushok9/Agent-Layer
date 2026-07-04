@@ -49,8 +49,12 @@ def main() -> None:
     )
 
     assert sealed_path == resolve_sealed_keys_path()
-    mode = stat.S_IMODE(sealed_path.stat().st_mode)
-    assert mode == 0o600, oct(mode)
+    # POSIX-only: chmod 0o600 has no effect on Windows (file security is via NTFS
+    # ACLs on the user profile, and os.chmod only toggles the read-only bit, so
+    # st_mode reports 0o666). Skip the mode check off POSIX.
+    if os.name == "posix":
+        mode = stat.S_IMODE(sealed_path.stat().st_mode)
+        assert mode == 0o600, oct(mode)
 
     settings.agent_wallet_boot_key = ""
 
