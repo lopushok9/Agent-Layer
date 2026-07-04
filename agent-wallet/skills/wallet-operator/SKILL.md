@@ -30,7 +30,7 @@ Use this skill before calling OpenClaw wallet tools. It is the routing guide for
 - EVM transfers: `transfer_evm_native`, `transfer_evm_token`.
 - BTC transfer: `transfer_btc`.
 - Solana staking: `stake_sol_native`, `deactivate_solana_stake`, `withdraw_solana_stake`.
-- Kamino: `kamino_lend_deposit`, `kamino_lend_withdraw`, `kamino_lend_borrow`, `kamino_lend_repay`.
+- Kamino: `get_kamino_portfolio`, `get_kamino_vaults`, `get_kamino_earn_positions`, `get_kamino_liquidity_positions`, `kamino_lend_deposit`, `kamino_lend_withdraw`, `kamino_lend_borrow`, `kamino_lend_repay`, `kamino_earn_deposit`, `kamino_earn_withdraw`.
 - Bags: `launch_bags_token`.
 
 ## Common Token IDs
@@ -118,8 +118,10 @@ Use this skill before calling OpenClaw wallet tools. It is the routing guide for
 - `stake_sol_native`: `vote_account`, `amount` in SOL, `mode`, `purpose`.
 - `deactivate_solana_stake`: `stake_account`, `mode`, `purpose`.
 - `withdraw_solana_stake`: `stake_account`, `amount` in SOL, optional `recipient`, `mode`, `purpose`.
-- Before Kamino writes, use `get_kamino_lend_markets`, `get_kamino_lend_market_reserves`, `get_kamino_lend_user_obligations`, and `get_kamino_lend_user_rewards`.
-- Kamino write params: `market`, `reserve`, `amount_ui` decimal string, `mode`, `purpose`.
+- Before Kamino lend writes, use `get_kamino_lend_markets`, `get_kamino_lend_market_reserves`, `get_kamino_lend_user_obligations`, and `get_kamino_lend_user_rewards`.
+- For broader Kamino read coverage, prefer `get_kamino_portfolio` first, then drill into `get_kamino_vaults`, `get_kamino_earn_positions`, or `get_kamino_liquidity_positions` as needed.
+- Kamino lend write params: `market`, `reserve`, `amount_ui` decimal string, `mode`, `purpose`.
+- Kamino Earn write params: `kvault`, `amount_ui` decimal string, `mode`, `purpose`.
 - `launch_bags_token`: `name`, `symbol`, `description`, `base_mint`, `claimers`, `basis_points`, `initial_buy_sol`, `mode`, `purpose`; optional socials/image/config type.
 - `close_empty_token_accounts`: `limit`, `mode` (`preview` or `execute`), `purpose`.
 
