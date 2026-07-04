@@ -61,6 +61,33 @@ def _strip_boot_key_line(env_path: Path, expected: str) -> bool:
     return True
 
 
+def _candidate_env_files(runtime: Path) -> list[Path]:
+    """Boot-key .env locations to sweep, deduped.
+
+    Deliberately bounded: a recursive ``**/.env`` walk descends into the hundreds
+    of ``node_modules`` trees under the release dirs and effectively hangs onboarding
+    (observed: 650+ node_modules, glob never returns). The boot key was only ever
+    written to ``releases/<v>/agent-wallet/.env``; ``current``/``previous`` are
+    symlinks into ``releases`` and are resolved to dedupe against their targets.
+    """
+    candidates = list(runtime.glob("releases/*/agent-wallet/.env"))
+    candidates.append(runtime / "current" / "agent-wallet" / ".env")
+    candidates.append(runtime / "previous" / "agent-wallet" / ".env")
+    seen: set[str] = set()
+    out: list[Path] = []
+    for path in candidates:
+        try:
+            key = str(path.resolve())
+        except OSError:
+            key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        if path.exists():
+            out.append(path)
+    return out
+
+
 def _sweep_plaintext(home: Path, expected: str) -> tuple[int, bool]:
     """Strip matching boot-key lines from every runtime .env; delete the boot-key file.
 
@@ -70,7 +97,7 @@ def _sweep_plaintext(home: Path, expected: str) -> tuple[int, bool]:
     """
     runtime = home / "agent-wallet-runtime"
     swept = 0
-    for env_path in runtime.glob("**/.env"):
+    for env_path in _candidate_env_files(runtime):
         try:
             if _strip_boot_key_line(env_path, expected):
                 swept += 1
