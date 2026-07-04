@@ -30,7 +30,6 @@ _KEYSTORE_BACKEND_ENV = "AGENT_WALLET_KEYSTORE_BACKEND"
 
 _SECURITY_BIN = "/usr/bin/security"
 _SUBPROCESS_TIMEOUT = 10.0
-_MACOS_PARTITION_LIST_TIMEOUT = 2.0
 
 
 def _service() -> str:
@@ -42,10 +41,10 @@ def _service() -> str:
 def _backend_preference() -> str:
     """Selected keystore backend.
 
-    auto/default deliberately avoids macOS Keychain. Even a read/probe through
-    /usr/bin/security can open a GUI password prompt, which is unacceptable for
-    normal install/update/session startup. Users who explicitly want Keychain can
-    opt in with AGENT_WALLET_KEYSTORE_BACKEND=macos-keychain (or native).
+    auto (default) prefers the native OS keystore (macOS Keychain / Windows DPAPI /
+    Linux Secret Service) and falls back to a 0600 plaintext file. macOS Keychain
+    is prompt-free because set() writes with `-A` (open ACL, no partition-list).
+    Override with AGENT_WALLET_KEYSTORE_BACKEND=plaintext|macos-keychain|native|...
     """
     return os.getenv(_KEYSTORE_BACKEND_ENV, "auto").strip().lower()
 
@@ -113,24 +112,24 @@ class MacKeychainStore:
         return value or None
 
     def set(self, name: str, value: str) -> None:
-        # -U update if exists; -T grants the security binary (our sole accessor)
-        # so background reads via find-generic-password do not prompt.
+        # Recreate the item fresh with an open ACL. This is the ONLY reliably
+        # prompt-free way to write a login-keychain item non-interactively:
+        #   -A          -> accessible to any application without a prompt, and it
+        #                  bypasses the Sierra+ partition-list mechanism entirely.
+        #   delete+add  -> never -U-update an existing item; updating one created
+        #                  with a different ACL (or setting its partition list)
+        #                  pops a GUI keychain-password dialog in the background.
+        # Trade-off: any process running as this user can read the key without a
+        # prompt — the same runtime exposure as a 0600 file. At-rest protection
+        # (backups, synced home dirs, a stolen disk) is fully preserved.
+        _run([_SECURITY_BIN, "delete-generic-password", "-s", _service(), "-a", name])
         proc = _run([
             _SECURITY_BIN, "add-generic-password",
             "-s", _service(), "-a", name,
-            "-w", value, "-U", "-T", _SECURITY_BIN,
+            "-w", value, "-A",
         ])
         if proc.returncode != 0:
             raise KeyStoreError(f"security add-generic-password failed: {proc.stderr.strip()}")
-        # Suppress the Sierra+ partition-list ACL prompt for non-interactive reads.
-        # This command can itself prompt/hang when an existing item has an old ACL,
-        # so it is intentionally best-effort and tightly bounded. The add/update
-        # above plus the read-back verification are the authoritative result.
-        _run([
-            _SECURITY_BIN, "set-generic-password-partition-list",
-            "-s", _service(), "-a", name,
-            "-S", "unsigned:", "-k", "",
-        ], timeout=_MACOS_PARTITION_LIST_TIMEOUT)
 
     def delete(self, name: str) -> None:
         _run([_SECURITY_BIN, "delete-generic-password", "-s", _service(), "-a", name])
@@ -264,9 +263,10 @@ def resolve_keystore() -> KeyStore:
     elif preference == "native":
         candidates = [MacKeychainStore(), WindowsDpapiStore(), LinuxSecretServiceStore()]
     else:
-        # Auto mode must be prompt-free. macOS Keychain is opt-in because any
-        # security(1) lookup/probe can show a GUI password dialog.
-        candidates = [WindowsDpapiStore(), LinuxSecretServiceStore()]
+        # Auto: native OS keystore first, plaintext fallback last. macOS Keychain
+        # is prompt-free now that set() uses `-A` (open ACL, no partition-list) and
+        # _backend_usable falls back gracefully if a session still can't authorize.
+        candidates = [MacKeychainStore(), WindowsDpapiStore(), LinuxSecretServiceStore()]
 
     for candidate in candidates:
         try:

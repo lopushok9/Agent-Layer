@@ -48,16 +48,6 @@ def main() -> None:
     assert resolved.get("boot_key") is None
 
     original_macos_available = MacKeychainStore.available
-    try:
-        def fail_if_macos_probed(_self):
-            raise AssertionError("auto mode must not probe macOS Keychain")
-
-        MacKeychainStore.available = fail_if_macos_probed
-        os.environ.pop("AGENT_WALLET_KEYSTORE_BACKEND", None)
-        resolve_keystore()
-    finally:
-        MacKeychainStore.available = original_macos_available
-
     original_macos_get = MacKeychainStore.get
     original_macos_set = MacKeychainStore.set
     original_macos_delete = MacKeychainStore.delete
@@ -88,21 +78,25 @@ def main() -> None:
     finally:
         keystore.subprocess.run = original_subprocess_run
 
+    # set() must be prompt-free: delete the existing item, then add with -A, and
+    # NEVER call set-generic-password-partition-list (the GUI-prompt source).
     original_run = keystore._run
     try:
         calls: list[list[str]] = []
 
         def fake_run(argv: list[str], **_kwargs):
             calls.append(argv)
-            if "add-generic-password" in argv:
-                return subprocess.CompletedProcess(argv, 0, "", "")
-            if "set-generic-password-partition-list" in argv:
-                return subprocess.CompletedProcess(argv, 124, "", "timed out")
-            raise AssertionError(f"unexpected command: {argv}")
+            return subprocess.CompletedProcess(argv, 0, "", "")
 
         keystore._run = fake_run
         MacKeychainStore().set("boot_key", "secret-value-456")
-        assert any("set-generic-password-partition-list" in call for call in calls)
+        assert any("delete-generic-password" in call for call in calls), calls
+        add_calls = [call for call in calls if "add-generic-password" in call]
+        assert add_calls, calls
+        assert "-A" in add_calls[0], add_calls[0]
+        assert not any(
+            "set-generic-password-partition-list" in call for call in calls
+        ), calls
     finally:
         keystore._run = original_run
 
