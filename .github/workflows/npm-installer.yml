@@ -45,6 +45,9 @@ jobs:
       - name: Smoke GitHub bootstrap installer
         run: python agent-wallet/tests/smoke_install_from_github.py
 
+      - name: Smoke release bundle builder
+        run: python agent-wallet/tests/smoke_build_release_bundle.py
+
       - name: Smoke sealed config installer
         run: python agent-wallet/tests/smoke_install_openclaw_local_config_sealed.py
 

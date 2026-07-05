@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 import tarfile
 from pathlib import Path
 
@@ -31,6 +32,7 @@ def main() -> None:
         "LICENSE",
         "README.md",
         "RELEASING.md",
+        "VERSION",
         "install-from-github.sh",
         "requirements.txt",
         "setup.sh",
@@ -43,6 +45,14 @@ def main() -> None:
         source_root / "codex" / "plugins" / "agent-wallet" / ".codex-plugin" / "plugin.json",
         '{"name":"agent-wallet"}\n',
     )
+    _write(
+        source_root / "claude-code" / "plugins" / "agent-wallet" / ".claude-plugin" / "plugin.json",
+        '{"name":"agent-wallet"}\n',
+    )
+    _write(source_root / "hermes" / "plugins" / "agent_wallet" / "plugin.yaml", "name: agent_wallet\n")
+    _write(source_root / "bin" / "openclaw-agent-wallet.mjs", "// cli\n")
+    _write(source_root / "scripts" / "check_release_version.mjs", "// check\n")
+    _write(source_root / ".claude-plugin" / "marketplace.json", '{"plugins":[]}\n')
     _write(source_root / "wdk-btc-wallet" / "package.json", '{"name":"wdk-btc-wallet"}\n')
     _write(source_root / "wdk-btc-wallet" / "node_modules" / "ignored.txt", "ignored\n")
     _write(source_root / "wdk-evm-wallet" / "package.json", '{"name":"wdk-evm-wallet"}\n')
@@ -60,7 +70,7 @@ def main() -> None:
     script = repo_root / "agent-wallet" / "scripts" / "build_release_bundle.py"
     result = subprocess.run(
         [
-            "python3.11",
+            sys.executable,
             str(script),
             "--source-root",
             str(source_root),
@@ -81,15 +91,23 @@ def main() -> None:
         names = set(archive.getnames())
 
     bundle_root = "openclaw-agent-wallet-bundle-smoke-test"
+    # Every setup.sh require_path must be present, or install-from-github.sh
+    # will replace the user's runtime and then fail before setup runs.
     assert f"{bundle_root}/setup.sh" in names
     assert f"{bundle_root}/agent-wallet/scripts/install_agent_wallet.py" in names
     assert f"{bundle_root}/codex/plugins/agent-wallet/.codex-plugin/plugin.json" in names
+    assert f"{bundle_root}/claude-code/plugins/agent-wallet/.claude-plugin/plugin.json" in names
     assert f"{bundle_root}/wdk-btc-wallet/package.json" in names
     assert f"{bundle_root}/wdk-evm-wallet/package.json" in names
     assert f"{bundle_root}/.openclaw/extensions/agent-wallet/index.ts" in names
-    assert f"{bundle_root}/agent-a2a-gateway/requirements.txt" in names
+    assert f"{bundle_root}/hermes/plugins/agent_wallet/plugin.yaml" in names
+    assert f"{bundle_root}/bin/openclaw-agent-wallet.mjs" in names
+    assert f"{bundle_root}/scripts/check_release_version.mjs" in names
+    assert f"{bundle_root}/.claude-plugin/marketplace.json" in names
+    assert f"{bundle_root}/VERSION" in names
     assert f"{bundle_root}/bundle-manifest.json" in names
 
+    assert f"{bundle_root}/agent-a2a-gateway/requirements.txt" not in names
     assert f"{bundle_root}/mcp-server/server.py" not in names
     assert f"{bundle_root}/provider-gateway/requirements.txt" not in names
     assert f"{bundle_root}/solana-8004/package.json" not in names
