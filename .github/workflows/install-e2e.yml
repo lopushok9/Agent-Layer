@@ -1,0 +1,94 @@
+name: install e2e
+
+# Full new-user and upgrade install acceptance on real OSes: the real Node CLI,
+# a real Python venv setup, and the real OS keystore — the closest CI gets to
+# `npx @agentlayer.tech/wallet install --yes` on a fresh machine. Slow
+# (minutes per OS), so it runs nightly, on demand, and when the install/keystore
+# surface changes — not on every push.
+#
+# Windows is deliberately absent: the npx install path is POSIX-only today
+# (setup.sh is sh, resolveVenvPython only knows bin/python). The Windows DPAPI
+# keystore backend itself is gated by keystore-matrix.yml.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "20 3 * * *"
+  pull_request:
+    paths:
+      - "bin/openclaw-agent-wallet.mjs"
+      - "setup.sh"
+      - "agent-wallet/scripts/install_agent_wallet.py"
+      - "agent-wallet/agent_wallet/keystore.py"
+      - "agent-wallet/agent_wallet/config.py"
+      - "agent-wallet/agent_wallet/boot_key_migration.py"
+      - "agent-wallet/agent_wallet/sealed_keys.py"
+      - "agent-wallet/tests/e2e_install_*.py"
+      - ".github/workflows/install-e2e.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "bin/openclaw-agent-wallet.mjs"
+      - "setup.sh"
+      - "agent-wallet/scripts/install_agent_wallet.py"
+      - "agent-wallet/agent_wallet/keystore.py"
+      - "agent-wallet/agent_wallet/config.py"
+      - "agent-wallet/agent_wallet/boot_key_migration.py"
+      - "agent-wallet/agent_wallet/sealed_keys.py"
+      - "agent-wallet/tests/e2e_install_*.py"
+      - ".github/workflows/install-e2e.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-keychain
+            os: macos-latest
+            expect: macos-keychain
+          - name: linux-fallback
+            os: ubuntu-latest
+            expect: plaintext-file
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # A deterministic, unlocked default keychain, same as keystore-matrix.yml.
+      - name: Prepare macOS keychain
+        if: runner.os == 'macOS'
+        run: |
+          security create-keychain -p ci-pass ci.keychain-db
+          security set-keychain-settings ci.keychain-db
+          security unlock-keychain -p ci-pass ci.keychain-db
+          security list-keychains -d user -s ci.keychain-db "$(security default-keychain -d user | tr -d ' \"')"
+          security default-keychain -s ci.keychain-db
+
+      # Only the upgrade driver imports agent_wallet (to seed the legacy sealed
+      # file); every post-install assertion goes through the release's own venv.
+      - name: Install Python wallet package (driver-side seeding)
+        run: python -m pip install -e agent-wallet
+
+      - name: "E2E: new user install (generate key -> keystore -> seal/unseal)"
+        env:
+          AGENT_WALLET_E2E_EXPECT_BACKEND: ${{ matrix.expect }}
+        run: python agent-wallet/tests/e2e_install_new_user.py
+
+      - name: "E2E: upgrade over legacy plaintext .env (key identity + sweep)"
+        env:
+          AGENT_WALLET_E2E_EXPECT_BACKEND: ${{ matrix.expect }}
+        run: python agent-wallet/tests/e2e_install_upgrade.py
