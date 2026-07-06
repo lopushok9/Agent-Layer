@@ -247,7 +247,32 @@ class PlaintextFileStore:
             pass
 
 
+_keystore_cache: dict[tuple[str, str], KeyStore] = {}
+
+
+def clear_keystore_cache() -> None:
+    """Drop the memoized keystore backend (e.g. after env/service changes)."""
+    _keystore_cache.clear()
+
+
 def resolve_keystore() -> KeyStore:
+    """Memoized keystore resolution.
+
+    Resolving probes the OS keystore with subprocess calls (`security`,
+    `secret-tool`, powershell), so cache the winning backend per
+    (preference, service) for the process lifetime. Cleared by
+    ``agent_wallet.config.clear_secret_caches`` / ``reload_settings``.
+    """
+    cache_key = (_backend_preference(), _service())
+    cached = _keystore_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    store = _resolve_keystore_uncached()
+    _keystore_cache[cache_key] = store
+    return store
+
+
+def _resolve_keystore_uncached() -> KeyStore:
     """Return the first available OS-native backend, else the plaintext fallback."""
     preference = _backend_preference()
     if preference in {"plain", "plaintext", "plaintext-file", "file"}:

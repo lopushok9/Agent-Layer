@@ -11,6 +11,16 @@ from agent_wallet.wallet_layer.base import WalletBackendError
 
 SEALED_KEYS_FILENAME = "sealed_keys.json"
 
+# Single-entry cache: (boot_key, path, mtime_ns, size) -> secrets. Unsealing
+# runs a KDF, so repeated resolutions in one process must pay it only once.
+# File identity in the key makes rotation (re-seal) self-invalidating.
+_unseal_cache: dict[tuple[str, str, int, int], dict[str, str]] = {}
+
+
+def clear_unseal_cache() -> None:
+    """Drop cached unsealed secrets (wired into config.clear_secret_caches)."""
+    _unseal_cache.clear()
+
 
 def resolve_sealed_keys_path() -> Path:
     """Resolve the encrypted secret bundle path under the OpenClaw home directory."""
@@ -35,17 +45,27 @@ def seal_keys(boot_key: str, secrets: dict[str, str]) -> Path:
     encrypted = encrypt_secret_material(payload, master_key=boot_key)
     path = resolve_sealed_keys_path()
     atomic_write_text(path, encrypted, mode=0o600)
+    clear_unseal_cache()
     return path
 
 
 def unseal_keys(boot_key: str) -> dict[str, str]:
-    """Decrypt all secrets from the sealed file."""
+    """Decrypt all secrets from the sealed file. Memoized by file identity."""
     if not boot_key.strip():
         return {}
 
     path = resolve_sealed_keys_path()
     if not path.exists():
         return {}
+
+    try:
+        stat = path.stat()
+    except OSError:
+        return {}
+    cache_key = (boot_key, str(path), stat.st_mtime_ns, stat.st_size)
+    cached = _unseal_cache.get(cache_key)
+    if cached is not None:
+        return dict(cached)
 
     plaintext = decrypt_secret_material(path.read_text(encoding="utf-8"), master_key=boot_key)
     try:
@@ -58,4 +78,6 @@ def unseal_keys(boot_key: str) -> dict[str, str]:
     for key, value in payload.items():
         if isinstance(key, str) and isinstance(value, str):
             secrets[key] = value
+    _unseal_cache.clear()
+    _unseal_cache[cache_key] = dict(secrets)
     return secrets

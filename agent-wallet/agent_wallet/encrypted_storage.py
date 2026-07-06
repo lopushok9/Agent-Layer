@@ -28,11 +28,19 @@ def _load_secretbox():
     return pwhash, secret, utils
 
 
-def _derive_key(master_key: str, salt: bytes) -> bytes:
-    if not master_key.strip():
-        raise WalletBackendError(
-            "Encrypted wallet storage requires AGENT_WALLET_BOOT_KEY and a sealed master_key."
-        )
+# Derived envelope keys are expensive (argon2id ~1s each), so cache them by
+# (kdf, master_key, salt). In-memory only, never serialized; bounded so a
+# pathological caller cannot grow it without limit.
+_derived_key_cache: dict[tuple[str, str, bytes], bytes] = {}
+_DERIVED_KEY_CACHE_MAX = 64
+
+
+def clear_derived_key_cache() -> None:
+    """Drop cached derived keys (wired into config.clear_secret_caches)."""
+    _derived_key_cache.clear()
+
+
+def _kdf_argon2id(master_key: str, salt: bytes) -> bytes:
     pwhash, secret, _ = _load_secretbox()
     return pwhash.argon2id.kdf(
         secret.SecretBox.KEY_SIZE,
@@ -41,6 +49,22 @@ def _derive_key(master_key: str, salt: bytes) -> bytes:
         opslimit=pwhash.argon2id.OPSLIMIT_INTERACTIVE,
         memlimit=pwhash.argon2id.MEMLIMIT_INTERACTIVE,
     )
+
+
+def _derive_key(master_key: str, salt: bytes) -> bytes:
+    if not master_key.strip():
+        raise WalletBackendError(
+            "Encrypted wallet storage requires AGENT_WALLET_BOOT_KEY and a sealed master_key."
+        )
+    cache_key = ("argon2id", master_key, bytes(salt))
+    cached = _derived_key_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    key = _kdf_argon2id(master_key, salt)
+    if len(_derived_key_cache) >= _DERIVED_KEY_CACHE_MAX:
+        _derived_key_cache.clear()
+    _derived_key_cache[cache_key] = key
+    return key
 
 
 def _derive_user_scoped_key(
@@ -79,8 +103,11 @@ def encrypt_secret_material(
     *,
     master_key: str | None = None,
     metadata: dict[str, Any] | None = None,
+    kdf: str | None = None,
 ) -> str:
     """Encrypt wallet secret material into a JSON envelope."""
+    if kdf is not None and kdf != "argon2id":
+        raise WalletBackendError(f"Unsupported envelope kdf: {kdf}")
     _, secret, utils = _load_secretbox()
     effective_master_key = master_key if master_key is not None else resolve_wallet_master_key()
     salt = utils.random(16)

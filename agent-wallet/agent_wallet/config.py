@@ -80,6 +80,7 @@ def reload_settings() -> Settings:
     refreshed = Settings()
     for field_name in Settings.model_fields:
         setattr(settings, field_name, getattr(refreshed, field_name))
+    clear_secret_caches()
     return settings
 
 
@@ -385,13 +386,47 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+_boot_key_keystore_cache: dict[str, str] = {}
+
+
+def clear_secret_caches() -> None:
+    """Reset all process-local secret-resolution caches.
+
+    Covers the memoized keystore backend, the boot key read from the OS
+    keystore, unsealed secrets, and derived envelope keys. Wired into
+    ``reload_settings`` so config reloads always observe fresh state; call it
+    directly in tests that rotate keystore contents in-process.
+    """
+    _boot_key_keystore_cache.clear()
+    from agent_wallet.keystore import clear_keystore_cache
+
+    clear_keystore_cache()
+    from agent_wallet.sealed_keys import clear_unseal_cache
+
+    clear_unseal_cache()
+    from agent_wallet.encrypted_storage import clear_derived_key_cache
+
+    clear_derived_key_cache()
+
+
 def read_boot_key_from_keystore() -> str:
-    """Read the boot key from the OS keystore. Never raises; '' on any failure."""
+    """Read the boot key from the OS keystore. Never raises; '' on any failure.
+
+    Successful (non-empty) reads are memoized per keystore service for the
+    process lifetime — every uncached read costs a subprocess call.
+    """
     try:
         from agent_wallet.keystore import BOOT_KEY_ITEM, resolve_keystore
 
+        service_key = os.getenv("AGENT_WALLET_KEYSTORE_SERVICE", "").strip()
+        cached = _boot_key_keystore_cache.get(service_key)
+        if cached:
+            return cached
         value = resolve_keystore().get(BOOT_KEY_ITEM)
-        return value.strip() if isinstance(value, str) else ""
+        text = value.strip() if isinstance(value, str) else ""
+        if text:
+            _boot_key_keystore_cache[service_key] = text
+        return text
     except Exception:
         return ""
 

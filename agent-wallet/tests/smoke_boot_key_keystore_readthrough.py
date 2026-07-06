@@ -38,8 +38,11 @@ def main() -> None:
         assert config.resolve_boot_key() == "from-env"
         os.environ.pop("AGENT_WALLET_BOOT_KEY")
 
-        # 3. Legacy file is used only when keystore is empty.
+        # 3. Legacy file is used only when keystore is empty. Deleting the
+        # keystore item simulates cross-process rotation, so drop the
+        # process-local boot-key cache the way a fresh process would start.
         store.delete(BOOT_KEY_ITEM)
+        config.clear_secret_caches()
         boot_file = temp_home / "agent-wallet-runtime" / "boot-key"
         boot_file.parent.mkdir(parents=True, exist_ok=True)
         boot_file.write_text("from-file\n", encoding="utf-8")
