@@ -78,6 +78,9 @@ APPROVAL_CONTEXT_MISSING_MESSAGE = (
     "operation again, wait for explicit user confirmation, then retry execute. Do not ask the "
     "user for a manual approval token."
 )
+# Tools served by the long-lived resident read worker instead of a cold CLI
+# subprocess. Seeded with the legacy floor; _build_tool_definitions() extends
+# it with every adapter-declared read-only tool at server start.
 RESIDENT_READ_ONLY_TOOLS = {
     "get_wallet_balance",
     "get_wallet_portfolio",
@@ -1242,6 +1245,13 @@ def _build_tool_definitions() -> list[dict[str, Any]]:
             merged.setdefault(spec["name"], spec)
     for spec in merged.values():
         spec["input_schema"] = _sanitize_schema(spec["input_schema"])
+        if spec.get("read_only") is True:
+            # Route every adapter-declared read-only tool through the resident
+            # read worker: reads then cost one warm request instead of a cold
+            # interpreter boot + onboarding per call. The worker enforces the
+            # same read_only contract on its side, and transport failures fall
+            # back to the cold subprocess path.
+            RESIDENT_READ_ONLY_TOOLS.add(spec["name"])
         if spec.get("read_only") is False:
             spec["description"] = (
                 f"{spec['description']} Preview first when supported. Execute reuses cached "

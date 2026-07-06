@@ -33,12 +33,28 @@ def _parse_csv(value: Any) -> str:
 
 
 SECRET_CONFIG_KEYS = {"privateKey", "masterKey", "approvalSecret"}
+# Always-allowed floor kept for compatibility; the live gate is the dynamic
+# set of adapter-declared read-only tools (_read_only_tool_names).
 READ_ONLY_WORKER_TOOLS = frozenset(
     {
         "get_wallet_balance",
         "get_wallet_portfolio",
     }
 )
+
+
+def _read_only_tool_names(context: Any) -> frozenset[str]:
+    """All tools the resident read worker may serve: the adapter's read-only
+    specs for this backend, plus the legacy floor."""
+    names = set(READ_ONLY_WORKER_TOOLS)
+    try:
+        for tool in context.adapter.list_tools():
+            spec = tool.model_dump() if hasattr(tool, "model_dump") else dict(tool)
+            if spec.get("read_only") is True and str(spec.get("name") or "").strip():
+                names.add(str(spec["name"]))
+    except Exception:
+        pass
+    return frozenset(names)
 
 
 def _reject_secret_config_json(config: dict[str, Any]) -> None:
@@ -253,11 +269,16 @@ def _error_payload_for_exception(exc: Exception) -> dict[str, Any]:
     return payload
 
 
-async def _run_read_worker_tool(context: Any, request: dict[str, Any]) -> dict[str, Any]:
+async def _run_read_worker_tool(
+    context: Any,
+    request: dict[str, Any],
+    allowed_tools: frozenset[str] | None = None,
+) -> dict[str, Any]:
     tool_name = str(request.get("tool") or "").strip()
-    if tool_name not in READ_ONLY_WORKER_TOOLS:
+    effective_allowed = allowed_tools if allowed_tools is not None else READ_ONLY_WORKER_TOOLS
+    if tool_name not in effective_allowed:
         raise WalletBackendError(
-            f"read-worker only allows read-only tools: {', '.join(sorted(READ_ONLY_WORKER_TOOLS))}."
+            f"read-worker only allows read-only tools for this backend; '{tool_name}' is not one."
         )
     arguments = request.get("arguments") or {}
     if not isinstance(arguments, dict):
@@ -268,6 +289,7 @@ async def _run_read_worker_tool(context: Any, request: dict[str, Any]) -> dict[s
 
 async def _serve_read_worker(user_id: str, config: dict[str, Any]) -> int:
     context = _build_runtime_context(user_id, config, read_only=True)
+    allowed_tools = _read_only_tool_names(context)
     while True:
         line = sys.stdin.readline()
         if not line:
@@ -282,7 +304,7 @@ async def _serve_read_worker(user_id: str, config: dict[str, Any]) -> int:
             if request.get("op") == "shutdown":
                 print(json.dumps({"id": request_id, "ok": True, "stopped": True}), flush=True)
                 break
-            payload = await _run_read_worker_tool(context, request)
+            payload = await _run_read_worker_tool(context, request, allowed_tools)
             print(
                 json.dumps(
                     {
