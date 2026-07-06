@@ -52,13 +52,27 @@ def resolve_user_wallet_path(user_id: str, network: str | None = None) -> Path:
     return user_dir / f"solana-{effective_network}-agent.json"
 
 
-def _user_wallet_metadata(user_id: str, address: str, network: str | None = None) -> dict[str, str]:
+def _user_wallet_metadata(
+    user_id: str,
+    address: str,
+    network: str | None = None,
+    key_scope: str | None = None,
+) -> dict[str, str]:
     effective_network = normalize_solana_network(network or settings.solana_network)
-    return {
+    metadata = {
         "address": address,
         "user_id": user_id,
         "network": effective_network,
     }
+    # Record which master-key scope encrypted this envelope so the loader can
+    # try the matching candidate first instead of paying a wasted KDF on the
+    # wrong one. Writes through _resolve_user_wallet_master_key follow
+    # use_per_user_key_derivation(), so that is the accurate default.
+    effective_scope = key_scope or (
+        "per-user-derived" if use_per_user_key_derivation() else "global-master"
+    )
+    metadata["key_scope"] = effective_scope
+    return metadata
 
 
 def _resolve_effective_network(network: str | None = None) -> str:
@@ -126,12 +140,25 @@ def _load_user_wallet_secret_material(
     if not is_encrypted_wallet_payload(raw_text):
         return raw_text, "plaintext", None
 
-    last_exc: WalletBackendError | None = None
-    for key_scope, candidate in _candidate_user_wallet_master_keys(
+    candidates = _candidate_user_wallet_master_keys(
         user_id,
         network,
         raw_master_key=raw_master_key,
-    ):
+    )
+    # Try the scope recorded at encryption time first: a mismatched candidate
+    # costs a full (failed) KDF before the right one is attempted. Files
+    # without the marker keep the legacy order.
+    try:
+        import json as _json
+
+        recorded_scope = (_json.loads(raw_text).get("metadata") or {}).get("key_scope")
+    except Exception:
+        recorded_scope = None
+    if isinstance(recorded_scope, str) and recorded_scope:
+        candidates.sort(key=lambda item: item[0] != recorded_scope)
+
+    last_exc: WalletBackendError | None = None
+    for key_scope, candidate in candidates:
         try:
             return (
                 decrypt_secret_material(raw_text, master_key=candidate),
