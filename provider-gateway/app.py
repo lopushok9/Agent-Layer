@@ -181,83 +181,210 @@ def _lookup_breakdown(rows: list[dict[str, Any]], key: str) -> dict[str, Any] | 
     return None
 
 
-def _ascii_bar(value: int, peak: int, width: int = 26) -> str:
-    if width <= 0:
-        return ""
-    if peak <= 0 or value <= 0:
-        return "." * width
-    filled = max(1, min(width, int(round((value / peak) * width))))
-    return "#" * filled + "." * (width - filled)
+def _legacy_stats_payload(stats: dict[str, Any]) -> dict[str, Any]:
+    legacy_npm = {
+        key: value
+        for key, value in dict(stats.get("npm_downloads") or {}).items()
+        if key in {
+            "ok",
+            "package",
+            "since",
+            "through",
+            "all_time",
+            "last_30_days",
+            "last_7_days",
+            "days",
+            "cached",
+            "stale",
+            "disabled",
+            "error",
+        }
+    }
+    return {
+        "ok": stats.get("ok"),
+        "window_days": stats.get("window_days"),
+        "total_events": stats.get("total_events"),
+        "active_installs": stats.get("active_installs"),
+        "dau": stats.get("dau"),
+        "success_rate": stats.get("success_rate"),
+        "by_event": stats.get("by_event"),
+        "by_host": stats.get("by_host"),
+        "by_tool": stats.get("by_tool"),
+        "by_backend": stats.get("by_backend"),
+        "by_version": stats.get("by_version"),
+        "by_source": stats.get("by_source"),
+        "by_command": stats.get("by_command"),
+        "npm_downloads": legacy_npm,
+        "rpc_usage": stats.get("rpc_usage"),
+    }
 
 
-def _render_chart(
+def _svg_line_chart(
     title: str,
     series: list[dict[str, Any]],
     *,
     value_key: str = "count",
-    width: int = 26,
-    days: int = 14,
-) -> list[str]:
+    accent: str = "#2563eb",
+    days: int = 30,
+) -> str:
     rows = series[-days:] if days > 0 else list(series)
-    peak = max((int(row.get(value_key, 0) or 0) for row in rows), default=0)
-    total = sum(int(row.get(value_key, 0) or 0) for row in series)
-    lines = [f"{title}  total={_format_int(total)}  peak/day={_format_int(peak)}"]
-    for row in rows:
-        day = str(row.get("day", ""))[5:]
-        value = int(row.get(value_key, 0) or 0)
-        lines.append(f"  {day}  {_ascii_bar(value, peak, width)}  {_format_int(value)}")
-    return lines
+    values = [int(row.get(value_key, 0) or 0) for row in rows]
+    labels = [str(row.get("day", ""))[5:] for row in rows]
+    total = sum(values)
+    peak = max(values, default=0)
+    width = 520
+    height = 220
+    left = 46
+    right = 16
+    top = 18
+    bottom = 34
+    plot_w = max(width - left - right, 1)
+    plot_h = max(height - top - bottom, 1)
+    max_value = max(peak, 1)
 
+    def _x(idx: int) -> float:
+        if len(values) <= 1:
+            return left
+        return left + (plot_w * idx / (len(values) - 1))
 
-def _render_total_metric_graphs(
-    title: str,
-    metrics: list[tuple[str, int]],
-    *,
-    width: int = 42,
-) -> list[str]:
-    peak = max((value for _, value in metrics), default=0)
-    label_width = max((len(label) for label, _ in metrics), default=0)
-    lines = [title]
-    for label, value in metrics:
-        lines.append(
-            f"  {label.ljust(label_width)}  {_ascii_bar(value, peak, width)}  {_format_int(value)}"
+    def _y(value: int) -> float:
+        return top + plot_h - ((value / max_value) * plot_h)
+
+    points = " ".join(f"{_x(idx):.2f},{_y(value):.2f}" for idx, value in enumerate(values)) if values else ""
+    area_points = (
+        f"{left:.2f},{top + plot_h:.2f} "
+        + " ".join(f"{_x(idx):.2f},{_y(value):.2f}" for idx, value in enumerate(values))
+        + f" {left + plot_w:.2f},{top + plot_h:.2f}"
+        if values
+        else ""
+    )
+
+    grid = []
+    for step in range(4):
+        ratio = step / 3 if step else 0
+        y = top + plot_h - (plot_h * ratio)
+        value = int(round(max_value * ratio))
+        grid.append(
+            f'<line x1="{left}" y1="{y:.2f}" x2="{left + plot_w}" y2="{y:.2f}" stroke="#e5e7eb" stroke-width="1" />'
+            f'<text x="{left - 10}" y="{y + 4:.2f}" text-anchor="end" class="axis">{html.escape(_format_int(value))}</text>'
         )
-    return lines
+
+    label_marks = []
+    if labels:
+        indices = sorted({0, len(labels) // 2, len(labels) - 1})
+        for idx in indices:
+            x = _x(idx)
+            label_marks.append(
+                f'<text x="{x:.2f}" y="{height - 10}" text-anchor="middle" class="axis">{html.escape(labels[idx])}</text>'
+            )
+
+    svg = f"""
+    <section class="chart-card">
+      <div class="chart-head">
+        <div>
+          <h3>{html.escape(title)}</h3>
+          <p>{html.escape(_format_int(total))} total</p>
+        </div>
+        <div class="chart-meta">peak/day {html.escape(_format_int(peak))}</div>
+      </div>
+      <svg viewBox="0 0 {width} {height}" role="img" aria-label="{html.escape(title)}">
+        <rect x="0" y="0" width="{width}" height="{height}" fill="#ffffff" />
+        {''.join(grid)}
+        {'<polygon points="' + area_points + f'" fill="{accent}" opacity="0.10" />' if area_points else ''}
+        {'<polyline points="' + points + f'" fill="none" stroke="{accent}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />' if points else ''}
+        {''.join(label_marks)}
+      </svg>
+    </section>
+    """
+    return svg
 
 
-def _render_breakdown_table(
+def _svg_bar_chart(
     title: str,
     rows: list[dict[str, Any]],
     *,
-    key_label: str = "key",
-    value_fields: list[tuple[str, str]] | None = None,
-    limit: int = 8,
-) -> list[str]:
-    if value_fields is None:
-        value_fields = [("calls", "calls"), ("installs", "installs")]
+    value_field: str = "calls",
+    accent: str = "#0f766e",
+    limit: int = 7,
+) -> str:
     rows = list(rows[:limit])
     if not rows:
-        return [title, "  (no data)"]
-    key_width = max(len(key_label), *(len(_friendly_label(str(row.get("key", "")))) for row in rows))
-    field_widths = {
-        field: max(len(label), *(len(_format_int(row.get(field, 0))) for row in rows))
-        for field, label in value_fields
-    }
-    header = f"  {key_label.ljust(key_width)}"
-    for field, label in value_fields:
-        header += f"  {label.rjust(field_widths[field])}"
-    lines = [title, header]
+        return f"""
+        <section class="chart-card">
+          <div class="chart-head"><div><h3>{html.escape(title)}</h3><p>no data</p></div></div>
+        </section>
+        """
+    values = [int(row.get(value_field, 0) or 0) for row in rows]
+    labels = [_friendly_label(str(row.get("key", ""))) for row in rows]
+    peak = max(values, default=1)
+    width = 520
+    row_h = 34
+    top = 18
+    left = 130
+    right = 16
+    height = top + len(rows) * row_h + 12
+    plot_w = max(width - left - right, 1)
+    bars = []
+    for idx, (label, value) in enumerate(zip(labels, values)):
+        y = top + idx * row_h
+        bar_w = (value / peak) * plot_w if peak else 0
+        bars.append(
+            f'<text x="{left - 12}" y="{y + 18}" text-anchor="end" class="label">{html.escape(label)}</text>'
+            f'<rect x="{left}" y="{y + 5}" width="{plot_w}" height="16" rx="8" fill="#f3f4f6" />'
+            f'<rect x="{left}" y="{y + 5}" width="{bar_w:.2f}" height="16" rx="8" fill="{accent}" />'
+            f'<text x="{left + min(bar_w + 8, plot_w)}" y="{y + 18}" class="axis">{html.escape(_format_int(value))}</text>'
+        )
+    return f"""
+    <section class="chart-card">
+      <div class="chart-head">
+        <div>
+          <h3>{html.escape(title)}</h3>
+          <p>top {len(rows)} by {html.escape(value_field)}</p>
+        </div>
+      </div>
+      <svg viewBox="0 0 {width} {height}" role="img" aria-label="{html.escape(title)}">
+        <rect x="0" y="0" width="{width}" height="{height}" fill="#ffffff" />
+        {''.join(bars)}
+      </svg>
+    </section>
+    """
+
+
+def _html_table(
+    title: str,
+    rows: list[dict[str, Any]],
+    *,
+    fields: list[tuple[str, str]],
+    limit: int = 10,
+) -> str:
+    rows = list(rows[:limit])
+    header = "".join(f"<th>{html.escape(label)}</th>" for _field, label in fields)
+    body_rows = []
     for row in rows:
-        line = f"  {_friendly_label(str(row.get('key', ''))).ljust(key_width)}"
-        for field, _label in value_fields:
+        cells = []
+        for field, _label in fields:
             value = row.get(field)
-            if field == "success_rate":
+            if field == "key":
+                rendered = _friendly_label(str(value or ""))
+            elif field == "success_rate":
                 rendered = _format_pct(value)
             else:
                 rendered = _format_int(value)
-            line += f"  {rendered.rjust(field_widths[field])}"
-        lines.append(line)
-    return lines
+            cells.append(f"<td>{html.escape(rendered)}</td>")
+        body_rows.append("<tr>" + "".join(cells) + "</tr>")
+    if not body_rows:
+        body_rows.append(f'<tr><td colspan="{len(fields)}">no data</td></tr>')
+    return f"""
+    <section class="table-card">
+      <div class="table-head">
+        <h3>{html.escape(title)}</h3>
+      </div>
+      <table>
+        <thead><tr>{header}</tr></thead>
+        <tbody>{''.join(body_rows)}</tbody>
+      </table>
+    </section>
+    """
 
 
 def _render_telemetry_dashboard(stats: dict[str, Any]) -> str:
@@ -267,98 +394,25 @@ def _render_telemetry_dashboard(stats: dict[str, Any]) -> str:
     rpc_usage = dict(stats.get("rpc_usage") or {})
     npm = dict(stats.get("npm_downloads") or {})
     daily = dict(stats.get("daily") or {})
-
-    lines: list[str] = []
-    lines.append("agentlayer telemetry dashboard")
-    lines.append("=" * 80)
-    lines.append(
-        "window={window}d  generated={generated}  format=json via ?format=json".format(
-            window=_format_int(stats.get("window_days", 0)),
-            generated=time.strftime("%Y-%m-%d %H:%M:%S"),
+    raw_json = html.escape(json.dumps(_legacy_stats_payload(stats), indent=2, sort_keys=True))
+    downloads_chart = (
+        _svg_line_chart(
+            "Downloads",
+            list(npm.get("daily_window") or []),
+            value_key="downloads",
+            accent="#7c3aed",
+            days=30,
         )
+        if npm.get("ok")
+        else f"""
+        <section class="chart-card">
+          <div class="chart-head">
+            <div><h3>Downloads</h3><p>unavailable</p></div>
+            <div class="chart-meta">{html.escape(str(npm.get('error', 'disabled')))}</div>
+          </div>
+        </section>
+        """
     )
-    lines.append("")
-    lines.append("overview")
-    lines.append("--------")
-    lines.append(f"active installs ....... {_format_int(stats.get('active_installs', 0))}")
-    lines.append(f"dau ................... {_format_int(stats.get('dau', 0))}")
-    lines.append(f"total events .......... {_format_int(stats.get('total_events', 0))}")
-    lines.append(f"tool success .......... {_format_pct(tool_family.get('success_rate'))}")
-    lines.append(f"install success ....... {_format_pct(install_family.get('success_rate'))}")
-    lines.append(f"rpc calls ............. {_format_int(rpc_usage.get('total_calls', 0))}")
-    lines.append(f"npm downloads all-time  {_format_int(npm.get('all_time', 0))}")
-    lines.append(f"npm downloads 7d ...... {_format_int(npm.get('last_7_days', 0))}")
-    lines.append(f"npm downloads 30d ..... {_format_int(npm.get('last_30_days', 0))}")
-    lines.append("")
-    lines.append("graphs")
-    lines.append("------")
-    lines.extend(
-        _render_total_metric_graphs(
-            "total metric graphs",
-            [
-                ("events", int(stats.get("total_events", 0) or 0)),
-                ("active installs", int(stats.get("active_installs", 0) or 0)),
-                ("rpc usage", int(rpc_usage.get("total_calls", 0) or 0)),
-                ("npm downloads all-time", int(npm.get("all_time", 0) or 0)),
-                ("npm downloads 30d", int(npm.get("last_30_days", 0) or 0)),
-            ],
-        )
-    )
-    lines.append("")
-    lines.extend(_render_chart("events / day", list(daily.get("events") or [])))
-    lines.append("")
-    lines.extend(_render_chart("active installs / day", list(daily.get("active_installs") or [])))
-    lines.append("")
-    lines.extend(_render_chart("rpc usage / day", list(daily.get("rpc_calls") or [])))
-    lines.append("")
-    if npm.get("ok"):
-        lines.extend(
-            _render_chart(
-                "downloads / day",
-                list(npm.get("daily_window") or []),
-                value_key="downloads",
-            )
-        )
-        lines.append(f"  through {npm.get('through', 'n/a')} (npm complete days)")
-    else:
-        lines.append("downloads / day")
-        lines.append(f"  unavailable: {npm.get('error', 'disabled')}")
-    lines.append("")
-    lines.extend(_render_chart("tool invokes / day", list(daily.get("tool_invocations") or [])))
-    lines.append("")
-    lines.append("usage mix")
-    lines.append("---------")
-    lines.extend(_render_breakdown_table("hosts", list(stats.get("by_host") or [])))
-    lines.append("")
-    lines.extend(_render_breakdown_table("backends", list(stats.get("by_backend") or [])))
-    lines.append("")
-    lines.extend(_render_breakdown_table("tool categories", list(stats.get("by_tool_category") or [])))
-    lines.append("")
-    lines.extend(_render_breakdown_table("top tools", list(stats.get("by_tool") or [])))
-    lines.append("")
-    lines.append("reliability")
-    lines.append("-----------")
-    lines.extend(
-        _render_breakdown_table(
-            "event families",
-            success_by_family,
-            key_label="family",
-            value_fields=[("calls", "calls"), ("ok_calls", "ok"), ("success_rate", "success")],
-            limit=6,
-        )
-    )
-    lines.append("")
-    lines.append("rpc")
-    lines.append("---")
-    lines.extend(_render_breakdown_table("providers", list(rpc_usage.get("by_provider") or []), key_label="provider", value_fields=[("calls", "calls")]))
-    lines.append("")
-    lines.extend(_render_breakdown_table("methods", list(rpc_usage.get("by_method") or []), key_label="method", value_fields=[("calls", "calls")]))
-    lines.append("")
-    lines.extend(_render_breakdown_table("status", list(rpc_usage.get("by_status") or []), key_label="status", value_fields=[("calls", "calls")]))
-    lines.append("")
-    lines.extend(_render_breakdown_table("latency", list(rpc_usage.get("by_latency") or []), key_label="latency", value_fields=[("calls", "calls")]))
-
-    body = html.escape("\n".join(lines))
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -376,20 +430,237 @@ def _render_telemetry_dashboard(stats: dict[str, Any]) -> str:
       font: 14px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
     }}
     .wrap {{
-      max-width: 1100px;
+      max-width: 1240px;
       margin: 0 auto;
-      padding: 24px 20px 40px;
+      padding: 32px 24px 56px;
     }}
-    pre {{
+    .hero {{
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 16px;
+      margin-bottom: 28px;
+      padding-bottom: 18px;
+      border-bottom: 1px solid #e5e7eb;
+    }}
+    .hero h1 {{
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.1;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+    }}
+    .hero p {{
+      margin: 8px 0 0;
+      color: #4b5563;
+    }}
+    .hero-meta {{
+      color: #6b7280;
+      font-size: 12px;
+      text-align: right;
+    }}
+    .kpis {{
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin-bottom: 22px;
+    }}
+    .kpi {{
+      border: 1px solid #e5e7eb;
+      border-radius: 16px;
+      padding: 16px;
+      background: #fafafa;
+    }}
+    .kpi .label {{
+      color: #6b7280;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }}
+    .kpi .value {{
+      margin-top: 10px;
+      font-size: 28px;
+      line-height: 1;
+      letter-spacing: -0.04em;
+      font-weight: 700;
+    }}
+    .kpi .sub {{
+      margin-top: 8px;
+      color: #4b5563;
+      font-size: 12px;
+    }}
+    .section-title {{
+      margin: 28px 0 14px;
+      font-size: 13px;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }}
+    .grid-2 {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }}
+    .grid-3 {{
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }}
+    .chart-card, .table-card, .raw-card {{
+      border: 1px solid #e5e7eb;
+      border-radius: 18px;
+      background: #ffffff;
+      padding: 16px;
+    }}
+    .chart-head, .table-head {{
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 12px;
+    }}
+    .chart-head h3, .table-head h3 {{
+      margin: 0;
+      font-size: 15px;
+      font-weight: 700;
+    }}
+    .chart-head p {{
+      margin: 4px 0 0;
+      color: #6b7280;
+      font-size: 12px;
+    }}
+    .chart-meta {{
+      color: #6b7280;
+      font-size: 12px;
+      white-space: nowrap;
+    }}
+    svg {{
+      width: 100%;
+      height: auto;
+      display: block;
+    }}
+    .axis {{
+      fill: #6b7280;
+      font-size: 11px;
+    }}
+    .label {{
+      fill: #111111;
+      font-size: 11px;
+    }}
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }}
+    th, td {{
+      text-align: left;
+      padding: 9px 0;
+      border-bottom: 1px solid #f0f1f3;
+    }}
+    th {{
+      color: #6b7280;
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }}
+    .raw-card pre {{
       margin: 0;
       white-space: pre-wrap;
       word-break: break-word;
+      overflow: auto;
+      max-height: 520px;
+      padding-top: 10px;
+      color: #1f2937;
+      font-size: 12px;
+      line-height: 1.5;
+    }}
+    details summary {{
+      cursor: pointer;
+      color: #111111;
+      font-weight: 700;
+    }}
+    @media (max-width: 980px) {{
+      .kpis, .grid-2, .grid-3 {{
+        grid-template-columns: 1fr;
+      }}
+      .hero {{
+        display: block;
+      }}
+      .hero-meta {{
+        text-align: left;
+        margin-top: 10px;
+      }}
     }}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <pre>{body}</pre>
+    <section class="hero">
+      <div>
+        <h1>AgentLayer telemetry</h1>
+        <p>Minimal, server-rendered analytics view over wallet adoption and provider usage.</p>
+      </div>
+      <div class="hero-meta">
+        <div>window {html.escape(_format_int(stats.get("window_days", 0)))}d</div>
+        <div>generated {html.escape(time.strftime("%Y-%m-%d %H:%M:%S"))}</div>
+        <div>raw JSON: <code>?format=json</code></div>
+      </div>
+    </section>
+
+    <section class="kpis">
+      <article class="kpi">
+        <div class="label">Active Installs</div>
+        <div class="value">{html.escape(_format_int(stats.get("active_installs", 0)))}</div>
+        <div class="sub">DAU {html.escape(_format_int(stats.get("dau", 0)))}</div>
+      </article>
+      <article class="kpi">
+        <div class="label">Total Events</div>
+        <div class="value">{html.escape(_format_int(stats.get("total_events", 0)))}</div>
+        <div class="sub">tool success {html.escape(_format_pct(tool_family.get("success_rate")))}</div>
+      </article>
+      <article class="kpi">
+        <div class="label">RPC Usage</div>
+        <div class="value">{html.escape(_format_int(rpc_usage.get("total_calls", 0)))}</div>
+        <div class="sub">provider gateway usage</div>
+      </article>
+      <article class="kpi">
+        <div class="label">NPM All-Time</div>
+        <div class="value">{html.escape(_format_int(npm.get("all_time", 0)))}</div>
+        <div class="sub">30d {html.escape(_format_int(npm.get("last_30_days", 0)))}</div>
+      </article>
+    </section>
+
+    <div class="section-title">Core Trends</div>
+    <section class="grid-2">
+      {_svg_line_chart("Events", list(daily.get("events") or []), accent="#2563eb", days=30)}
+      {downloads_chart}
+      {_svg_line_chart("RPC Usage", list(daily.get("rpc_calls") or []), accent="#0f766e", days=30)}
+      {_svg_line_chart("Active Installs", list(daily.get("active_installs") or []), accent="#dc2626", days=30)}
+    </section>
+
+    <div class="section-title">Composition</div>
+    <section class="grid-3">
+      {_svg_bar_chart("Host Mix", list(stats.get("by_host") or []), accent="#111827")}
+      {_svg_bar_chart("Backend Mix", list(stats.get("by_backend") or []), accent="#b45309")}
+      {_svg_bar_chart("Tool Categories", list(stats.get("by_tool_category") or []), accent="#7c3aed")}
+    </section>
+
+    <div class="section-title">Detail</div>
+    <section class="grid-2">
+      {_html_table("Top Tools", list(stats.get("by_tool") or []), fields=[("key", "tool"), ("calls", "calls"), ("installs", "installs")])}
+      {_html_table("Event Families", success_by_family, fields=[("key", "family"), ("calls", "calls"), ("ok_calls", "ok"), ("success_rate", "success")], limit=6)}
+      {_html_table("RPC Methods", list(rpc_usage.get("by_method") or []), fields=[("key", "method"), ("calls", "calls")], limit=8)}
+      {_html_table("RPC Status / Latency", list(rpc_usage.get("by_status") or []), fields=[("key", "status"), ("calls", "calls")], limit=8)}
+    </section>
+
+    <div class="section-title">Raw Data</div>
+    <section class="raw-card">
+      <details open>
+        <summary>Original stats payload</summary>
+        <pre>{raw_json}</pre>
+      </details>
+    </section>
   </div>
 </body>
 </html>"""
