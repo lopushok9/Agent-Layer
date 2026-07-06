@@ -16,6 +16,11 @@ from agent_wallet.wallet_layer.base import AgentWalletBackend
 
 CDP_BAZAAR_DISCOVERY_BASE_URL = "https://api.cdp.coinbase.com/platform/v2/x402/discovery"
 AGENTIC_MARKET_API_BASE_URL = "https://api.agentic.market/v1"
+# Known origins that may not appear in CDP Bazaar or Agentic Market
+# (e.g., non-CDP-facilitated sellers using Dexter or other facilitators)
+KNOWN_X402_ORIGINS = [
+    "https://jmt-x402-proxy.jmthomasofficial.workers.dev",  # JMT x402 — 25 endpoints, Base mainnet, Dexter facilitator
+]
 X402_EXECUTE_TIMEOUT_SECONDS = 45.0
 SOLANA_CAIP_BY_NETWORK = {
     "mainnet": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
