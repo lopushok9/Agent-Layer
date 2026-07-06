@@ -67,7 +67,8 @@ def unseal_keys(boot_key: str) -> dict[str, str]:
     if cached is not None:
         return dict(cached)
 
-    plaintext = decrypt_secret_material(path.read_text(encoding="utf-8"), master_key=boot_key)
+    raw_text = path.read_text(encoding="utf-8")
+    plaintext = decrypt_secret_material(raw_text, master_key=boot_key)
     try:
         payload = json.loads(plaintext)
     except json.JSONDecodeError as exc:
@@ -78,6 +79,39 @@ def unseal_keys(boot_key: str) -> dict[str, str]:
     for key, value in payload.items():
         if isinstance(key, str) and isinstance(value, str):
             secrets[key] = value
+    _maybe_migrate_envelope_kdf(boot_key, secrets, raw_text)
     _unseal_cache.clear()
     _unseal_cache[cache_key] = dict(secrets)
     return secrets
+
+
+def _maybe_migrate_envelope_kdf(boot_key: str, secrets: dict[str, str], raw_text: str) -> None:
+    """Lazily re-seal an argon2id file as hkdf-sha256 after a successful unseal.
+
+    Best-effort: any failure leaves the (still readable) argon2id file in
+    place. The boot key is machine-generated high entropy, so hkdf loses no
+    security while dropping ~1s of KDF per cold process. Rollback caveat:
+    pre-hkdf runtimes cannot read the rewritten file — kill switch is
+    AGENT_WALLET_ENVELOPE_KDF_MIGRATION=0.
+    """
+    from agent_wallet.config import envelope_kdf_migration_enabled
+    from agent_wallet.encrypted_storage import (
+        KDF_ARGON2ID,
+        KDF_HKDF_SHA256,
+        _default_write_kdf,
+        envelope_kdf,
+    )
+
+    try:
+        if not envelope_kdf_migration_enabled():
+            return
+        if _default_write_kdf() == KDF_ARGON2ID:
+            return  # forced-argon2id installs must not rewrite in place forever
+        if envelope_kdf(raw_text) != KDF_ARGON2ID:
+            return
+        payload = json.dumps(secrets, indent=2)
+        encrypted = encrypt_secret_material(payload, master_key=boot_key, kdf=KDF_HKDF_SHA256)
+        atomic_write_text(resolve_sealed_keys_path(), encrypted, mode=0o600)
+        clear_unseal_cache()
+    except Exception:
+        pass

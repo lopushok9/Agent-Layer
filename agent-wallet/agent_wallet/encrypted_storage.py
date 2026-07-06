@@ -6,6 +6,7 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,10 @@ from agent_wallet.wallet_layer.base import WalletBackendError
 ENCRYPTED_WALLET_KIND = "openclaw-agent-wallet-secret"
 ENCRYPTED_WALLET_VERSION = 1
 USER_SCOPED_KEY_SALT = b"openclaw-agent-wallet-user-key-v1"
+
+KDF_ARGON2ID = "argon2id"
+KDF_HKDF_SHA256 = "hkdf-sha256"
+_HKDF_INFO = b"openclaw-agent-wallet-envelope-hkdf-v1"
 
 
 def _load_secretbox():
@@ -51,12 +56,42 @@ def _kdf_argon2id(master_key: str, salt: bytes) -> bytes:
     )
 
 
-def _derive_key(master_key: str, salt: bytes) -> bytes:
+def _kdf_hkdf_sha256(master_key: str, salt: bytes) -> bytes:
+    # RFC 5869 extract+expand, one 32-byte block. Only safe because every
+    # caller passes machine-generated high-entropy key material (boot key /
+    # sealed master key) — password-hardness is what argon2id was paying for,
+    # and user passwords never reach this module.
+    prk = hmac.new(salt, master_key.encode("utf-8"), hashlib.sha256).digest()
+    return hmac.new(prk, _HKDF_INFO + b"\x01", hashlib.sha256).digest()
+
+
+def _default_write_kdf() -> str:
+    raw = os.getenv("AGENT_WALLET_ENVELOPE_KDF", "").strip().lower()
+    return KDF_ARGON2ID if raw == KDF_ARGON2ID else KDF_HKDF_SHA256
+
+
+def envelope_kdf(raw_text: str) -> str:
+    """Return the kdf recorded in an encrypted envelope ('' when not one)."""
+    try:
+        payload = json.loads(raw_text)
+    except json.JSONDecodeError:
+        return ""
+    if not isinstance(payload, dict) or payload.get("kind") != ENCRYPTED_WALLET_KIND:
+        return ""
+    return str(payload.get("kdf") or KDF_ARGON2ID)
+
+
+def _derive_key(master_key: str, salt: bytes, *, kdf: str = KDF_ARGON2ID) -> bytes:
     if not master_key.strip():
         raise WalletBackendError(
             "Encrypted wallet storage requires AGENT_WALLET_BOOT_KEY and a sealed master_key."
         )
-    cache_key = ("argon2id", master_key, bytes(salt))
+    if kdf == KDF_HKDF_SHA256:
+        # Cheap enough to skip the cache entirely.
+        return _kdf_hkdf_sha256(master_key, bytes(salt))
+    if kdf != KDF_ARGON2ID:
+        raise WalletBackendError(f"Encrypted wallet file uses an unsupported kdf: {kdf}")
+    cache_key = (kdf, master_key, bytes(salt))
     cached = _derived_key_cache.get(cache_key)
     if cached is not None:
         return cached
@@ -105,20 +140,25 @@ def encrypt_secret_material(
     metadata: dict[str, Any] | None = None,
     kdf: str | None = None,
 ) -> str:
-    """Encrypt wallet secret material into a JSON envelope."""
-    if kdf is not None and kdf != "argon2id":
-        raise WalletBackendError(f"Unsupported envelope kdf: {kdf}")
+    """Encrypt wallet secret material into a JSON envelope.
+
+    ``kdf`` selects the key derivation for this envelope; None resolves the
+    process default (hkdf-sha256 unless AGENT_WALLET_ENVELOPE_KDF=argon2id).
+    """
+    effective_kdf = kdf if kdf is not None else _default_write_kdf()
+    if effective_kdf not in {KDF_ARGON2ID, KDF_HKDF_SHA256}:
+        raise WalletBackendError(f"Unsupported envelope kdf: {effective_kdf}")
     _, secret, utils = _load_secretbox()
     effective_master_key = master_key if master_key is not None else resolve_wallet_master_key()
     salt = utils.random(16)
-    key = _derive_key(effective_master_key, salt)
+    key = _derive_key(effective_master_key, salt, kdf=effective_kdf)
     box = secret.SecretBox(key)
     encrypted = box.encrypt(secret_material.encode("utf-8"))
     payload: dict[str, Any] = {
         "kind": ENCRYPTED_WALLET_KIND,
         "version": ENCRYPTED_WALLET_VERSION,
         "cipher": "secretbox",
-        "kdf": "argon2id",
+        "kdf": effective_kdf,
         "salt_b64": base64.b64encode(salt).decode("ascii"),
         "nonce_b64": base64.b64encode(encrypted.nonce).decode("ascii"),
         "ciphertext_b64": base64.b64encode(encrypted.ciphertext).decode("ascii"),
@@ -151,7 +191,8 @@ def decrypt_secret_material(
         raise WalletBackendError("Encrypted wallet file is malformed.") from exc
 
     effective_master_key = master_key if master_key is not None else resolve_wallet_master_key()
-    key = _derive_key(effective_master_key, salt)
+    kdf = str(payload.get("kdf") or KDF_ARGON2ID)
+    key = _derive_key(effective_master_key, salt, kdf=kdf)
     box = secret.SecretBox(key)
     try:
         plaintext = box.decrypt(ciphertext, nonce)

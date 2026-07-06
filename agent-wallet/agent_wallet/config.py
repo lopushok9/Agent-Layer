@@ -386,6 +386,13 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def envelope_kdf_migration_enabled() -> bool:
+    """Whether argon2id envelopes are lazily rewritten to hkdf-sha256 after a
+    successful decrypt. Disable with AGENT_WALLET_ENVELOPE_KDF_MIGRATION=0
+    (e.g. when a rollback to a pre-hkdf runtime must stay possible)."""
+    return _env_bool("AGENT_WALLET_ENVELOPE_KDF_MIGRATION", True)
+
+
 _boot_key_keystore_cache: dict[str, str] = {}
 
 

@@ -174,6 +174,58 @@ def _load_user_wallet_secret_material(
     )
 
 
+def _maybe_migrate_wallet_envelope_kdf(
+    path: Path,
+    secret_material: str,
+    *,
+    user_id: str,
+    network: str,
+    key_scope: str | None,
+    address: str,
+) -> None:
+    """Lazily rewrite an argon2id wallet envelope as hkdf-sha256.
+
+    Re-encrypts with the SAME key scope that just decrypted the file, so this
+    never performs a scope migration through the back door. Best-effort: any
+    failure leaves the (still readable) argon2id file untouched. Kill switch:
+    AGENT_WALLET_ENVELOPE_KDF_MIGRATION=0.
+    """
+    from agent_wallet.config import envelope_kdf_migration_enabled
+    from agent_wallet.encrypted_storage import (
+        KDF_ARGON2ID,
+        _default_write_kdf,
+        envelope_kdf,
+    )
+
+    try:
+        if not envelope_kdf_migration_enabled():
+            return
+        if _default_write_kdf() == KDF_ARGON2ID:
+            return  # forced-argon2id installs must not rewrite in place forever
+        if key_scope not in {"per-user-derived", "global-master"}:
+            return
+        if envelope_kdf(path.read_text(encoding="utf-8")) != KDF_ARGON2ID:
+            return
+        if key_scope == "per-user-derived":
+            master_key = _derive_user_scoped_key(
+                resolve_wallet_master_key(), user_id=user_id, network=network
+            )
+        else:
+            master_key = resolve_wallet_master_key()
+        if not master_key.strip():
+            return
+        write_encrypted_wallet_file(
+            path,
+            secret_material,
+            master_key=master_key,
+            metadata=_user_wallet_metadata(
+                user_id, address, network=network, key_scope=key_scope
+            ),
+        )
+    except Exception:
+        pass
+
+
 def ensure_user_solana_wallet(
     user_id: str,
     network: str | None = None,
@@ -233,6 +285,15 @@ def ensure_user_solana_wallet(
                 metadata=_user_wallet_metadata(user_id, signer.address, network=effective_network),
             )
             key_scope = "per-user-derived"
+        elif storage_format == "encrypted":
+            _maybe_migrate_wallet_envelope_kdf(
+                path,
+                secret_material,
+                user_id=user_id,
+                network=effective_network,
+                key_scope=key_scope,
+                address=signer.address,
+            )
         return {
             "user_id": user_id,
             "address": signer.address,
