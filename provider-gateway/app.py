@@ -1,3 +1,4 @@
+import html
 import json
 import os
 import time
@@ -9,7 +10,7 @@ from dotenv import load_dotenv
 from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import HTMLResponse, JSONResponse, Response
 from starlette.routing import Route
 
 import telemetry_store
@@ -125,6 +126,243 @@ def _record_rpc_usage(
         )
     except Exception:
         pass
+
+
+def _format_int(value: Any) -> str:
+    try:
+        return f"{int(value):,}"
+    except (TypeError, ValueError):
+        return "0"
+
+
+def _format_pct(value: Any) -> str:
+    if value is None:
+        return "n/a"
+    try:
+        return f"{float(value) * 100:.1f}%"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
+def _friendly_label(value: str) -> str:
+    mapping = {
+        "core_wallet": "core wallet",
+        "solana_wallet": "solana wallet",
+        "solana_defi": "solana defi",
+        "evm_wallet": "evm wallet",
+        "evm_defi": "evm defi",
+        "cross_chain": "cross-chain",
+        "btc": "btc",
+        "x402": "x402",
+        "autonomous": "autonomous",
+        "tool_invocations": "tool invocations",
+        "plugin_installs": "plugin installs",
+        "active_installs": "active installs",
+        "tool_successes": "tool successes",
+        "rpc_calls": "rpc usage",
+    }
+    return mapping.get(value, value.replace("_", " "))
+
+
+def _wants_html(request: Request) -> bool:
+    format_hint = request.query_params.get("format", "").strip().lower()
+    if format_hint == "html":
+        return True
+    if format_hint == "json":
+        return False
+    accept = request.headers.get("accept", "").lower()
+    return "text/html" in accept
+
+
+def _lookup_breakdown(rows: list[dict[str, Any]], key: str) -> dict[str, Any] | None:
+    for row in rows:
+        if str(row.get("key", "")) == key:
+            return row
+    return None
+
+
+def _ascii_bar(value: int, peak: int, width: int = 26) -> str:
+    if width <= 0:
+        return ""
+    if peak <= 0 or value <= 0:
+        return "." * width
+    filled = max(1, min(width, int(round((value / peak) * width))))
+    return "#" * filled + "." * (width - filled)
+
+
+def _render_chart(
+    title: str,
+    series: list[dict[str, Any]],
+    *,
+    value_key: str = "count",
+    width: int = 26,
+    days: int = 14,
+) -> list[str]:
+    rows = series[-days:] if days > 0 else list(series)
+    peak = max((int(row.get(value_key, 0) or 0) for row in rows), default=0)
+    total = sum(int(row.get(value_key, 0) or 0) for row in series)
+    lines = [f"{title}  total={_format_int(total)}  peak/day={_format_int(peak)}"]
+    for row in rows:
+        day = str(row.get("day", ""))[5:]
+        value = int(row.get(value_key, 0) or 0)
+        lines.append(f"  {day}  {_ascii_bar(value, peak, width)}  {_format_int(value)}")
+    return lines
+
+
+def _render_breakdown_table(
+    title: str,
+    rows: list[dict[str, Any]],
+    *,
+    key_label: str = "key",
+    value_fields: list[tuple[str, str]] | None = None,
+    limit: int = 8,
+) -> list[str]:
+    if value_fields is None:
+        value_fields = [("calls", "calls"), ("installs", "installs")]
+    rows = list(rows[:limit])
+    if not rows:
+        return [title, "  (no data)"]
+    key_width = max(len(key_label), *(len(_friendly_label(str(row.get("key", "")))) for row in rows))
+    field_widths = {
+        field: max(len(label), *(len(_format_int(row.get(field, 0))) for row in rows))
+        for field, label in value_fields
+    }
+    header = f"  {key_label.ljust(key_width)}"
+    for field, label in value_fields:
+        header += f"  {label.rjust(field_widths[field])}"
+    lines = [title, header]
+    for row in rows:
+        line = f"  {_friendly_label(str(row.get('key', ''))).ljust(key_width)}"
+        for field, _label in value_fields:
+            value = row.get(field)
+            if field == "success_rate":
+                rendered = _format_pct(value)
+            else:
+                rendered = _format_int(value)
+            line += f"  {rendered.rjust(field_widths[field])}"
+        lines.append(line)
+    return lines
+
+
+def _render_telemetry_dashboard(stats: dict[str, Any]) -> str:
+    success_by_family = list(stats.get("success_by_family") or [])
+    install_family = _lookup_breakdown(success_by_family, "installs") or {}
+    tool_family = _lookup_breakdown(success_by_family, "tool_invocations") or {}
+    rpc_usage = dict(stats.get("rpc_usage") or {})
+    npm = dict(stats.get("npm_downloads") or {})
+    daily = dict(stats.get("daily") or {})
+
+    lines: list[str] = []
+    lines.append("agentlayer telemetry dashboard")
+    lines.append("=" * 80)
+    lines.append(
+        "window={window}d  generated={generated}  format=json via ?format=json".format(
+            window=_format_int(stats.get("window_days", 0)),
+            generated=time.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+    )
+    lines.append("")
+    lines.append("overview")
+    lines.append("--------")
+    lines.append(f"active installs ....... {_format_int(stats.get('active_installs', 0))}")
+    lines.append(f"dau ................... {_format_int(stats.get('dau', 0))}")
+    lines.append(f"total events .......... {_format_int(stats.get('total_events', 0))}")
+    lines.append(f"tool success .......... {_format_pct(tool_family.get('success_rate'))}")
+    lines.append(f"install success ....... {_format_pct(install_family.get('success_rate'))}")
+    lines.append(f"rpc calls ............. {_format_int(rpc_usage.get('total_calls', 0))}")
+    lines.append(f"npm downloads 7d ...... {_format_int(npm.get('last_7_days', 0))}")
+    lines.append(f"npm downloads 30d ..... {_format_int(npm.get('last_30_days', 0))}")
+    lines.append("")
+    lines.append("graphs")
+    lines.append("------")
+    lines.extend(_render_chart("events / day", list(daily.get("events") or [])))
+    lines.append("")
+    lines.extend(_render_chart("active installs / day", list(daily.get("active_installs") or [])))
+    lines.append("")
+    lines.extend(_render_chart("rpc usage / day", list(daily.get("rpc_calls") or [])))
+    lines.append("")
+    if npm.get("ok"):
+        lines.extend(
+            _render_chart(
+                "downloads / day",
+                list(npm.get("daily_window") or []),
+                value_key="downloads",
+            )
+        )
+        lines.append(f"  through {npm.get('through', 'n/a')} (npm complete days)")
+    else:
+        lines.append("downloads / day")
+        lines.append(f"  unavailable: {npm.get('error', 'disabled')}")
+    lines.append("")
+    lines.extend(_render_chart("tool invokes / day", list(daily.get("tool_invocations") or [])))
+    lines.append("")
+    lines.append("usage mix")
+    lines.append("---------")
+    lines.extend(_render_breakdown_table("hosts", list(stats.get("by_host") or [])))
+    lines.append("")
+    lines.extend(_render_breakdown_table("backends", list(stats.get("by_backend") or [])))
+    lines.append("")
+    lines.extend(_render_breakdown_table("tool categories", list(stats.get("by_tool_category") or [])))
+    lines.append("")
+    lines.extend(_render_breakdown_table("top tools", list(stats.get("by_tool") or [])))
+    lines.append("")
+    lines.append("reliability")
+    lines.append("-----------")
+    lines.extend(
+        _render_breakdown_table(
+            "event families",
+            success_by_family,
+            key_label="family",
+            value_fields=[("calls", "calls"), ("ok_calls", "ok"), ("success_rate", "success")],
+            limit=6,
+        )
+    )
+    lines.append("")
+    lines.append("rpc")
+    lines.append("---")
+    lines.extend(_render_breakdown_table("providers", list(rpc_usage.get("by_provider") or []), key_label="provider", value_fields=[("calls", "calls")]))
+    lines.append("")
+    lines.extend(_render_breakdown_table("methods", list(rpc_usage.get("by_method") or []), key_label="method", value_fields=[("calls", "calls")]))
+    lines.append("")
+    lines.extend(_render_breakdown_table("status", list(rpc_usage.get("by_status") or []), key_label="status", value_fields=[("calls", "calls")]))
+    lines.append("")
+    lines.extend(_render_breakdown_table("latency", list(rpc_usage.get("by_latency") or []), key_label="latency", value_fields=[("calls", "calls")]))
+
+    body = html.escape("\n".join(lines))
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgentLayer Telemetry</title>
+  <style>
+    :root {{
+      color-scheme: dark;
+    }}
+    body {{
+      margin: 0;
+      background: #101010;
+      color: #e6e6e6;
+      font: 14px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }}
+    .wrap {{
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 24px 20px 40px;
+    }}
+    pre {{
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <pre>{body}</pre>
+  </div>
+</body>
+</html>"""
 
 
 def _require_bearer(request: Request) -> str | None:
@@ -1572,7 +1810,7 @@ async def telemetry_ingest(request: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "stored": True})
 
 
-async def telemetry_stats(request: Request) -> JSONResponse:
+async def telemetry_stats(request: Request) -> Response:
     # Reading aggregates is privileged: adoption numbers must not be world-
     # readable. A dedicated TELEMETRY_STATS_TOKEN gates this route independently
     # of the global REQUIRE_BEARER_AUTH flag (which is currently off for the
@@ -1594,7 +1832,10 @@ async def telemetry_stats(request: Request) -> JSONResponse:
     except ValueError:
         window_days = 30
     window_days = max(1, min(window_days, 365))
-    return JSONResponse(telemetry_store.summary(window_days))
+    stats = telemetry_store.summary(window_days)
+    if _wants_html(request):
+        return HTMLResponse(_render_telemetry_dashboard(stats))
+    return JSONResponse(stats)
 
 
 routes = [

@@ -55,7 +55,7 @@ Implemented endpoints:
 - `GET /v1/houdini/exchanges/multi/{multiId}` — authenticated Houdini multi-order status
 - `GET /v1/houdini/exchanges/multi/{multiId}/tx` — authenticated Houdini Solana prebuilt transaction fetch
 - `POST /v1/telemetry` — **public** anonymous wallet telemetry ingest (no auth, rate-limited)
-- `GET /v1/telemetry/stats` — authenticated adoption metrics (active installs, per-host/tool/backend/version breakdown)
+- `GET /v1/telemetry/stats` — authenticated telemetry dashboard and adoption metrics
 
 ### Telemetry
 
@@ -76,9 +76,17 @@ Config:
   volume on Railway for durable history — the default file resets on redeploy)
 - `TELEMETRY_RATE_LIMIT_PER_MIN` — per-IP ingest cap (default `120`)
 
-`GET /v1/telemetry/stats?window_days=30` returns the aggregates and is gated by
-the same bearer/machine token as `/v1/status` so raw numbers are not
-world-readable. Clients opt out by setting `AGENT_WALLET_NO_TELEMETRY=1`.
+`GET /v1/telemetry/stats?window_days=30` is gated by the same bearer/machine
+token as `/v1/status` so raw numbers are not world-readable. In a browser
+(`Accept: text/html`) it renders a minimal terminal-style dashboard with
+server-side ASCII charts for events, active installs, RPC usage, downloads, and
+tool invocations. For raw machine-readable JSON use:
+
+```text
+/v1/telemetry/stats?window_days=30&format=json
+```
+
+Clients opt out by setting `AGENT_WALLET_NO_TELEMETRY=1`.
 
 Not implemented yet:
 
