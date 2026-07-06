@@ -175,6 +175,15 @@ _RPC_PENDING: dict[tuple[str, str, str, str, str, str, str], int] = {}
 _RPC_FLUSH_THREAD_STARTED = False
 _RPC_FIELD_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,63}$")
 
+_CORE_WALLET_TOOLS = {
+    "get_wallet_capabilities",
+    "get_wallet_address",
+    "get_wallet_balance",
+    "get_wallet_portfolio",
+    "issue_wallet_approval",
+    "sign_wallet_message",
+}
+
 
 def _db_path() -> Path:
     raw = os.getenv("TELEMETRY_DB_PATH", "").strip()
@@ -261,6 +270,171 @@ def record_event(event: dict[str, Any]) -> None:
             ),
         )
         conn.commit()
+
+
+def _tool_category(tool: str) -> str:
+    tool = str(tool or "").strip().lower()
+    if not tool:
+        return "other"
+    if tool.startswith("x402_"):
+        return "x402"
+    if "autonomous" in tool:
+        return "autonomous"
+    if tool.startswith("get_lifi_") or tool.startswith("swap_evm_lifi_") or tool.startswith("swap_solana_lifi_"):
+        return "cross_chain"
+    if tool.startswith("get_btc_") or tool == "transfer_btc":
+        return "btc"
+    if tool in _CORE_WALLET_TOOLS:
+        return "core_wallet"
+    if tool.startswith("get_evm_") or tool.startswith("transfer_evm_") or tool == "set_evm_network":
+        if any(part in tool for part in ("aave", "lido", "morpho", "swap_quote")):
+            return "evm_defi"
+        return "evm_wallet"
+    if tool.startswith("manage_evm_") or tool.startswith("swap_evm_") or tool == "get_uniswap_swap_quote":
+        return "evm_defi"
+    if tool.startswith("get_solana_") or tool in {
+        "stake_sol_native",
+        "deactivate_solana_stake",
+        "withdraw_solana_stake",
+        "transfer_sol",
+        "transfer_spl_token",
+        "close_empty_token_accounts",
+    }:
+        if "stake" in tool or "staking" in tool or tool in {
+            "transfer_sol",
+            "transfer_spl_token",
+            "close_empty_token_accounts",
+            "get_solana_token_prices",
+        }:
+            return "solana_wallet"
+        return "solana_defi"
+    if tool.startswith("get_flash_") or tool.startswith("flash_trade_"):
+        return "solana_defi"
+    if tool.startswith("get_kamino_") or tool.startswith("kamino_"):
+        return "solana_defi"
+    if tool.startswith("launch_bags_") or tool == "swap_solana_tokens":
+        return "solana_defi"
+    return "other"
+
+
+def _series_days(window_days: int) -> list[str]:
+    today = date.today()
+    start = today - timedelta(days=max(window_days - 1, 0))
+    days: list[str] = []
+    cursor = start
+    while cursor <= today:
+        days.append(cursor.isoformat())
+        cursor += timedelta(days=1)
+    return days
+
+
+def _daily_series(conn: sqlite3.Connection, since_ts: int, window_days: int) -> dict[str, list[dict[str, Any]]]:
+    days = _series_days(window_days)
+    event_rows = conn.execute(
+        """
+        SELECT date(received_ts, 'unixepoch') AS day,
+               COUNT(*) AS events,
+               COUNT(DISTINCT install_id) AS active_installs,
+               SUM(CASE WHEN event = 'tool_invoke' THEN 1 ELSE 0 END) AS tool_invocations,
+               SUM(CASE WHEN event = 'tool_invoke' AND ok = 1 THEN 1 ELSE 0 END) AS tool_successes
+        FROM events
+        WHERE received_ts >= ?
+        GROUP BY date(received_ts, 'unixepoch')
+        ORDER BY day ASC
+        """,
+        (since_ts,),
+    ).fetchall()
+    by_day = {
+        str(row[0]): {
+            "events": int(row[1] or 0),
+            "active_installs": int(row[2] or 0),
+            "tool_invocations": int(row[3] or 0),
+            "tool_successes": int(row[4] or 0),
+        }
+        for row in event_rows
+    }
+
+    rpc_since_day = days[0] if days else date.today().isoformat()
+    rpc_rows = conn.execute(
+        """
+        SELECT day, SUM(count) AS calls
+        FROM rpc_usage_rollups
+        WHERE day >= ?
+        GROUP BY day
+        ORDER BY day ASC
+        """,
+        (rpc_since_day,),
+    ).fetchall()
+    rpc_by_day = {str(row[0]): int(row[1] or 0) for row in rpc_rows}
+
+    return {
+        "events": [{"day": day, "count": by_day.get(day, {}).get("events", 0)} for day in days],
+        "active_installs": [{"day": day, "count": by_day.get(day, {}).get("active_installs", 0)} for day in days],
+        "tool_invocations": [{"day": day, "count": by_day.get(day, {}).get("tool_invocations", 0)} for day in days],
+        "tool_successes": [{"day": day, "count": by_day.get(day, {}).get("tool_successes", 0)} for day in days],
+        "rpc_calls": [{"day": day, "count": rpc_by_day.get(day, 0)} for day in days],
+    }
+
+
+def _tool_category_breakdown(conn: sqlite3.Connection, since_ts: int) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT tool,
+               COUNT(*) AS calls,
+               COUNT(DISTINCT install_id) AS installs
+        FROM events
+        WHERE received_ts >= ?
+          AND tool != ''
+        GROUP BY tool
+        """,
+        (since_ts,),
+    ).fetchall()
+    grouped: dict[str, dict[str, int | str]] = {}
+    for tool, calls, installs in rows:
+        key = _tool_category(str(tool or ""))
+        current = grouped.setdefault(key, {"key": key, "calls": 0, "installs": 0})
+        current["calls"] = int(current["calls"]) + int(calls or 0)
+        current["installs"] = int(current["installs"]) + int(installs or 0)
+    return sorted(
+        (
+            {"key": str(item["key"]), "calls": int(item["calls"]), "installs": int(item["installs"])}
+            for item in grouped.values()
+        ),
+        key=lambda item: (-item["calls"], item["key"]),
+    )
+
+
+def _success_rate_breakdown(conn: sqlite3.Connection, since_ts: int) -> list[dict[str, Any]]:
+    families = {
+        "tool_invocations": ("tool_invoke",),
+        "installs": ("install_start", "install_success", "install_failed"),
+        "plugin_installs": ("plugin_install_start", "plugin_install_success", "plugin_install_failed"),
+        "updates": ("update_start", "update_success", "update_failed"),
+    }
+    rows: list[dict[str, Any]] = []
+    for key, events in families.items():
+        placeholders = ",".join("?" for _ in events)
+        total_row = conn.execute(
+            f"""
+            SELECT COUNT(*),
+                   SUM(CASE WHEN ok = 1 THEN 1 ELSE 0 END)
+            FROM events
+            WHERE received_ts >= ?
+              AND event IN ({placeholders})
+            """,
+            (since_ts, *events),
+        ).fetchone()
+        total = int(total_row[0] or 0) if total_row else 0
+        ok_count = int(total_row[1] or 0) if total_row else 0
+        rows.append(
+            {
+                "key": key,
+                "calls": total,
+                "ok_calls": ok_count,
+                "success_rate": (ok_count / total) if total else None,
+            }
+        )
+    return rows
 
 
 def _rpc_enabled() -> bool:
@@ -476,6 +650,7 @@ def npm_downloads_summary() -> dict[str, Any]:
             "last_30_days": last_30_days,
             "last_7_days": last_7_days,
             "days": len(daily),
+            "daily": daily,
             "cached": False,
             "stale": False,
         }
@@ -547,12 +722,21 @@ def summary(window_days: int = 30) -> dict[str, Any]:
         by_event = _breakdown("event")
         by_host = _breakdown("host")
         by_tool = _breakdown("tool", non_empty=True)
+        by_tool_category = _tool_category_breakdown(conn, since)
         by_backend = _breakdown("backend", non_empty=True)
         by_version = _breakdown("plugin_version")
         by_source = _breakdown("source", non_empty=True)
         by_command = _breakdown("command", non_empty=True)
+        success_by_family = _success_rate_breakdown(conn, since)
+        daily = _daily_series(conn, since, window_days)
 
     success_rate = (ok_calls / total_events) if total_events else None
+    npm_downloads = npm_downloads_summary()
+    if npm_downloads.get("ok"):
+        daily_downloads = list(npm_downloads.get("daily") or [])
+        if window_days > 0:
+            daily_downloads = daily_downloads[-window_days:]
+        npm_downloads["daily_window"] = daily_downloads
     return {
         "ok": True,
         "window_days": window_days,
@@ -563,10 +747,13 @@ def summary(window_days: int = 30) -> dict[str, Any]:
         "by_event": by_event,
         "by_host": by_host,
         "by_tool": by_tool,
+        "by_tool_category": by_tool_category,
         "by_backend": by_backend,
         "by_version": by_version,
         "by_source": by_source,
         "by_command": by_command,
-        "npm_downloads": npm_downloads_summary(),
+        "success_by_family": success_by_family,
+        "daily": daily,
+        "npm_downloads": npm_downloads,
         "rpc_usage": rpc_usage_summary(window_days),
     }

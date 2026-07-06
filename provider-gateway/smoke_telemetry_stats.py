@@ -79,12 +79,21 @@ def main() -> None:
             assert {"key": "codex", "calls": 1, "installs": 1} in stats["by_host"]
             assert {"key": "unknown", "calls": 1, "installs": 1} in stats["by_host"]
             assert stats["by_tool"] == [{"key": "get_wallet_balance", "calls": 1, "installs": 1}]
+            assert {"key": "core_wallet", "calls": 1, "installs": 1} in stats["by_tool_category"]
             assert {"key": "install_success", "calls": 1, "installs": 1} in stats["by_event"]
             assert {"key": "npx", "calls": 1, "installs": 1} in stats["by_source"]
             assert {"key": "install", "calls": 1, "installs": 1} in stats["by_command"]
+            assert any(item["key"] == "tool_invocations" for item in stats["success_by_family"])
+            assert len(stats["daily"]["events"]) == 30
+            assert stats["daily"]["events"][-1]["count"] >= 0
             assert stats["npm_downloads"]["ok"] is True
             assert stats["npm_downloads"]["all_time"] == 30
             assert stats["npm_downloads"]["last_30_days"] == 30
+            assert stats["npm_downloads"]["daily"] == [
+                {"day": "2026-05-01", "downloads": 10},
+                {"day": "2026-05-02", "downloads": 20},
+            ]
+            assert stats["npm_downloads"]["daily_window"] == stats["npm_downloads"]["daily"]
             assert stats["rpc_usage"]["total_calls"] == 1
             assert stats["rpc_usage"]["by_endpoint"] == [{"key": "evm_rpc", "calls": 1}]
             assert stats["rpc_usage"]["by_method"] == [{"key": "eth_chainId", "calls": 1}]
