@@ -83,9 +83,12 @@ def main() -> None:
             assert html_response.status_code == 200
             assert "text/html" in html_response.headers.get("content-type", "")
             assert "agentlayer telemetry dashboard" in html_response.text
+            assert "total metric graphs" in html_response.text
             assert "events / day" in html_response.text
             assert "downloads / day" in html_response.text
             assert "rpc usage / day" in html_response.text
+            assert "npm downloads all-time" in html_response.text
+            assert "#ffffff" in html_response.text
 
             json_response = client.get("/v1/telemetry/stats?token=test-token&format=json")
             assert json_response.status_code == 200

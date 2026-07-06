@@ -209,6 +209,22 @@ def _render_chart(
     return lines
 
 
+def _render_total_metric_graphs(
+    title: str,
+    metrics: list[tuple[str, int]],
+    *,
+    width: int = 42,
+) -> list[str]:
+    peak = max((value for _, value in metrics), default=0)
+    label_width = max((len(label) for label, _ in metrics), default=0)
+    lines = [title]
+    for label, value in metrics:
+        lines.append(
+            f"  {label.ljust(label_width)}  {_ascii_bar(value, peak, width)}  {_format_int(value)}"
+        )
+    return lines
+
+
 def _render_breakdown_table(
     title: str,
     rows: list[dict[str, Any]],
@@ -270,11 +286,25 @@ def _render_telemetry_dashboard(stats: dict[str, Any]) -> str:
     lines.append(f"tool success .......... {_format_pct(tool_family.get('success_rate'))}")
     lines.append(f"install success ....... {_format_pct(install_family.get('success_rate'))}")
     lines.append(f"rpc calls ............. {_format_int(rpc_usage.get('total_calls', 0))}")
+    lines.append(f"npm downloads all-time  {_format_int(npm.get('all_time', 0))}")
     lines.append(f"npm downloads 7d ...... {_format_int(npm.get('last_7_days', 0))}")
     lines.append(f"npm downloads 30d ..... {_format_int(npm.get('last_30_days', 0))}")
     lines.append("")
     lines.append("graphs")
     lines.append("------")
+    lines.extend(
+        _render_total_metric_graphs(
+            "total metric graphs",
+            [
+                ("events", int(stats.get("total_events", 0) or 0)),
+                ("active installs", int(stats.get("active_installs", 0) or 0)),
+                ("rpc usage", int(rpc_usage.get("total_calls", 0) or 0)),
+                ("npm downloads all-time", int(npm.get("all_time", 0) or 0)),
+                ("npm downloads 30d", int(npm.get("last_30_days", 0) or 0)),
+            ],
+        )
+    )
+    lines.append("")
     lines.extend(_render_chart("events / day", list(daily.get("events") or [])))
     lines.append("")
     lines.extend(_render_chart("active installs / day", list(daily.get("active_installs") or [])))
@@ -337,12 +367,12 @@ def _render_telemetry_dashboard(stats: dict[str, Any]) -> str:
   <title>AgentLayer Telemetry</title>
   <style>
     :root {{
-      color-scheme: dark;
+      color-scheme: light;
     }}
     body {{
       margin: 0;
-      background: #101010;
-      color: #e6e6e6;
+      background: #ffffff;
+      color: #111111;
       font: 14px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
     }}
     .wrap {{
