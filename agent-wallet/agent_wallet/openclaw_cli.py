@@ -196,8 +196,27 @@ async def _run_invoke(
     tool_name: str,
     arguments: dict[str, Any],
     config: dict[str, Any],
+    *,
+    approval_summary: dict[str, Any] | None = None,
+    approval_mainnet_confirmed: bool = False,
+    approval_ttl_seconds: int | None = None,
 ) -> dict[str, Any]:
     context = _build_runtime_context(user_id, config)
+    # Mint the approval token in-process when the host passed the confirmation
+    # summary along with the execute call: this replaces a second cold
+    # `issue-approval` subprocess (full interpreter boot + onboarding) with a
+    # local HMAC signature. A caller-provided token always wins.
+    if (
+        isinstance(approval_summary, dict)
+        and not str(arguments.get("approval_token") or "").strip()
+    ):
+        arguments = dict(arguments)
+        arguments["approval_token"] = context.issue_execute_approval(
+            tool_name=tool_name,
+            confirmation_summary=approval_summary,
+            mainnet_confirmed=approval_mainnet_confirmed,
+            ttl_seconds=approval_ttl_seconds,
+        )
     result = await context.adapter.invoke(tool_name, arguments)
     return result.model_dump()
 
@@ -532,6 +551,15 @@ def main() -> int:
     invoke_parser.add_argument("--tool", required=True)
     invoke_parser.add_argument("--arguments-json", default="{}")
     invoke_parser.add_argument("--config-json", default="{}")
+    invoke_parser.add_argument(
+        "--approval-summary-json",
+        help=(
+            "Confirmation summary for execute calls; when provided, the approval "
+            "token is minted in this process instead of a separate issue-approval run."
+        ),
+    )
+    invoke_parser.add_argument("--approval-mainnet-confirmed", action="store_true")
+    invoke_parser.add_argument("--approval-ttl-seconds", type=int)
 
     approval_parser = subparsers.add_parser("issue-approval")
     approval_parser.add_argument("--user-id", required=True)
@@ -748,12 +776,21 @@ def main() -> int:
 
             payload = import_boot_key(_read_stdin_secret("boot key"))
         else:
+            approval_summary = None
+            raw_summary = getattr(args, "approval_summary_json", None)
+            if raw_summary:
+                approval_summary = _load_json(raw_summary)
             payload = asyncio.run(
                 _run_invoke(
                     args.user_id,
                     args.tool,
                     _load_json(args.arguments_json),
                     config,
+                    approval_summary=approval_summary,
+                    approval_mainnet_confirmed=bool(
+                        getattr(args, "approval_mainnet_confirmed", False)
+                    ),
+                    approval_ttl_seconds=getattr(args, "approval_ttl_seconds", None),
                 )
             )
     except Exception as exc:

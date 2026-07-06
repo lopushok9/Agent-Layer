@@ -625,20 +625,31 @@ def _call_wallet_cli(command: str, extra_args: list[str]) -> dict[str, Any]:
         raise WalletCliError(f"agent-wallet CLI returned invalid JSON: {exc}") from exc
 
 
-def _invoke_tool(tool_name: str, arguments: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
-    return _call_wallet_cli(
-        "invoke",
-        [
-            "--user-id",
-            _user_id(),
-            "--tool",
-            tool_name,
-            "--arguments-json",
-            json.dumps(arguments),
-            "--config-json",
-            json.dumps(config),
-        ],
-    )
+def _invoke_tool(
+    tool_name: str,
+    arguments: dict[str, Any],
+    config: dict[str, Any],
+    *,
+    approval_summary: dict[str, Any] | None = None,
+    approval_mainnet_confirmed: bool = False,
+) -> dict[str, Any]:
+    extra_args = [
+        "--user-id",
+        _user_id(),
+        "--tool",
+        tool_name,
+        "--arguments-json",
+        json.dumps(arguments),
+        "--config-json",
+        json.dumps(config),
+    ]
+    if approval_summary is not None:
+        # The invoke subprocess mints the approval token itself, so an execute
+        # costs one cold start instead of two (issue-approval + invoke).
+        extra_args.extend(["--approval-summary-json", json.dumps(approval_summary)])
+        if approval_mainnet_confirmed:
+            extra_args.append("--approval-mainnet-confirmed")
+    return _call_wallet_cli("invoke", extra_args)
 
 
 class _ResidentReadWorker:
@@ -946,33 +957,16 @@ def _prewarm_resident_read_worker() -> None:
     ).start()
 
 
-def _issue_approval_token(
-    tool_name: str,
-    config: dict[str, Any],
-    preview_payload: dict[str, Any],
-) -> str:
+def _approval_summary_for_preview(tool_name: str, preview_payload: dict[str, Any]) -> dict[str, Any]:
+    """Build the digest-bound confirmation summary the invoke subprocess will
+    mint an approval token from (in-process, replacing the old standalone
+    issue-approval subprocess round trip)."""
     summary = preview_payload.get("confirmation_summary")
     if not isinstance(summary, dict):
         raise RuntimeError(f"No confirmation_summary available for {tool_name}.")
     summary_for_token = dict(summary)
     summary_for_token["_preview_digest"] = _preview_digest(preview_payload)
-    extra_args = [
-        "--user-id",
-        _user_id(),
-        "--tool",
-        tool_name,
-        "--summary-json",
-        json.dumps(summary_for_token),
-        "--config-json",
-        json.dumps(config),
-    ]
-    if preview_payload.get("is_mainnet") is True:
-        extra_args.append("--mainnet-confirmed")
-    payload = _call_wallet_cli("issue-approval", extra_args)
-    token = str(payload.get("approval_token") or "").strip()
-    if not token:
-        raise RuntimeError(f"issue-approval did not return an approval_token for {tool_name}.")
-    return token
+    return summary_for_token
 
 
 def _invoke_resident_read_tool(tool_name: str, arguments: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
@@ -1044,10 +1038,17 @@ def _attach_approval_for_execute(
     tool_name: str,
     config: dict[str, Any],
     effective_params: dict[str, Any],
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Prepare approval context for an execute call.
+
+    Returns ``(used_cache, approval_args)``: ``used_cache`` is the consumed
+    bridge-managed preview (if any); ``approval_args`` carries the
+    digest-bound summary the invoke subprocess mints its own token from,
+    so no separate issue-approval subprocess is spawned.
+    """
     mode = str(effective_params.get("mode") or "")
     if mode not in {"execute", "intent_execute"}:
-        return None
+        return None, None
     if tool_name == "swap_solana_tokens" and mode == "execute":
         raise RuntimeError(
             "Legacy exact-preview execute is disabled for Solana Jupiter swaps in Codex. "
@@ -1056,19 +1057,22 @@ def _attach_approval_for_execute(
     cached = _latest_cached_preview(_user_id(), tool_name)
     if cached and isinstance(cached.get("preview"), dict):
         preview = cached["preview"]
-        effective_params["approval_token"] = _issue_approval_token(tool_name, config, preview)
+        approval_args = {
+            "summary": _approval_summary_for_preview(tool_name, preview),
+            "mainnet_confirmed": preview.get("is_mainnet") is True,
+        }
         if _requires_approved_preview_payload(tool_name, effective_params):
             effective_params["_approved_preview"] = preview
-        return cached
+        return cached, approval_args
     approval_token = str(effective_params.get("approval_token") or "").strip()
     if approval_token and _requires_approved_preview_payload(tool_name, effective_params):
         cached_preview = _cached_preview_for_token(_user_id(), tool_name, approval_token)
         if cached_preview is not None and "_approved_preview" not in effective_params:
             effective_params["_approved_preview"] = cached_preview
     if effective_params.get("approval_token"):
-        return None
+        return None, None
     if _should_let_backend_authorize_autonomous_execution(tool_name, effective_params, config):
-        return None
+        return None, None
     raise RuntimeError(APPROVAL_CONTEXT_MISSING_MESSAGE)
 
 
@@ -1398,9 +1402,15 @@ def _invoke_wallet_tool_blocking(
     call never freezes the MCP server (tools/list, read-only calls, and
     cancellation stay responsive).
     """
-    used_cache = _attach_approval_for_execute(tool_name, config, effective_params)
+    used_cache, approval_args = _attach_approval_for_execute(tool_name, config, effective_params)
     try:
-        payload = _invoke_tool(tool_name, effective_params, config)
+        payload = _invoke_tool(
+            tool_name,
+            effective_params,
+            config,
+            approval_summary=(approval_args or {}).get("summary"),
+            approval_mainnet_confirmed=bool((approval_args or {}).get("mainnet_confirmed")),
+        )
     except Exception as exc:
         raise _normalize_approval_context_error(exc) from exc
     _cache_preview_for_approval(_user_id(), tool_name, payload)

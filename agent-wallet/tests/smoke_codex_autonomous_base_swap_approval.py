@@ -22,14 +22,6 @@ def main() -> None:
     module.approval_preview_cache.clear()
     module._user_id = lambda: "autonomous-test-user"
 
-    issued: list[tuple[str, dict]] = []
-
-    def fake_issue_approval_token(tool_name: str, config: dict, preview: dict) -> str:
-        issued.append((tool_name, preview))
-        return "host-token"
-
-    module._issue_approval_token = fake_issue_approval_token
-
     preview_payload = {
         "ok": True,
         "data": {
@@ -45,33 +37,35 @@ def main() -> None:
     }
     module._cache_preview_for_approval("autonomous-test-user", "swap_evm_tokens", preview_payload)
 
+    # A cached preview yields the digest-bound summary for in-subprocess token
+    # minting; the bridge no longer injects approval_token itself.
     params = {"mode": "execute", "network": "base"}
-    used_cache = module._attach_approval_for_execute("swap_evm_tokens", {"network": "base"}, params)
+    used_cache, approval_args = module._attach_approval_for_execute(
+        "swap_evm_tokens", {"network": "base"}, params
+    )
     assert used_cache is not None
-    assert params["approval_token"] == "host-token"
-    assert issued and issued[0][0] == "swap_evm_tokens"
+    assert "approval_token" not in params, "token is minted inside the invoke subprocess"
+    assert isinstance(approval_args, dict)
+    summary = approval_args["summary"]
+    assert summary["operation"] == "EVM swap"
+    assert summary["_preview_digest"], "summary must be digest-bound to the preview"
+    assert approval_args["mainnet_confirmed"] is False
 
     module.approval_preview_cache.clear()
     autonomous_params = {"mode": "execute", "network": "base"}
-    assert (
-        module._attach_approval_for_execute(
-            "swap_evm_tokens",
-            {"network": "base"},
-            autonomous_params,
-        )
-        is None
-    )
+    assert module._attach_approval_for_execute(
+        "swap_evm_tokens",
+        {"network": "base"},
+        autonomous_params,
+    ) == (None, None)
     assert "approval_token" not in autonomous_params
 
     autonomous_defi_params = {"mode": "execute", "network": "ethereum"}
-    assert (
-        module._attach_approval_for_execute(
-            "manage_evm_lido_position",
-            {"network": "ethereum"},
-            autonomous_defi_params,
-        )
-        is None
-    )
+    assert module._attach_approval_for_execute(
+        "manage_evm_lido_position",
+        {"network": "ethereum"},
+        autonomous_defi_params,
+    ) == (None, None)
     assert "approval_token" not in autonomous_defi_params
 
     try:
