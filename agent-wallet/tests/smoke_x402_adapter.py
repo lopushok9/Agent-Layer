@@ -102,7 +102,7 @@ async def main() -> None:
     original_pay_and_fetch = x402.pay_and_fetch
     try:
         x402.get_client = lambda: FakeClient()
-        async def fake_pay_and_fetch(*, backend, url, method="GET", headers=None, query=None, json_body=None, text_body=None):
+        async def fake_pay_and_fetch(*, backend, url, method="GET", headers=None, query=None, json_body=None, text_body=None, approved_preview=None):
             return {
                 "asset_type": "x402-request",
                 "network": "mainnet",

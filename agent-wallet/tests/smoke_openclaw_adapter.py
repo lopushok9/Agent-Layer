@@ -1800,8 +1800,6 @@ async def main() -> None:
         boot_key="test-boot-key-for-openclaw-adapter-smoke",
         approval_secret="smoke-approval-secret",
     )
-    original_prepare_request = x402.prepare_request
-    original_execute_request = x402.execute_request
     original_pay_and_fetch = x402.pay_and_fetch
     async def fake_x402_prepare_request(*, backend, url, method="GET", headers=None, query=None, json_body=None, text_body=None):
         is_evm = str(getattr(backend, "chain", "")).strip().lower() == "evm"
@@ -1881,7 +1879,7 @@ async def main() -> None:
             "prepared": True,
         }
 
-    async def fake_x402_pay_and_fetch(*, backend, url, method="GET", headers=None, query=None, json_body=None, text_body=None):
+    async def fake_x402_pay_and_fetch(*, backend, url, method="GET", headers=None, query=None, json_body=None, text_body=None, approved_preview=None):
         prepared = await fake_x402_prepare_request(
             backend=backend,
             url=url,
@@ -1914,8 +1912,6 @@ async def main() -> None:
         )
         return prepared
 
-    x402.prepare_request = fake_x402_prepare_request
-    x402.execute_request = fake_x402_pay_and_fetch
     x402.pay_and_fetch = fake_x402_pay_and_fetch
     adapter = OpenClawWalletAdapter(FakeBackend())
     mainnet_adapter = OpenClawWalletAdapter(MainnetFakeBackend())
@@ -1923,9 +1919,9 @@ async def main() -> None:
     tool_names = {tool.name for tool in adapter.list_tools()}
     bundle_tool_names = {tool["name"] for tool in bundle["tools"]}
 
-    assert len(tool_names) == 37
+    assert len(tool_names) == 43
     assert bundle["manifest"]["id"] == "agent-wallet"
-    assert len(bundle_tool_names) == 37
+    assert len(bundle_tool_names) == 43
     assert "Wallet Operator" in bundle["instructions"]
     assert "get_lifi_supported_chains" in tool_names
     assert "get_lifi_quote" in tool_names
@@ -3171,7 +3167,7 @@ async def main() -> None:
     assert x402_paid.data["paid"] is True
     assert x402_paid.data["confirmation_requirements"]["execute_requires_approval_token"] is False
 
-    async def failing_x402_pay_and_fetch(*, backend, url, method="GET", headers=None, query=None, json_body=None, text_body=None):
+    async def failing_x402_pay_and_fetch(*, backend, url, method="GET", headers=None, query=None, json_body=None, text_body=None, approved_preview=None):
         raise ProviderError(
             "x402-solana",
             "Failed to build the Solana x402 payment payload.",
@@ -3335,8 +3331,6 @@ async def main() -> None:
         jupiter.get_client = original_jupiter_get_client
         jupiter._gateway_post = original_gateway_post
 
-    x402.prepare_request = original_prepare_request
-    x402.execute_request = original_execute_request
     x402.pay_and_fetch = original_pay_and_fetch
 
 

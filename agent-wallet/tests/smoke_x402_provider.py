@@ -154,6 +154,13 @@ class FakeClient:
 
     async def get(self, url: str, *, params=None):
         self.calls.append(("GET", url, params))
+        if "api.cdp.coinbase.com" in url and isinstance(params, dict):
+            # CDP rejects blank query parameters with HTTP 400; unset filters
+            # must be omitted from the request entirely.
+            for name, value in params.items():
+                assert value is not None and str(value) != "", (
+                    f"CDP Bazaar request must not send empty param {name!r}"
+                )
         if "api.cdp.coinbase.com" in url and url.endswith("/search"):
             return FakeResponse(
                 200,
@@ -435,10 +442,27 @@ async def main() -> None:
 
         x402._extract_settlement_header = fake_extract_settlement_header
 
+        x402._discovery_cache.clear()
         cdp = await x402.search_services(query="premium report", discovery_provider="cdp_bazaar")
         assert cdp["count"] == 1
         assert cdp["items"][0]["resource"] == "https://paid.example.com/report"
         assert cdp["items"][0]["accepts"][0]["amount_display"] == "0.1"
+
+        calls_before_cached_search = len(fake_client.calls)
+        cdp_cached = await x402.search_services(
+            query="premium report", discovery_provider="cdp_bazaar"
+        )
+        assert cdp_cached == cdp
+        assert len(fake_client.calls) == calls_before_cached_search, (
+            "repeated discovery search must be served from cache without an API call"
+        )
+        cdp_cached["items"].clear()
+        cdp_fresh_copy = await x402.search_services(
+            query="premium report", discovery_provider="cdp_bazaar"
+        )
+        assert cdp_fresh_copy["count"] == 1 and cdp_fresh_copy["items"], (
+            "cache hits must hand out independent copies"
+        )
 
         market = await x402.search_services(query="example", discovery_provider="agentic_market")
         assert market["count"] == 1
@@ -467,25 +491,17 @@ async def main() -> None:
         assert preview["request"]["body_hash"]
         assert preview["request"]["request_fingerprint"]
 
-        prepared = await x402.prepare_request(
+        executed = await x402.pay_and_fetch(
             backend=FakeBackend(),
             url="https://paid.example.com/report",
             method="POST",
             query={"topic": "solana"},
             json_body={"depth": "full"},
         )
-        assert prepared["prepared"] is True
-        assert prepared["payment_payload_withheld"] is True
-
-        executed = await x402.execute_request(
-            backend=FakeBackend(),
-            url="https://paid.example.com/report",
-            method="POST",
-            query={"topic": "solana"},
-            json_body={"depth": "full"},
-        )
+        assert executed["mode"] == "execute"
         assert executed["paid"] is True
         assert executed["confirmed"] is True
+        assert executed["reused_approved_preview"] is False
         assert executed["payment_settlement"]["transaction"] == "solana-payment-tx"
         assert executed["response_preview"]["result"] == "paid"
 
@@ -524,7 +540,7 @@ async def main() -> None:
         assert evm_mainnet_preview["accepted_payments"][0]["compatibility"]["currently_executable"] is True
         assert evm_mainnet_preview["wallet"]["execution_modes"] == ["evm_exact"]
 
-        evm_mainnet_executed = await x402.execute_request(
+        evm_mainnet_executed = await x402.pay_and_fetch(
             backend=MainnetFakeEvmBackend(),
             url="https://paid-base-mainnet.example.com/report",
             method="POST",
@@ -535,6 +551,48 @@ async def main() -> None:
         assert evm_mainnet_executed["confirmed"] is True
         assert evm_mainnet_executed["payment_settlement"]["transaction"] == "evm-mainnet-payment-tx"
         assert evm_mainnet_executed["response_preview"]["result"] == "paid-evm-mainnet"
+
+        # Reusing the approval-time preview must skip the unpaid 402 probe:
+        # exactly one HTTP call (the paid request) instead of two.
+        reuse_preview = await x402.preview_request(
+            backend=MainnetFakeEvmBackend(),
+            url="https://paid-base-mainnet.example.com/report",
+            method="POST",
+            query={"topic": "base"},
+            json_body={"depth": "full"},
+        )
+        calls_before_reuse = len(fake_client.calls)
+        reused = await x402.pay_and_fetch(
+            backend=MainnetFakeEvmBackend(),
+            url="https://paid-base-mainnet.example.com/report",
+            method="POST",
+            query={"topic": "base"},
+            json_body={"depth": "full"},
+            approved_preview=reuse_preview,
+        )
+        assert reused["paid"] is True
+        assert reused["reused_approved_preview"] is True
+        assert reused["payment_settlement"]["transaction"] == "evm-mainnet-payment-tx"
+        assert len(fake_client.calls) == calls_before_reuse + 1, (
+            "approved preview reuse must skip the unpaid probe"
+        )
+
+        # A preview for a different request body (fingerprint mismatch) must be
+        # ignored: fresh probe + paid call.
+        calls_before_mismatch = len(fake_client.calls)
+        mismatched = await x402.pay_and_fetch(
+            backend=MainnetFakeEvmBackend(),
+            url="https://paid-base-mainnet.example.com/report",
+            method="POST",
+            query={"topic": "base"},
+            json_body={"depth": "shallow"},
+            approved_preview=reuse_preview,
+        )
+        assert mismatched["paid"] is True
+        assert mismatched["reused_approved_preview"] is False
+        assert len(fake_client.calls) == calls_before_mismatch + 2, (
+            "fingerprint mismatch must fall back to a fresh probe"
+        )
 
         free_preview = await x402.preview_request(
             backend=FakeBackend(),

@@ -273,6 +273,44 @@ def _cache_preview_for_approval(user_id: str, tool_name: str, payload: dict[str,
         }
 
 
+X402_PREVIEW_REUSE_TTL_SECONDS = 300
+
+
+def _cache_x402_preview_payload(user_id: str, payload: dict[str, Any]) -> None:
+    """Cache a paid-endpoint preview so x402_pay_request can skip its unpaid probe.
+
+    x402 previews run on the read-only resident-worker path, so they never reach
+    _cache_preview_for_approval (and preview-mode annotation strips
+    confirmation_summary anyway). Stored under the x402_preview_request key that
+    the pay alias resolves to. The wallet runtime revalidates the payload by
+    request fingerprint and falls back to a fresh probe on any mismatch, so a
+    stale or unrelated cached preview can never redirect a payment.
+    """
+    if not isinstance(payload, dict) or payload.get("ok") is False:
+        return
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return
+    if not data.get("payment_required") or not str(data.get("request_fingerprint") or "").strip():
+        return
+    with _approval_cache_lock:
+        _prune_approval_preview_cache()
+        approval_preview_cache[_approval_cache_key(user_id, "x402_preview_request")] = {
+            "digest": _preview_digest(data),
+            "expires_at": time.time() + X402_PREVIEW_REUSE_TTL_SECONDS,
+            "preview": data,
+            "summary": None,
+        }
+
+
+def _attach_x402_approved_preview(tool_name: str, effective_params: dict[str, Any]) -> None:
+    if tool_name != "x402_pay_request" or "_approved_preview" in effective_params:
+        return
+    cached = _latest_cached_preview(_user_id(), tool_name)
+    if cached and isinstance(cached.get("preview"), dict):
+        effective_params["_approved_preview"] = cached["preview"]
+
+
 def _latest_cached_preview(user_id: str, tool_name: str) -> dict[str, Any] | None:
     with _approval_cache_lock:
         _prune_approval_preview_cache()
@@ -1403,6 +1441,7 @@ def _invoke_wallet_tool_blocking(
     cancellation stay responsive).
     """
     used_cache, approval_args = _attach_approval_for_execute(tool_name, config, effective_params)
+    _attach_x402_approved_preview(tool_name, effective_params)
     try:
         payload = _invoke_tool(
             tool_name,
@@ -1413,6 +1452,10 @@ def _invoke_wallet_tool_blocking(
         )
     except Exception as exc:
         raise _normalize_approval_context_error(exc) from exc
+    if tool_name == "x402_pay_request":
+        # The cached x402 preview quote is single-use: whether the payment
+        # succeeded or the endpoint re-priced, the next pay must re-preview.
+        _consume_cached_preview(_user_id(), tool_name)
     _cache_preview_for_approval(_user_id(), tool_name, payload)
     # A bridge-managed preview that was just executed successfully is single-use:
     # drop it so a duplicate execute cannot silently re-run the operation.
@@ -1451,6 +1494,8 @@ async def _handle_wallet_tool(tool_name: str, params: dict[str, Any]) -> dict[st
             _invoke_wallet_tool_blocking, tool_name, config, effective_params
         )
 
+    if tool_name == "x402_preview_request":
+        _cache_x402_preview_payload(_user_id(), payload)
     if payload.get("ok") is False:
         raise RuntimeError(str(payload.get("error") or f"{tool_name} failed"))
     return payload.get("data", {})

@@ -6,6 +6,7 @@ import base64
 import hashlib
 import json
 import logging
+import time
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -17,12 +18,23 @@ from agent_wallet.wallet_layer.base import AgentWalletBackend
 CDP_BAZAAR_DISCOVERY_BASE_URL = "https://api.cdp.coinbase.com/platform/v2/x402/discovery"
 AGENTIC_MARKET_API_BASE_URL = "https://api.agentic.market/v1"
 X402_EXECUTE_TIMEOUT_SECONDS = 45.0
+DISCOVERY_CACHE_TTL_SECONDS = 300.0
+_DISCOVERY_CACHE_MAX_ENTRIES = 64
+# Discovery responses cached as JSON text so hits hand out independent copies.
+# Long-lived only inside the resident read worker; cold CLI runs start empty.
+_discovery_cache: dict[str, tuple[float, str]] = {}
 SOLANA_CAIP_BY_NETWORK = {
     "mainnet": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
 }
 EVM_CAIP_BY_NETWORK = {
     "ethereum": "eip155:1",
     "base": "eip155:8453",
+}
+# x402 v1 requirements carry legacy network names instead of CAIP-2 ids.
+LEGACY_NETWORK_TO_CAIP = {
+    "ethereum": "eip155:1",
+    "base": "eip155:8453",
+    "solana": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
 }
 _USDC_IDENTIFIERS = {
     "usdc",
@@ -200,6 +212,38 @@ def _decode_payment_required(header_value: str) -> dict[str, Any]:
     }
 
 
+def _caip_network(value: Any) -> str:
+    """Map a requirement network to CAIP-2 form, passing CAIP ids through."""
+    network = _trim(value)
+    if ":" in network:
+        return network
+    return LEGACY_NETWORK_TO_CAIP.get(network.lower(), network)
+
+
+def _decode_payment_required_body(response: Any) -> dict[str, Any] | None:
+    """Parse a legacy x402 v1 402 response whose requirements live in the JSON body.
+
+    Returns the same shape as _decode_payment_required, with `encoded` set to a
+    base64 form the x402 SDK can decode (it detects the version from the JSON).
+    """
+    try:
+        payload = response.json()
+    except Exception:
+        return None
+    if not isinstance(payload, dict) or payload.get("x402Version") != 1:
+        return None
+    accepts = payload.get("accepts")
+    if not isinstance(accepts, list) or not accepts:
+        return None
+    encoded = base64.b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")
+    return {
+        "x402_version": 1,
+        "accepts": accepts,
+        "raw": payload,
+        "encoded": encoded,
+    }
+
+
 def _extract_requirement_extra(requirement: dict[str, Any]) -> dict[str, Any]:
     extra = requirement.get("extra")
     return dict(extra) if isinstance(extra, dict) else {}
@@ -210,12 +254,24 @@ def _requirement_field(requirement: Any, field_name: str) -> Any:
         aliases = {
             "pay_to": ("pay_to", "payTo"),
             "max_timeout_seconds": ("max_timeout_seconds", "maxTimeoutSeconds"),
+            "amount": ("amount", "maxAmountRequired"),
         }
         for candidate in aliases.get(field_name, (field_name,)):
             if candidate in requirement:
                 return requirement.get(candidate)
         return None
-    return getattr(requirement, field_name, None)
+    value = getattr(requirement, field_name, None)
+    if value is None and field_name == "amount":
+        # v1 SDK models expose the amount as max_amount_required / get_amount().
+        getter = getattr(requirement, "get_amount", None)
+        if callable(getter):
+            return getter()
+    return value
+
+
+def _requirement_amount(requirement: dict[str, Any]) -> str:
+    # x402 v2 uses "amount"; v1 uses "maxAmountRequired".
+    return _trim(requirement.get("amount") or requirement.get("maxAmountRequired"))
 
 
 def _looks_like_usdc(requirement: dict[str, Any]) -> bool:
@@ -227,7 +283,7 @@ def _looks_like_usdc(requirement: dict[str, Any]) -> bool:
 
 
 def _normalize_amount_hint(requirement: dict[str, Any]) -> str | None:
-    amount = _trim(requirement.get("amount"))
+    amount = _requirement_amount(requirement)
     if not amount.isdigit():
         return None
     if _looks_like_usdc(requirement):
@@ -247,7 +303,7 @@ def normalize_payment_requirement(
     resource_url: str | None = None,
 ) -> dict[str, Any]:
     extra = _extract_requirement_extra(requirement)
-    amount = _trim(requirement.get("amount"))
+    amount = _requirement_amount(requirement)
     return {
         "scheme": _trim(requirement.get("scheme")).lower() or None,
         "network": _trim(requirement.get("network")) or None,
@@ -405,7 +461,7 @@ def _wallet_x402_support_summary(backend: AgentWalletBackend) -> dict[str, Any]:
 
 def _requirement_compatibility(requirement: dict[str, Any], backend: AgentWalletBackend) -> dict[str, Any]:
     wallet_summary = _wallet_x402_support_summary(backend)
-    network = _trim(requirement.get("network"))
+    network = _caip_network(requirement.get("network"))
     scheme = _trim(requirement.get("scheme")).lower()
     wallet_network_matches = network in wallet_summary["supported_caip_networks"]
     chain = _backend_chain(backend)
@@ -458,23 +514,24 @@ def _select_preferred_requirement(
     requirements: list[dict[str, Any]],
     backend: AgentWalletBackend,
 ) -> dict[str, Any] | None:
-    compatible = [
-        requirement
-        for requirement in requirements
-        if _requirement_compatibility(requirement, backend)["planned_execution_supported"]
-    ]
-    exact_match = [
-        requirement
-        for requirement in compatible
-        if _requirement_compatibility(requirement, backend)["wallet_network_matches"]
-    ]
+    compatible: list[dict[str, Any]] = []
+    exact_match: list[dict[str, Any]] = []
+    for requirement in requirements:
+        compatibility = _requirement_compatibility(requirement, backend)
+        if not compatibility["planned_execution_supported"]:
+            continue
+        compatible.append(requirement)
+        if compatibility["wallet_network_matches"]:
+            exact_match.append(requirement)
     candidates = exact_match or compatible
     if not candidates:
         return None
 
-    def sort_key(item: dict[str, Any]) -> tuple[int, str]:
+    def sort_key(item: dict[str, Any]) -> tuple[int, int]:
         amount = _trim(item.get("amount"))
-        return (0 if amount.isdigit() else 1, amount)
+        if amount.isdigit():
+            return (0, int(amount))
+        return (1, 0)
 
     return sorted(candidates, key=sort_key)[0]
 
@@ -605,14 +662,16 @@ def _parse_payment_required_response(
     wallet_summary: dict[str, Any],
 ) -> dict[str, Any]:
     payment_required = response.headers.get("PAYMENT-REQUIRED")
-    if not payment_required:
-        raise ProviderError(
-            "x402-http",
-            "Server returned HTTP 402 without a PAYMENT-REQUIRED header.",
-            details={"status_code": response.status_code, "url": request["url"]},
-        )
-
-    decoded = _decode_payment_required(payment_required)
+    if payment_required:
+        decoded = _decode_payment_required(payment_required)
+    else:
+        decoded = _decode_payment_required_body(response)
+        if decoded is None:
+            raise ProviderError(
+                "x402-http",
+                "Server returned HTTP 402 without a PAYMENT-REQUIRED header or an x402 v1 JSON body.",
+                details={"status_code": response.status_code, "url": request["url"]},
+            )
     normalized_accepts = [
         normalize_payment_requirement(requirement, source="payment_required", resource_url=request["url"])
         for requirement in decoded["accepts"]
@@ -649,34 +708,6 @@ def _parse_payment_required_response(
         }
     )
     return preview
-
-
-def _require_executable_payment(
-    *,
-    preview: dict[str, Any],
-    backend: AgentWalletBackend,
-) -> dict[str, Any]:
-    selected = preview.get("selected_payment")
-    if not isinstance(selected, dict):
-        raise ProviderError(
-            "x402-http",
-            "No compatible x402 payment requirement was selected for this wallet.",
-            details={
-                "request_url": preview.get("request_url"),
-                "accepted_payments": preview.get("accepted_payments"),
-            },
-        )
-    compatibility = _requirement_compatibility(selected, backend)
-    if not compatibility["currently_executable"]:
-        raise ProviderError(
-            "x402-http",
-            str(compatibility["reason"]),
-            details={
-                "selected_payment": selected,
-                "compatibility": compatibility,
-            },
-        )
-    return selected
 
 
 def _validate_payment_requirement(
@@ -717,7 +748,7 @@ def _validate_payment_requirement(
 
     chain = _backend_chain(backend) or "unknown"
     network = _backend_network(backend) or "unknown"
-    requirement_network = _trim(selected.get("network")) or "unknown"
+    requirement_network = _caip_network(selected.get("network")) or "unknown"
     if chain == "solana" and requirement_network not in SOLANA_CAIP_BY_NETWORK.values():
         message = (
             f"This endpoint requires payment on {requirement_network}, but the active wallet is Solana ({network})."
@@ -1091,6 +1122,30 @@ def _log_x402_execute(
     )
 
 
+def _discovery_cache_get(cache_key: str) -> dict[str, Any] | None:
+    entry = _discovery_cache.get(cache_key)
+    if entry is None:
+        return None
+    expires_at, payload_text = entry
+    if expires_at <= time.monotonic():
+        _discovery_cache.pop(cache_key, None)
+        return None
+    return json.loads(payload_text)
+
+
+def _discovery_cache_set(cache_key: str, payload: dict[str, Any]) -> None:
+    try:
+        payload_text = json.dumps(payload)
+    except (TypeError, ValueError):
+        return
+    if len(_discovery_cache) >= _DISCOVERY_CACHE_MAX_ENTRIES:
+        for stale_key in sorted(_discovery_cache, key=lambda key: _discovery_cache[key][0])[
+            : len(_discovery_cache) - _DISCOVERY_CACHE_MAX_ENTRIES + 1
+        ]:
+            _discovery_cache.pop(stale_key, None)
+    _discovery_cache[cache_key] = (time.monotonic() + DISCOVERY_CACHE_TTL_SECONDS, payload_text)
+
+
 async def search_services(
     *,
     query: str | None = None,
@@ -1106,20 +1161,62 @@ async def search_services(
         provider = "cdp_bazaar"
     if limit <= 0:
         raise ProviderError("x402-discovery", "limit must be greater than zero.")
+    cache_key = _canonical_json_text(
+        {
+            "op": "search_services",
+            "provider": provider,
+            "query": _trim(query),
+            "network": _trim(network),
+            "asset": _trim(asset),
+            "scheme": _trim(scheme),
+            "max_usd_price": _trim(max_usd_price),
+            "limit": limit,
+        }
+    )
+    cached = _discovery_cache_get(cache_key)
+    if cached is not None:
+        return cached
+    result = await _search_services_uncached(
+        query=query,
+        provider=provider,
+        network=network,
+        asset=asset,
+        scheme=scheme,
+        max_usd_price=max_usd_price,
+        limit=limit,
+    )
+    _discovery_cache_set(cache_key, result)
+    return result
+
+
+async def _search_services_uncached(
+    *,
+    query: str | None,
+    provider: str,
+    network: str | None,
+    asset: str | None,
+    scheme: str | None,
+    max_usd_price: str | None,
+    limit: int,
+) -> dict[str, Any]:
     client = get_client()
 
     if provider == "cdp_bazaar":
         if query and _trim(query):
+            # CDP rejects empty filter values with HTTP 400, so omit unset params
+            # entirely instead of sending them as blank strings.
+            search_params: dict[str, Any] = {"query": _trim(query), "limit": min(limit, 20)}
+            for name, value in (
+                ("network", network),
+                ("asset", asset),
+                ("scheme", scheme),
+                ("maxUsdPrice", max_usd_price),
+            ):
+                if _trim(value):
+                    search_params[name] = _trim(value)
             response = await client.get(
                 f"{CDP_BAZAAR_DISCOVERY_BASE_URL}/search",
-                params={
-                    "query": _trim(query),
-                    "network": _trim(network) or None,
-                    "asset": _trim(asset) or None,
-                    "scheme": _trim(scheme) or None,
-                    "maxUsdPrice": _trim(max_usd_price) or None,
-                    "limit": min(limit, 20),
-                },
+                params=search_params,
             )
             payload = _parse_json_response(
                 response, provider="x402-cdp-bazaar", operation="CDP Bazaar search"
@@ -1214,19 +1311,40 @@ async def get_service_details(
         )
 
     if provider == "cdp_bazaar":
-        resources = await search_services(discovery_provider="cdp_bazaar", limit=200)
-        exact = next((item for item in resources["items"] if item.get("resource") == ref), None)
-        if exact is None:
+
+        def _match(items: list[dict[str, Any]]) -> dict[str, Any] | None:
+            exact = next((item for item in items if item.get("resource") == ref), None)
+            if exact is not None:
+                return exact
             needle = ref.lower()
-            exact = next(
+            return next(
                 (
                     item
-                    for item in resources["items"]
+                    for item in items
                     if needle in _trim(item.get("resource")).lower()
                     or needle in _trim(item.get("description")).lower()
                 ),
                 None,
             )
+
+        # Server-side search covers the full Bazaar catalog; a plain resource
+        # listing only ever returns the first page, so use it as a last resort.
+        queries = [ref]
+        if ref.startswith(("http://", "https://")):
+            netloc = _trim(urlsplit(ref).netloc)
+            if netloc and netloc != ref:
+                queries.append(netloc)
+        exact: dict[str, Any] | None = None
+        for candidate_query in queries:
+            results = await search_services(
+                query=candidate_query, discovery_provider="cdp_bazaar", limit=20
+            )
+            exact = _match(results["items"])
+            if exact is not None:
+                break
+        if exact is None:
+            resources = await search_services(discovery_provider="cdp_bazaar", limit=200)
+            exact = _match(resources["items"])
         if exact is None:
             raise ProviderError("x402-cdp-bazaar", f"No Bazaar resource matched: {ref}")
         return {"discovery_provider": provider, "service": exact}
@@ -1330,78 +1448,30 @@ async def preview_request(
     return payment_preview
 
 
-async def prepare_request(
+def _reusable_approved_preview(
+    approved_preview: Any,
     *,
-    backend: AgentWalletBackend,
-    url: str,
-    method: str = "GET",
-    headers: dict[str, Any] | None = None,
-    query: dict[str, Any] | None = None,
-    json_body: Any | None = None,
-    text_body: str | None = None,
-) -> dict[str, Any]:
-    preview = await preview_request(
-        backend=backend,
-        url=url,
-        method=method,
-        headers=headers,
-        query=query,
-        json_body=json_body,
-        text_body=text_body,
-    )
-    if not preview.get("payment_required"):
-        prepared = dict(preview)
-        prepared["mode"] = "prepare"
-        prepared["prepared"] = False
-        prepared["prepare_note"] = "The endpoint did not require x402 payment for this request."
-        return prepared
+    request: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Return an approval-time preview usable instead of a fresh unpaid probe.
 
-    selected_payment = _require_executable_payment(preview=preview, backend=backend)
-    payment_required_header = (
-        dict(preview.get("response_headers") or {}).get("payment-required")
-    )
-    if not isinstance(payment_required_header, str) or not payment_required_header.strip():
-        raise ProviderError("x402-http", "Missing PAYMENT-REQUIRED header in preview state.")
-    # Create the payload once during prepare to validate that the active wallet can sign it.
-    await _create_payment_headers(
-        backend=backend,
-        payment_required_header=payment_required_header,
-        selected_payment=selected_payment,
-    )
-    prepared = dict(preview)
-    prepared["mode"] = "prepare"
-    prepared["prepared"] = True
-    prepared["signed"] = False
-    prepared["broadcasted"] = False
-    prepared["confirmed"] = False
-    prepared["payment_payload_withheld"] = True
-    prepared["prepare_note"] = (
-        "x402 payment authorization was validated locally, but the PAYMENT-SIGNATURE header is withheld until execute."
-    )
-    return prepared
-
-
-async def execute_request(
-    *,
-    backend: AgentWalletBackend,
-    url: str,
-    method: str = "GET",
-    headers: dict[str, Any] | None = None,
-    query: dict[str, Any] | None = None,
-    json_body: Any | None = None,
-    text_body: str | None = None,
-) -> dict[str, Any]:
-    executed = await pay_and_fetch(
-        backend=backend,
-        url=url,
-        method=method,
-        headers=headers,
-        query=query,
-        json_body=json_body,
-        text_body=text_body,
-    )
-    executed["mode"] = "execute"
-    return executed
+    Reuse is only safe when the preview describes exactly this request
+    (fingerprint covers method, final URL, and body hash) and still carries the
+    encoded PAYMENT-REQUIRED challenge plus a selected payment. Anything else
+    falls back to a fresh probe.
+    """
+    if not isinstance(approved_preview, dict):
+        return None
+    if not approved_preview.get("payment_required"):
+        return None
+    if _trim(approved_preview.get("request_fingerprint")) != request["request_fingerprint"]:
+        return None
+    if not isinstance(approved_preview.get("selected_payment"), dict):
+        return None
+    header = dict(approved_preview.get("response_headers") or {}).get("payment-required")
+    if not isinstance(header, str) or not header.strip():
+        return None
+    return dict(approved_preview)
 
 
 async def pay_and_fetch(
@@ -1413,9 +1483,9 @@ async def pay_and_fetch(
     query: dict[str, Any] | None = None,
     json_body: Any | None = None,
     text_body: str | None = None,
+    approved_preview: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    preview = await preview_request(
-        backend=backend,
+    request = _build_request_metadata(
         url=url,
         method=method,
         headers=headers,
@@ -1423,6 +1493,18 @@ async def pay_and_fetch(
         json_body=json_body,
         text_body=text_body,
     )
+    preview = _reusable_approved_preview(approved_preview, request=request)
+    reused_approved_preview = preview is not None
+    if preview is None:
+        preview = await preview_request(
+            backend=backend,
+            url=url,
+            method=method,
+            headers=headers,
+            query=query,
+            json_body=json_body,
+            text_body=text_body,
+        )
     if not preview.get("payment_required"):
         executed = dict(preview)
         executed["mode"] = "execute"
@@ -1444,14 +1526,6 @@ async def pay_and_fetch(
     if not isinstance(payment_required_header, str) or not payment_required_header.strip():
         raise ProviderError("x402-http", "Missing PAYMENT-REQUIRED header in preview state.")
 
-    request = _build_request_metadata(
-        url=url,
-        method=method,
-        headers=headers,
-        query=query,
-        json_body=json_body,
-        text_body=text_body,
-    )
     _validate_request_execution_policy(request=request, backend=backend)
     payment_headers = await _create_payment_headers(
         backend=backend,
@@ -1478,6 +1552,7 @@ async def pay_and_fetch(
         {
             "mode": "execute",
             "paid": True,
+            "reused_approved_preview": reused_approved_preview,
             "broadcasted": bool(settlement and settlement.get("transaction")),
             "confirmed": bool(settlement and settlement.get("success")),
             "payment_settlement": settlement,
@@ -1491,9 +1566,15 @@ async def pay_and_fetch(
         }
     )
     if response.status_code == 402:
+        message = "The paid x402 retry still returned HTTP 402."
+        if reused_approved_preview:
+            message += (
+                " The payment was signed from the approved preview quote; the server may have"
+                " re-priced the endpoint since then. Run x402_preview_request again and retry."
+            )
         raise ProviderError(
             "x402-http",
-            "The paid x402 retry still returned HTTP 402.",
+            message,
             details={
                 "request_url": request["url"],
                 "selected_payment": selected_payment,

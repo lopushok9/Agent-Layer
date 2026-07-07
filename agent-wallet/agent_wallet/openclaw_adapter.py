@@ -3928,6 +3928,9 @@ class OpenClawWalletAdapter:
                     raise WalletBackendError("text_body must be a string when provided.")
                 if not isinstance(purpose, str) or not purpose.strip():
                     raise WalletBackendError("purpose is required.")
+                approved_preview = args.get("_approved_preview")
+                if approved_preview is not None and not isinstance(approved_preview, dict):
+                    raise WalletBackendError("_approved_preview must be an object when provided.")
                 data = await x402.pay_and_fetch(
                     backend=active_backend,
                     url=url.strip(),
@@ -3936,6 +3939,7 @@ class OpenClawWalletAdapter:
                     query=query,
                     json_body=json_body,
                     text_body=text_body,
+                    approved_preview=approved_preview,
                 )
                 data["purpose"] = purpose.strip()
                 data = self._annotate_x402_payload(data, mode="execute")
