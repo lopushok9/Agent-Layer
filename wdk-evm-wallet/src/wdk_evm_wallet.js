@@ -94,8 +94,38 @@ const LIFI_CHAIN_ALIASES = {
   sol: "1151111081099710",
   solana: "1151111081099710",
 };
-const MORPHO_DEFAULT_LIST_LIMIT = 100;
+// Default is deliberately small: list responses land in an LLM agent's
+// context window (a 100-item vault list is ~80 KB of JSON). Agents can raise
+// the limit explicitly when they really need more.
+const MORPHO_DEFAULT_LIST_LIMIT = 20;
 const MORPHO_MAX_LIST_LIMIT = 500;
+// Discovery lists/details only — never user positions. APY/TVL drift over
+// two minutes is below the indexer's own aggregation noise.
+const MORPHO_DISCOVERY_CACHE_TTL_MS = 120_000;
+const MORPHO_DISCOVERY_CACHE_MAX_ENTRIES = 64;
+const morphoDiscoveryCache = new Map();
+
+function morphoDiscoveryCacheGet(key) {
+  const entry = morphoDiscoveryCache.get(key);
+  if (!entry) {
+    return null;
+  }
+  if (entry.expiresAt <= Date.now()) {
+    morphoDiscoveryCache.delete(key);
+    return null;
+  }
+  return JSON.parse(entry.payload);
+}
+
+function morphoDiscoveryCacheSet(key, payload) {
+  if (morphoDiscoveryCache.size >= MORPHO_DISCOVERY_CACHE_MAX_ENTRIES) {
+    morphoDiscoveryCache.delete(morphoDiscoveryCache.keys().next().value);
+  }
+  morphoDiscoveryCache.set(key, {
+    expiresAt: Date.now() + MORPHO_DISCOVERY_CACHE_TTL_MS,
+    payload: JSON.stringify(payload),
+  });
+}
 const MORPHO_VAULT_LIST_QUERY = `
   query MorphoVaultV2List($first: Int!, $where: VaultV2sFilters, $orderBy: VaultV2OrderBy, $orderDirection: OrderDirection) {
     vaultV2s(first: $first, where: $where, orderBy: $orderBy, orderDirection: $orderDirection) {
@@ -112,6 +142,7 @@ const MORPHO_VAULT_LIST_QUERY = `
         idleAssets
         idleAssetsUsd
         sharePrice
+        netApy
         avgNetApy
         avgNetApyExcludingRewards
         performanceFee
@@ -664,6 +695,17 @@ function normalizeMorphoSearch(value) {
     throw new Error("search must be a string.");
   }
   return value.trim() || null;
+}
+
+function normalizeOptionalNonNegativeNumber(value, fieldName) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+  const num = Number(value);
+  if (!Number.isFinite(num) || num < 0) {
+    throw new Error(`${fieldName} must be a non-negative number.`);
+  }
+  return num;
 }
 
 function normalizeOptionalAddressFilter(value, fieldName) {
@@ -1925,21 +1967,29 @@ export class WdkEvmWalletService {
     limit,
     listedOnly = true,
     assetAddress = null,
+    minTotalAssetsUsd = null,
+    minNetApy = null,
     orderBy,
     orderDirection,
   }) {
     const runtimeConfig = this.#resolveRuntimeConfig(network);
     assertMorphoSupportedNetwork(runtimeConfig.network);
     if (vaultAddress !== null && vaultAddress !== undefined && String(vaultAddress).trim()) {
+      const address = normalizeAddress(vaultAddress, "vaultAddress");
+      const cacheKey = JSON.stringify(["vault", runtimeConfig.chainId, address]);
+      const cached = morphoDiscoveryCacheGet(cacheKey);
+      if (cached) {
+        return cached;
+      }
       const data = await this.#morphoGraphqlRequest({
         query: MORPHO_VAULT_BY_ADDRESS_QUERY,
         variables: {
-          address: normalizeAddress(vaultAddress, "vaultAddress"),
+          address,
           chainId: runtimeConfig.chainId,
         },
         operationName: "MorphoVaultV2ByAddress",
       });
-      return {
+      const result = {
         network: runtimeConfig.network,
         chainId: runtimeConfig.chainId,
         protocol: "morpho",
@@ -1947,10 +1997,17 @@ export class WdkEvmWalletService {
         found: Boolean(data.vaultV2ByAddress),
         source: "morpho-api",
       };
+      morphoDiscoveryCacheSet(cacheKey, result);
+      return result;
     }
     const first = normalizeMorphoListLimit(limit);
     const onlyListed = normalizeMorphoListedOnly(listedOnly);
     const assetAddressFilter = normalizeOptionalAddressFilter(assetAddress, "assetAddress");
+    const minTotalAssetsUsdFilter = normalizeOptionalNonNegativeNumber(
+      minTotalAssetsUsd,
+      "minTotalAssetsUsd"
+    );
+    const minNetApyFilter = normalizeOptionalNonNegativeNumber(minNetApy, "minNetApy");
     const resolvedOrderBy = normalizeMorphoOrderBy(
       orderBy,
       MORPHO_VAULT_ORDER_LOOKUP,
@@ -1964,18 +2021,30 @@ export class WdkEvmWalletService {
     if (assetAddressFilter) {
       where.assetAddress_in = assetAddressFilter;
     }
+    if (minTotalAssetsUsdFilter !== null) {
+      where.totalAssetsUsd_gte = minTotalAssetsUsdFilter;
+    }
+    if (minNetApyFilter !== null) {
+      where.netApy_gte = minNetApyFilter;
+    }
+    const variables = {
+      first,
+      where,
+      orderBy: resolvedOrderBy,
+      orderDirection: resolvedOrderDirection,
+    };
+    const cacheKey = JSON.stringify(["vaults", variables]);
+    const cached = morphoDiscoveryCacheGet(cacheKey);
+    if (cached) {
+      return cached;
+    }
     const data = await this.#morphoGraphqlRequest({
       query: MORPHO_VAULT_LIST_QUERY,
-      variables: {
-        first,
-        where,
-        orderBy: resolvedOrderBy,
-        orderDirection: resolvedOrderDirection,
-      },
+      variables,
       operationName: "MorphoVaultV2List",
     });
     const vaults = Array.isArray(data?.vaultV2s?.items) ? data.vaultV2s.items : [];
-    return {
+    const result = {
       network: runtimeConfig.network,
       chainId: runtimeConfig.chainId,
       protocol: "morpho",
@@ -1984,10 +2053,14 @@ export class WdkEvmWalletService {
       orderBy: resolvedOrderBy,
       orderDirection: resolvedOrderDirection,
       assetAddressFilter,
+      minTotalAssetsUsd: minTotalAssetsUsdFilter,
+      minNetApy: minNetApyFilter,
       vaultCount: vaults.length,
       vaults,
       source: "morpho-api",
     };
+    morphoDiscoveryCacheSet(cacheKey, result);
+    return result;
   }
 
   async getMorphoMarkets({
@@ -1998,21 +2071,29 @@ export class WdkEvmWalletService {
     search,
     collateralAssetAddress = null,
     loanAssetAddress = null,
+    minSupplyAssetsUsd = null,
+    minNetSupplyApy = null,
     orderBy,
     orderDirection,
   }) {
     const runtimeConfig = this.#resolveRuntimeConfig(network);
     assertMorphoSupportedNetwork(runtimeConfig.network);
     if (marketId !== null && marketId !== undefined && String(marketId).trim()) {
+      const normalizedMarketId = assertMorphoMarketId(marketId, "marketId");
+      const cacheKey = JSON.stringify(["market", runtimeConfig.chainId, normalizedMarketId]);
+      const cached = morphoDiscoveryCacheGet(cacheKey);
+      if (cached) {
+        return cached;
+      }
       const data = await this.#morphoGraphqlRequest({
         query: MORPHO_MARKET_BY_ID_QUERY,
         variables: {
-          marketId: assertMorphoMarketId(marketId, "marketId"),
+          marketId: normalizedMarketId,
           chainId: runtimeConfig.chainId,
         },
         operationName: "MorphoMarketById",
       });
-      return {
+      const result = {
         network: runtimeConfig.network,
         chainId: runtimeConfig.chainId,
         protocol: "morpho",
@@ -2020,6 +2101,8 @@ export class WdkEvmWalletService {
         found: Boolean(data.marketById),
         source: "morpho-api",
       };
+      morphoDiscoveryCacheSet(cacheKey, result);
+      return result;
     }
     const first = normalizeMorphoListLimit(limit);
     const onlyListed = normalizeMorphoListedOnly(listedOnly);
@@ -2029,6 +2112,14 @@ export class WdkEvmWalletService {
       "collateralAssetAddress"
     );
     const loanFilter = normalizeOptionalAddressFilter(loanAssetAddress, "loanAssetAddress");
+    const minSupplyAssetsUsdFilter = normalizeOptionalNonNegativeNumber(
+      minSupplyAssetsUsd,
+      "minSupplyAssetsUsd"
+    );
+    const minNetSupplyApyFilter = normalizeOptionalNonNegativeNumber(
+      minNetSupplyApy,
+      "minNetSupplyApy"
+    );
     const resolvedOrderBy = normalizeMorphoOrderBy(
       orderBy,
       MORPHO_MARKET_ORDER_LOOKUP,
@@ -2048,18 +2139,30 @@ export class WdkEvmWalletService {
     if (loanFilter) {
       where.loanAssetAddress_in = loanFilter;
     }
+    if (minSupplyAssetsUsdFilter !== null) {
+      where.supplyAssetsUsd_gte = minSupplyAssetsUsdFilter;
+    }
+    if (minNetSupplyApyFilter !== null) {
+      where.netSupplyApy_gte = minNetSupplyApyFilter;
+    }
+    const variables = {
+      first,
+      where,
+      orderBy: resolvedOrderBy,
+      orderDirection: resolvedOrderDirection,
+    };
+    const cacheKey = JSON.stringify(["markets", variables]);
+    const cached = morphoDiscoveryCacheGet(cacheKey);
+    if (cached) {
+      return cached;
+    }
     const data = await this.#morphoGraphqlRequest({
       query: MORPHO_MARKET_LIST_QUERY,
-      variables: {
-        first,
-        where,
-        orderBy: resolvedOrderBy,
-        orderDirection: resolvedOrderDirection,
-      },
+      variables,
       operationName: "MorphoMarketList",
     });
     const markets = Array.isArray(data?.markets?.items) ? data.markets.items : [];
-    return {
+    const result = {
       network: runtimeConfig.network,
       chainId: runtimeConfig.chainId,
       protocol: "morpho",
@@ -2070,10 +2173,14 @@ export class WdkEvmWalletService {
       search: searchTerm,
       collateralAssetFilter: collateralFilter,
       loanAssetFilter: loanFilter,
+      minSupplyAssetsUsd: minSupplyAssetsUsdFilter,
+      minNetSupplyApy: minNetSupplyApyFilter,
       marketCount: markets.length,
       markets,
       source: "morpho-api",
     };
+    morphoDiscoveryCacheSet(cacheKey, result);
+    return result;
   }
 
   async getMorphoPositions({ seedPhrase, address, accountIndex = 0, network }) {

@@ -1026,6 +1026,8 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
         limit: int | None = None,
         listed_only: bool = True,
         asset_address: str | None = None,
+        min_tvl_usd: float | int | None = None,
+        min_net_apy: float | int | None = None,
         order_by: str | None = None,
         order_direction: str | None = None,
     ) -> dict[str, Any]:
@@ -1039,6 +1041,10 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             payload["limit"] = int(limit)
         if isinstance(asset_address, str) and asset_address.strip():
             payload["assetAddress"] = asset_address.strip()
+        if min_tvl_usd is not None:
+            payload["minTotalAssetsUsd"] = min_tvl_usd
+        if min_net_apy is not None:
+            payload["minNetApy"] = min_net_apy
         if isinstance(order_by, str) and order_by.strip():
             payload["orderBy"] = order_by.strip()
         if isinstance(order_direction, str) and order_direction.strip():
@@ -1054,6 +1060,8 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "order_by": data.get("orderBy"),
             "order_direction": data.get("orderDirection"),
             "asset_address_filter": data.get("assetAddressFilter"),
+            "min_tvl_usd": data.get("minTotalAssetsUsd"),
+            "min_net_apy": data.get("minNetApy"),
             "found": bool(data.get("found")) if "found" in data else None,
             "vault_count": int(data.get("vaultCount") or 0),
             "vault": dict(data.get("vault") or {}) if isinstance(data.get("vault"), dict) else None,
@@ -1070,6 +1078,8 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
         search: str | None = None,
         collateral_asset_address: str | None = None,
         loan_asset_address: str | None = None,
+        min_supply_usd: float | int | None = None,
+        min_net_supply_apy: float | int | None = None,
         order_by: str | None = None,
         order_direction: str | None = None,
     ) -> dict[str, Any]:
@@ -1087,6 +1097,10 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             payload["collateralAssetAddress"] = collateral_asset_address.strip()
         if isinstance(loan_asset_address, str) and loan_asset_address.strip():
             payload["loanAssetAddress"] = loan_asset_address.strip()
+        if min_supply_usd is not None:
+            payload["minSupplyAssetsUsd"] = min_supply_usd
+        if min_net_supply_apy is not None:
+            payload["minNetSupplyApy"] = min_net_supply_apy
         if isinstance(order_by, str) and order_by.strip():
             payload["orderBy"] = order_by.strip()
         if isinstance(order_direction, str) and order_direction.strip():
@@ -1104,6 +1118,8 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "search": data.get("search"),
             "collateral_asset_filter": data.get("collateralAssetFilter"),
             "loan_asset_filter": data.get("loanAssetFilter"),
+            "min_supply_usd": data.get("minSupplyAssetsUsd"),
+            "min_net_supply_apy": data.get("minNetSupplyApy"),
             "found": bool(data.get("found")) if "found" in data else None,
             "market_count": int(data.get("marketCount") or 0),
             "market": dict(data.get("market") or {}) if isinstance(data.get("market"), dict) else None,

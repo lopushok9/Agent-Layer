@@ -116,6 +116,17 @@ class OpenClawWalletAdapter:
             raise WalletBackendError("network must be a non-empty string when provided.")
         return self.backend.with_network(self._normalize_evm_tool_network(requested_network))
 
+    def _normalize_optional_non_negative_number(
+        self, value: Any, *, field_name: str
+    ) -> float | int | None:
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise WalletBackendError(f"{field_name} must be a number when provided.")
+        if value < 0:
+            raise WalletBackendError(f"{field_name} must not be negative.")
+        return value
+
     def _normalize_positive_limit(self, value: Any, *, field_name: str, default: int, maximum: int) -> int:
         if value is None:
             return default
@@ -1743,6 +1754,16 @@ class OpenClawWalletAdapter:
                                     "type": "string",
                                     "description": "Optional underlying asset address to filter vaults (e.g. only USDC vaults).",
                                 },
+                                "min_tvl_usd": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "description": "Optional minimum vault TVL in USD. Recommended when sorting by APY, so dust vaults with inflated yields are excluded (e.g. 1000000).",
+                                },
+                                "min_net_apy": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "description": "Optional minimum net APY as a fraction (e.g. 0.03 for 3%).",
+                                },
                                 "order_by": {
                                     "type": "string",
                                     "enum": [
@@ -1755,7 +1776,7 @@ class OpenClawWalletAdapter:
                                         "NetApy",
                                         "Address",
                                     ],
-                                    "description": "Optional sort field when listing. Defaults to TotalAssetsUsd (largest TVL first).",
+                                    "description": "Optional sort field when listing. Defaults to TotalAssetsUsd (largest TVL first). When sorting by Apy/NetApy, pair with min_tvl_usd to avoid dust vaults.",
                                 },
                                 "order_direction": {
                                     "type": "string",
@@ -1808,6 +1829,16 @@ class OpenClawWalletAdapter:
                                     "type": "string",
                                     "description": "Optional loan asset address to filter markets.",
                                 },
+                                "min_supply_usd": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "description": "Optional minimum market supply in USD. Recommended when sorting by APY, so dust markets with inflated yields are excluded (e.g. 1000000).",
+                                },
+                                "min_net_supply_apy": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "description": "Optional minimum net supply APY as a fraction (e.g. 0.03 for 3%).",
+                                },
                                 "order_by": {
                                     "type": "string",
                                     "enum": [
@@ -1821,7 +1852,7 @@ class OpenClawWalletAdapter:
                                         "TotalLiquidityUsd",
                                         "Lltv",
                                     ],
-                                    "description": "Optional sort field when listing. Defaults to SupplyAssetsUsd (largest supply first).",
+                                    "description": "Optional sort field when listing. Defaults to SupplyAssetsUsd (largest supply first). When sorting by APY, pair with min_supply_usd to avoid dust markets.",
                                 },
                                 "order_direction": {
                                     "type": "string",
@@ -4511,6 +4542,12 @@ class OpenClawWalletAdapter:
                         if isinstance(args.get("asset_address"), str) and args.get("asset_address").strip()
                         else None
                     ),
+                    min_tvl_usd=self._normalize_optional_non_negative_number(
+                        args.get("min_tvl_usd"), field_name="min_tvl_usd"
+                    ),
+                    min_net_apy=self._normalize_optional_non_negative_number(
+                        args.get("min_net_apy"), field_name="min_net_apy"
+                    ),
                     order_by=(
                         str(args.get("order_by")).strip()
                         if isinstance(args.get("order_by"), str) and args.get("order_by").strip()
@@ -4549,6 +4586,12 @@ class OpenClawWalletAdapter:
                         if isinstance(args.get("loan_asset_address"), str)
                         and args.get("loan_asset_address").strip()
                         else None
+                    ),
+                    min_supply_usd=self._normalize_optional_non_negative_number(
+                        args.get("min_supply_usd"), field_name="min_supply_usd"
+                    ),
+                    min_net_supply_apy=self._normalize_optional_non_negative_number(
+                        args.get("min_net_supply_apy"), field_name="min_net_supply_apy"
                     ),
                     order_by=(
                         str(args.get("order_by")).strip()

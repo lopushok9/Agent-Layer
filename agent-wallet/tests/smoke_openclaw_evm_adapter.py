@@ -788,6 +788,8 @@ class FakeEvmBackend(AgentWalletBackend):
         limit: int | None = None,
         listed_only: bool = True,
         asset_address: str | None = None,
+        min_tvl_usd: float | int | None = None,
+        min_net_apy: float | int | None = None,
         order_by: str | None = None,
         order_direction: str | None = None,
     ) -> dict:
@@ -823,6 +825,8 @@ class FakeEvmBackend(AgentWalletBackend):
         search: str | None = None,
         collateral_asset_address: str | None = None,
         loan_asset_address: str | None = None,
+        min_supply_usd: float | int | None = None,
+        min_net_supply_apy: float | int | None = None,
         order_by: str | None = None,
         order_direction: str | None = None,
     ) -> dict:
