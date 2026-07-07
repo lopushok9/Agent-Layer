@@ -552,7 +552,13 @@ class AgentWalletBackend(ABC):
     async def get_kamino_portfolio(self, user: str | None = None) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Kamino portfolio lookup.")
 
-    async def get_kamino_vaults(self) -> dict[str, Any]:
+    async def get_kamino_vaults(
+        self,
+        vault_address: str | None = None,
+        token_mint: str | None = None,
+        include_metrics: bool = False,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Kamino vault lookup.")
 
     async def get_kamino_earn_positions(self, user: str | None = None) -> dict[str, Any]:

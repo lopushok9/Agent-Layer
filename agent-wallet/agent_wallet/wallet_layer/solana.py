@@ -52,6 +52,9 @@ STAKE_PROGRAM_ID = "Stake11111111111111111111111111111111111111"
 SOLANA_SWAP_DEFAULT_SLIPPAGE_BPS = 300
 SOLANA_SWAP_INTENT_DEFAULT_MAX_FEE_LAMPORTS = 6_000_000
 KAMINO_OPEN_POSITIONS_SCAN_CONCURRENCY = 6
+# The Earn vaults catalog has no batch APY endpoint, so metrics are fetched
+# per vault; cap the fan-out so one discovery call stays bounded.
+KAMINO_EARN_METRICS_FETCH_LIMIT = 20
 
 
 def _load_signing_key():
@@ -2134,20 +2137,164 @@ class SolanaWalletBackend(AgentWalletBackend):
             "source": "kamino",
         }
 
-    async def get_kamino_vaults(self) -> dict[str, Any]:
-        self._require_mainnet_kamino("Kamino Earn")
-        data = await kamino.fetch_earn_vaults()
-        vaults = data.get("vaults")
-        if not isinstance(vaults, list):
-            vaults = []
+    @staticmethod
+    def _kamino_vault_summary(entry: Any) -> dict[str, Any] | None:
+        """Compact one raw /kvaults entry (address + full on-chain state dump)
+        into the fields an agent needs for discovery. The raw state is ~2 KB
+        per vault and carries no yield data, so passing it through verbatim
+        only burns agent context."""
+        if not isinstance(entry, dict):
+            return None
+        address = _kamino_entry_address(entry, "address")
+        state = entry.get("state") if isinstance(entry.get("state"), dict) else {}
+        if not address:
+            return None
+
+        def _int_or_none(value: Any) -> int | None:
+            try:
+                return int(str(value))
+            except (TypeError, ValueError):
+                return None
+
         return {
+            "vault": address,
+            "name": str(state.get("name") or "").strip() or None,
+            "token_mint": str(state.get("tokenMint") or "").strip() or None,
+            "shares_mint": str(state.get("sharesMint") or "").strip() or None,
+            "management_fee_bps": _int_or_none(state.get("managementFeeBps")),
+            "performance_fee_bps": _int_or_none(state.get("performanceFeeBps")),
+            "min_deposit_amount": str(state.get("minDepositAmount") or "0"),
+            "creation_timestamp": _int_or_none(state.get("creationTimestamp")),
+            "prev_aum_raw": str(state.get("prevAum") or "0"),
+        }
+
+    @staticmethod
+    def _kamino_vault_metrics_summary(metrics: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "apy": metrics.get("apy"),
+            "apy_actual": metrics.get("apyActual"),
+            "apy_7d": metrics.get("apy7d"),
+            "apy_30d": metrics.get("apy30d"),
+            "apy_farm_rewards": metrics.get("apyFarmRewards"),
+            "tokens_invested_usd": metrics.get("tokensInvestedUsd"),
+            "tokens_available_usd": metrics.get("tokensAvailableUsd"),
+            "share_price": metrics.get("sharePrice"),
+            "number_of_holders": metrics.get("numberOfHolders"),
+        }
+
+    async def get_kamino_vaults(
+        self,
+        vault_address: str | None = None,
+        token_mint: str | None = None,
+        include_metrics: bool = False,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        self._require_mainnet_kamino("Kamino Earn")
+
+        if isinstance(vault_address, str) and vault_address.strip():
+            vault_address = validate_solana_address(vault_address.strip())
+            data = await kamino.fetch_earn_vaults()
+            entries = data.get("vaults") if isinstance(data.get("vaults"), list) else []
+            summary = next(
+                (
+                    candidate
+                    for entry in entries
+                    if (candidate := self._kamino_vault_summary(entry))
+                    and candidate["vault"] == vault_address
+                ),
+                None,
+            )
+            if summary is None:
+                raise WalletBackendError(f"No Kamino Earn vault matched: {vault_address}")
+            metrics = await kamino.fetch_earn_vault_metrics(
+                vault=vault_address, network=self.network
+            )
+            summary["metrics"] = self._kamino_vault_metrics_summary(metrics)
+            return {
+                "chain": "solana",
+                "network": self.network,
+                "vault_count": 1,
+                "vaults": [summary],
+                "source": "kamino",
+            }
+
+        max_limit = 100
+        effective_limit = 50
+        if limit is not None:
+            if not isinstance(limit, int) or limit <= 0:
+                raise WalletBackendError("limit must be a positive integer.")
+            effective_limit = min(limit, max_limit)
+
+        mint_filter = None
+        if isinstance(token_mint, str) and token_mint.strip():
+            mint_filter = validate_solana_address(token_mint.strip())
+
+        data = await kamino.fetch_earn_vaults()
+        entries = data.get("vaults") if isinstance(data.get("vaults"), list) else []
+        summaries = [
+            summary
+            for entry in entries
+            if (summary := self._kamino_vault_summary(entry)) is not None
+        ]
+        total_count = len(summaries)
+        if mint_filter:
+            summaries = [item for item in summaries if item["token_mint"] == mint_filter]
+
+        def _aum_key(item: dict[str, Any]) -> float:
+            # prevAum is a decimal string on active vaults (e.g.
+            # "21724442402923.2067…"); parsing it as int would throw on the
+            # fractional part and sink every production vault to rank 0.
+            try:
+                return float(item["prev_aum_raw"])
+            except (TypeError, ValueError):
+                return 0.0
+
+        # prevAum is in raw token units, so it is only a rough pre-rank across
+        # mixed mints; with a token_mint filter it is directly comparable.
+        summaries.sort(key=_aum_key, reverse=True)
+
+        metrics_errors: list[dict[str, Any]] = []
+        if include_metrics:
+            candidates = summaries[: min(effective_limit, KAMINO_EARN_METRICS_FETCH_LIMIT)]
+            semaphore = asyncio.Semaphore(KAMINO_OPEN_POSITIONS_SCAN_CONCURRENCY)
+
+            async def _attach_metrics(item: dict[str, Any]) -> None:
+                try:
+                    async with semaphore:
+                        metrics = await kamino.fetch_earn_vault_metrics(
+                            vault=item["vault"], network=self.network
+                        )
+                except (ProviderError, WalletBackendError) as exc:
+                    metrics_errors.append({"vault": item["vault"], "error": str(exc)})
+                    return
+                item["metrics"] = self._kamino_vault_metrics_summary(metrics)
+
+            await asyncio.gather(*[_attach_metrics(item) for item in candidates])
+
+            def _apy_key(item: dict[str, Any]) -> float:
+                metrics = item.get("metrics")
+                try:
+                    return float((metrics or {}).get("apy") or 0)
+                except (TypeError, ValueError):
+                    return 0.0
+
+            candidates.sort(key=_apy_key, reverse=True)
+            summaries = candidates
+
+        vaults = summaries[:effective_limit]
+        result: dict[str, Any] = {
             "chain": "solana",
             "network": self.network,
+            "total_vault_count": total_count,
+            "token_mint_filter": mint_filter,
+            "include_metrics": bool(include_metrics),
             "vault_count": len(vaults),
             "vaults": vaults,
-            "raw": data,
             "source": "kamino",
         }
+        if metrics_errors:
+            result["metrics_errors"] = metrics_errors
+        return result
 
     async def get_kamino_earn_positions(self, user: str | None = None) -> dict[str, Any]:
         self._require_mainnet_kamino("Kamino Earn")

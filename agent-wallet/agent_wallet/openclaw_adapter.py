@@ -2752,10 +2752,35 @@ class OpenClawWalletAdapter:
             ),
             AgentToolSpec(
                 name="get_kamino_vaults",
-                description="List Kamino Earn vaults currently available on Solana mainnet.",
+                description=(
+                    "Discover Kamino Earn vaults on Solana mainnet. Returns compact vault "
+                    "summaries pre-ranked by AUM; pass include_metrics=true to fetch APY/TVL "
+                    "metrics for the top vaults (sorted by APY), token_mint to filter by "
+                    "deposit token, or vault_address for one vault's detail with metrics. "
+                    "For yield search, combine token_mint with include_metrics."
+                ),
                 input_schema={
                     "type": "object",
-                    "properties": {},
+                    "properties": {
+                        "vault_address": {
+                            "type": "string",
+                            "description": "Optional vault address for a single-vault lookup with APY/TVL metrics.",
+                        },
+                        "token_mint": {
+                            "type": "string",
+                            "description": "Optional deposit token mint to filter vaults (e.g. EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v for USDC).",
+                        },
+                        "include_metrics": {
+                            "type": "boolean",
+                            "description": "Fetch APY/TVL metrics for the top vaults and sort by APY. Defaults to false. Metrics are fetched for at most 20 vaults per call.",
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 100,
+                            "description": "Optional max number of vaults to return. Defaults to 50 (capped at 20 when include_metrics is true).",
+                        },
+                    },
                     "additionalProperties": False,
                 },
                 read_only=True,
@@ -2795,7 +2820,11 @@ class OpenClawWalletAdapter:
             ),
             AgentToolSpec(
                 name="get_kamino_lend_markets",
-                description="List Kamino lending markets currently available on Solana mainnet.",
+                description=(
+                    "List Kamino lending markets currently available on Solana mainnet. "
+                    "The list has no yield data; markets flagged isPrimary (Main Market) hold "
+                    "most TVL — start there and call get_kamino_lend_market_reserves for APYs."
+                ),
                 input_schema={
                     "type": "object",
                     "properties": {},
@@ -2806,7 +2835,11 @@ class OpenClawWalletAdapter:
             ),
             AgentToolSpec(
                 name="get_kamino_lend_market_reserves",
-                description="Get reserve metrics for one Kamino lending market on Solana mainnet.",
+                description=(
+                    "Get reserve metrics for one Kamino lending market on Solana mainnet: "
+                    "supplyApy, borrowApy, TVL in USD, and maxLtv per token — the data to use "
+                    "for lend/borrow yield comparisons within a market."
+                ),
                 input_schema={
                     "type": "object",
                     "properties": {
@@ -5874,7 +5907,21 @@ class OpenClawWalletAdapter:
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
 
             if tool_name == "get_kamino_vaults":
-                data = await self.backend.get_kamino_vaults()
+                vault_address = args.get("vault_address")
+                if vault_address is not None and not isinstance(vault_address, str):
+                    raise WalletBackendError("vault_address must be a string when provided.")
+                token_mint = args.get("token_mint")
+                if token_mint is not None and not isinstance(token_mint, str):
+                    raise WalletBackendError("token_mint must be a string when provided.")
+                limit = args.get("limit")
+                if limit is not None and (not isinstance(limit, int) or isinstance(limit, bool)):
+                    raise WalletBackendError("limit must be an integer when provided.")
+                data = await self.backend.get_kamino_vaults(
+                    vault_address=vault_address,
+                    token_mint=token_mint,
+                    include_metrics=bool(args.get("include_metrics", False)),
+                    limit=limit,
+                )
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
 
             if tool_name == "get_kamino_earn_positions":

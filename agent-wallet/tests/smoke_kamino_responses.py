@@ -64,9 +64,21 @@ async def main() -> None:
                         "state": {
                             "name": "Fake SOL Earn",
                             "tokenMint": "So11111111111111111111111111111111111111112",
+                            # Production vaults report prevAum as a decimal
+                            # string; ranking must not choke on the fraction.
+                            "prevAum": "21724442402923.2067",
                         },
                         "programId": "KvauGMspG5k6rtzrqqn7WNn3oZdyKqLKwK2XWQ8FLjd",
-                    }
+                    },
+                    {
+                        "address": "FWcZUkWPCSWjBH16nAYMQtJjHZuDmmtkd4KHnDTUc7su",
+                        "state": {
+                            "name": "Dust Test Vault",
+                            "tokenMint": "So11111111111111111111111111111111111111112",
+                            "prevAum": "1000",
+                        },
+                        "programId": "KvauGMspG5k6rtzrqqn7WNn3oZdyKqLKwK2XWQ8FLjd",
+                    },
                 ]
             }
 
@@ -161,8 +173,44 @@ async def main() -> None:
         assert portfolio["earn_count"] == 1
 
         vaults = await backend.get_kamino_vaults()
-        assert vaults["vault_count"] == 1
-        assert vaults["vaults"][0]["state"]["name"] == "Fake SOL Earn"
+        assert vaults["vault_count"] == 2
+        assert vaults["vaults"][0]["name"] == "Fake SOL Earn", "decimal prevAum must outrank integer dust"
+        assert vaults["vaults"][0]["token_mint"] == "So11111111111111111111111111111111111111112"
+
+        sol_vaults = await backend.get_kamino_vaults(
+            token_mint="So11111111111111111111111111111111111111112"
+        )
+        assert sol_vaults["vault_count"] == 2
+        usdc_vaults = await backend.get_kamino_vaults(
+            token_mint="EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+        )
+        assert usdc_vaults["vault_count"] == 0
+
+        async def fake_fetch_vault_metrics(*, vault: str, network: str) -> dict:
+            return {
+                "apy": "0.0712",
+                "apy7d": "0.0699",
+                "apy30d": "0.0688",
+                "tokensInvestedUsd": "1234567.89",
+                "numberOfHolders": 42,
+                "sharePrice": "1.05",
+            }
+
+        original_fetch_vault_metrics = kamino.fetch_earn_vault_metrics
+        kamino.fetch_earn_vault_metrics = fake_fetch_vault_metrics
+        try:
+            with_metrics = await backend.get_kamino_vaults(include_metrics=True)
+            assert with_metrics["vault_count"] == 2
+            assert with_metrics["vaults"][0]["metrics"]["apy"] == "0.0712"
+            assert with_metrics["vaults"][0]["metrics"]["tokens_invested_usd"] == "1234567.89"
+
+            detail = await backend.get_kamino_vaults(
+                vault_address="HDsayqAsDWy3QvANGqh2yNraqcD8Fnjgh73Mhb3WRS5E"
+            )
+            assert detail["vault_count"] == 1
+            assert detail["vaults"][0]["metrics"]["number_of_holders"] == 42
+        finally:
+            kamino.fetch_earn_vault_metrics = original_fetch_vault_metrics
 
         earn_positions = await backend.get_kamino_earn_positions(
             user="So11111111111111111111111111111111111111112"

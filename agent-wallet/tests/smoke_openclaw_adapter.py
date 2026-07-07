@@ -729,7 +729,13 @@ class FakeBackend(AgentWalletBackend):
             "source": "kamino",
         }
 
-    async def get_kamino_vaults(self) -> dict:
+    async def get_kamino_vaults(
+        self,
+        vault_address: str | None = None,
+        token_mint: str | None = None,
+        include_metrics: bool = False,
+        limit: int | None = None,
+    ) -> dict:
         return {
             "chain": "solana",
             "network": "mainnet",
