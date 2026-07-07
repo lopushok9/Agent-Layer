@@ -594,6 +594,19 @@ class OpenClawWalletAdapter:
                 summary["obligation_address"] = obligation_address
             return summary
 
+        if asset_type == "kamino-earn-intent":
+            return {
+                "operation": action_label,
+                "network": str(payload.get("network") or getattr(self.backend, "network", "unknown")),
+                "owner": payload.get("owner"),
+                "kamino_operation": payload.get("kamino_operation"),
+                "kvault": payload.get("kvault"),
+                "amount_ui": payload.get("amount_ui"),
+                "recipient_policy": payload.get("recipient_policy"),
+                "spend_policy": payload.get("spend_policy"),
+                "valid_until_epoch_seconds": payload.get("valid_until_epoch_seconds"),
+            }
+
         if asset_type == "solana-lifi-cross-chain-swap":
             return {
                 "operation": action_label,
@@ -996,6 +1009,7 @@ class OpenClawWalletAdapter:
             "owner",
             "authority",
             "address",
+            "kvault",
             "obligation_address",
             "market",
             "reserve",
@@ -2752,8 +2766,96 @@ class OpenClawWalletAdapter:
                 risk_level="high",
             ),
             AgentToolSpec(
+                name="get_kamino_portfolio",
+                description="Get the unified Kamino portfolio view for a Solana wallet on mainnet across lending, multiply, leverage, liquidity, earn, and staking.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "user": {
+                            "type": "string",
+                            "description": "Optional Solana wallet address override. If omitted, use the configured wallet.",
+                        },
+                    },
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+            AgentToolSpec(
+                name="get_kamino_vaults",
+                description=(
+                    "Discover Kamino Earn vaults on Solana mainnet. Returns compact vault "
+                    "summaries pre-ranked by AUM; pass include_metrics=true to fetch APY/TVL "
+                    "metrics for the top vaults (sorted by APY), token_mint to filter by "
+                    "deposit token, or vault_address for one vault's detail with metrics. "
+                    "For yield search, combine token_mint with include_metrics."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "vault_address": {
+                            "type": "string",
+                            "description": "Optional vault address for a single-vault lookup with APY/TVL metrics.",
+                        },
+                        "token_mint": {
+                            "type": "string",
+                            "description": "Optional deposit token mint to filter vaults (e.g. EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v for USDC).",
+                        },
+                        "include_metrics": {
+                            "type": "boolean",
+                            "description": "Fetch APY/TVL metrics for the top vaults and sort by APY. Defaults to false. Metrics are fetched for at most 20 vaults per call.",
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 100,
+                            "description": "Optional max number of vaults to return. Defaults to 50 (capped at 20 when include_metrics is true).",
+                        },
+                    },
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+            AgentToolSpec(
+                name="get_kamino_earn_positions",
+                description="Get Kamino Earn vault positions for a Solana wallet on mainnet.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "user": {
+                            "type": "string",
+                            "description": "Optional Solana wallet address override. If omitted, use the configured wallet.",
+                        },
+                    },
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+            AgentToolSpec(
+                name="get_kamino_liquidity_positions",
+                description="Get Kamino Liquidity strategy positions for a Solana wallet on mainnet.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "user": {
+                            "type": "string",
+                            "description": "Optional Solana wallet address override. If omitted, use the configured wallet.",
+                        },
+                    },
+                    "additionalProperties": False,
+                },
+                read_only=True,
+                risk_level="low",
+            ),
+            AgentToolSpec(
                 name="get_kamino_lend_markets",
-                description="List Kamino lending markets currently available on Solana mainnet.",
+                description=(
+                    "List Kamino lending markets currently available on Solana mainnet. "
+                    "The list has no yield data; markets flagged isPrimary (Main Market) hold "
+                    "most TVL — start there and call get_kamino_lend_market_reserves for APYs."
+                ),
                 input_schema={
                     "type": "object",
                     "properties": {},
@@ -2764,7 +2866,11 @@ class OpenClawWalletAdapter:
             ),
             AgentToolSpec(
                 name="get_kamino_lend_market_reserves",
-                description="Get reserve metrics for one Kamino lending market on Solana mainnet.",
+                description=(
+                    "Get reserve metrics for one Kamino lending market on Solana mainnet: "
+                    "supplyApy, borrowApy, TVL in USD, and maxLtv per token — the data to use "
+                    "for lend/borrow yield comparisons within a market."
+                ),
                 input_schema={
                     "type": "object",
                     "properties": {
@@ -3384,6 +3490,80 @@ class OpenClawWalletAdapter:
                             "approval_token": {"type": "string", "description": "Host-issued approval token required for execute/intent_execute mode."},
                         },
                         "required": ["market", "reserve", "amount_ui", "mode", "purpose"],
+                        "additionalProperties": False,
+                    },
+                    read_only=False,
+                    requires_explicit_user_intent=True,
+                    risk_level="high",
+                )
+            )
+
+            tools.append(
+                AgentToolSpec(
+                    name="kamino_earn_deposit",
+                    description=(
+                        "Preview, prepare, or execute a Kamino Earn vault deposit using a decimal token amount. "
+                        "Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation."
+                    ),
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "kvault": {"type": "string", "description": "Kamino Earn vault address."},
+                            "amount_ui": {
+                                "type": "string",
+                                "description": "Decimal token amount to deposit, as a string.",
+                            },
+                            "mode": {
+                                "type": "string",
+                                "enum": ["preview", "prepare", "execute", "intent_preview", "intent_execute"],
+                                "description": "Prefer intent_preview then intent_execute after explicit chat confirmation: intent_execute re-derives the Kamino Earn transaction and executes within the approved parameters without round-tripping the preview payload. Legacy preview/prepare/execute remains supported.",
+                            },
+                            "valid_for_seconds": {
+                                "type": "integer",
+                                "description": "Optional intent validity window in seconds for intent_preview (1-300, default 120).",
+                            },
+                            "purpose": {"type": "string", "description": "Short explanation of why the deposit is being made."},
+                            "user_intent": {"type": "boolean", "description": "Must be true for prepare mode."},
+                            "approval_token": {"type": "string", "description": "Host-issued approval token required for execute/intent_execute mode."},
+                        },
+                        "required": ["kvault", "amount_ui", "mode", "purpose"],
+                        "additionalProperties": False,
+                    },
+                    read_only=False,
+                    requires_explicit_user_intent=True,
+                    risk_level="high",
+                )
+            )
+
+            tools.append(
+                AgentToolSpec(
+                    name="kamino_earn_withdraw",
+                    description=(
+                        "Preview, prepare, or execute a Kamino Earn vault withdraw using a decimal token amount. "
+                        "Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation."
+                    ),
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "kvault": {"type": "string", "description": "Kamino Earn vault address."},
+                            "amount_ui": {
+                                "type": "string",
+                                "description": "Decimal token amount to withdraw, as a string.",
+                            },
+                            "mode": {
+                                "type": "string",
+                                "enum": ["preview", "prepare", "execute", "intent_preview", "intent_execute"],
+                                "description": "Prefer intent_preview then intent_execute after explicit chat confirmation: intent_execute re-derives the Kamino Earn transaction and executes within the approved parameters without round-tripping the preview payload. Legacy preview/prepare/execute remains supported.",
+                            },
+                            "valid_for_seconds": {
+                                "type": "integer",
+                                "description": "Optional intent validity window in seconds for intent_preview (1-300, default 120).",
+                            },
+                            "purpose": {"type": "string", "description": "Short explanation of why the withdraw is being made."},
+                            "user_intent": {"type": "boolean", "description": "Must be true for prepare mode."},
+                            "approval_token": {"type": "string", "description": "Host-issued approval token required for execute/intent_execute mode."},
+                        },
+                        "required": ["kvault", "amount_ui", "mode", "purpose"],
                         "additionalProperties": False,
                     },
                     read_only=False,
@@ -5766,6 +5946,45 @@ class OpenClawWalletAdapter:
                 data = await self.backend.get_kamino_lend_markets()
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
 
+            if tool_name == "get_kamino_portfolio":
+                user = args.get("user")
+                if user is not None and not isinstance(user, str):
+                    raise WalletBackendError("user must be a string when provided.")
+                data = await self.backend.get_kamino_portfolio(user=user)
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_kamino_vaults":
+                vault_address = args.get("vault_address")
+                if vault_address is not None and not isinstance(vault_address, str):
+                    raise WalletBackendError("vault_address must be a string when provided.")
+                token_mint = args.get("token_mint")
+                if token_mint is not None and not isinstance(token_mint, str):
+                    raise WalletBackendError("token_mint must be a string when provided.")
+                limit = args.get("limit")
+                if limit is not None and (not isinstance(limit, int) or isinstance(limit, bool)):
+                    raise WalletBackendError("limit must be an integer when provided.")
+                data = await self.backend.get_kamino_vaults(
+                    vault_address=vault_address,
+                    token_mint=token_mint,
+                    include_metrics=bool(args.get("include_metrics", False)),
+                    limit=limit,
+                )
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_kamino_earn_positions":
+                user = args.get("user")
+                if user is not None and not isinstance(user, str):
+                    raise WalletBackendError("user must be a string when provided.")
+                data = await self.backend.get_kamino_earn_positions(user=user)
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_kamino_liquidity_positions":
+                user = args.get("user")
+                if user is not None and not isinstance(user, str):
+                    raise WalletBackendError("user must be a string when provided.")
+                data = await self.backend.get_kamino_liquidity_positions(user=user)
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
             if tool_name == "get_kamino_lend_market_reserves":
                 market = args.get("market")
                 if not isinstance(market, str) or not market.strip():
@@ -6134,6 +6353,221 @@ class OpenClawWalletAdapter:
                     data=self._annotate_sensitive_payload(
                         result,
                         action_label="EVM token transfer",
+                        mode="execute",
+                    ),
+                )
+
+            if tool_name in {
+                "kamino_earn_deposit",
+                "kamino_earn_withdraw",
+            }:
+                kvault = args.get("kvault")
+                amount_ui = args.get("amount_ui")
+                mode = args.get("mode")
+                purpose = args.get("purpose")
+                user_intent = args.get("user_intent", False)
+                approval_token = args.get("approval_token")
+                valid_for_seconds = args.get("valid_for_seconds", 120)
+
+                if not isinstance(kvault, str) or not kvault.strip():
+                    raise WalletBackendError("kvault is required.")
+                if not isinstance(amount_ui, str) or not amount_ui.strip():
+                    raise WalletBackendError("amount_ui is required.")
+                if mode not in {"preview", "prepare", "execute", "intent_preview", "intent_execute"}:
+                    raise WalletBackendError(
+                        "mode must be 'preview', 'prepare', 'execute', 'intent_preview' or 'intent_execute'."
+                    )
+                if not isinstance(purpose, str) or not purpose.strip():
+                    raise WalletBackendError("purpose is required.")
+                if mode == "intent_preview" and (
+                    not isinstance(valid_for_seconds, int)
+                    or valid_for_seconds <= 0
+                    or valid_for_seconds > 300
+                ):
+                    raise WalletBackendError("valid_for_seconds must be an integer between 1 and 300.")
+
+                action_label_map = {
+                    "kamino_earn_deposit": "Kamino Earn deposit",
+                    "kamino_earn_withdraw": "Kamino Earn withdraw",
+                }
+                intent_action_label_map = {
+                    "kamino_earn_deposit": "Kamino Earn deposit intent",
+                    "kamino_earn_withdraw": "Kamino Earn withdraw intent",
+                }
+                preview_method_map = {
+                    "kamino_earn_deposit": self.backend.preview_kamino_earn_deposit,
+                    "kamino_earn_withdraw": self.backend.preview_kamino_earn_withdraw,
+                }
+                intent_preview_method_map = {
+                    "kamino_earn_deposit": self.backend.preview_kamino_earn_deposit_intent,
+                    "kamino_earn_withdraw": self.backend.preview_kamino_earn_withdraw_intent,
+                }
+                execute_method_map = {
+                    "kamino_earn_deposit": self.backend.execute_kamino_earn_deposit,
+                    "kamino_earn_withdraw": self.backend.execute_kamino_earn_withdraw,
+                }
+                action_label = action_label_map[tool_name]
+                intent_action_label = intent_action_label_map[tool_name]
+                preview_method = preview_method_map[tool_name]
+                intent_preview_method = intent_preview_method_map[tool_name]
+                execute_method = execute_method_map[tool_name]
+
+                if mode == "intent_preview":
+                    intent_preview = await intent_preview_method(
+                        kvault=kvault.strip(),
+                        amount_ui=amount_ui.strip(),
+                        valid_for_seconds=valid_for_seconds,
+                    )
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            intent_preview,
+                            action_label=intent_action_label,
+                            mode="preview",
+                        ),
+                    )
+
+                if mode == "intent_execute":
+                    approval_payload = inspect_approval_token(
+                        approval_token,
+                        tool_name=tool_name,
+                        network=str(getattr(self.backend, "network", "unknown")),
+                        require_mainnet_confirmation=self._is_mainnet_for_backend(self.backend),
+                    )
+                    approval_summary = approval_payload.get("binding", {}).get("summary")
+                    if not isinstance(approval_summary, dict):
+                        raise WalletBackendError(
+                            "approval_token does not match the requested operation. Generate a new intent preview and approval before execute."
+                        )
+                    expected_summary = {
+                        "operation": intent_action_label,
+                        "network": str(getattr(self.backend, "network", "unknown")),
+                        "kvault": kvault.strip(),
+                        "amount_ui": amount_ui.strip(),
+                    }
+                    for key, expected_value in expected_summary.items():
+                        if approval_summary.get(key) != expected_value:
+                            raise WalletBackendError(
+                                f"approval_token does not match the requested {action_label} intent. Generate a fresh intent preview and approval before execute."
+                            )
+                    if approval_summary.get("recipient_policy") != "owner-only":
+                        raise WalletBackendError("approved Kamino intent recipient policy is invalid.")
+                    if approval_summary.get("spend_policy") != "exact-amount":
+                        raise WalletBackendError("approved Kamino intent spend policy is invalid.")
+                    current_owner = await self.backend.get_address()
+                    approved_owner = approval_summary.get("owner")
+                    if approved_owner and current_owner and str(approved_owner) != str(current_owner):
+                        raise WalletBackendError(
+                            "approval_token does not match the active wallet owner. Generate a fresh intent preview and approval before execute."
+                        )
+                    valid_until = approval_summary.get("valid_until_epoch_seconds")
+                    if valid_until is not None and int(time.time()) > int(valid_until):
+                        raise WalletBackendError(
+                            "Approved Kamino intent has expired. Create a fresh intent preview."
+                        )
+                    approval_summary_copy = dict(approval_summary)
+                    self._require_execute_approval(
+                        approval_token=approval_token,
+                        tool_name=tool_name,
+                        summary=approval_summary_copy,
+                        action_label=intent_action_label,
+                    )
+                    result = await execute_method(
+                        kvault=kvault.strip(),
+                        amount_ui=amount_ui.strip(),
+                        approved_preview=None,
+                    )
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            result,
+                            action_label=action_label,
+                            mode="execute",
+                        ),
+                    )
+
+                if mode == "preview":
+                    preview = await preview_method(
+                        kvault=kvault.strip(),
+                        amount_ui=amount_ui.strip(),
+                    )
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            preview,
+                            action_label=action_label,
+                            mode="preview",
+                        ),
+                    )
+
+                if mode == "prepare":
+                    self._require_prepare_intent(user_intent)
+                    preview = await preview_method(
+                        kvault=kvault.strip(),
+                        amount_ui=amount_ui.strip(),
+                    )
+                    return AgentToolResult(
+                        tool=tool_name,
+                        ok=True,
+                        data=self._annotate_sensitive_payload(
+                            self._build_prepare_plan(
+                                preview_payload=preview,
+                                action_label=action_label,
+                            ),
+                            action_label=action_label,
+                            mode="prepare",
+                        ),
+                    )
+
+                approved_preview = args.get("_approved_preview")
+                execute_preview = None
+                approval_payload = inspect_approval_token(
+                    approval_token,
+                    tool_name=tool_name,
+                    network=str(getattr(self.backend, "network", "unknown")),
+                    require_mainnet_confirmation=self._is_mainnet_for_backend(self.backend),
+                )
+                approval_summary = approval_payload.get("binding", {}).get("summary")
+                if not isinstance(approval_summary, dict):
+                    raise WalletBackendError(
+                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                    )
+                approval_summary_copy = dict(approval_summary)
+                if isinstance(approval_summary_copy.get("_preview_digest"), str):
+                    if not isinstance(approved_preview, dict):
+                        raise WalletBackendError(
+                            f"Approved {action_label} preview payload is required for execute mode. Generate a new preview and approval before execute."
+                        )
+                    if preview_payload_digest(approved_preview) != approval_summary_copy["_preview_digest"]:
+                        raise WalletBackendError(
+                            "approved preview payload does not match the approval token. Generate a new preview and approval before execute."
+                        )
+                    execute_preview = dict(approved_preview)
+                else:
+                    execute_preview = await preview_method(
+                        kvault=kvault.strip(),
+                        amount_ui=amount_ui.strip(),
+                    )
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=approval_summary_copy,
+                    action_label=action_label,
+                )
+                result = await execute_method(
+                    kvault=kvault.strip(),
+                    amount_ui=amount_ui.strip(),
+                    approved_preview=execute_preview,
+                )
+                return AgentToolResult(
+                    tool=tool_name,
+                    ok=True,
+                    data=self._annotate_sensitive_payload(
+                        result,
+                        action_label=action_label,
                         mode="execute",
                     ),
                 )

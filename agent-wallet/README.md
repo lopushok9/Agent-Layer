@@ -90,6 +90,10 @@ Current safe tools:
 - `transfer_spl_token`
 - `swap_solana_tokens` - Solana Jupiter swaps; prefer `intent_preview` -> chat confirmation -> `intent_execute` so execution refreshes the quote inside approved limits.
 - `get_kamino_lend_markets`
+- `get_kamino_portfolio`
+- `get_kamino_vaults`
+- `get_kamino_earn_positions`
+- `get_kamino_liquidity_positions`
 - `get_kamino_lend_market_reserves`
 - `get_kamino_lend_user_obligations`
 - `get_kamino_lend_user_rewards`
@@ -98,6 +102,8 @@ Current safe tools:
 - `kamino_lend_withdraw`
 - `kamino_lend_borrow`
 - `kamino_lend_repay`
+- `kamino_earn_deposit`
+- `kamino_earn_withdraw`
 - `close_empty_token_accounts`
 - `deactivate_solana_stake`
 - `withdraw_solana_stake`

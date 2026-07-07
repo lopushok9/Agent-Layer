@@ -29,6 +29,7 @@ from agent_wallet.solana_tx import (
 from agent_wallet.transaction_policy import (
     verify_provider_bags_transaction,
     verify_provider_flash_transaction,
+    verify_provider_kamino_earn_transaction,
     verify_provider_kamino_lend_transaction,
     verify_provider_swap_simulation_result,
     verify_provider_swap_transaction,
@@ -51,6 +52,9 @@ STAKE_PROGRAM_ID = "Stake11111111111111111111111111111111111111"
 SOLANA_SWAP_DEFAULT_SLIPPAGE_BPS = 300
 SOLANA_SWAP_INTENT_DEFAULT_MAX_FEE_LAMPORTS = 6_000_000
 KAMINO_OPEN_POSITIONS_SCAN_CONCURRENCY = 6
+# The Earn vaults catalog has no batch APY endpoint, so metrics are fetched
+# per vault; cap the fan-out so one discovery call stays bounded.
+KAMINO_EARN_METRICS_FETCH_LIMIT = 20
 
 
 def _load_signing_key():
@@ -2078,6 +2082,274 @@ class SolanaWalletBackend(AgentWalletBackend):
         prepared = await self._prepare_flash_trade_close_position_from_preview(preview)
         return await self._execute_prepared_flash_trade_transaction(prepared)
 
+    async def get_kamino_portfolio(self, user: str | None = None) -> dict[str, Any]:
+        self._require_mainnet_kamino("Kamino portfolio")
+        wallet_address = user or self.address
+        if not wallet_address:
+            raise WalletBackendError("A wallet address is required for Kamino portfolio lookup.")
+        wallet_address = validate_solana_address(wallet_address)
+        data = await kamino.fetch_portfolio(user=wallet_address)
+
+        sections = data.get("sections") if isinstance(data.get("sections"), dict) else {}
+
+        def _section_items(key: str) -> list[Any]:
+            value = data.get(key)
+            return value if isinstance(value, list) else []
+
+        lending = _section_items("lending")
+        multiply = _section_items("multiply")
+        leverage = _section_items("leverage")
+        liquidity = _section_items("liquidity")
+        earn = _section_items("earn")
+        private_credit = _section_items("privateCredit")
+        staking = _section_items("staking")
+
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "user": wallet_address,
+            "timestamp": data.get("timestamp"),
+            "sections": sections,
+            "lending_count": len(lending),
+            "multiply_count": len(multiply),
+            "leverage_count": len(leverage),
+            "liquidity_count": len(liquidity),
+            "earn_count": len(earn),
+            "private_credit_count": len(private_credit),
+            "staking_count": len(staking),
+            "position_count": (
+                len(lending)
+                + len(multiply)
+                + len(leverage)
+                + len(liquidity)
+                + len(earn)
+                + len(private_credit)
+                + len(staking)
+            ),
+            "lending": lending,
+            "multiply": multiply,
+            "leverage": leverage,
+            "liquidity": liquidity,
+            "earn": earn,
+            "private_credit": private_credit,
+            "staking": staking,
+            "raw": data,
+            "source": "kamino",
+        }
+
+    @staticmethod
+    def _kamino_vault_summary(entry: Any) -> dict[str, Any] | None:
+        """Compact one raw /kvaults entry (address + full on-chain state dump)
+        into the fields an agent needs for discovery. The raw state is ~2 KB
+        per vault and carries no yield data, so passing it through verbatim
+        only burns agent context."""
+        if not isinstance(entry, dict):
+            return None
+        address = _kamino_entry_address(entry, "address")
+        state = entry.get("state") if isinstance(entry.get("state"), dict) else {}
+        if not address:
+            return None
+
+        def _int_or_none(value: Any) -> int | None:
+            try:
+                return int(str(value))
+            except (TypeError, ValueError):
+                return None
+
+        return {
+            "vault": address,
+            "name": str(state.get("name") or "").strip() or None,
+            "token_mint": str(state.get("tokenMint") or "").strip() or None,
+            "shares_mint": str(state.get("sharesMint") or "").strip() or None,
+            "management_fee_bps": _int_or_none(state.get("managementFeeBps")),
+            "performance_fee_bps": _int_or_none(state.get("performanceFeeBps")),
+            "min_deposit_amount": str(state.get("minDepositAmount") or "0"),
+            "creation_timestamp": _int_or_none(state.get("creationTimestamp")),
+            "prev_aum_raw": str(state.get("prevAum") or "0"),
+        }
+
+    @staticmethod
+    def _kamino_vault_metrics_summary(metrics: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "apy": metrics.get("apy"),
+            "apy_actual": metrics.get("apyActual"),
+            "apy_7d": metrics.get("apy7d"),
+            "apy_30d": metrics.get("apy30d"),
+            "apy_farm_rewards": metrics.get("apyFarmRewards"),
+            "tokens_invested_usd": metrics.get("tokensInvestedUsd"),
+            "tokens_available_usd": metrics.get("tokensAvailableUsd"),
+            "share_price": metrics.get("sharePrice"),
+            "number_of_holders": metrics.get("numberOfHolders"),
+        }
+
+    async def get_kamino_vaults(
+        self,
+        vault_address: str | None = None,
+        token_mint: str | None = None,
+        include_metrics: bool = False,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        self._require_mainnet_kamino("Kamino Earn")
+
+        if isinstance(vault_address, str) and vault_address.strip():
+            vault_address = validate_solana_address(vault_address.strip())
+            data = await kamino.fetch_earn_vaults()
+            entries = data.get("vaults") if isinstance(data.get("vaults"), list) else []
+            summary = next(
+                (
+                    candidate
+                    for entry in entries
+                    if (candidate := self._kamino_vault_summary(entry))
+                    and candidate["vault"] == vault_address
+                ),
+                None,
+            )
+            if summary is None:
+                raise WalletBackendError(f"No Kamino Earn vault matched: {vault_address}")
+            metrics = await kamino.fetch_earn_vault_metrics(
+                vault=vault_address, network=self.network
+            )
+            summary["metrics"] = self._kamino_vault_metrics_summary(metrics)
+            return {
+                "chain": "solana",
+                "network": self.network,
+                "vault_count": 1,
+                "vaults": [summary],
+                "source": "kamino",
+            }
+
+        max_limit = 100
+        effective_limit = 50
+        if limit is not None:
+            if not isinstance(limit, int) or limit <= 0:
+                raise WalletBackendError("limit must be a positive integer.")
+            effective_limit = min(limit, max_limit)
+
+        mint_filter = None
+        if isinstance(token_mint, str) and token_mint.strip():
+            mint_filter = validate_solana_address(token_mint.strip())
+
+        data = await kamino.fetch_earn_vaults()
+        entries = data.get("vaults") if isinstance(data.get("vaults"), list) else []
+        summaries = [
+            summary
+            for entry in entries
+            if (summary := self._kamino_vault_summary(entry)) is not None
+        ]
+        total_count = len(summaries)
+        if mint_filter:
+            summaries = [item for item in summaries if item["token_mint"] == mint_filter]
+
+        def _aum_key(item: dict[str, Any]) -> float:
+            # prevAum is a decimal string on active vaults (e.g.
+            # "21724442402923.2067…"); parsing it as int would throw on the
+            # fractional part and sink every production vault to rank 0.
+            try:
+                return float(item["prev_aum_raw"])
+            except (TypeError, ValueError):
+                return 0.0
+
+        # prevAum is in raw token units, so it is only a rough pre-rank across
+        # mixed mints; with a token_mint filter it is directly comparable.
+        summaries.sort(key=_aum_key, reverse=True)
+
+        metrics_errors: list[dict[str, Any]] = []
+        if include_metrics:
+            candidates = summaries[: min(effective_limit, KAMINO_EARN_METRICS_FETCH_LIMIT)]
+            semaphore = asyncio.Semaphore(KAMINO_OPEN_POSITIONS_SCAN_CONCURRENCY)
+
+            async def _attach_metrics(item: dict[str, Any]) -> None:
+                try:
+                    async with semaphore:
+                        metrics = await kamino.fetch_earn_vault_metrics(
+                            vault=item["vault"], network=self.network
+                        )
+                except (ProviderError, WalletBackendError) as exc:
+                    metrics_errors.append({"vault": item["vault"], "error": str(exc)})
+                    return
+                item["metrics"] = self._kamino_vault_metrics_summary(metrics)
+
+            await asyncio.gather(*[_attach_metrics(item) for item in candidates])
+
+            def _apy_key(item: dict[str, Any]) -> float:
+                metrics = item.get("metrics")
+                try:
+                    return float((metrics or {}).get("apy") or 0)
+                except (TypeError, ValueError):
+                    return 0.0
+
+            candidates.sort(key=_apy_key, reverse=True)
+            summaries = candidates
+
+        vaults = summaries[:effective_limit]
+        result: dict[str, Any] = {
+            "chain": "solana",
+            "network": self.network,
+            "total_vault_count": total_count,
+            "token_mint_filter": mint_filter,
+            "include_metrics": bool(include_metrics),
+            "vault_count": len(vaults),
+            "vaults": vaults,
+            "source": "kamino",
+        }
+        if metrics_errors:
+            result["metrics_errors"] = metrics_errors
+        return result
+
+    async def get_kamino_earn_positions(self, user: str | None = None) -> dict[str, Any]:
+        self._require_mainnet_kamino("Kamino Earn")
+        wallet_address = user or self.address
+        if not wallet_address:
+            raise WalletBackendError("A wallet address is required for Kamino Earn position lookup.")
+        wallet_address = validate_solana_address(wallet_address)
+        data = await kamino.fetch_earn_user_positions(
+            user=wallet_address,
+            network=self.network,
+        )
+        positions = data.get("positions")
+        if not isinstance(positions, list):
+            positions = []
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "user": wallet_address,
+            "position_count": len(positions),
+            "positions": positions,
+            "raw": data,
+            "source": "kamino",
+        }
+
+    async def get_kamino_liquidity_positions(self, user: str | None = None) -> dict[str, Any]:
+        self._require_mainnet_kamino("Kamino Liquidity")
+        portfolio = await self.get_kamino_portfolio(user=user)
+        liquidity = portfolio.get("liquidity")
+        if not isinstance(liquidity, list):
+            liquidity = []
+        sections = portfolio.get("sections")
+        liquidity_section = sections.get("liquidity") if isinstance(sections, dict) else {}
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "user": portfolio["user"],
+            "timestamp": portfolio.get("timestamp"),
+            "positions_indexed": bool(liquidity_section.get("indexed"))
+            if isinstance(liquidity_section, dict)
+            else None,
+            "positions_refreshed_on": liquidity_section.get("positionsRefreshedOn")
+            if isinstance(liquidity_section, dict)
+            else None,
+            "prices_refreshed_on": liquidity_section.get("pricesRefreshedOn")
+            if isinstance(liquidity_section, dict)
+            else None,
+            "errors": liquidity_section.get("errors")
+            if isinstance(liquidity_section, dict) and isinstance(liquidity_section.get("errors"), list)
+            else [],
+            "position_count": len(liquidity),
+            "positions": liquidity,
+            "raw": portfolio.get("raw"),
+            "source": "kamino+portfolio",
+        }
+
     async def get_kamino_lend_markets(self) -> dict[str, Any]:
         self._require_mainnet_kamino("Kamino lending")
         data = await kamino.fetch_lend_markets()
@@ -3230,6 +3502,30 @@ class SolanaWalletBackend(AgentWalletBackend):
                 return item
         return None
 
+    def _find_kamino_vault_entry(
+        self,
+        *,
+        vaults: list[Any],
+        kvault: str,
+    ) -> dict[str, Any] | None:
+        for item in vaults:
+            if _kamino_entry_address(item, "address", "kvault", "vault", "pubkey") == kvault:
+                return item
+        return None
+
+    def _find_kamino_earn_position_entry(
+        self,
+        *,
+        positions: list[Any],
+        kvault: str,
+    ) -> dict[str, Any] | None:
+        for item in positions:
+            if not isinstance(item, dict):
+                continue
+            if _kamino_entry_address(item, "vaultAddress", "kvault", "vault", "address", "pubkey") == kvault:
+                return item
+        return None
+
     def _find_kamino_obligation_matches(
         self,
         *,
@@ -3387,6 +3683,97 @@ class SolanaWalletBackend(AgentWalletBackend):
             "source": "kamino",
         }
 
+    async def _prepare_kamino_earn_transaction(
+        self,
+        *,
+        transaction_base64: str,
+        action: str,
+        kvault: str,
+        amount_ui: str,
+        vault_token_mint: str | None = None,
+    ) -> dict[str, Any]:
+        if not self.signer:
+            raise WalletBackendError("Solana signer is not configured.")
+        try:
+            from solders.transaction import VersionedTransaction
+        except ImportError as exc:
+            raise WalletBackendError(
+                "solana and solders packages are required for Kamino transaction signing."
+            ) from exc
+        owner = await self.get_address()
+        unsigned_transaction = VersionedTransaction.from_bytes(base64.b64decode(transaction_base64))
+        loaded_addresses = await self._resolve_versioned_message_lookup_addresses(
+            unsigned_transaction.message
+        )
+        verification = verify_provider_kamino_earn_transaction(
+            unsigned_transaction.message,
+            wallet_address=str(owner),
+            vault_address=kvault,
+            action=f"Kamino Earn {action}",
+            vault_token_mint=vault_token_mint,
+            loaded_addresses=loaded_addresses,
+        )
+        signed_transaction_base64 = await self._sign_versioned_provider_transaction(
+            transaction_base64=transaction_base64,
+            wallet_signer_index=int(verification.get("wallet_signer_index") or 0),
+        )
+        simulation_value: dict[str, Any] | None = None
+        kamino_safety: dict[str, Any]
+        try:
+            simulation = await solana_rpc.simulate_transaction(
+                transaction_base64=signed_transaction_base64,
+                rpc_url=self.rpc_urls,
+                commitment=self.commitment,
+            )
+            simulation_value = (
+                simulation.get("value") if isinstance(simulation.get("value"), dict) else {}
+            )
+            if isinstance(simulation_value, dict) and simulation_value.get("err") is not None:
+                raise WalletBackendError(
+                    f"Kamino Earn {action} transaction simulation failed.",
+                    code="kamino_simulation_failed",
+                    details={
+                        "simulation": simulation_value,
+                        "action": action,
+                        "kvault": kvault,
+                    },
+                )
+            kamino_safety = {
+                "verified": True,
+                "simulation_unavailable": False,
+            }
+        except ProviderError as exc:
+            kamino_safety = {
+                "verified": False,
+                "simulation_unavailable": True,
+                "warning": (
+                    "Kamino simulation could not be completed via the configured Solana RPC. "
+                    "Proceeding with structural provider verification only."
+                ),
+                "error": str(exc),
+            }
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "mode": "prepare",
+            "asset_type": f"kamino-earn-{action}",
+            "owner": owner,
+            "kvault": kvault,
+            "amount_ui": amount_ui,
+            "vault_token_mint": vault_token_mint,
+            "transaction_base64": signed_transaction_base64,
+            "transaction_encoding": "base64",
+            "transaction_format": "versioned",
+            "signed": True,
+            "broadcasted": False,
+            "confirmed": False,
+            "verification": verification,
+            "simulation": simulation_value,
+            "kamino_safety": kamino_safety,
+            "sign_only": self.sign_only,
+            "source": "kamino",
+        }
+
     def _kamino_preview_from_approved(
         self,
         approved_preview: dict[str, Any] | None,
@@ -3398,6 +3785,182 @@ class SolanaWalletBackend(AgentWalletBackend):
         if str(approved_preview.get("asset_type") or "").strip() != asset_type:
             return None
         return dict(approved_preview)
+
+    async def preview_kamino_earn_deposit(
+        self,
+        kvault: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        self._require_mainnet_kamino("Kamino Earn")
+        owner = await self.get_address()
+        if not owner:
+            raise WalletBackendError(
+                "No Solana wallet address configured. Set SOLANA_AGENT_PUBLIC_KEY or a signer."
+            )
+        kvault = validate_solana_address(kvault)
+        amount_ui = _require_positive_decimal_string(amount_ui, field_name="amount_ui")
+        vault_snapshot = await self.get_kamino_vaults()
+        vault_entry = self._find_kamino_vault_entry(
+            vaults=list(vault_snapshot["vaults"]),
+            kvault=kvault,
+        )
+        if vault_entry is None:
+            raise WalletBackendError("Requested Kamino Earn vault is not available.")
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "mode": "preview",
+            "asset_type": "kamino-earn-deposit",
+            "owner": owner,
+            "kvault": kvault,
+            "amount_ui": amount_ui,
+            "vault_info": vault_entry,
+            "sign_only": self.sign_only,
+            "can_send": self.get_capabilities().can_send_transaction,
+            "source": "kamino",
+        }
+
+    async def prepare_kamino_earn_deposit(
+        self,
+        kvault: str,
+        amount_ui: str,
+        approved_preview: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        preview = self._kamino_preview_from_approved(
+            approved_preview,
+            asset_type="kamino-earn-deposit",
+        ) or await self.preview_kamino_earn_deposit(
+            kvault=kvault,
+            amount_ui=amount_ui,
+        )
+        owner = str(preview["owner"])
+        build = await kamino.build_earn_deposit_transaction(
+            wallet=owner,
+            kvault=str(preview["kvault"]),
+            amount_ui=str(preview["amount_ui"]),
+        )
+        vault_info = preview.get("vault_info") if isinstance(preview.get("vault_info"), dict) else {}
+        vault_state = vault_info.get("state") if isinstance(vault_info.get("state"), dict) else {}
+        prepared = await self._prepare_kamino_earn_transaction(
+            transaction_base64=str(build["transaction"]),
+            action="deposit",
+            kvault=str(preview["kvault"]),
+            amount_ui=str(preview["amount_ui"]),
+            vault_token_mint=(
+                str(vault_state.get("tokenMint")).strip()
+                if str(vault_state.get("tokenMint") or "").strip()
+                else None
+            ),
+        )
+        prepared["build_response"] = build
+        return prepared
+
+    async def execute_kamino_earn_deposit(
+        self,
+        kvault: str,
+        amount_ui: str,
+        approved_preview: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        prepared = await self.prepare_kamino_earn_deposit(
+            kvault=kvault,
+            amount_ui=amount_ui,
+            approved_preview=approved_preview,
+        )
+        result = await self._execute_prepared_provider_transaction(prepared, source="kamino")
+        result["build_response"] = prepared.get("build_response")
+        return result
+
+    async def preview_kamino_earn_withdraw(
+        self,
+        kvault: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        self._require_mainnet_kamino("Kamino Earn")
+        owner = await self.get_address()
+        if not owner:
+            raise WalletBackendError(
+                "No Solana wallet address configured. Set SOLANA_AGENT_PUBLIC_KEY or a signer."
+            )
+        kvault = validate_solana_address(kvault)
+        amount_ui = _require_positive_decimal_string(amount_ui, field_name="amount_ui")
+        vault_snapshot = await self.get_kamino_vaults()
+        vault_entry = self._find_kamino_vault_entry(
+            vaults=list(vault_snapshot["vaults"]),
+            kvault=kvault,
+        )
+        if vault_entry is None:
+            raise WalletBackendError("Requested Kamino Earn vault is not available.")
+        positions_snapshot = await self.get_kamino_earn_positions(user=owner)
+        position_entry = self._find_kamino_earn_position_entry(
+            positions=list(positions_snapshot["positions"]),
+            kvault=kvault,
+        )
+        if position_entry is None:
+            raise WalletBackendError("No Kamino Earn position found for the requested vault.")
+        return {
+            "chain": "solana",
+            "network": self.network,
+            "mode": "preview",
+            "asset_type": "kamino-earn-withdraw",
+            "owner": owner,
+            "kvault": kvault,
+            "amount_ui": amount_ui,
+            "vault_info": vault_entry,
+            "position_info": position_entry,
+            "sign_only": self.sign_only,
+            "can_send": self.get_capabilities().can_send_transaction,
+            "source": "kamino",
+        }
+
+    async def prepare_kamino_earn_withdraw(
+        self,
+        kvault: str,
+        amount_ui: str,
+        approved_preview: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        preview = self._kamino_preview_from_approved(
+            approved_preview,
+            asset_type="kamino-earn-withdraw",
+        ) or await self.preview_kamino_earn_withdraw(
+            kvault=kvault,
+            amount_ui=amount_ui,
+        )
+        owner = str(preview["owner"])
+        build = await kamino.build_earn_withdraw_transaction(
+            wallet=owner,
+            kvault=str(preview["kvault"]),
+            amount_ui=str(preview["amount_ui"]),
+        )
+        vault_info = preview.get("vault_info") if isinstance(preview.get("vault_info"), dict) else {}
+        vault_state = vault_info.get("state") if isinstance(vault_info.get("state"), dict) else {}
+        prepared = await self._prepare_kamino_earn_transaction(
+            transaction_base64=str(build["transaction"]),
+            action="withdraw",
+            kvault=str(preview["kvault"]),
+            amount_ui=str(preview["amount_ui"]),
+            vault_token_mint=(
+                str(vault_state.get("tokenMint")).strip()
+                if str(vault_state.get("tokenMint") or "").strip()
+                else None
+            ),
+        )
+        prepared["build_response"] = build
+        return prepared
+
+    async def execute_kamino_earn_withdraw(
+        self,
+        kvault: str,
+        amount_ui: str,
+        approved_preview: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        prepared = await self.prepare_kamino_earn_withdraw(
+            kvault=kvault,
+            amount_ui=amount_ui,
+            approved_preview=approved_preview,
+        )
+        result = await self._execute_prepared_provider_transaction(prepared, source="kamino")
+        result["build_response"] = prepared.get("build_response")
+        return result
 
     async def preview_kamino_lend_deposit(
         self,

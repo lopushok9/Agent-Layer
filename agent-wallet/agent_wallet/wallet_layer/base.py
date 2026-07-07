@@ -549,6 +549,24 @@ class AgentWalletBackend(ABC):
     async def get_kamino_lend_markets(self) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Kamino market lookup.")
 
+    async def get_kamino_portfolio(self, user: str | None = None) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Kamino portfolio lookup.")
+
+    async def get_kamino_vaults(
+        self,
+        vault_address: str | None = None,
+        token_mint: str | None = None,
+        include_metrics: bool = False,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Kamino vault lookup.")
+
+    async def get_kamino_earn_positions(self, user: str | None = None) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Kamino Earn position lookup.")
+
+    async def get_kamino_liquidity_positions(self, user: str | None = None) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Kamino liquidity position lookup.")
+
     async def get_kamino_lend_market_reserves(self, market: str) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Kamino reserve lookup.")
 
@@ -790,6 +808,112 @@ class AgentWalletBackend(ABC):
         approved_preview: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Kamino repays.")
+
+    async def preview_kamino_earn_deposit(
+        self,
+        kvault: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Kamino Earn deposit previews.")
+
+    def _build_kamino_earn_intent_preview(
+        self,
+        base_preview: dict[str, Any],
+        *,
+        valid_for_seconds: int,
+    ) -> dict[str, Any]:
+        if valid_for_seconds <= 0 or valid_for_seconds > 300:
+            raise WalletBackendError("valid_for_seconds must be between 1 and 300.")
+        try:
+            can_send = bool(self.get_capabilities().can_send_transaction)
+        except Exception:
+            can_send = bool(base_preview.get("can_send"))
+        return {
+            "chain": "solana",
+            "network": getattr(self, "network", "mainnet"),
+            "mode": "intent_preview",
+            "asset_type": "kamino-earn-intent",
+            "kamino_operation": base_preview["asset_type"],
+            "owner": base_preview["owner"],
+            "kvault": base_preview["kvault"],
+            "amount_ui": base_preview["amount_ui"],
+            "vault_info": base_preview.get("vault_info"),
+            "position_info": base_preview.get("position_info"),
+            "recipient_policy": "owner-only",
+            "spend_policy": "exact-amount",
+            "valid_for_seconds": valid_for_seconds,
+            "valid_until_epoch_seconds": int(time.time()) + valid_for_seconds,
+            "intent_note": (
+                "This is an intent approval preview. Execute re-derives the Kamino "
+                "Earn transaction and only signs/sends if it remains within these approved parameters."
+            ),
+            "can_send": can_send,
+            "sign_only": bool(getattr(self, "sign_only", False)),
+            "source": "kamino-intent",
+        }
+
+    async def preview_kamino_earn_deposit_intent(
+        self,
+        kvault: str,
+        amount_ui: str,
+        valid_for_seconds: int = 120,
+    ) -> dict[str, Any]:
+        base = await self.preview_kamino_earn_deposit(
+            kvault=kvault,
+            amount_ui=amount_ui,
+        )
+        return self._build_kamino_earn_intent_preview(base, valid_for_seconds=valid_for_seconds)
+
+    async def prepare_kamino_earn_deposit(
+        self,
+        kvault: str,
+        amount_ui: str,
+        approved_preview: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Kamino Earn deposit preparation.")
+
+    async def execute_kamino_earn_deposit(
+        self,
+        kvault: str,
+        amount_ui: str,
+        approved_preview: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Kamino Earn deposits.")
+
+    async def preview_kamino_earn_withdraw(
+        self,
+        kvault: str,
+        amount_ui: str,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Kamino Earn withdraw previews.")
+
+    async def preview_kamino_earn_withdraw_intent(
+        self,
+        kvault: str,
+        amount_ui: str,
+        valid_for_seconds: int = 120,
+    ) -> dict[str, Any]:
+        base = await self.preview_kamino_earn_withdraw(
+            kvault=kvault,
+            amount_ui=amount_ui,
+        )
+        return self._build_kamino_earn_intent_preview(base, valid_for_seconds=valid_for_seconds)
+
+    async def prepare_kamino_earn_withdraw(
+        self,
+        kvault: str,
+        amount_ui: str,
+        approved_preview: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Kamino Earn withdraw preparation.")
+
+    async def execute_kamino_earn_withdraw(
+        self,
+        kvault: str,
+        amount_ui: str,
+        approved_preview: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Kamino Earn withdraws.")
 
     async def preview_close_empty_token_accounts(
         self,

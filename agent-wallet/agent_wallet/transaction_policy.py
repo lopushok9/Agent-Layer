@@ -18,6 +18,7 @@ JUPITER_V6_PROGRAM_ID = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5Nt7NQYjN"
 JUPITER_ULTRA_EXACT_OUT_PROGRAM_ID = "j1o2qRpjcyUwEvwtcfhEQefh773ZgjxcVRry7LDqg5X"
 JUPITER_DCA_PROGRAM_ID = "DCA265Vj8a7wYymQG8LqM3m7A4QeV9hiC7VYh4S6Jsa"
 KAMINO_LEND_PROGRAM_ID = "KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD"
+KAMINO_EARN_PROGRAM_ID = "KvauGMspG5k6rtzrqqn7WNn3oZdyKqLKwK2XWQ8FLjd"
 NATIVE_SOL_MINT = "So11111111111111111111111111111111111111112"
 DEFAULT_NATIVE_SOL_EXTRA_SPEND_ALLOWANCE_LAMPORTS = 10_000_000
 
@@ -45,6 +46,7 @@ FORBIDDEN_PROGRAMS = {
 }
 KAMINO_ALLOWED_PROGRAMS = CORE_PROGRAM_IDS | {
     KAMINO_LEND_PROGRAM_ID,
+    KAMINO_EARN_PROGRAM_ID,
 }
 
 
@@ -508,6 +510,64 @@ def verify_provider_kamino_lend_transaction(
         "market_address": market_address,
         "reserve_address": reserve_address,
         "obligation_address": obligation_address,
+        "action": action,
+        "verified": True,
+    }
+
+
+def verify_provider_kamino_earn_transaction(
+    message: Any,
+    *,
+    wallet_address: str,
+    vault_address: str,
+    action: str,
+    vault_token_mint: str | None = None,
+    loaded_addresses: list[str] | None = None,
+) -> dict[str, Any]:
+    binding = _assert_basic_wallet_binding(
+        message,
+        wallet_address=wallet_address,
+        loaded_addresses=loaded_addresses,
+    )
+    keys = binding["account_keys"]
+    if vault_address not in keys:
+        raise WalletBackendError(
+            f"{action} transaction does not reference the expected Kamino Earn vault."
+        )
+    if vault_token_mint and vault_token_mint not in keys:
+        raise WalletBackendError(
+            f"{action} transaction does not reference the expected Kamino Earn vault token mint."
+        )
+    program_ids = _program_ids(message, loaded_addresses)
+    unknown_program_ids = _assert_program_allowlist(
+        program_ids,
+        allowed_programs=KAMINO_ALLOWED_PROGRAMS,
+        label=action,
+        reject_unknown=False,
+    )
+    recognized_kamino_program_ids = [
+        pid for pid in program_ids if pid == KAMINO_EARN_PROGRAM_ID
+    ]
+    if not recognized_kamino_program_ids:
+        raise WalletBackendError(
+            f"{action} transaction does not include the expected Kamino Earn program."
+        )
+    return {
+        "wallet_address": wallet_address,
+        "fee_payer": binding["fee_payer"],
+        "required_signer_keys": binding["required_signer_keys"],
+        "required_signature_count": binding["required_signature_count"],
+        "wallet_signer_index": binding["wallet_signer_index"],
+        "sponsored_fee_payer": binding["sponsored_fee_payer"],
+        "program_ids": program_ids,
+        "unknown_program_ids": unknown_program_ids,
+        "recognized_kamino_program_ids": recognized_kamino_program_ids,
+        "has_recognized_kamino_program": True,
+        "non_core_program_ids": [pid for pid in program_ids if pid not in CORE_PROGRAM_IDS],
+        "account_key_count": len(keys),
+        "instruction_count": len(_compiled_instructions(message)),
+        "vault_address": vault_address,
+        "vault_token_mint": vault_token_mint,
         "action": action,
         "verified": True,
     }

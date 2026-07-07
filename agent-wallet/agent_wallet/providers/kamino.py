@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import time
 from typing import Any
 
 from agent_wallet.config import normalize_solana_network, settings
@@ -9,6 +11,41 @@ from agent_wallet.exceptions import ProviderError
 from agent_wallet.http_client import get_client
 
 KAMINO_BUILD_TIMEOUT_SECONDS = 20.0
+# Discovery data only (market/vault catalogs and rate metrics) — never
+# user-specific data such as obligations, positions, rewards, or portfolios.
+# Catalogs change when Kamino ships a market/vault (days); rate metrics drift
+# slower than the API's own aggregation window over these TTLs. The cache is
+# long-lived only inside the resident read worker; cold CLI runs start empty.
+MARKETS_CACHE_TTL_SECONDS = 600.0
+RESERVES_CACHE_TTL_SECONDS = 180.0
+EARN_VAULTS_CACHE_TTL_SECONDS = 600.0
+EARN_VAULT_METRICS_CACHE_TTL_SECONDS = 180.0
+_DISCOVERY_CACHE_MAX_ENTRIES = 128
+_discovery_cache: dict[str, tuple[float, str]] = {}
+
+
+def _discovery_cache_get(cache_key: str) -> Any | None:
+    entry = _discovery_cache.get(cache_key)
+    if entry is None:
+        return None
+    expires_at, payload_text = entry
+    if expires_at <= time.monotonic():
+        _discovery_cache.pop(cache_key, None)
+        return None
+    return json.loads(payload_text)
+
+
+def _discovery_cache_set(cache_key: str, payload: Any, ttl_seconds: float) -> None:
+    try:
+        payload_text = json.dumps(payload)
+    except (TypeError, ValueError):
+        return
+    if len(_discovery_cache) >= _DISCOVERY_CACHE_MAX_ENTRIES:
+        for stale_key in sorted(_discovery_cache, key=lambda key: _discovery_cache[key][0])[
+            : len(_discovery_cache) - _DISCOVERY_CACHE_MAX_ENTRIES + 1
+        ]:
+            _discovery_cache.pop(stale_key, None)
+    _discovery_cache[cache_key] = (time.monotonic() + ttl_seconds, payload_text)
 
 
 def _normalized_api_base() -> str:
@@ -48,6 +85,10 @@ def _env_name(network: str) -> str:
 
 async def fetch_lend_markets() -> dict[str, Any]:
     """Fetch Kamino lending markets for the configured program id."""
+    cache_key = f"markets:{settings.kamino_program_id}"
+    cached = _discovery_cache_get(cache_key)
+    if cached is not None:
+        return cached
     client = get_client()
     response = await client.get(
         f"{_normalized_api_base()}/v2/kamino-market",
@@ -55,9 +96,83 @@ async def fetch_lend_markets() -> dict[str, Any]:
     )
     if response.status_code != 200:
         raise ProviderError("kamino", f"HTTP {response.status_code}: {response.text[:300]}")
-    return _normalize_named_list_response(
+    result = _normalize_named_list_response(
         response.json(),
         key="markets",
+        provider_name="kamino",
+    )
+    _discovery_cache_set(cache_key, result, MARKETS_CACHE_TTL_SECONDS)
+    return result
+
+
+async def fetch_portfolio(*, user: str) -> dict[str, Any]:
+    """Fetch the unified Kamino product portfolio for one wallet."""
+    client = get_client()
+    response = await client.get(f"{_normalized_api_base()}/portfolio/{user}")
+    if response.status_code != 200:
+        raise ProviderError("kamino", f"HTTP {response.status_code}: {response.text[:300]}")
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ProviderError("kamino", "Unexpected portfolio response from Kamino.")
+    return data
+
+
+async def fetch_earn_vaults() -> dict[str, Any]:
+    """Fetch the list of Kamino Earn vaults."""
+    cache_key = "earn_vaults"
+    cached = _discovery_cache_get(cache_key)
+    if cached is not None:
+        return cached
+    client = get_client()
+    response = await client.get(f"{_normalized_api_base()}/kvaults/vaults")
+    if response.status_code != 200:
+        raise ProviderError("kamino", f"HTTP {response.status_code}: {response.text[:300]}")
+    result = _normalize_named_list_response(
+        response.json(),
+        key="vaults",
+        provider_name="kamino",
+    )
+    _discovery_cache_set(cache_key, result, EARN_VAULTS_CACHE_TTL_SECONDS)
+    return result
+
+
+async def fetch_earn_vault_metrics(*, vault: str, network: str) -> dict[str, Any]:
+    """Fetch APY/TVL metrics for one Kamino Earn vault."""
+    env = _env_name(network)
+    cache_key = f"earn_vault_metrics:{vault}:{env}"
+    cached = _discovery_cache_get(cache_key)
+    if cached is not None:
+        return cached
+    client = get_client()
+    response = await client.get(
+        f"{_normalized_api_base()}/kvaults/{vault}/metrics",
+        params={"env": env},
+    )
+    if response.status_code != 200:
+        raise ProviderError("kamino", f"HTTP {response.status_code}: {response.text[:300]}")
+    data = response.json()
+    if not isinstance(data, dict):
+        raise ProviderError("kamino", "Unexpected vault metrics response from Kamino.")
+    _discovery_cache_set(cache_key, data, EARN_VAULT_METRICS_CACHE_TTL_SECONDS)
+    return data
+
+
+async def fetch_earn_user_positions(
+    *,
+    user: str,
+    network: str,
+) -> dict[str, Any]:
+    """Fetch all Kamino Earn vault positions for a wallet."""
+    client = get_client()
+    response = await client.get(
+        f"{_normalized_api_base()}/kvaults/users/{user}/positions",
+        params={"env": _env_name(network)},
+    )
+    if response.status_code != 200:
+        raise ProviderError("kamino", f"HTTP {response.status_code}: {response.text[:300]}")
+    return _normalize_named_list_response(
+        response.json(),
+        key="positions",
         provider_name="kamino",
     )
 
@@ -68,18 +183,25 @@ async def fetch_lend_market_reserves(
     network: str,
 ) -> dict[str, Any]:
     """Fetch reserve metrics for one Kamino lending market."""
+    env = _env_name(network)
+    cache_key = f"reserves:{market}:{env}"
+    cached = _discovery_cache_get(cache_key)
+    if cached is not None:
+        return cached
     client = get_client()
     response = await client.get(
         f"{_normalized_api_base()}/kamino-market/{market}/reserves/metrics",
-        params={"env": _env_name(network)},
+        params={"env": env},
     )
     if response.status_code != 200:
         raise ProviderError("kamino", f"HTTP {response.status_code}: {response.text[:300]}")
-    return _normalize_named_list_response(
+    result = _normalize_named_list_response(
         response.json(),
         key="reserves",
         provider_name="kamino",
     )
+    _discovery_cache_set(cache_key, result, RESERVES_CACHE_TTL_SECONDS)
+    return result
 
 
 async def fetch_lend_user_obligations(
@@ -229,6 +351,50 @@ async def build_lend_repay_transaction(
             "wallet": wallet,
             "market": market,
             "reserve": reserve,
+            "amount": amount_ui,
+        },
+        timeout=KAMINO_BUILD_TIMEOUT_SECONDS,
+    )
+    if response.status_code != 200:
+        raise ProviderError("kamino", f"HTTP {response.status_code}: {response.text[:300]}")
+    return _normalized_tx_response(response.json(), provider_name="kamino")
+
+
+async def build_earn_deposit_transaction(
+    *,
+    wallet: str,
+    kvault: str,
+    amount_ui: str,
+) -> dict[str, Any]:
+    """Build an unsigned Kamino Earn deposit transaction."""
+    client = get_client()
+    response = await client.post(
+        f"{_normalized_api_base()}/ktx/kvault/deposit",
+        json={
+            "wallet": wallet,
+            "kvault": kvault,
+            "amount": amount_ui,
+        },
+        timeout=KAMINO_BUILD_TIMEOUT_SECONDS,
+    )
+    if response.status_code != 200:
+        raise ProviderError("kamino", f"HTTP {response.status_code}: {response.text[:300]}")
+    return _normalized_tx_response(response.json(), provider_name="kamino")
+
+
+async def build_earn_withdraw_transaction(
+    *,
+    wallet: str,
+    kvault: str,
+    amount_ui: str,
+) -> dict[str, Any]:
+    """Build an unsigned Kamino Earn withdraw transaction."""
+    client = get_client()
+    response = await client.post(
+        f"{_normalized_api_base()}/ktx/kvault/withdraw",
+        json={
+            "wallet": wallet,
+            "kvault": kvault,
             "amount": amount_ui,
         },
         timeout=KAMINO_BUILD_TIMEOUT_SECONDS,
