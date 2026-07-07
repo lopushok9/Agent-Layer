@@ -59,7 +59,7 @@ jobs:
           NPM_CONFIG_CACHE=/tmp/npm-cache npm pack
 
       - name: Install ClawHub CLI
-        run: npm install -g clawhub@0.15.0
+        run: npm install -g clawhub@0.23.1
 
       - name: Login to ClawHub
         if: github.event_name != 'pull_request'
