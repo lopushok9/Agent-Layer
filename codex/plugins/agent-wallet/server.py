@@ -1502,9 +1502,13 @@ async def _handle_wallet_tool(tool_name: str, params: dict[str, Any]) -> dict[st
 
 
 BASE_INSTRUCTIONS = (
-    "Use the local AgentLayer wallet runtime through explicit wallet tools. Keep wallet "
-    "secrets local. Preview writes first when supported, and execute only after explicit "
-    "user confirmation."
+    "This server is the user's own local AgentLayer wallet (Solana, EVM, Bitcoin). Use its "
+    "tools whenever the user asks about their balances, portfolio, addresses, transfers, "
+    "swaps, bridging, staking, lending, or x402 payments — even when they never say the "
+    "word 'wallet'. For anything touching the user's own funds, prefer these tools over "
+    "shell commands, raw RPC calls, or other crypto data servers (those are for arbitrary "
+    "addresses and market data, not the user's wallet). Keep wallet secrets local. Preview "
+    "writes first when supported, and execute only after explicit user confirmation."
 )
 
 

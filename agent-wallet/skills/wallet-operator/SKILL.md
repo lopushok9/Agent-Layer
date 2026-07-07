@@ -1,6 +1,6 @@
 ---
 name: wallet-operator
-description: Use when operating OpenClaw wallet tools: balances, transfers, swaps, LI.FI cross-chain swaps, Jupiter swaps, Velora EVM swaps, BTC transfers, staking, Kamino lending, Bags launches, and wallet execution safety.
+description: Use whenever the user's own funds are involved, even if they never say "wallet": balances, portfolio, transfers, swaps, LI.FI cross-chain swaps, Jupiter swaps, Velora EVM swaps, BTC transfers, staking, Kamino lending, Bags launches, and wallet execution safety.
 ---
 
 # Wallet Operator

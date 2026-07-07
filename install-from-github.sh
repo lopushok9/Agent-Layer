@@ -120,9 +120,15 @@ if [ -z "$SOURCE_ROOT" ] || [ ! -d "$SOURCE_ROOT" ]; then
   exit 1
 fi
 
+# Pre-flight must be a superset of setup.sh's require_path list: everything is
+# checked on the EXTRACTED temp tree, before the destructive swap below. A
+# bundle that would fail setup.sh must never replace the user's runtime.
 require_path "$SOURCE_ROOT/setup.sh" "local setup entrypoint"
 require_path "$SOURCE_ROOT/agent-wallet" "agent-wallet package"
+require_path "$SOURCE_ROOT/agent-wallet/scripts/install_agent_wallet.py" "Python installer"
 require_path "$SOURCE_ROOT/.openclaw/extensions/agent-wallet" "OpenClaw extension"
+require_path "$SOURCE_ROOT/codex/plugins/agent-wallet/.codex-plugin/plugin.json" "Codex plugin"
+require_path "$SOURCE_ROOT/claude-code/plugins/agent-wallet/.claude-plugin/plugin.json" "Claude Code plugin"
 require_path "$SOURCE_ROOT/wdk-btc-wallet/package.json" "wdk-btc-wallet runtime"
 require_path "$SOURCE_ROOT/wdk-evm-wallet/package.json" "wdk-evm-wallet runtime"
 

@@ -1,6 +1,6 @@
 ---
 name: "wallet-operator"
-description: "Use when the user asks Codex to interact with the local AgentLayer wallet runtime. Prefer wallet tools over shell commands, preview writes first, and keep approval/signing semantics intact."
+description: "Use whenever the user's own funds or wallet are involved — balances, portfolio, transfers, swaps, bridging, staking, lending, or x402 payments — even if the user never says \"wallet\". Trigger phrases include \"my balance\", \"how much SOL/ETH/BTC/USDC do I have\", \"send/transfer X to\", \"swap\", \"bridge\", \"stake\", \"my portfolio\". Prefer wallet tools over shell commands, preview writes first, and keep approval/signing semantics intact."
 ---
 
 # Agent Wallet Operator

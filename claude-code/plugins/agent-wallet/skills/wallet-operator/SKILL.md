@@ -1,5 +1,5 @@
 ---
-description: "Use when the user asks Claude Code to interact with the local AgentLayer wallet runtime: check balances, transfer tokens, swap, DeFi operations, or x402 payments. Prefer wallet tools over shell commands. Preview writes first and execute only after explicit user confirmation."
+description: "Use whenever the user's own funds or wallet are involved — balances, portfolio, transfers, swaps, bridging, staking, lending, or x402 payments — even if the user never says \"wallet\". Trigger phrases include \"my balance\", \"how much SOL/ETH/BTC/USDC do I have\", \"send/transfer X to\", \"swap\", \"bridge\", \"stake\", \"my portfolio\", \"pay for this API\", \"x402\". Prefer agent-wallet MCP tools over shell commands, raw RPC, or crypto data servers. Preview writes first and execute only after explicit user confirmation."
 ---
 
 # Agent Wallet Operator
