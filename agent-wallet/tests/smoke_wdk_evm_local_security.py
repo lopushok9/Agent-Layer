@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
 import sys
@@ -151,6 +152,17 @@ def main() -> None:
         assert len(signature) == 65
         assert server.sent_payloads[-1]["path"] == "/v1/evm/x402/exact/sign"
         assert server.sent_payloads[-1]["body"]["message"]["nonce"] == "0x" + ("22" * 32)
+
+        message_signature = asyncio.run(backend.sign_message("Sign in with Ethereum to..."))
+        assert message_signature == "0x" + ("22" * 65)
+        assert server.sent_payloads[-1]["path"] == "/v1/evm/message/sign"
+        assert server.sent_payloads[-1]["body"]["message"] == "Sign in with Ethereum to..."
+
+        try:
+            asyncio.run(backend.sign_message(""))
+            raise AssertionError("empty message must be rejected before hitting the daemon")
+        except WalletBackendError:
+            pass
 
     assert _timeout_for_path("/v1/evm/swap/send") >= 120.0
     assert _timeout_for_path("/v1/evm/transfer/send") >= 120.0

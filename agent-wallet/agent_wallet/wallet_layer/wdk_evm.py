@@ -568,6 +568,24 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
         except ValueError as exc:
             raise WalletBackendError("wdk-evm-wallet returned an invalid x402 EVM signature.") from exc
 
+    async def sign_message(self, message: bytes | str) -> str:
+        text = message.decode("utf-8") if isinstance(message, bytes) else str(message)
+        if not text:
+            raise WalletBackendError("message must be a non-empty string.")
+        data = await self.client.post(
+            "/v1/evm/message/sign",
+            {
+                "walletId": self.wallet_id,
+                "accountIndex": self.account_index,
+                "network": self.network,
+                "message": text,
+            },
+        )
+        signature = str(data.get("signature") or "").strip()
+        if not signature:
+            raise WalletBackendError("wdk-evm-wallet did not return a message signature.")
+        return signature
+
     async def get_balance(self, address: str | None = None) -> dict[str, Any]:
         resolved_address = await self.get_address()
         if address is not None and address.strip() and address.strip() != resolved_address:

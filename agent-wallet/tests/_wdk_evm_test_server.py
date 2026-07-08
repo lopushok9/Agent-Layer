@@ -239,6 +239,27 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                     )
                     return
 
+                if self.path == "/v1/evm/message/sign":
+                    if wallet_id != outer.wallet_id:
+                        self._send(400, {"ok": False, "error": "Unknown walletId."})
+                        return
+                    outer.sent_payloads.append({"path": self.path, "body": body})
+                    self._send(
+                        200,
+                        {
+                            "ok": True,
+                            "data": {
+                                "network": requested_network,
+                                "chainId": requested_chain_id,
+                                "accountIndex": int(body.get("accountIndex") or 0),
+                                "address": outer.address,
+                                "signature": "0x" + ("22" * 65),
+                                "source": "wdk-wallet-evm",
+                            },
+                        },
+                    )
+                    return
+
                 if self.path == "/v1/evm/wallets/create":
                     outer.wallet_exists = True
                     outer.unlocked_wallet_ids.add(outer.wallet_id)
