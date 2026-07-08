@@ -4068,6 +4068,29 @@ export class WdkEvmWalletService {
     });
   }
 
+  async signPersonalMessage({
+    seedPhrase,
+    accountIndex = 0,
+    network,
+    message,
+  }) {
+    return this.#withAccount({ seedPhrase, accountIndex, network }, async (account, runtimeConfig) => {
+      if (typeof message !== "string" || message.length === 0) {
+        throw new Error("message must be a non-empty string.");
+      }
+      const signerAddress = normalizeAddress(await account.getAddress(), "accountAddress");
+      const signature = await account.sign(message);
+      return {
+        network: runtimeConfig.network,
+        chainId: runtimeConfig.chainId,
+        accountIndex,
+        address: signerAddress,
+        signature,
+        source: "wdk-wallet-evm",
+      };
+    });
+  }
+
   #resolveRuntimeConfig(networkOverride) {
     const network = assertValidNetwork(networkOverride) || this.config.network;
     const profile = this.config.networkProfiles?.[network];

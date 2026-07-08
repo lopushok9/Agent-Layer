@@ -649,6 +649,12 @@ async function handleRequest(request, response) {
       return sendJson(response, 200, { ok: true, data });
     }
 
+    if (method === "POST" && url.pathname === "/v1/evm/message/sign") {
+      const body = await withResolvedNetwork(await withResolvedSeed(await readJsonBody(request)));
+      const data = await service.signPersonalMessage(body);
+      return sendJson(response, 200, { ok: true, data });
+    }
+
     return notFound(response);
   } catch (error) {
     const shaped = toErrorResponse(error, new URL(request.url || "/", "http://localhost").pathname, 400);
