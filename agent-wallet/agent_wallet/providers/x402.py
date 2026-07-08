@@ -428,11 +428,16 @@ def _evm_exact_execution_supported(backend: AgentWalletBackend) -> bool:
 
 
 def _evm_payment_requirement_supported(requirement: dict[str, Any]) -> bool:
-    if _trim(requirement.get("scheme")).lower() != "exact":
-        return False
+    scheme = _trim(requirement.get("scheme")).lower()
     extra = _extract_requirement_extra(requirement)
-    transfer_method = _trim(extra.get("assetTransferMethod")).lower()
-    return transfer_method in {"", "eip3009", "transferwithauthorization"}
+    if scheme == "exact":
+        transfer_method = _trim(extra.get("assetTransferMethod")).lower()
+        return transfer_method in {"", "eip3009", "transferwithauthorization"}
+    if scheme == "upto":
+        # The upto Permit2 payload needs the facilitator's address up front;
+        # without it the SDK signer raises instead of falling back cleanly.
+        return bool(_trim(extra.get("facilitatorAddress")))
+    return False
 
 
 def _wallet_x402_support_summary(backend: AgentWalletBackend) -> dict[str, Any]:
@@ -478,7 +483,7 @@ def _requirement_compatibility(requirement: dict[str, Any], backend: AgentWallet
         )
     elif chain == "evm":
         planned_execution_supported = (
-            scheme == "exact"
+            scheme in {"exact", "upto"}
             and network in set(wallet_summary["planned_execution_networks"])
             and _evm_payment_requirement_supported(requirement)
         )
@@ -491,10 +496,12 @@ def _requirement_compatibility(requirement: dict[str, Any], backend: AgentWallet
         reason = (
             "Executable now through the local Solana exact buyer flow."
             if chain == "solana"
-            else "Executable now through the local EVM exact buyer flow."
+            else f"Executable now through the local EVM {scheme or 'exact'} buyer flow."
         )
     elif chain == "evm" and scheme == "exact" and not _evm_payment_requirement_supported(requirement):
         reason = "This EVM exact payment requires a transfer method that is not enabled in the current wallet runtime."
+    elif chain == "evm" and scheme == "upto" and not _evm_payment_requirement_supported(requirement):
+        reason = "This EVM upto payment is missing a facilitatorAddress in its extra data, so it cannot be signed."
     elif planned_execution_supported and wallet_network_matches:
         reason = "Wallet network matches, but this backend does not yet expose a supported x402 signer path."
     elif planned_execution_supported:
@@ -527,11 +534,16 @@ def _select_preferred_requirement(
     if not candidates:
         return None
 
-    def sort_key(item: dict[str, Any]) -> tuple[int, int]:
+    def sort_key(item: dict[str, Any]) -> tuple[int, int, int]:
+        # Prefer upto over exact: upto settles for actual usage against a
+        # signed cap, which fits metered/usage-priced endpoints better than
+        # exact's fixed charge. Ties within a scheme still favor the cheapest
+        # declared amount.
+        scheme_rank = 0 if _trim(item.get("scheme")).lower() == "upto" else 1
         amount = _trim(item.get("amount"))
         if amount.isdigit():
-            return (0, int(amount))
-        return (1, 0)
+            return (scheme_rank, 0, int(amount))
+        return (scheme_rank, 1, 0)
 
     return sorted(candidates, key=sort_key)[0]
 
@@ -728,10 +740,10 @@ def _validate_payment_requirement(
         )
 
     scheme = _trim(selected.get("scheme")).lower()
-    if scheme != "exact":
+    if scheme not in {"exact", "upto"}:
         raise ProviderError(
             "x402-validate",
-            f"Unsupported x402 payment scheme '{scheme or 'unknown'}'. Only 'exact' is supported.",
+            f"Unsupported x402 payment scheme '{scheme or 'unknown'}'. Only 'exact' and 'upto' are supported.",
             details={"request_url": request_url, "selected_payment": selected},
         )
 
