@@ -846,6 +846,24 @@ def _select_sdk_payment_requirement(
     )
 
 
+# The `upto` Permit2 signature authorizes the (merchant + facilitator) pair to
+# settle any amount in [0, cap] until `max_timeout_seconds` elapses, with no
+# on-chain check beyond the deadline itself. A merchant-declared timeout with
+# no upper bound would extend that facilitator-discretion window indefinitely,
+# so cap it defensively before signing. `exact` amounts are fixed in the
+# signature, so this cap only applies to `upto`.
+MAX_UPTO_DEADLINE_SECONDS = 7 * 24 * 60 * 60  # 7 days
+
+
+def _cap_upto_deadline(requirement: Any) -> Any:
+    if _trim(getattr(requirement, "scheme", "")).lower() != "upto":
+        return requirement
+    timeout = getattr(requirement, "max_timeout_seconds", None)
+    if not isinstance(timeout, int) or timeout <= MAX_UPTO_DEADLINE_SECONDS:
+        return requirement
+    return requirement.model_copy(update={"max_timeout_seconds": MAX_UPTO_DEADLINE_SECONDS})
+
+
 def _build_selected_payment_required_payload(
     payment_required: Any,
     *,
@@ -855,6 +873,7 @@ def _build_selected_payment_required_payload(
         payment_required,
         selected_payment=selected_payment,
     )
+    selected_requirement = _cap_upto_deadline(selected_requirement)
     return payment_required.model_copy(update={"accepts": [selected_requirement]})
 
 
@@ -904,9 +923,18 @@ def _load_x402_evm_sdk() -> dict[str, Any]:
             "x402 EVM execution requires EVM support.",
             details={"hint": 'Install dependencies so `x402[httpx,evm]` is available in the wallet runtime.'},
         ) from exc
+    try:
+        from x402.mechanisms.evm.upto import UptoEvmScheme
+    except ImportError as exc:
+        raise ProviderError(
+            "x402-sdk",
+            "x402 EVM upto-scheme execution requires the upto mechanism module.",
+            details={"hint": 'Install dependencies so `x402[httpx,evm]` is available in the wallet runtime.'},
+        ) from exc
     sdk.update(
         {
             "register_exact_evm_client": register_exact_evm_client,
+            "UptoEvmScheme": UptoEvmScheme,
         }
     )
     return sdk
@@ -1054,11 +1082,13 @@ async def _create_payment_headers(
         address = await backend.get_address()
         if not isinstance(address, str) or not address.strip():
             raise ProviderError("x402-evm", "The active EVM backend did not resolve a payer address.")
-        sdk["register_exact_evm_client"](
-            client,
-            _build_evm_sdk_signer(backend, address.strip()),
-            networks=str(selected_payment["network"]),
-        )
+        evm_signer = _build_evm_sdk_signer(backend, address.strip())
+        network = str(selected_payment["network"])
+        sdk["register_exact_evm_client"](client, evm_signer, networks=network)
+        # `upto` reuses the same typed-data signer as `exact`; registering both
+        # lets the SDK settle whichever scheme the merchant's accepted
+        # requirement (already narrowed to one entry above) turns out to use.
+        client.register(network, sdk["UptoEvmScheme"](evm_signer))
         payment_payload = await client.create_payment_payload(selected_payload)
         return sdk["x402HTTPClientBase"]().encode_payment_signature_header(payment_payload)
 
