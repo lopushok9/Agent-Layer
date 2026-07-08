@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import time
+from types import SimpleNamespace
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -956,6 +957,67 @@ def _load_x402_sdk() -> dict[str, Any]:
     return _load_x402_common_sdk()
 
 
+def _load_x402_siwx_sdk() -> dict[str, Any]:
+    try:
+        from x402.extensions.sign_in_with_x import (
+            SIGN_IN_WITH_X,
+            CreateSIWxClientExtensionOptions,
+            create_siwx_client_extension,
+        )
+    except ImportError as exc:
+        raise ProviderError(
+            "x402-sdk",
+            "x402 sign-in-with-x execution requires the SIWx extension module.",
+            details={"hint": 'Install dependencies so `x402[httpx,evm,svm]` is available in the wallet runtime.'},
+        ) from exc
+    return {
+        "SIGN_IN_WITH_X": SIGN_IN_WITH_X,
+        "CreateSIWxClientExtensionOptions": CreateSIWxClientExtensionOptions,
+        "create_siwx_client_extension": create_siwx_client_extension,
+    }
+
+
+async def _maybe_attach_siwx_header(
+    *,
+    payment_required: Any,
+    signer: Any,
+    headers: dict[str, str],
+) -> dict[str, str]:
+    """Attach a Sign-In-With-X header when the merchant declares that extension.
+
+    Some x402 gateways require proving wallet ownership via SIWx alongside the
+    payment signature; without it those requests are rejected even with a
+    valid payment. Best-effort: any failure to build the SIWx credential falls
+    back to paying without it, matching the upstream SDK's own
+    on_payment_required hook contract (which swallows exceptions the same way).
+    """
+    extensions = getattr(payment_required, "extensions", None) or {}
+    if not extensions:
+        return headers
+    try:
+        sdk = _load_x402_siwx_sdk()
+    except ProviderError:
+        return headers
+    if sdk["SIGN_IN_WITH_X"] not in extensions:
+        return headers
+    extension = sdk["create_siwx_client_extension"](
+        sdk["CreateSIWxClientExtensionOptions"](signers=[signer])
+    )
+    context = SimpleNamespace(payment_required=payment_required)
+    try:
+        result = await extension.transport_hooks.http.on_payment_required(None, context)
+    except Exception as exc:
+        log.warning(
+            "x402 SIWx header build failed; continuing without it",
+            extra={"error_type": type(exc).__name__, "error": str(exc) or None},
+        )
+        return headers
+    siwx_headers = getattr(result, "headers", None) if result is not None else None
+    if not siwx_headers:
+        return headers
+    return {**headers, **siwx_headers}
+
+
 def _build_solana_sdk_signer(backend: AgentWalletBackend) -> Any:
     signer = getattr(backend, "signer", None)
     if signer is None or not hasattr(signer, "export_keypair_bytes"):
@@ -999,14 +1061,29 @@ def _build_evm_sdk_signer(backend: AgentWalletBackend, address: str) -> Any:
             "The active EVM backend does not expose an x402 exact typed-data signer.",
         )
 
+    class _NoEthAccountSentinel:
+        """Truthy placeholder with neither `.sign_message` nor `.address`.
+
+        x402's SIWx sign_evm_message() treats a signer with `.account` unset
+        but both `.sign_message` and `.address` present as an eth_account-style
+        wallet, and calls `.sign_message(SignableMessage)` positionally instead
+        of our keyword-based `sign_message(message=..., account=...)`. Exposing
+        a benign `.account` here short-circuits that fallback so the SDK
+        reaches our intended call path.
+        """
+
     class _OpenClawEvmX402Signer:
         def __init__(self, wallet_backend: AgentWalletBackend, wallet_address: str):
             self._wallet_backend = wallet_backend
             self._address = wallet_address
+            self.account = _NoEthAccountSentinel()
 
         @property
         def address(self) -> str:
             return self._address
+
+        async def sign_message(self, *, message: str, account: Any = None) -> str:
+            return await self._wallet_backend.sign_message(message)
 
         def sign_typed_data(
             self,
@@ -1062,9 +1139,10 @@ async def _create_payment_headers(
                 "No direct Solana RPC URL is available for the x402 SDK signer path.",
                 details={"network": _backend_network(backend)},
             )
+        solana_signer = _build_solana_sdk_signer(backend)
         sdk["register_exact_svm_client"](
             client,
-            _build_solana_sdk_signer(backend),
+            solana_signer,
             networks=str(selected_payment["network"]),
             rpc_url=sdk_rpc_url,
         )
@@ -1081,7 +1159,10 @@ async def _create_payment_headers(
                     "error": str(exc) or None,
                 },
             ) from exc
-        return sdk["x402HTTPClientBase"]().encode_payment_signature_header(payment_payload)
+        headers = sdk["x402HTTPClientBase"]().encode_payment_signature_header(payment_payload)
+        return await _maybe_attach_siwx_header(
+            payment_required=payment_required, signer=solana_signer, headers=headers
+        )
 
     if chain == "evm":
         sdk = _load_x402_evm_sdk()
@@ -1102,7 +1183,10 @@ async def _create_payment_headers(
         # requirement (already narrowed to one entry above) turns out to use.
         client.register(network, sdk["UptoEvmScheme"](evm_signer))
         payment_payload = await client.create_payment_payload(selected_payload)
-        return sdk["x402HTTPClientBase"]().encode_payment_signature_header(payment_payload)
+        headers = sdk["x402HTTPClientBase"]().encode_payment_signature_header(payment_payload)
+        return await _maybe_attach_siwx_header(
+            payment_required=payment_required, signer=evm_signer, headers=headers
+        )
 
     raise ProviderError(
         "x402-http",

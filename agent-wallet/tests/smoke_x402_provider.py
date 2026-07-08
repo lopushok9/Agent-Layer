@@ -94,6 +94,14 @@ class MainnetFakeEvmBackend(FakeEvmBackend):
         return bytes.fromhex("44" * 65)
 
 
+class SiwxFakeEvmBackend(MainnetFakeEvmBackend):
+    last_message: str | None = None
+
+    async def sign_message(self, message: bytes | str) -> str:
+        SiwxFakeEvmBackend.last_message = message if isinstance(message, str) else message.decode("utf-8")
+        return "0x" + "77" * 65
+
+
 class FakeResponse:
     def __init__(self, status_code: int, payload: dict | list | str, headers: dict[str, str] | None = None):
         self.status_code = status_code
@@ -749,6 +757,104 @@ async def main() -> None:
         assert ("eip155:8453", "exact") in registered
         assert ("eip155:8453", "upto") in registered
         x402._load_x402_evm_sdk = original_load_x402_evm_sdk
+
+        # --- SIWx: EVM signer reaches sign_message via the correct call path ---
+        from types import SimpleNamespace
+
+        from x402.extensions.sign_in_with_x import parse_siwx_header
+
+        # Real SIWx-gated servers generate a fresh nonce/issuedAt per 402
+        # response (see x402.extensions.sign_in_with_x.server); mirror that
+        # shape rather than the bare declare_siwx_extension() static template.
+        siwx_extensions = {
+            "sign-in-with-x": {
+                "info": {
+                    "domain": "paid-base-mainnet.example.com",
+                    "uri": "https://paid-base-mainnet.example.com/report",
+                    "version": "1",
+                    "nonce": "testnonce1234567890abcdef",
+                    "issuedAt": "2026-07-08T00:00:00Z",
+                    "resources": ["https://paid-base-mainnet.example.com/report"],
+                },
+                "supportedChains": [{"chainId": "eip155:8453", "type": "eip191"}],
+            }
+        }
+        siwx_payment_required = SimpleNamespace(extensions=siwx_extensions)
+        siwx_backend = SiwxFakeEvmBackend()
+        siwx_evm_signer = x402._build_evm_sdk_signer(
+            siwx_backend, "0x1111111111111111111111111111111111111111"
+        )
+        siwx_headers = await x402._maybe_attach_siwx_header(
+            payment_required=siwx_payment_required,
+            signer=siwx_evm_signer,
+            headers={"PAYMENT-SIGNATURE": "existing-payment-signature"},
+        )
+        assert siwx_headers["PAYMENT-SIGNATURE"] == "existing-payment-signature"
+        assert "sign-in-with-x" in siwx_headers
+        assert SiwxFakeEvmBackend.last_message is not None, (
+            "the SDK must reach our keyword-based sign_message(message=..., account=...), "
+            "not the eth_account positional fallback -- see _NoEthAccountSentinel"
+        )
+        assert "paid-base-mainnet.example.com" in SiwxFakeEvmBackend.last_message
+        decoded_siwx = parse_siwx_header(siwx_headers["sign-in-with-x"])
+        assert decoded_siwx.address == "0x1111111111111111111111111111111111111111"
+        assert decoded_siwx.domain == "paid-base-mainnet.example.com"
+        assert decoded_siwx.signature == "0x" + "77" * 65
+
+        # A merchant declaring no SIWx extension must leave headers untouched.
+        plain_payment_required = SimpleNamespace(extensions=None)
+        plain_headers = await x402._maybe_attach_siwx_header(
+            payment_required=plain_payment_required,
+            signer=siwx_evm_signer,
+            headers={"PAYMENT-SIGNATURE": "unchanged"},
+        )
+        assert plain_headers == {"PAYMENT-SIGNATURE": "unchanged"}
+
+        # --- SIWx: Solana signer needs no new wiring, .keypair is enough ---
+        from solders.keypair import Keypair
+
+        class SolanaSiwxSigner:
+            def __init__(self) -> None:
+                self._keypair = Keypair()
+                self.address = str(self._keypair.pubkey())
+
+            def export_keypair_bytes(self) -> bytes:
+                return bytes(self._keypair)
+
+        class SolanaSiwxBackend(FakeBackend):
+            signer = SolanaSiwxSigner()
+
+            async def get_address(self) -> str | None:
+                return self.signer.address
+
+        solana_siwx_backend = SolanaSiwxBackend()
+        solana_siwx_signer = x402._build_solana_sdk_signer(solana_siwx_backend)
+        solana_siwx_payment_required = SimpleNamespace(
+            extensions={
+                "sign-in-with-x": {
+                    "info": {
+                        "domain": "paid.example.com",
+                        "uri": "https://paid.example.com/report",
+                        "version": "1",
+                        "nonce": "testnonce1234567890abcdef",
+                        "issuedAt": "2026-07-08T00:00:00Z",
+                        "resources": ["https://paid.example.com/report"],
+                    },
+                    "supportedChains": [
+                        {"chainId": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", "type": "ed25519"}
+                    ],
+                }
+            }
+        )
+        solana_siwx_headers = await x402._maybe_attach_siwx_header(
+            payment_required=solana_siwx_payment_required,
+            signer=solana_siwx_signer,
+            headers={"PAYMENT-SIGNATURE": "solana-payment-signature"},
+        )
+        assert solana_siwx_headers["PAYMENT-SIGNATURE"] == "solana-payment-signature"
+        decoded_solana_siwx = parse_siwx_header(solana_siwx_headers["sign-in-with-x"])
+        assert decoded_solana_siwx.address == solana_siwx_backend.signer.address
+        assert decoded_solana_siwx.chain_id == "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
     finally:
         x402.get_client = original_get_client
         x402._create_payment_headers = original_create_payment_headers
