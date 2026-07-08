@@ -135,14 +135,21 @@ class FakeSdkPaymentRequirement:
             "extra": dict(self.extra),
         }
 
+    def model_copy(self, *, update=None, deep: bool = False):
+        clone = FakeSdkPaymentRequirement(self._raw)
+        if update:
+            for key, value in update.items():
+                setattr(clone, key, value)
+        return clone
+
 
 class FakeSdkPaymentRequired:
-    def __init__(self, requirement: FakeSdkPaymentRequirement):
+    def __init__(self, requirements: "FakeSdkPaymentRequirement | list[FakeSdkPaymentRequirement]"):
         self.x402_version = 2
-        self.accepts = [requirement]
+        self.accepts = requirements if isinstance(requirements, list) else [requirements]
 
     def model_copy(self, *, update=None, deep: bool = False):
-        copied = FakeSdkPaymentRequired(self.accepts[0])
+        copied = FakeSdkPaymentRequired(list(self.accepts))
         if isinstance(update, dict) and "accepts" in update:
             copied.accepts = list(update["accepts"])
         return copied
@@ -348,6 +355,7 @@ async def main() -> None:
     original_extract_settlement_header = x402._extract_settlement_header
     original_load_x402_solana_sdk = x402._load_x402_solana_sdk
     original_build_solana_sdk_signer = x402._build_solana_sdk_signer
+    original_load_x402_evm_sdk = x402._load_x402_evm_sdk
     fake_client = FakeClient()
     try:
         raw_requirement = {
@@ -623,12 +631,131 @@ async def main() -> None:
         except ProviderError as exc:
             assert exc.provider == "x402-validate"
             assert "wallet-auth headers" in str(exc)
+
+        # --- upto scheme: prefer upto over exact, fall back when incomplete ---
+        x402._create_payment_headers = original_create_payment_headers
+        exact_base_requirement = {
+            "scheme": "exact",
+            "network": "eip155:8453",
+            "asset": "0x833589fCD6EDb6E08f4c7C32D4f71b54bdA02913",
+            "amount": "500000",
+            "payTo": "0x9999999999999999999999999999999999999999",
+            "maxTimeoutSeconds": 60,
+            "extra": {"name": "USD Coin", "version": "2", "assetTransferMethod": "eip3009"},
+        }
+        upto_base_requirement = {
+            "scheme": "upto",
+            "network": "eip155:8453",
+            "asset": "0x833589fCD6EDb6E08f4c7C32D4f71b54bdA02913",
+            "amount": "500000",
+            "payTo": "0x9999999999999999999999999999999999999999",
+            "maxTimeoutSeconds": 999_999_999,
+            "extra": {
+                "name": "USD Coin",
+                "version": "2",
+                "facilitatorAddress": "0x8888888888888888888888888888888888888888",
+            },
+        }
+
+        mainnet_evm_backend = MainnetFakeEvmBackend()
+        both_offered = [
+            x402.normalize_payment_requirement(exact_base_requirement, source="payment_required"),
+            x402.normalize_payment_requirement(upto_base_requirement, source="payment_required"),
+        ]
+        preferred = x402._select_preferred_requirement(both_offered, mainnet_evm_backend)
+        assert preferred is not None and preferred["scheme"] == "upto", (
+            "upto must be preferred over exact when a merchant offers both"
+        )
+
+        upto_missing_facilitator = dict(upto_base_requirement)
+        upto_missing_facilitator["extra"] = {"name": "USD Coin", "version": "2"}
+        fallback_offered = [
+            x402.normalize_payment_requirement(exact_base_requirement, source="payment_required"),
+            x402.normalize_payment_requirement(upto_missing_facilitator, source="payment_required"),
+        ]
+        fallback = x402._select_preferred_requirement(fallback_offered, mainnet_evm_backend)
+        assert fallback is not None and fallback["scheme"] == "exact", (
+            "upto without facilitatorAddress must fall back to exact rather than crash at sign time"
+        )
+
+        # x402_validate_payment_requirement must accept upto (previously exact-only)
+        validated = x402._validate_payment_requirement(
+            preferred, backend=mainnet_evm_backend, request_url="https://paid-base-mainnet.example.com/report"
+        )
+        assert validated["scheme"] == "upto"
+
+        # _create_payment_headers must register both schemes and cap the upto deadline
+        class RegisteringFakeEvmSdkClient:
+            def __init__(self) -> None:
+                self.registrations: list[tuple[str, str]] = []
+
+            def register(self, network, scheme):
+                self.registrations.append((network, scheme.scheme))
+                return self
+
+            async def create_payment_payload(self, payment_required, resource=None, extensions=None):
+                assert len(payment_required.accepts) == 1
+                selected = payment_required.accepts[0]
+                assert selected.scheme == "upto"
+                assert selected.max_timeout_seconds == x402.MAX_UPTO_DEADLINE_SECONDS, (
+                    "upto deadline must be capped before signing"
+                )
+                return {"payload": "signed-upto"}
+
+        class FakeUptoSchemeStub:
+            def __init__(self, signer):
+                self.scheme = "upto"
+                self.signer = signer
+
+        class FakeHttpBaseStub:
+            def encode_payment_signature_header(self, payment_payload):
+                assert payment_payload == {"payload": "signed-upto"}
+                return {"PAYMENT-SIGNATURE": "signed-upto-payload"}
+
+        def fake_register_exact_evm_client(client, signer, networks=None, policies=None):
+            client.register(networks, type("ExactSchemeStub", (), {"scheme": "exact"})())
+            return client
+
+        def fake_decode_payment_required_header_evm(_header_value: str):
+            return FakeSdkPaymentRequired(
+                [
+                    FakeSdkPaymentRequirement(exact_base_requirement),
+                    FakeSdkPaymentRequirement(upto_base_requirement),
+                ]
+            )
+
+        evm_client_holder: dict[str, RegisteringFakeEvmSdkClient] = {}
+
+        def make_fake_evm_client() -> RegisteringFakeEvmSdkClient:
+            client = RegisteringFakeEvmSdkClient()
+            evm_client_holder["client"] = client
+            return client
+
+        x402._load_x402_evm_sdk = lambda: {
+            "decode_payment_required_header": fake_decode_payment_required_header_evm,
+            "x402Client": make_fake_evm_client,
+            "x402HTTPClientBase": FakeHttpBaseStub,
+            "register_exact_evm_client": fake_register_exact_evm_client,
+            "UptoEvmScheme": FakeUptoSchemeStub,
+        }
+
+        upto_headers = await x402._create_payment_headers(
+            backend=mainnet_evm_backend,
+            payment_required_header="dummy-header-upto",
+            selected_payment=preferred,
+        )
+        assert upto_headers["PAYMENT-SIGNATURE"] == "signed-upto-payload"
+        registered = evm_client_holder["client"].registrations
+        assert ("eip155:8453", "exact") in registered
+        assert ("eip155:8453", "upto") in registered
+        x402._load_x402_evm_sdk = original_load_x402_evm_sdk
     finally:
         x402.get_client = original_get_client
         x402._create_payment_headers = original_create_payment_headers
         x402._extract_settlement_header = original_extract_settlement_header
         x402._load_x402_solana_sdk = original_load_x402_solana_sdk
         x402._build_solana_sdk_signer = original_build_solana_sdk_signer
+        x402._load_x402_evm_sdk = original_load_x402_evm_sdk
 
     print("smoke_x402_provider: ok")
 
