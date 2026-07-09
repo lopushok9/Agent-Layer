@@ -26,12 +26,6 @@ export const InstallModal = ({ isOpen, onClose }) => {
     }
   }, [isOpen, onClose])
 
-  useEffect(() => {
-    if (!isOpen) {
-      setCopiedKey(null)
-    }
-  }, [isOpen])
-
   const handleCopy = async (value, key) => {
     try {
       await navigator.clipboard.writeText(value)

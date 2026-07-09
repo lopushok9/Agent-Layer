@@ -4,14 +4,14 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/wallet", "destination": "/" },
-    { "source": "/mcp", "destination": "/" },
-    { "source": "/product", "destination": "/" },
-    { "source": "/use-cases", "destination": "/" },
-    { "source": "/how-to-use", "destination": "/" },
-    { "source": "/for-investors", "destination": "/" },
-    { "source": "/about", "destination": "/" },
-    { "source": "/about-agent-layer", "destination": "/" },
-    { "source": "/terms", "destination": "/" }
+    { "source": "/wallet", "destination": "/wallet/" },
+    { "source": "/mcp", "destination": "/mcp/" },
+    { "source": "/use-cases", "destination": "/use-cases/" },
+    { "source": "/how-to-use", "destination": "/how-to-use/" },
+    { "source": "/for-investors", "destination": "/for-investors/" },
+    { "source": "/about", "destination": "/about/" },
+    { "source": "/terms", "destination": "/terms/" },
+    { "source": "/product", "destination": "/mcp/" },
+    { "source": "/about-agent-layer", "destination": "/about/" }
   ]
 }

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import '../styles/Interface.css' // We'll create this
 
 export const Interface = ({ onInstallClick }) => {
@@ -12,7 +12,7 @@ export const Interface = ({ onInstallClick }) => {
             await navigator.clipboard.writeText(command)
             setInstallCopied(true)
             window.setTimeout(() => setInstallCopied(false), 1800)
-        } catch (error) {
+        } catch {
             setInstallCopied(false)
         }
     }
