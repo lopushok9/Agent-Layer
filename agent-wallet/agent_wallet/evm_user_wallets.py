@@ -86,6 +86,43 @@ def _read_on_disk_service_version(wallet_root: Path) -> str | None:
     return version or None
 
 
+def _expected_local_service_data_dir() -> Path:
+    configured = os.getenv("WDK_EVM_DATA_DIR", "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return (resolve_openclaw_home() / "wdk-evm-wallet").resolve()
+
+
+def _same_path(left: str | Path | None, right: str | Path | None) -> bool:
+    if left is None or right is None:
+        return False
+    try:
+        left_path = Path(str(left)).expanduser().resolve()
+        right_path = Path(str(right)).expanduser().resolve()
+    except OSError:
+        return False
+    return left_path == right_path
+
+
+def _should_restart_local_service(
+    health: dict[str, Any] | None,
+    *,
+    wallet_root: Path | None,
+) -> bool:
+    if health is None:
+        return False
+    expected_version = _read_on_disk_service_version(wallet_root) if wallet_root is not None else None
+    running_version = str(health.get("version") or "").strip()
+    if expected_version and running_version and running_version != expected_version:
+        return True
+
+    reported_data_dir = str(health.get("dataDir") or "").strip()
+    if reported_data_dir and not _same_path(reported_data_dir, _expected_local_service_data_dir()):
+        return True
+
+    return False
+
+
 def _listening_pids(port: int) -> list[int]:
     """PIDs LISTENing on a local TCP port (via lsof), excluding our own."""
     lsof = shutil.which("lsof")
@@ -177,18 +214,14 @@ def _auto_start_local_service(service_url: str, network: str) -> None:
     health = _service_health(service_url)
     if health is not None:
         # Already running. The daemon loads code once at boot (no hot-reload), so a
-        # long-running process keeps serving stale code after a release. Restart it
-        # only when its reported version differs from the on-disk launcher version —
-        # comparing against the version the restarted daemon will itself report keeps
-        # this idempotent (steady state = no-op) and free of restart loops. Remote
+        # long-running process keeps serving stale code after a release. It can also
+        # keep serving the wrong local vault after a temp/smoke install left another
+        # daemon on the shared localhost port. Restart only when the local daemon no
+        # longer matches the expected launcher version or expected dataDir. Remote
         # (non-local) healthy services we don't manage are left untouched.
         if not _is_local_service_url(service_url):
             return
-        expected_version = (
-            _read_on_disk_service_version(wallet_root) if wallet_root is not None else None
-        )
-        running_version = str(health.get("version") or "").strip()
-        if expected_version is None or running_version == expected_version:
+        if not _should_restart_local_service(health, wallet_root=wallet_root):
             return
         _stop_local_service(service_url)
     if not _is_local_service_url(service_url):

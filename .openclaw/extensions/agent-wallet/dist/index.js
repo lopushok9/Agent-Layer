@@ -985,6 +985,54 @@ const solanaToolDefinitions = [
     },
   },
   {
+    name: "get_kamino_portfolio",
+    description:
+      "Get the unified Kamino portfolio view for a Solana wallet on mainnet across lending, multiply, leverage, liquidity, earn, and staking.",
+    parameters: {
+      type: "object",
+      properties: {
+        user: {
+          type: "string",
+          description: "Optional Solana wallet address override.",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_kamino_vaults",
+    description: "List Kamino Earn vaults currently available on Solana mainnet.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_kamino_earn_positions",
+    description: "Get Kamino Earn vault positions for a Solana wallet on mainnet.",
+    parameters: {
+      type: "object",
+      properties: {
+        user: {
+          type: "string",
+          description: "Optional Solana wallet address override.",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_kamino_liquidity_positions",
+    description: "Get Kamino Liquidity strategy positions for a Solana wallet on mainnet.",
+    parameters: {
+      type: "object",
+      properties: {
+        user: {
+          type: "string",
+          description: "Optional Solana wallet address override.",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_kamino_lend_markets",
     description: "List Kamino lending markets currently available on Solana mainnet.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
@@ -1274,6 +1322,40 @@ const solanaToolDefinitions = [
         user_intent: { type: "boolean" },
       },
       required: ["market", "reserve", "amount_ui", "mode", "purpose"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "kamino_earn_deposit",
+    description: "Preview, prepare, or execute a Kamino Earn vault deposit using a decimal token amount. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
+    optional: true,
+    parameters: {
+      type: "object",
+      properties: {
+        kvault: { type: "string" },
+        amount_ui: { type: "string" },
+        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
+        purpose: { type: "string" },
+        user_intent: { type: "boolean" },
+      },
+      required: ["kvault", "amount_ui", "mode", "purpose"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "kamino_earn_withdraw",
+    description: "Preview, prepare, or execute a Kamino Earn vault withdraw using a decimal token amount. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
+    optional: true,
+    parameters: {
+      type: "object",
+      properties: {
+        kvault: { type: "string" },
+        amount_ui: { type: "string" },
+        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
+        purpose: { type: "string" },
+        user_intent: { type: "boolean" },
+      },
+      required: ["kvault", "amount_ui", "mode", "purpose"],
       additionalProperties: false,
     },
   },

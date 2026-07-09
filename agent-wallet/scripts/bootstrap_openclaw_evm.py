@@ -142,17 +142,15 @@ def _auto_start_local_service(
     # steady state is a no-op. See agent_wallet.evm_user_wallets for the shared
     # health/version/stop helpers.
     from agent_wallet.evm_user_wallets import (
-        _read_on_disk_service_version,
         _service_health,
+        _should_restart_local_service,
         _stop_local_service,
     )
 
     restarted = False
     health = _service_health(service_url)
     if health is not None:
-        expected_version = _read_on_disk_service_version(wdk_wallet_root)
-        running_version = str(health.get("version") or "").strip()
-        if expected_version is None or running_version == expected_version:
+        if not _should_restart_local_service(health, wallet_root=wdk_wallet_root):
             return {"started": False, "already_healthy": True}
         _stop_local_service(service_url)
         restarted = True

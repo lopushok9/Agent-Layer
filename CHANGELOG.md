@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Fixed local EVM autostart incorrectly trusting any healthy same-version
+  `wdk-evm-wallet` already listening on the shared localhost port. If a temp or
+  alternate `OPENCLAW_HOME` had left a daemon running, host runtimes could hit
+  `Unauthorized` because the daemon served a different `dataDir` and bearer
+  token than the current install expected. Local EVM startup now also validates
+  the reported `dataDir` from `/health` and restarts mismatched daemons before
+  issuing authenticated requests.
+  - `agent-wallet/agent_wallet/evm_user_wallets.py`
+  - `agent-wallet/scripts/bootstrap_openclaw_evm.py`
+  - `agent-wallet/tests/smoke_openclaw_evm_runtime_restart_wrong_home.py`
+
 ## v0.1.62 - 2026-07-04
 
 - Made default boot-key storage prompt-free on macOS. The automatic keystore

@@ -27,6 +27,19 @@ def _resolve_version() -> str:
         return "test-version"
 
 
+def _resolve_data_dir() -> str | None:
+    override = os.getenv("WDK_EVM_FAKE_DATA_DIR", "").strip()
+    if override:
+        return override
+    configured = os.getenv("WDK_EVM_DATA_DIR", "").strip()
+    if configured:
+        return configured
+    openclaw_home = os.getenv("OPENCLAW_HOME", "").strip()
+    if not openclaw_home:
+        return None
+    return str(Path(openclaw_home).expanduser() / "wdk-evm-wallet")
+
+
 def main() -> None:
     network = os.getenv("WDK_EVM_NETWORK", "base").strip() or "base"
     host = os.getenv("HOST", "127.0.0.1").strip() or "127.0.0.1"
@@ -37,6 +50,7 @@ def main() -> None:
         host=host,
         port=port,
         auth_token=auth_token,
+        health_data_dir=_resolve_data_dir(),
         version=_resolve_version(),
     ):
         while True:

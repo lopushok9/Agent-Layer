@@ -29,6 +29,7 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
         host: str = "127.0.0.1",
         port: int = 0,
         auth_token: str = "test-local-evm-token",
+        health_data_dir: str | None = None,
         error_responses: dict[str, dict[str, Any]] | None = None,
         response_delays: dict[str, float] | None = None,
         start_empty: bool = False,
@@ -38,6 +39,7 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
         self.host = host
         self.port = int(port)
         self.auth_token = str(auth_token).strip()
+        self.health_data_dir = str(health_data_dir or "").strip() or None
         self.version = str(version or _default_service_version()).strip()
         self.error_responses = dict(error_responses or {})
         self.response_delays = {
@@ -111,17 +113,17 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                     )
                     return
                 if self.path == "/health":
-                    self._send(
-                        200,
-                        {
-                            "ok": True,
-                            "service": "wdk-evm-wallet",
-                            "version": outer.version,
-                            "wallet": "evm",
-                            "network": outer.network,
-                            "chainId": outer.chain_id,
-                        },
-                    )
+                    payload = {
+                        "ok": True,
+                        "service": "wdk-evm-wallet",
+                        "version": outer.version,
+                        "wallet": "evm",
+                        "network": outer.network,
+                        "chainId": outer.chain_id,
+                    }
+                    if outer.health_data_dir:
+                        payload["dataDir"] = outer.health_data_dir
+                    self._send(200, payload)
                     return
                 if self.path == "/v1/evm/wallets":
                     if not self._authorized():
