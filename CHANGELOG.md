@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## v0.1.73 - 2026-07-09
+
+- Fixed CLI installer/update boot-key precedence when recovering an existing
+  hardened install. `buildInstallerEnv()` now resolves the boot key in the same
+  order as the runtime itself: explicit env first, then keystore, and only then
+  plaintext fallback files. This prevents a stale
+  `~/.openclaw/agent-wallet-runtime/boot-key` from overriding a correct key in
+  the keystore and breaking `wallet install` / `wallet update` even though the
+  active runtime can still decrypt `sealed_keys.json`.
+  - `bin/openclaw-agent-wallet.mjs`
+  - `agent-wallet/tests/smoke_cli_install_prefers_keystore_over_stale_boot_file.py`
+
 ## v0.1.72 - 2026-07-09
 
 - Fixed a `0.1.71` installer regression where `wallet update --yes` could fail

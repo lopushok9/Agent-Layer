@@ -1237,11 +1237,14 @@ function buildInstallerEnv(args) {
   const sealedKeysExist = fs.existsSync(sealedKeysPath);
   const dryRun = hasFlag(args, "--dry-run");
   if (!env.AGENT_WALLET_BOOT_KEY) {
+    // Keep installer/update boot-key resolution aligned with the runtime:
+    // explicit env first, then keystore, then plaintext fallback paths. A stale
+    // boot-key file must not override a good keystore key and break updates.
     const existingBootKey =
+      readBootKeyFromKeystore(env) ||
       resolveBootKeyFromFile(env) ||
       readTextIfExists(defaultBootKeyFile(env)).trim() ||
-      currentBootKey(env) ||
-      readBootKeyFromKeystore(env);
+      currentBootKey(env);
     if (existingBootKey) {
       env.AGENT_WALLET_BOOT_KEY = existingBootKey;
     }
