@@ -384,6 +384,17 @@ function currentRuntimePath(env = process.env) {
   return path.join(resolveRuntimeBase(env), "current");
 }
 
+function logicalCurrentRuntimeRoot(env = process.env) {
+  const currentPath = currentRuntimePath(env);
+  try {
+    const stat = fs.lstatSync(currentPath);
+    if (stat.isSymbolicLink() || stat.isDirectory()) return currentPath;
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  return "";
+}
+
 function resolvedCurrentRuntimeRoot(env = process.env) {
   const currentPath = currentRuntimePath(env);
   const currentTarget = readLinkOrNull(currentPath);
@@ -1392,6 +1403,8 @@ function runInstall(args, { commandName = "install" } = {}) {
     }
   }
 
+  const integrationRefresh = refreshInstalledEditorIntegrations(env);
+
   const pythonInfo = activePythonRuntimeInfo(env);
   const nodeInfo = activeNodeRuntimeInfo(env)
     .map((item) => `${item.project_name}:${item.shared ? "shared" : item.exists ? "local" : "missing"}`)
@@ -1410,6 +1423,7 @@ function runInstall(args, { commandName = "install" } = {}) {
         current_runtime: currentPath,
         previous_runtime: readLinkOrNull(previousPath),
         generated_runtime_secrets: Object.keys(generated),
+        integration_refresh: integrationRefresh,
       },
       null,
       2,
@@ -1517,9 +1531,10 @@ function runUpdate(args) {
     }
   }
 
+  const currentVersionBefore = activeVersion();
   let delegated;
   try {
-    delegated = runDelegatedInstallForUpdate(args, { captureOutput: false });
+    delegated = runDelegatedInstallForUpdate(args, { captureOutput: true });
   } catch (error) {
     console.error(error.message);
     return 1;
@@ -1528,7 +1543,60 @@ function runUpdate(args) {
     console.error(delegated.result.error.message);
     return 1;
   }
-  return delegated.result.status ?? 1;
+  const { result } = delegated;
+  if ((result.status ?? 1) !== 0) {
+    const stderr = String(result.stderr || "").trim();
+    const stdout = String(result.stdout || "").trim();
+    if (stderr) process.stderr.write(`${stderr}\n`);
+    if (stdout) process.stderr.write(`${stdout}\n`);
+    return result.status ?? 1;
+  }
+
+  let installPayload;
+  try {
+    installPayload = extractTrailingJson(result.stderr || "") || extractTrailingJson(result.stdout || "");
+  } catch {
+    try {
+      installPayload = extractTrailingJson(result.stdout || "");
+    } catch (error) {
+      const stderr = String(result.stderr || "").trim();
+      const stdout = String(result.stdout || "").trim();
+      if (stderr) process.stderr.write(`${stderr}\n`);
+      if (stdout) process.stderr.write(`${stdout}\n`);
+      console.error(error.message);
+      return 1;
+    }
+  }
+
+  const stderr = String(result.stderr || "");
+  const summaryLine = stderr
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .find((line) => line.startsWith("Update summary:"));
+  if (summaryLine) {
+    console.error(summaryLine);
+  }
+
+  console.log(
+    JSON.stringify(
+      {
+        ...installPayload,
+        command: "update",
+        delegated_via: delegated.delegated_via,
+        target_package_spec: delegated.target_package_spec,
+        target_version:
+          delegated.target_version_hint ||
+          pathVersionFromRuntimeRoot(installPayload?.runtime_root) ||
+          installPayload?.version ||
+          null,
+        previous_version: currentVersionBefore,
+        active_version: activeVersion(),
+      },
+      null,
+      2,
+    ),
+  );
+  return 0;
 }
 
 function runRollback(args) {
@@ -1571,7 +1639,7 @@ function runRollback(args) {
 }
 
 function resolveHermesPluginSource() {
-  const currentRoot = resolvedCurrentRuntimeRoot();
+  const currentRoot = logicalCurrentRuntimeRoot();
   const candidates = [];
   if (currentRoot) {
     candidates.push(path.join(currentRoot, "hermes", "plugins", "agent_wallet"));
@@ -1589,7 +1657,7 @@ function resolveCodexPluginSource() {
   // test/CI override: inject a staged bundle dir
   const override = String(process.env.AGENT_WALLET_CODEX_PLUGIN_SOURCE || "").trim();
   if (override) return path.resolve(expandHome(override));
-  const currentRoot = resolvedCurrentRuntimeRoot();
+  const currentRoot = logicalCurrentRuntimeRoot();
   const candidates = [];
   if (currentRoot) {
     candidates.push(path.join(currentRoot, "codex", "plugins", "agent-wallet"));
@@ -1607,7 +1675,7 @@ function resolveClaudeCodePluginSource() {
   // test/CI override: inject a staged bundle dir
   const override = String(process.env.AGENT_WALLET_CLAUDE_CODE_PLUGIN_SOURCE || "").trim();
   if (override) return path.resolve(expandHome(override));
-  const currentRoot = resolvedCurrentRuntimeRoot();
+  const currentRoot = logicalCurrentRuntimeRoot();
   const candidates = [];
   if (currentRoot) {
     candidates.push(path.join(currentRoot, "claude-code", "plugins", "agent-wallet"));
@@ -1683,7 +1751,7 @@ function ensureCodexMarketplaceEntry({ marketplacePath, pluginName }) {
 }
 
 function resolveAgentWalletPackageRoot(env = process.env) {
-  const currentRoot = resolvedCurrentRuntimeRoot(env);
+  const currentRoot = logicalCurrentRuntimeRoot(env);
   if (currentRoot) {
     const runtimePackage = path.join(currentRoot, "agent-wallet");
     if (fs.existsSync(path.join(runtimePackage, "agent_wallet", "__init__.py"))) {
@@ -2079,6 +2147,79 @@ function runClaudeCodeInstall(args) {
     ),
   );
   return enable.skipped || enable.ok ? 0 : 1;
+}
+
+function hermesInstallPresent(env = process.env) {
+  const hermesHome = resolveHermesHome(env);
+  return (
+    fs.existsSync(path.join(hermesHome, "plugins", "agent_wallet")) ||
+    fs.existsSync(path.join(hermesHome, ".env"))
+  );
+}
+
+function codexInstallPresent(env = process.env) {
+  return (
+    fs.existsSync(path.join(resolveCodexPluginInstallRoot(env), "agent-wallet")) ||
+    fs.existsSync(resolveCodexMarketplacePath(env))
+  );
+}
+
+function claudeCodeInstallPresent(env = process.env) {
+  const marketplaceDir = resolveClaudeCodeMarketplaceDir(env);
+  const cacheRoot = path.resolve(
+    expandHome(env.AGENT_WALLET_CLAUDE_CODE_CACHE_ROOT || "~/.claude/plugins/cache"),
+  );
+  return (
+    fs.existsSync(path.join(marketplaceDir, "plugins", "agent-wallet")) ||
+    fs.existsSync(path.join(cacheRoot, CLAUDE_CODE_MARKETPLACE_NAME, "agent-wallet"))
+  );
+}
+
+function captureInstallerRefresh(name, runFn, args) {
+  const originalLog = console.log;
+  const lines = [];
+  console.log = (...items) => {
+    lines.push(items.join(" "));
+  };
+  try {
+    const code = runFn(args);
+    const output = lines.join("\n");
+    return {
+      name,
+      attempted: true,
+      ok: code === 0,
+      code,
+      payload: output ? extractTrailingJson(output) : null,
+      error: code === 0 ? "" : output.trim(),
+    };
+  } catch (error) {
+    return {
+      name,
+      attempted: true,
+      ok: false,
+      code: 1,
+      payload: null,
+      error: error?.message || String(error),
+    };
+  } finally {
+    console.log = originalLog;
+  }
+}
+
+function refreshInstalledEditorIntegrations(env = process.env) {
+  const results = [];
+  if (hermesInstallPresent(env)) {
+    results.push(captureInstallerRefresh("hermes", runHermesInstall, ["--yes", "--force", "--skip-enable"]));
+  }
+  if (codexInstallPresent(env)) {
+    results.push(captureInstallerRefresh("codex", runCodexInstall, ["--yes", "--force", "--skip-enable"]));
+  }
+  if (claudeCodeInstallPresent(env)) {
+    results.push(
+      captureInstallerRefresh("claude-code", runClaudeCodeInstall, ["--yes", "--force", "--skip-enable"]),
+    );
+  }
+  return results;
 }
 
 const args = process.argv.slice(2);

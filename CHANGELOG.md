@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+## v0.1.71 - 2026-07-09
+
+- Fixed `wallet update` leaving editor integrations pinned to a stale
+  `releases/<version>` path after a runtime upgrade. The installer and
+  OpenClaw local config now canonicalize runtime-owned paths back through
+  `~/.openclaw/agent-wallet-runtime/current`, and the update command
+  proactively refreshes existing Hermes, Codex, and Claude Code installs so a
+  successful update rewires old integrations to the new active runtime
+  automatically. The `update` CLI path also now returns its final update JSON
+  payload directly instead of leaking the nested install payload shape.
+  - `bin/openclaw-agent-wallet.mjs`
+  - `agent-wallet/scripts/install_openclaw_local_config.py`
+  - `agent-wallet/tests/smoke_install_openclaw_local_config_runtime_defaults.py`
+  - `agent-wallet/tests/smoke_npm_installer.py`
+  - `agent-wallet/tests/smoke_update_repairs_editor_installs.py`
+
+- Fixed the EVM live tool list dropping the read-only `x402_*` service tools
+  because the adapter returned before appending them. EVM-backed runtimes now
+  expose x402 discovery/preview/pay tool specs consistently alongside the rest
+  of the EVM wallet surface.
+  - `agent-wallet/agent_wallet/openclaw_adapter.py`
+  - `agent-wallet/tests/smoke_openclaw_evm_x402_tools.py`
+
 - Fixed the npm `files` allowlist dropping `.env.example` for `wdk-evm-wallet`
   and `wdk-btc-wallet`. Both templates are tracked in git and correctly
   un-ignored (`!.env.example` in `.gitignore`), but the root `package.json`

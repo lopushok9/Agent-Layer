@@ -2296,6 +2296,7 @@ class OpenClawWalletAdapter:
                     ),
                 )
 
+            tools.extend(self._x402_tool_specs())
             tools.extend(self._autonomous_permission_tool_specs())
             return tools
 

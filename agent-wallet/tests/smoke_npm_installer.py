@@ -29,6 +29,8 @@ def main() -> None:
     env["AGENT_WALLET_MASTER_KEY"] = "test-master-key-for-npm-installer"
     env["AGENT_WALLET_APPROVAL_SECRET"] = "test-approval-secret-for-npm-installer"
     env["AGENT_WALLET_VERIFY_DISABLE"] = "1"
+    env["AGENT_WALLET_CLAUDE_CODE_MARKETPLACE_DIR"] = str(temp_root / "claude-marketplace")
+    env["AGENT_WALLET_CLAUDE_CODE_CACHE_ROOT"] = str(temp_root / "claude-cache")
 
     result = subprocess.run(
         [
@@ -125,10 +127,12 @@ def main() -> None:
     assert Path(hermes_payload["plugin_target"]).resolve() == (
         runtime_root / "hermes" / "plugins" / "agent_wallet"
     ).resolve()
+    current_runtime = runtime_base / "current"
     assert Path(hermes_payload["agent_wallet_package_root"]).resolve() == (runtime_root / "agent-wallet").resolve()
+    assert os.readlink(hermes_payload["plugin_target"]) == str(current_runtime / "hermes" / "plugins" / "agent_wallet")
     assert Path(hermes_payload["boot_key_file"]).read_text(encoding="utf-8").strip() == env["AGENT_WALLET_BOOT_KEY"]
     hermes_env_file = (hermes_home / ".env").read_text(encoding="utf-8")
-    assert f"AGENT_WALLET_PACKAGE_ROOT={runtime_root / 'agent-wallet'}" in hermes_env_file
+    assert f"AGENT_WALLET_PACKAGE_ROOT={current_runtime / 'agent-wallet'}" in hermes_env_file
     assert f"AGENT_WALLET_BOOT_KEY_FILE={hermes_payload['boot_key_file']}" in hermes_env_file
     assert (temp_root / "hermes-calls.log").read_text(encoding="utf-8").strip() == "plugins enable agent-wallet"
 
@@ -145,6 +149,7 @@ def main() -> None:
     assert Path(codex_payload["plugin_target"]).resolve() == (
         runtime_root / "codex" / "plugins" / "agent-wallet"
     ).resolve()
+    assert os.readlink(codex_payload["plugin_target"]) == str(current_runtime / "codex" / "plugins" / "agent-wallet")
     marketplace = json.loads(Path(codex_payload["marketplace_path"]).read_text(encoding="utf-8"))
     assert marketplace["plugins"][0]["name"] == "agent-wallet"
     assert (
@@ -236,6 +241,7 @@ def main() -> None:
     )
     update_payload = json.loads(update.stdout)
     assert update_payload["ok"] is True
+    assert update_payload["command"] == "update"
     assert Path(update_payload["runtime_root"]).resolve() == runtime_root.resolve()
     assert (runtime_base / "current").resolve() == runtime_root.resolve()
     assert "Update summary:" in update.stderr

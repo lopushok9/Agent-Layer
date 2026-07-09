@@ -137,6 +137,26 @@ def _default_runtime_root() -> Path:
     return _resolve_openclaw_home() / "agent-wallet-runtime" / "current"
 
 
+def _canonical_runtime_path(path_value: str) -> Path:
+    """Keep host config pinned to runtime/current instead of releases/<version>.
+
+    The updater flips ``agent-wallet-runtime/current`` on every release. Host
+    configs that store resolved release paths silently pin themselves to stale
+    code after the next update, so rewrite any release-local path back through
+    ``current`` while preserving its relative suffix.
+    """
+    candidate = Path(path_value).expanduser().resolve()
+    releases_root = (_resolve_openclaw_home() / "agent-wallet-runtime" / "releases").resolve()
+    try:
+        relative = candidate.relative_to(releases_root)
+    except ValueError:
+        return candidate
+    parts = relative.parts
+    if len(parts) < 2:
+        return candidate
+    return _default_runtime_root() / Path(*parts[1:])
+
+
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
@@ -300,7 +320,7 @@ def main() -> None:
 
     load = plugins.setdefault("load", {})
     paths = load.setdefault("paths", [])
-    extension_path_text = str(Path(args.extension_path).expanduser().resolve())
+    extension_path_text = str(_canonical_runtime_path(args.extension_path))
     paths[:] = _normalize_load_paths(list(paths), extension_path_text)
 
     entries = plugins.setdefault("entries", {})
@@ -316,6 +336,11 @@ def main() -> None:
         or str(existing_config.get("userId") or "").strip()
         or _default_user_id()
     )
+    python_bin_text = args.python_bin
+    python_bin_candidate = Path(python_bin_text).expanduser()
+    if python_bin_text.startswith("~") or python_bin_candidate.is_absolute():
+        python_bin_text = str(_canonical_runtime_path(python_bin_text))
+
     plugin_config = {
         **existing_config,
         "userId": resolved_user_id,
@@ -324,8 +349,8 @@ def main() -> None:
         "signOnly": args.sign_only,
         "encryptUserWallets": args.encrypt_user_wallets,
         "migratePlaintextUserWallets": args.migrate_plaintext_user_wallets,
-        "packageRoot": str(Path(args.package_root).expanduser().resolve()),
-        "pythonBin": args.python_bin,
+        "packageRoot": str(_canonical_runtime_path(args.package_root)),
+        "pythonBin": python_bin_text,
     }
     if args.rpc_url.strip():
         plugin_config["rpcUrl"] = args.rpc_url.strip()
@@ -382,7 +407,7 @@ def main() -> None:
                 "config_path": str(config_path),
                 "backup_path": str(backup_path),
                 "extension_path": extension_path_text,
-                "python_bin": args.python_bin,
+                "python_bin": python_bin_text,
                 "package_root": plugin_config["packageRoot"],
                 "plugin_id": args.plugin_id,
                 "user_id": resolved_user_id,
