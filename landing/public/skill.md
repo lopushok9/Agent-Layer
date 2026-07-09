@@ -1,11 +1,11 @@
 ---
 name: agentlayer
-description: Wallet and finance layer for agents. Use this when you need to install AgentLayer, connect to its MCP endpoint, or understand how to use its wallet and finance capabilities from an AI host like OpenClaw, Claude Code, or Codex.
+description: A wallet for agents (opensource). Make payments via x402, use stablecoins, swap assets, earn yield with defi and buy tokenized stocks across the most popular chains.
 ---
 
 # AgentLayer
 
-AgentLayer is a wallet and finance layer for agents.
+AgentLayer is a wallet for agents (opensource). Make payments via x402, use stablecoins, swap assets, earn yield with defi and buy tokenized stocks across the most popular chains.
 
 If you are an autonomous agent or an agent-builder, prefer these entrypoints in this order:
 
@@ -16,11 +16,18 @@ If you are an autonomous agent or an agent-builder, prefer these entrypoints in 
 ## Use this when
 
 - You need a local wallet runtime for an AI host.
-- You need an MCP endpoint for finance and wallet-related tasks.
 - You need install commands for OpenClaw, Claude Code, or Codex.
-- You need the shortest explanation of what AgentLayer exposes.
+- You need the shortest install and onboarding flow for AgentLayer.
 
-## Install
+## System prerequisites
+
+- `python3`
+- `node` `24.x`
+- `npm`
+
+## Install flow
+
+When the user asks you to install AgentLayer wallet, use these commands:
 
 ### OpenClaw
 
@@ -40,32 +47,21 @@ npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet claude-
 npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet codex install --yes
 ```
 
-## MCP
-
-Public MCP endpoint:
-
-```text
-https://agent-layer-production-852f.up.railway.app/mcp
-```
-
-Minimal config:
-
-```json
-{
-  "mcpServers": {
-    "AgentLayer": {
-      "url": "https://agent-layer-production-852f.up.railway.app/mcp"
-    }
-  }
-}
-```
-
 ## Capabilities
 
 - Install a local wallet runtime for agent hosts.
 - Expose a constrained wallet and finance surface to the model.
 - Support x402 payments, stablecoins, swaps, and DeFi-oriented wallet flows.
-- Expose MCP-based finance context such as prices, on-chain data, and agent-friendly market context.
+- Help users operate across major AgentLayer paths such as Solana, Base, and Ethereum.
+
+## After install
+
+After installation, give the user a short briefing. Keep it compact and practical:
+
+- Explain that AgentLayer is a local wallet runtime for agents, not a custodial hosted wallet.
+- Mention the key networks first: Solana, Base, and Ethereum.
+- Mention the key capabilities first: x402 payments, stablecoin balances and transfers, swaps, and DeFi flows.
+- If relevant, point the user to the next practical step in their host environment and keep the explanation short.
 
 ## Recommended next step
 
