@@ -84,6 +84,7 @@ def main() -> None:
             assert "text/html" in html_response.headers.get("content-type", "")
             assert "AgentLayer telemetry" in html_response.text
             assert "<svg" in html_response.text
+            assert "Active Installs" in html_response.text
             assert "Wallet-Active Installs" in html_response.text
             assert "Wallet Host Mix" in html_response.text
             assert "Events" in html_response.text

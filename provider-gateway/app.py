@@ -461,7 +461,7 @@ def _render_telemetry_dashboard(stats: dict[str, Any]) -> str:
     }}
     .kpis {{
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
       gap: 14px;
       margin-bottom: 22px;
     }}
@@ -610,9 +610,14 @@ def _render_telemetry_dashboard(stats: dict[str, Any]) -> str:
 
     <section class="kpis">
       <article class="kpi">
+        <div class="label">Active Installs</div>
+        <div class="value">{html.escape(_format_int(stats.get("active_installs", 0)))}</div>
+        <div class="sub">24h {html.escape(_format_int(stats.get("dau", 0)))}</div>
+      </article>
+      <article class="kpi">
         <div class="label">Wallet-Active Installs</div>
         <div class="value">{html.escape(_format_int(stats.get("wallet_active_installs", 0)))}</div>
-        <div class="sub">24h {html.escape(_format_int(stats.get("wallet_dau", 0)))} | all active {html.escape(_format_int(stats.get("active_installs", 0)))}</div>
+        <div class="sub">24h {html.escape(_format_int(stats.get("wallet_dau", 0)))}</div>
       </article>
       <article class="kpi">
         <div class="label">Total Events</div>
@@ -636,6 +641,7 @@ def _render_telemetry_dashboard(stats: dict[str, Any]) -> str:
       {_svg_line_chart("Events", list(daily.get("events") or []), accent="#2563eb", days=30)}
       {downloads_chart}
       {_svg_line_chart("RPC Usage", list(daily.get("rpc_calls") or []), accent="#0f766e", days=30)}
+      {_svg_line_chart("Active Installs", list(daily.get("active_installs") or []), accent="#ea580c", days=30)}
       {_svg_line_chart("Wallet-Active Installs", list(daily.get("wallet_active_installs") or []), accent="#dc2626", days=30)}
     </section>
 
