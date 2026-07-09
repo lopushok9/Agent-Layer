@@ -52,7 +52,7 @@ export const UseCasesPage = ({ onInstallClick }) => {
           <a href="/mcp" className="uc-nav-item">MCP</a>
           <a href="/use-cases" className="uc-nav-item uc-nav-active">Use Cases</a>
           <a href="/how-to-use" className="uc-nav-item">How to use</a>
-          <a href="/for-llms" className="uc-nav-item">For LLMs</a>
+          <a href="/skill.md" className="uc-nav-item">For LLMs</a>
           <a href="/for-investors" className="uc-nav-item">For Investors</a>
           <a href="/about" className="uc-nav-item">About</a>
         </nav>
@@ -114,7 +114,7 @@ export const UseCasesPage = ({ onInstallClick }) => {
                 <a href="/mcp">MCP</a>
                 <a href="/use-cases">Use Cases</a>
                 <a href="/how-to-use">How to use</a>
-                <a href="/for-llms">For LLMs</a>
+                <a href="/skill.md">For LLMs</a>
               </div>
               <div className="uc-link-col">
                 <a href="https://docs.agent-layer.tech" target="_blank" rel="noreferrer">Docs</a>

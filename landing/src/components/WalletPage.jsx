@@ -50,7 +50,7 @@ export const WalletPage = ({ onInstallClick }) => {
           <a href="/mcp" className="wp-nav-item">MCP</a>
           <a href="/use-cases" className="wp-nav-item">Use Cases</a>
           <a href="/how-to-use" className="wp-nav-item">How to use</a>
-          <a href="/for-llms" className="wp-nav-item">For LLMs</a>
+          <a href="/skill.md" className="wp-nav-item">For LLMs</a>
           <a href="/for-investors" className="wp-nav-item">For Investors</a>
           <a href="/about" className="wp-nav-item">About</a>
         </nav>
@@ -111,7 +111,7 @@ export const WalletPage = ({ onInstallClick }) => {
                 <a href="/mcp">MCP</a>
                 <a href="/use-cases">Use Cases</a>
                 <a href="/how-to-use">How to use</a>
-                <a href="/for-llms">For LLMs</a>
+                <a href="/skill.md">For LLMs</a>
               </div>
               <div className="wp-link-col">
                 <a href="https://docs.agent-layer.tech" target="_blank" rel="noreferrer">Docs</a>

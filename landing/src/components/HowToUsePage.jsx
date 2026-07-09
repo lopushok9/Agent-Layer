@@ -19,7 +19,7 @@ export const HowToUsePage = ({ onInstallClick }) => {
           <a href="/mcp" className="htu-nav-item">MCP</a>
           <a href="/use-cases" className="htu-nav-item">Use Cases</a>
           <a href="/how-to-use" className="htu-nav-item htu-nav-active">How to use</a>
-          <a href="/for-llms" className="htu-nav-item">For LLMs</a>
+          <a href="/skill.md" className="htu-nav-item">For LLMs</a>
           <a href="/for-investors" className="htu-nav-item">For Investors</a>
           <a href="/about" className="htu-nav-item">About</a>
         </nav>
@@ -128,7 +128,7 @@ export const HowToUsePage = ({ onInstallClick }) => {
                 <a href="/mcp">MCP</a>
                 <a href="/use-cases">Use Cases</a>
                 <a href="/how-to-use">How to use</a>
-                <a href="/for-llms">For LLMs</a>
+                <a href="/skill.md">For LLMs</a>
               </div>
               <div className="htu-link-col">
                 <a href="https://docs.agent-layer.tech" target="_blank" rel="noreferrer">Docs</a>

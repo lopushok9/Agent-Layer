@@ -35,7 +35,7 @@ export const AboutAgentLayerPage = ({ onInstallClick }) => {
           <a href="/mcp" className="ab-nav-item">MCP</a>
           <a href="/use-cases" className="ab-nav-item">Use Cases</a>
           <a href="/how-to-use" className="ab-nav-item">How to use</a>
-          <a href="/for-llms" className="ab-nav-item">For LLMs</a>
+          <a href="/skill.md" className="ab-nav-item">For LLMs</a>
           <a href="/for-investors" className="ab-nav-item">For Investors</a>
           <a href="/about" className="ab-nav-item ab-nav-active">About</a>
         </nav>
@@ -89,7 +89,7 @@ export const AboutAgentLayerPage = ({ onInstallClick }) => {
                 <a href="/mcp">MCP</a>
                 <a href="/use-cases">Use Cases</a>
                 <a href="/how-to-use">How to use</a>
-                <a href="/for-llms">For LLMs</a>
+                <a href="/skill.md">For LLMs</a>
               </div>
               <div className="ab-link-col">
                 <a href="https://docs.agent-layer.tech" target="_blank" rel="noreferrer">Docs</a>

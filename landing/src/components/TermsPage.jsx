@@ -40,7 +40,7 @@ export const TermsPage = ({ onInstallClick }) => {
           <a href="/mcp" className="tm-nav-item">MCP</a>
           <a href="/use-cases" className="tm-nav-item">Use Cases</a>
           <a href="/how-to-use" className="tm-nav-item">How to use</a>
-          <a href="/for-llms" className="tm-nav-item">For LLMs</a>
+          <a href="/skill.md" className="tm-nav-item">For LLMs</a>
           <a href="/about" className="tm-nav-item">About</a>
         </nav>
 
@@ -92,7 +92,7 @@ export const TermsPage = ({ onInstallClick }) => {
                 <a href="/mcp">MCP</a>
                 <a href="/use-cases">Use Cases</a>
                 <a href="/how-to-use">How to use</a>
-                <a href="/for-llms">For LLMs</a>
+                <a href="/skill.md">For LLMs</a>
               </div>
               <div className="tm-link-col">
                 <a href="https://docs.agent-layer.tech" target="_blank" rel="noreferrer">Docs</a>
