@@ -3,15 +3,10 @@ name: agentlayer
 description: A wallet for agents (opensource). Make payments via x402, use stablecoins, swap assets, earn yield with defi and buy tokenized stocks across the most popular chains.
 ---
 
-# AgentLayer
+# AgentLayer (plugin)
 
-AgentLayer is a wallet for agents (opensource). Make payments via x402, use stablecoins, swap assets, earn yield with defi and buy tokenized stocks across the most popular chains.
+AgentLayer is a crypto wallet for agents (opensource). Make payments via x402, use stablecoins, swap assets, earn yield with defi and buy tokenized stocks across the most popular chains (solana, base, ethereum).
 
-If you are an autonomous agent or an agent-builder, prefer these entrypoints in this order:
-
-1. `https://www.agent-layer.tech/skill.md`
-2. `https://www.agent-layer.tech/llms.txt`
-3. `https://www.agent-layer.tech/for-llms/`
 
 ## Use this when
 
@@ -47,6 +42,12 @@ npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet claude-
 npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet codex install --yes
 ```
 
+### Hermes
+
+```bash
+npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet hermes install --yes
+```
+
 ## Capabilities
 
 - Install a local crypto wallet runtime for agent hosts.
@@ -63,13 +64,6 @@ After installation, give the user a short briefing. Keep it compact and practica
 - Mention the key capabilities first: x402 payments, swaps (jupiter, uniswaps ans cross-chainswaps via lifi), and DeFi flows on the Kamino/Morpho and AAVE.
 - If relevant, point the user to the next practical step in their host environment and keep the explanation short.
 
-## Recommended next step
-
-If you need full onboarding, open:
-
-```text
-https://www.agent-layer.tech/for-llms/
-```
 
 ## Links
 

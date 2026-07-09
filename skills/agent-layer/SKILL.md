@@ -4,22 +4,29 @@ description: Use when installing or setting up AgentLayer wallet for an AI agent
 compatibility: Requires node 24.x, npm, and python3 on the host.
 metadata:
   author: lopushok9
-  version: "0.1.47"
+  version: "0.1.67"
 ---
 
-# AgentLayer
+# AgentLayer (plugin)
 
-Local-first wallet and finance stack for AI agents. Agents get constrained wallet capabilities — keys and signing stay on the host.
+AgentLayer is a crypto wallet for agents (opensource). Make payments via x402, use stablecoins, swap assets, earn yield with defi and buy tokenized stocks across the most popular chains (solana, base, ethereum).
 
-## Prerequisites
 
-- `node` 24.x
-- `npm`
+## Use this when
+
+- You need a local crupto wallet runtime for an AI host.
+- You need install commands for OpenClaw, Claude Code, or Codex.
+- You need the shortest install and onboarding flow for AgentLayer.
+
+## System prerequisites
+
 - `python3`
+- `node` `24.x`
+- `npm`
 
----
+## Install flow
 
-## Install by agent type
+When the user asks you to install AgentLayer wallet, use these commands:
 
 ### OpenClaw
 
@@ -27,16 +34,11 @@ Local-first wallet and finance stack for AI agents. Agents get constrained walle
 npx @agentlayer.tech/wallet install --yes
 ```
 
-
----
-
 ### Claude Code
 
 ```bash
 npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet claude-code install --yes
 ```
-
----
 
 ### Codex
 
@@ -44,63 +46,31 @@ npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet claude-
 npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet codex install --yes
 ```
 
----
-
 ### Hermes
 
 ```bash
 npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet hermes install --yes
 ```
 
----
+## Capabilities
 
-## What the installer does
+- Install a local crypto wallet runtime for agent hosts.
+- Expose a constrained wallet and finance surface to the model.
+- Support x402 payments, stablecoins, swaps, and DeFi-oriented wallet flows.
+- Help users operate across major AgentLayer paths such as Solana, Base, and Ethereum.
 
-- Extracts the runtime to `~/.openclaw/agent-wallet-runtime/current`
-- Creates a Python backend venv
-- Installs Node deps for BTC/EVM wallet services
-- Generates secrets sealed into `~/.openclaw/sealed_keys.json`
-- Provisions the first local Solana mainnet wallet
-- Patches `~/.openclaw/openclaw.json` to load the plugin
+## After install
 
-Default after install: `backend=solana_local`, `network=mainnet`.
+After installation, give the user a short briefing. Keep it compact and practical:
 
----
+- Explain that AgentLayer is a local wallet runtime for agents, not a custodial hosted wallet.
+- Mention the key networks first: Solana, Base, and Ethereum.
+- Mention the key capabilities first: x402 payments, swaps (jupiter, uniswaps ans cross-chainswaps via lifi), and DeFi flows on the Kamino/Morpho and AAVE.
+- If relevant, point the user to the next practical step in their host environment and keep the explanation short.
 
-## Update
 
-If CLI `>= 0.1.22`:
+## Links
 
-```bash
-wallet update --yes
-```
-
-Otherwise:
-
-```bash
-npx --yes @agentlayer.tech/wallet@latest update --yes
-```
-
-Check status after:
-
-```bash
-wallet status
-wallet doctor
-```
-
----
-
-## Optional: BTC and EVM wallets
-
-BTC and EVM are not set up by the base installer. Run separately:
-
-```bash
-sh agent-wallet/scripts/setup_btc_wallet.sh
-sh agent-wallet/scripts/setup_evm_wallet.sh
-```
-
----
-
-## Security model
-
-The agent gets wallet tools, not wallet keys. Secret material stays local. Signing stays in the wallet layer. Risky writes require approval.
+- Docs: `https://docs.agent-layer.tech`
+- GitHub: `https://github.com/lopushok9/Agent-Layer`
+- Blog: `https://x.com/agentlayer_ai`
