@@ -76,7 +76,10 @@ def main() -> None:
             assert stats["ok"] is True
             assert stats["total_events"] == 2
             assert stats["active_installs"] == 1
+            assert stats["wallet_active_installs"] == 1
+            assert stats["wallet_dau"] == 1
             assert {"key": "codex", "calls": 1, "installs": 1} in stats["by_host"]
+            assert stats["wallet_by_host"] == [{"key": "codex", "calls": 1, "installs": 1}]
             assert {"key": "unknown", "calls": 1, "installs": 1} in stats["by_host"]
             assert stats["by_tool"] == [{"key": "get_wallet_balance", "calls": 1, "installs": 1}]
             assert {"key": "core_wallet", "calls": 1, "installs": 1} in stats["by_tool_category"]

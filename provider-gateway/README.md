@@ -78,9 +78,17 @@ Config:
 
 `GET /v1/telemetry/stats?window_days=30` is gated by the same bearer/machine
 token as `/v1/status` so raw numbers are not world-readable. In a browser
-(`Accept: text/html`) it renders a minimal terminal-style dashboard with
-server-side ASCII charts for events, active installs, RPC usage, downloads, and
-tool invocations. For raw machine-readable JSON use:
+(`Accept: text/html`) it renders a lightweight analytics dashboard. In addition
+to overall active installs, the stats payload now exposes wallet-specific
+install activity:
+
+- `wallet_active_installs` — unique `install_id` values with at least one
+  `tool_invoke` during the selected window
+- `wallet_dau` — unique `install_id` values with at least one `tool_invoke`
+  during the last 24 hours
+- `wallet_by_host` — wallet-specific breakdown by host/plugin
+
+For raw machine-readable JSON use:
 
 ```text
 /v1/telemetry/stats?window_days=30&format=json

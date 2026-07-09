@@ -335,6 +335,7 @@ def _daily_series(conn: sqlite3.Connection, since_ts: int, window_days: int) -> 
         SELECT date(received_ts, 'unixepoch') AS day,
                COUNT(*) AS events,
                COUNT(DISTINCT install_id) AS active_installs,
+               COUNT(DISTINCT CASE WHEN event = 'tool_invoke' THEN install_id END) AS wallet_active_installs,
                SUM(CASE WHEN event = 'tool_invoke' THEN 1 ELSE 0 END) AS tool_invocations,
                SUM(CASE WHEN event = 'tool_invoke' AND ok = 1 THEN 1 ELSE 0 END) AS tool_successes
         FROM events
@@ -348,8 +349,9 @@ def _daily_series(conn: sqlite3.Connection, since_ts: int, window_days: int) -> 
         str(row[0]): {
             "events": int(row[1] or 0),
             "active_installs": int(row[2] or 0),
-            "tool_invocations": int(row[3] or 0),
-            "tool_successes": int(row[4] or 0),
+            "wallet_active_installs": int(row[3] or 0),
+            "tool_invocations": int(row[4] or 0),
+            "tool_successes": int(row[5] or 0),
         }
         for row in event_rows
     }
@@ -370,6 +372,7 @@ def _daily_series(conn: sqlite3.Connection, since_ts: int, window_days: int) -> 
     return {
         "events": [{"day": day, "count": by_day.get(day, {}).get("events", 0)} for day in days],
         "active_installs": [{"day": day, "count": by_day.get(day, {}).get("active_installs", 0)} for day in days],
+        "wallet_active_installs": [{"day": day, "count": by_day.get(day, {}).get("wallet_active_installs", 0)} for day in days],
         "tool_invocations": [{"day": day, "count": by_day.get(day, {}).get("tool_invocations", 0)} for day in days],
         "tool_successes": [{"day": day, "count": by_day.get(day, {}).get("tool_successes", 0)} for day in days],
         "rpc_calls": [{"day": day, "count": rpc_by_day.get(day, 0)} for day in days],
@@ -686,18 +689,28 @@ def summary(window_days: int = 30) -> dict[str, Any]:
         total_events = _scalar(
             "SELECT COUNT(*) FROM events WHERE received_ts >= ?", (since,)
         )
-        active_installs = _scalar(
-            "SELECT COUNT(DISTINCT install_id) FROM events WHERE received_ts >= ?",
+        active_installs = _scalar("SELECT COUNT(DISTINCT install_id) FROM events WHERE received_ts >= ?", (since,))
+        wallet_active_installs = _scalar(
+            "SELECT COUNT(DISTINCT install_id) FROM events WHERE received_ts >= ? AND event = 'tool_invoke'",
             (since,),
         )
         day_ago = int(time.time()) - 86400
-        dau = _scalar(
-            "SELECT COUNT(DISTINCT install_id) FROM events WHERE received_ts >= ?",
+        dau = _scalar("SELECT COUNT(DISTINCT install_id) FROM events WHERE received_ts >= ?", (day_ago,))
+        wallet_dau = _scalar(
+            "SELECT COUNT(DISTINCT install_id) FROM events WHERE received_ts >= ? AND event = 'tool_invoke'",
             (day_ago,),
         )
 
-        def _breakdown(column: str, limit: int = 20, *, non_empty: bool = False) -> list[dict[str, Any]]:
+        def _breakdown(
+            column: str,
+            limit: int = 20,
+            *,
+            non_empty: bool = False,
+            event_filter: str | None = None,
+        ) -> list[dict[str, Any]]:
             value_filter = f"AND {column} != ''" if non_empty else ""
+            event_clause = "AND event = ?" if event_filter else ""
+            args: tuple[Any, ...] = (since, event_filter, limit) if event_filter else (since, limit)
             rows = conn.execute(
                 f"""
                 SELECT {column} AS k,
@@ -706,11 +719,12 @@ def summary(window_days: int = 30) -> dict[str, Any]:
                 FROM events
                 WHERE received_ts >= ?
                   {value_filter}
+                  {event_clause}
                 GROUP BY {column}
                 ORDER BY calls DESC
                 LIMIT ?
                 """,
-                (since, limit),
+                args,
             ).fetchall()
             return [
                 {"key": r[0], "calls": int(r[1]), "installs": int(r[2])} for r in rows
@@ -721,6 +735,7 @@ def summary(window_days: int = 30) -> dict[str, Any]:
         )
         by_event = _breakdown("event")
         by_host = _breakdown("host")
+        wallet_by_host = _breakdown("host", event_filter="tool_invoke")
         by_tool = _breakdown("tool", non_empty=True)
         by_tool_category = _tool_category_breakdown(conn, since)
         by_backend = _breakdown("backend", non_empty=True)
@@ -742,10 +757,13 @@ def summary(window_days: int = 30) -> dict[str, Any]:
         "window_days": window_days,
         "total_events": total_events,
         "active_installs": active_installs,
+        "wallet_active_installs": wallet_active_installs,
         "dau": dau,
+        "wallet_dau": wallet_dau,
         "success_rate": success_rate,
         "by_event": by_event,
         "by_host": by_host,
+        "wallet_by_host": wallet_by_host,
         "by_tool": by_tool,
         "by_tool_category": by_tool_category,
         "by_backend": by_backend,

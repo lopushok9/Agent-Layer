@@ -84,6 +84,8 @@ def main() -> None:
             assert "text/html" in html_response.headers.get("content-type", "")
             assert "AgentLayer telemetry" in html_response.text
             assert "<svg" in html_response.text
+            assert "Wallet-Active Installs" in html_response.text
+            assert "Wallet Host Mix" in html_response.text
             assert "Events" in html_response.text
             assert "Downloads" in html_response.text
             assert "RPC Usage" in html_response.text
@@ -94,6 +96,8 @@ def main() -> None:
             assert json_response.status_code == 200
             payload = json_response.json()
             assert payload["ok"] is True
+            assert payload["wallet_active_installs"] == 1
+            assert payload["wallet_dau"] == 1
             assert payload["rpc_usage"]["total_calls"] == 1
 
         print("smoke_telemetry_dashboard: ok")
