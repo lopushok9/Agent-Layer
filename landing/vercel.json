@@ -8,6 +8,7 @@
     { "source": "/mcp", "destination": "/mcp/" },
     { "source": "/use-cases", "destination": "/use-cases/" },
     { "source": "/how-to-use", "destination": "/how-to-use/" },
+    { "source": "/for-llms", "destination": "/for-llms/" },
     { "source": "/for-investors", "destination": "/for-investors/" },
     { "source": "/about", "destination": "/about/" },
     { "source": "/terms", "destination": "/terms/" },

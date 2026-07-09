@@ -6,6 +6,7 @@ import { ProductPage } from './components/ProductPage'
 import { WalletPage } from './components/WalletPage'
 import { UseCasesPage } from './components/UseCasesPage'
 import { HowToUsePage } from './components/HowToUsePage'
+import { ForLlmsPage } from './components/ForLlmsPage'
 import { AboutAgentLayerPage } from './components/AboutAgentLayerPage'
 import { ForInvestorsPage } from './components/ForInvestorsPage'
 import { TermsPage } from './components/TermsPage'
@@ -126,6 +127,7 @@ function App({ initialPage, initialPath, suppressNavigation = false }) {
       {page === 'product' && <ProductPage onInstallClick={() => setInstallModalOpen(true)} />}
       {page === 'use-cases' && <UseCasesPage onInstallClick={() => setInstallModalOpen(true)} />}
       {page === 'how-to-use' && <HowToUsePage onInstallClick={() => setInstallModalOpen(true)} />}
+      {page === 'for-llms' && <ForLlmsPage onInstallClick={() => setInstallModalOpen(true)} />}
       {page === 'for-investors' && <ForInvestorsPage onInstallClick={() => setInstallModalOpen(true)} />}
       {page === 'about' && <AboutAgentLayerPage onInstallClick={() => setInstallModalOpen(true)} />}
       {page === 'terms' && <TermsPage onInstallClick={() => setInstallModalOpen(true)} />}

@@ -28,6 +28,11 @@ export const ROUTES = {
     title: 'How to Use AgentLayer | Connect Your Agent',
     description: 'Connect AgentLayer to OpenClaw, Claude Code, Cursor, Windsurf, and other MCP clients with a single config block.',
   },
+  'for-llms': {
+    path: '/for-llms',
+    title: 'AgentLayer for LLMs | Connect and Start Fast',
+    description: 'Agent-first onboarding for AgentLayer. Start with skill.md, llms.txt, install commands, and the MCP endpoint needed to connect quickly.',
+  },
   'for-investors': {
     path: '/for-investors',
     title: 'AgentLayer for Investors | Investor Overview',
@@ -58,6 +63,7 @@ export const LEGACY_HASH_REDIRECTS = {
   '#product': ROUTES.product.path,
   '#use-cases': ROUTES['use-cases'].path,
   '#how-to-use': ROUTES['how-to-use'].path,
+  '#for-llms': ROUTES['for-llms'].path,
   '#for-investors': ROUTES['for-investors'].path,
   '#about-agent-layer': ROUTES.about.path,
   '#terms': ROUTES.terms.path,

@@ -97,6 +97,19 @@ function routePathToOutputFile(routePath) {
   return path.join(clientDistDir, routePath.slice(1), 'index.html')
 }
 
+function routePathToCanonical(routePath, siteOrigin) {
+  if (routePath === '/') {
+    return `${siteOrigin}/`
+  }
+
+  return `${siteOrigin}${routePath}/`
+}
+
+function buildSitemapXml(siteOrigin, routePaths) {
+  const urls = routePaths.map((routePath) => `  <url>\n    <loc>${routePathToCanonical(routePath, siteOrigin)}</loc>\n  </url>`)
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`
+}
+
 async function main() {
   const template = await readFile(clientTemplatePath, 'utf8')
   const serverEntry = await import(pathToFileURL(ssrEntryPath).href)
@@ -110,6 +123,9 @@ async function main() {
     await mkdir(path.dirname(outputFile), { recursive: true })
     await writeFile(outputFile, html)
   }
+
+  const sitemapXml = buildSitemapXml(routesModule.SITE_ORIGIN, routesModule.PRERENDER_PATHS)
+  await writeFile(path.join(clientDistDir, 'sitemap.xml'), sitemapXml)
 }
 
 main().catch((error) => {

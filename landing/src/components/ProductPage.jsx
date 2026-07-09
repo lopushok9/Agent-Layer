@@ -50,6 +50,7 @@ export const ProductPage = ({ onInstallClick }) => {
           <a href="/mcp" className="pp-nav-item pp-nav-active">MCP</a>
           <a href="/use-cases" className="pp-nav-item">Use Cases</a>
           <a href="/how-to-use" className="pp-nav-item">How to use</a>
+          <a href="/for-llms" className="pp-nav-item">For LLMs</a>
           <a href="/for-investors" className="pp-nav-item">For Investors</a>
           <a href="/about" className="pp-nav-item">About</a>
         </nav>
@@ -115,6 +116,7 @@ export const ProductPage = ({ onInstallClick }) => {
                 <a href="/mcp">MCP</a>
                 <a href="/use-cases">Use Cases</a>
                 <a href="/how-to-use">How to use</a>
+                <a href="/for-llms">For LLMs</a>
               </div>
               <div className="pp-link-col">
                 <a href="https://docs.agent-layer.tech" target="_blank" rel="noreferrer">Docs</a>

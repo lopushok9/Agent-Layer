@@ -8,7 +8,7 @@
     "build": "npm run build:client && npm run build:ssr && npm run prerender",
     "build:client": "vite build",
     "build:ssr": "vite build --ssr src/entry-server.js --outDir .ssr",
-    "lint": "eslint .",
+    "lint": "eslint . --ignore-pattern .ssr",
     "prerender": "node scripts/prerender.mjs",
     "preview": "vite preview"
   },

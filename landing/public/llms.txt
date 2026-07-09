@@ -1,0 +1,26 @@
+# AgentLayer
+
+AgentLayer is a wallet and finance layer for agents.
+
+Primary LLM entrypoints:
+
+- https://www.agent-layer.tech/for-llms/
+- https://www.agent-layer.tech/skill.md
+- https://www.agent-layer.tech/mcp/
+- https://www.agent-layer.tech/wallet/
+
+Install commands:
+
+- OpenClaw: `npx @agentlayer.tech/wallet install --yes`
+- Claude Code: `npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet claude-code install --yes`
+- Codex: `npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet codex install --yes`
+
+Public MCP endpoint:
+
+- `https://agent-layer-production-852f.up.railway.app/mcp`
+
+Useful links:
+
+- Docs: https://docs.agent-layer.tech
+- GitHub: https://github.com/lopushok9/Agent-Layer
+- Blog: https://x.com/agentlayer_ai

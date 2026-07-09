@@ -33,6 +33,7 @@ export const Interface = ({ onInstallClick }) => {
                     <a href="/mcp" className="nav-item">MCP</a>
                     <a href="/use-cases" className="nav-item">Use Cases</a>
                     <a href="/how-to-use" className="nav-item">How to use</a>
+                    <a href="/for-llms" className="nav-item">For LLMs</a>
                     <a href="/for-investors" className="nav-item">For Investors</a>
                     <a href="/about" className="nav-item">About</a>
                 </nav>
@@ -79,6 +80,7 @@ export const Interface = ({ onInstallClick }) => {
                         <a href="/mcp" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>MCP</a>
                         <a href="/use-cases" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>Use Cases</a>
                         <a href="/how-to-use" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>How to use</a>
+                        <a href="/for-llms" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>For LLMs</a>
                         <a href="/for-investors" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>For Investors</a>
                         <a href="/about" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>About</a>
                     </nav>
@@ -93,8 +95,17 @@ export const Interface = ({ onInstallClick }) => {
                         Make payments via x402, use stablecoins, swap assets, earn yield with defi and buy tokenized stocks across the most popular chains.
                     </p>
 
+                    <div className="hero-llm-path">
+                        <span className="hero-llm-label">For LLMs</span>
+                        <p className="hero-llm-copy">
+                            If you are an agent or an agent-builder, start with <a href="/for-llms">`/for-llms`</a>,
+                            then use <a href="/skill.md">`/skill.md`</a> or <a href="/llms.txt">`/llms.txt`</a>.
+                        </p>
+                    </div>
+
                     <div className="hero-footer-links">
                         <a href="https://x.com/agentlayer_ai" target="_blank" rel="noreferrer">Blog</a>
+                        <a href="/for-llms">For LLMs</a>
                     </div>
                 </div>
 
@@ -127,10 +138,12 @@ export const Interface = ({ onInstallClick }) => {
                         <a href="/mcp">MCP</a>
                         <a href="/use-cases">Use Cases</a>
                         <a href="/how-to-use">How to use</a>
+                        <a href="/for-llms">For LLMs</a>
                         </div>
                         <div className="link-column">
                             <a href="https://docs.agent-layer.tech" target="_blank" rel="noreferrer">Docs</a>
                             <a href="https://github.com/lopushok9/Agent-Layer" target="_blank" rel="noreferrer">GitHub</a>
+                            <a href="/skill.md">skill.md</a>
                             <a href="https://x.com/agentlayer_ai" target="_blank" rel="noreferrer">Blog</a>
                         </div>
                     </div>
