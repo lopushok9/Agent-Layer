@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## v0.1.72 - 2026-07-09
+
+- Fixed a `0.1.71` installer regression where `wallet update --yes` could fail
+  during the nested OpenClaw config step on hardened installs with:
+  `AGENT_WALLET_BOOT_KEY is required`. The config installer was checking only
+  the direct env var even though the runtime now legitimately resolves the boot
+  key via the OS keystore or `agent-wallet-runtime/boot-key`. It now uses the
+  shared boot-key resolver, so update/install works again when the boot key is
+  available through the supported non-env paths.
+  - `agent-wallet/scripts/install_openclaw_local_config.py`
+  - `agent-wallet/tests/smoke_install_openclaw_local_config_sealed.py`
+
 ## v0.1.71 - 2026-07-09
 
 - Fixed `wallet update` leaving editor integrations pinned to a stale

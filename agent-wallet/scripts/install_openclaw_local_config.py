@@ -17,6 +17,7 @@ from agent_wallet.config import (
     normalize_btc_network,
     normalize_evm_network,
     normalize_solana_network,
+    resolve_boot_key,
 )
 from agent_wallet.sealed_keys import resolve_sealed_keys_path, seal_keys, unseal_keys
 from security_utils import write_redacted_backup
@@ -277,10 +278,11 @@ def _require_hardened_runtime_secrets(backend: str) -> str | None:
     if backend.strip().lower() in {"", "none"}:
         return None
 
-    boot_key = os.getenv("AGENT_WALLET_BOOT_KEY", "").strip()
+    boot_key = resolve_boot_key().strip()
     if not boot_key:
         raise SystemExit(
-            "AGENT_WALLET_BOOT_KEY is required. Runtime secrets must be loaded from sealed_keys.json."
+            "A boot key is required to unlock sealed_keys.json. Resolve it via "
+            "AGENT_WALLET_BOOT_KEY, the OS keystore, or AGENT_WALLET_BOOT_KEY_FILE."
         )
 
     sealed_path = resolve_sealed_keys_path()

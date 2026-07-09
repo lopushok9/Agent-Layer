@@ -32,6 +32,7 @@ def main() -> None:
     env["AGENT_WALLET_MASTER_KEY"] = "installer-master-key"
     env["AGENT_WALLET_APPROVAL_SECRET"] = "installer-approval-secret"
     env["SOLANA_AGENT_PRIVATE_KEY"] = "installer-private-key"
+    env["AGENT_WALLET_KEYSTORE_BACKEND"] = "plaintext"
     os.environ["OPENCLAW_HOME"] = env["OPENCLAW_HOME"]
 
     script = Path(__file__).resolve().parents[1] / "scripts" / "install_openclaw_local_config.py"
@@ -59,6 +60,28 @@ def main() -> None:
     assert sealed["master_key"] == "installer-master-key"
     assert sealed["approval_secret"] == "installer-approval-secret"
     assert sealed["private_key"] == "installer-private-key"
+
+    boot_key_file = temp_root / "agent-wallet-runtime" / "boot-key"
+    boot_key_file.parent.mkdir(parents=True, exist_ok=True)
+    boot_key_file.write_text(env["AGENT_WALLET_BOOT_KEY"], encoding="utf-8")
+
+    fallback_env = dict(env)
+    fallback_env.pop("AGENT_WALLET_BOOT_KEY", None)
+    fallback_env.pop("AGENT_WALLET_MASTER_KEY", None)
+    fallback_env.pop("AGENT_WALLET_APPROVAL_SECRET", None)
+    fallback_env.pop("SOLANA_AGENT_PRIVATE_KEY", None)
+    fallback_env["AGENT_WALLET_BOOT_KEY_FILE"] = str(boot_key_file)
+
+    completed_fallback = subprocess.run(
+        [sys.executable, str(script), "--config-path", str(config_path)],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=fallback_env,
+    )
+    fallback_payload = json.loads(completed_fallback.stdout)
+    assert fallback_payload["ok"] is True
+    assert fallback_payload["sealed_keys_path"] == payload["sealed_keys_path"]
 
     print("smoke_install_openclaw_local_config_sealed: ok")
 
