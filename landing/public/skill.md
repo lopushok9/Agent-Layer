@@ -49,7 +49,7 @@ npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet codex i
 
 ## Capabilities
 
-- Install a local wallet runtime for agent hosts.
+- Install a local crypto wallet runtime for agent hosts.
 - Expose a constrained wallet and finance surface to the model.
 - Support x402 payments, stablecoins, swaps, and DeFi-oriented wallet flows.
 - Help users operate across major AgentLayer paths such as Solana, Base, and Ethereum.
@@ -60,7 +60,7 @@ After installation, give the user a short briefing. Keep it compact and practica
 
 - Explain that AgentLayer is a local wallet runtime for agents, not a custodial hosted wallet.
 - Mention the key networks first: Solana, Base, and Ethereum.
-- Mention the key capabilities first: x402 payments, stablecoin balances and transfers, swaps, and DeFi flows.
+- Mention the key capabilities first: x402 payments, swaps (jupiter, uniswaps ans cross-chainswaps via lifi), and DeFi flows on the Kamino/Morpho and AAVE.
 - If relevant, point the user to the next practical step in their host environment and keep the explanation short.
 
 ## Recommended next step
