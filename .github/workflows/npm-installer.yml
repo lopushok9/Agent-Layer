@@ -68,9 +68,6 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Use npm with trusted publishing support
-        run: npm install -g npm@latest
-
       - name: Check release version metadata
         id: version
         run: npm run check:release-version
