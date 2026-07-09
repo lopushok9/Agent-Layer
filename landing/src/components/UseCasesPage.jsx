@@ -39,7 +39,7 @@ export const UseCasesPage = ({ onInstallClick }) => {
 
       {/* Header */}
       <header className="uc-header">
-        <a href="#" className="uc-brand">
+        <a href="/" className="uc-brand">
           <img src="/apple-touch-icon.png" alt="AgentLayer logo" className="uc-brand-mark" />
           <span className="wordmark-lockup">
             <span className="uc-brand-text">AgentLayer</span>
@@ -48,12 +48,12 @@ export const UseCasesPage = ({ onInstallClick }) => {
         </a>
 
         <nav className="uc-nav">
-          <a href="#wallet" className="uc-nav-item">Wallet</a>
-          <a href="#mcp" className="uc-nav-item">MCP</a>
-          <a href="#use-cases" className="uc-nav-item uc-nav-active">Use Cases</a>
-          <a href="#how-to-use" className="uc-nav-item">How to use</a>
-          <a href="#for-investors" className="uc-nav-item">For Investors</a>
-          <a href="#about-agent-layer" className="uc-nav-item">About</a>
+          <a href="/wallet" className="uc-nav-item">Wallet</a>
+          <a href="/mcp" className="uc-nav-item">MCP</a>
+          <a href="/use-cases" className="uc-nav-item uc-nav-active">Use Cases</a>
+          <a href="/how-to-use" className="uc-nav-item">How to use</a>
+          <a href="/for-investors" className="uc-nav-item">For Investors</a>
+          <a href="/about" className="uc-nav-item">About</a>
         </nav>
 
         <a href="#" className="uc-btn-cta" onClick={(event) => {
@@ -109,10 +109,10 @@ export const UseCasesPage = ({ onInstallClick }) => {
             <h2 className="uc-footer-title">finance</h2>
             <div className="uc-footer-links">
               <div className="uc-link-col">
-                <a href="#wallet">Wallet</a>
-                <a href="#mcp">MCP</a>
-                <a href="#use-cases">Use Cases</a>
-                <a href="#how-to-use">How to use</a>
+                <a href="/wallet">Wallet</a>
+                <a href="/mcp">MCP</a>
+                <a href="/use-cases">Use Cases</a>
+                <a href="/how-to-use">How to use</a>
               </div>
               <div className="uc-link-col">
                 <a href="https://docs.agent-layer.tech" target="_blank" rel="noreferrer">Docs</a>
@@ -133,8 +133,8 @@ export const UseCasesPage = ({ onInstallClick }) => {
                 <span className="footer-ca-label">CA:</span>
                 <span className="footer-ca-value">444DPguaifQZ5NicFicD9Kni6emKexyq<wbr />qG4dEkUaBAGS</span>
               </span>
-              <a href="#about-agent-layer">About Agent Layer</a>
-              <a href="#terms">Terms</a>
+              <a href="/about">About Agent Layer</a>
+              <a href="/terms">Terms</a>
             </div>
           </div>
         </div>

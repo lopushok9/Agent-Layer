@@ -27,7 +27,7 @@ export const TermsPage = ({ onInstallClick }) => {
   return (
     <div className="tm-page">
       <header className="tm-header">
-        <a href="#" className="tm-brand">
+        <a href="/" className="tm-brand">
           <img src="/apple-touch-icon.png" alt="AgentLayer logo" className="tm-brand-mark" />
           <span className="wordmark-lockup">
             <span className="tm-brand-text">AgentLayer</span>
@@ -36,11 +36,11 @@ export const TermsPage = ({ onInstallClick }) => {
         </a>
 
         <nav className="tm-nav">
-          <a href="#wallet" className="tm-nav-item">Wallet</a>
-          <a href="#mcp" className="tm-nav-item">MCP</a>
-          <a href="#use-cases" className="tm-nav-item">Use Cases</a>
-          <a href="#how-to-use" className="tm-nav-item">How to use</a>
-          <a href="#about-agent-layer" className="tm-nav-item">About</a>
+          <a href="/wallet" className="tm-nav-item">Wallet</a>
+          <a href="/mcp" className="tm-nav-item">MCP</a>
+          <a href="/use-cases" className="tm-nav-item">Use Cases</a>
+          <a href="/how-to-use" className="tm-nav-item">How to use</a>
+          <a href="/about" className="tm-nav-item">About</a>
         </nav>
 
         <a href="#" className="tm-btn-cta" onClick={(event) => {
@@ -87,10 +87,10 @@ export const TermsPage = ({ onInstallClick }) => {
             <h2 className="tm-footer-title">finance</h2>
             <div className="tm-footer-links">
               <div className="tm-link-col">
-                <a href="#wallet">Wallet</a>
-                <a href="#mcp">MCP</a>
-                <a href="#use-cases">Use Cases</a>
-                <a href="#how-to-use">How to use</a>
+                <a href="/wallet">Wallet</a>
+                <a href="/mcp">MCP</a>
+                <a href="/use-cases">Use Cases</a>
+                <a href="/how-to-use">How to use</a>
               </div>
               <div className="tm-link-col">
                 <a href="https://docs.agent-layer.tech" target="_blank" rel="noreferrer">Docs</a>
@@ -111,8 +111,8 @@ export const TermsPage = ({ onInstallClick }) => {
                 <span className="footer-ca-label">CA:</span>
                 <span className="footer-ca-value">444DPguaifQZ5NicFicD9Kni6emKexyq<wbr />qG4dEkUaBAGS</span>
               </span>
-              <a href="#about-agent-layer">About Agent Layer</a>
-              <a href="#terms" className="tm-footer-active-link">Terms</a>
+              <a href="/about">About Agent Layer</a>
+              <a href="/terms" className="tm-footer-active-link">Terms</a>
             </div>
           </div>
         </div>

@@ -29,12 +29,12 @@ export const Interface = ({ onInstallClick }) => {
                 </div>
 
                 <nav className="nav desktop-only">
-                    <a href="#wallet" className="nav-item">Wallet</a>
-                    <a href="#mcp" className="nav-item">MCP</a>
-                    <a href="#use-cases" className="nav-item">Use Cases</a>
-                    <a href="#how-to-use" className="nav-item">How to use</a>
-                    <a href="#for-investors" className="nav-item">For Investors</a>
-                    <a href="#about-agent-layer" className="nav-item">About</a>
+                    <a href="/wallet" className="nav-item">Wallet</a>
+                    <a href="/mcp" className="nav-item">MCP</a>
+                    <a href="/use-cases" className="nav-item">Use Cases</a>
+                    <a href="/how-to-use" className="nav-item">How to use</a>
+                    <a href="/for-investors" className="nav-item">For Investors</a>
+                    <a href="/about" className="nav-item">About</a>
                 </nav>
 
                 <button type="button" className="btn-download desktop-only" onClick={onInstallClick}>
@@ -75,12 +75,12 @@ export const Interface = ({ onInstallClick }) => {
 
                 <div className="mobile-menu-content">
                     <nav className="mobile-nav-list">
-                        <a href="#wallet" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>Wallet</a>
-                        <a href="#mcp" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>MCP</a>
-                        <a href="#use-cases" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>Use Cases</a>
-                        <a href="#how-to-use" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>How to use</a>
-                        <a href="#for-investors" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>For Investors</a>
-                        <a href="#about-agent-layer" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>About</a>
+                        <a href="/wallet" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>Wallet</a>
+                        <a href="/mcp" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>MCP</a>
+                        <a href="/use-cases" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>Use Cases</a>
+                        <a href="/how-to-use" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>How to use</a>
+                        <a href="/for-investors" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>For Investors</a>
+                        <a href="/about" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>About</a>
                     </nav>
                 </div>
             </div>
@@ -123,10 +123,10 @@ export const Interface = ({ onInstallClick }) => {
                     <h2 className="finance-title">finance</h2>
                     <div className="extended-links">
                         <div className="link-column">
-                        <a href="#wallet">Wallet</a>
-                        <a href="#mcp">MCP</a>
-                        <a href="#use-cases">Use Cases</a>
-                        <a href="#how-to-use">How to use</a>
+                        <a href="/wallet">Wallet</a>
+                        <a href="/mcp">MCP</a>
+                        <a href="/use-cases">Use Cases</a>
+                        <a href="/how-to-use">How to use</a>
                         </div>
                         <div className="link-column">
                             <a href="https://docs.agent-layer.tech" target="_blank" rel="noreferrer">Docs</a>
@@ -147,8 +147,8 @@ export const Interface = ({ onInstallClick }) => {
                                 <span className="footer-ca-label">CA:</span>
                                 <span className="footer-ca-value">444DPguaifQZ5NicFicD9Kni6emKexyq<wbr />qG4dEkUaBAGS</span>
                             </span>
-                            <a href="#about-agent-layer">About Agent Layer</a>
-                            <a href="#terms">Terms</a>
+                            <a href="/about">About Agent Layer</a>
+                            <a href="/terms">Terms</a>
                         </div>
                     </div>
             </div>

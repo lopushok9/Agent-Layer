@@ -22,7 +22,7 @@ export const AboutAgentLayerPage = ({ onInstallClick }) => {
   return (
     <div className="ab-page">
       <header className="ab-header">
-        <a href="#" className="ab-brand">
+        <a href="/" className="ab-brand">
           <img src="/apple-touch-icon.png" alt="AgentLayer logo" className="ab-brand-mark" />
           <span className="wordmark-lockup">
             <span className="ab-brand-text">AgentLayer</span>
@@ -31,12 +31,12 @@ export const AboutAgentLayerPage = ({ onInstallClick }) => {
         </a>
 
         <nav className="ab-nav">
-          <a href="#wallet" className="ab-nav-item">Wallet</a>
-          <a href="#mcp" className="ab-nav-item">MCP</a>
-          <a href="#use-cases" className="ab-nav-item">Use Cases</a>
-          <a href="#how-to-use" className="ab-nav-item">How to use</a>
-          <a href="#for-investors" className="ab-nav-item">For Investors</a>
-          <a href="#about-agent-layer" className="ab-nav-item ab-nav-active">About</a>
+          <a href="/wallet" className="ab-nav-item">Wallet</a>
+          <a href="/mcp" className="ab-nav-item">MCP</a>
+          <a href="/use-cases" className="ab-nav-item">Use Cases</a>
+          <a href="/how-to-use" className="ab-nav-item">How to use</a>
+          <a href="/for-investors" className="ab-nav-item">For Investors</a>
+          <a href="/about" className="ab-nav-item ab-nav-active">About</a>
         </nav>
 
         <a href="#" className="ab-btn-cta" onClick={(event) => {
@@ -84,10 +84,10 @@ export const AboutAgentLayerPage = ({ onInstallClick }) => {
             <h2 className="ab-footer-title">finance</h2>
             <div className="ab-footer-links">
               <div className="ab-link-col">
-                <a href="#wallet">Wallet</a>
-                <a href="#mcp">MCP</a>
-                <a href="#use-cases">Use Cases</a>
-                <a href="#how-to-use">How to use</a>
+                <a href="/wallet">Wallet</a>
+                <a href="/mcp">MCP</a>
+                <a href="/use-cases">Use Cases</a>
+                <a href="/how-to-use">How to use</a>
               </div>
               <div className="ab-link-col">
                 <a href="https://docs.agent-layer.tech" target="_blank" rel="noreferrer">Docs</a>
@@ -108,8 +108,8 @@ export const AboutAgentLayerPage = ({ onInstallClick }) => {
                 <span className="footer-ca-label">CA:</span>
                 <span className="footer-ca-value">444DPguaifQZ5NicFicD9Kni6emKexyq<wbr />qG4dEkUaBAGS</span>
               </span>
-              <a href="#about-agent-layer" className="ab-footer-active-link">About Agent Layer</a>
-              <a href="#terms">Terms</a>
+              <a href="/about" className="ab-footer-active-link">About Agent Layer</a>
+              <a href="/terms">Terms</a>
             </div>
           </div>
         </div>

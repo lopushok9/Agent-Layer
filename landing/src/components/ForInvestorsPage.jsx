@@ -4,7 +4,7 @@ export const ForInvestorsPage = ({ onInstallClick }) => {
   return (
     <div className="fi-page">
       <header className="fi-header">
-        <a href="#" className="fi-brand">
+        <a href="/" className="fi-brand">
           <img src="/apple-touch-icon.png" alt="AgentLayer logo" className="fi-brand-mark" />
           <span className="wordmark-lockup">
             <span className="fi-brand-text">AgentLayer</span>
@@ -13,12 +13,12 @@ export const ForInvestorsPage = ({ onInstallClick }) => {
         </a>
 
         <nav className="fi-nav">
-          <a href="#wallet" className="fi-nav-item">Wallet</a>
-          <a href="#mcp" className="fi-nav-item">MCP</a>
-          <a href="#use-cases" className="fi-nav-item">Use Cases</a>
-          <a href="#how-to-use" className="fi-nav-item">How to use</a>
-          <a href="#for-investors" className="fi-nav-item fi-nav-active">For Investors</a>
-          <a href="#about-agent-layer" className="fi-nav-item">About</a>
+          <a href="/wallet" className="fi-nav-item">Wallet</a>
+          <a href="/mcp" className="fi-nav-item">MCP</a>
+          <a href="/use-cases" className="fi-nav-item">Use Cases</a>
+          <a href="/how-to-use" className="fi-nav-item">How to use</a>
+          <a href="/for-investors" className="fi-nav-item fi-nav-active">For Investors</a>
+          <a href="/about" className="fi-nav-item">About</a>
         </nav>
 
         <a href="#" className="fi-btn-cta" onClick={(event) => {

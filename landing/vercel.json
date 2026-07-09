@@ -2,5 +2,16 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
   "buildCommand": "npm run build",
-  "outputDirectory": "dist"
+  "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/wallet", "destination": "/" },
+    { "source": "/mcp", "destination": "/" },
+    { "source": "/product", "destination": "/" },
+    { "source": "/use-cases", "destination": "/" },
+    { "source": "/how-to-use", "destination": "/" },
+    { "source": "/for-investors", "destination": "/" },
+    { "source": "/about", "destination": "/" },
+    { "source": "/about-agent-layer", "destination": "/" },
+    { "source": "/terms", "destination": "/" }
+  ]
 }

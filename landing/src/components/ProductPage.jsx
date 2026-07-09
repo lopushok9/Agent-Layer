@@ -37,7 +37,7 @@ export const ProductPage = ({ onInstallClick }) => {
 
       {/* Header */}
       <header className="pp-header">
-        <a href="#" className="pp-brand">
+        <a href="/" className="pp-brand">
           <img src="/apple-touch-icon.png" alt="AgentLayer logo" className="pp-brand-mark" />
           <span className="wordmark-lockup">
             <span className="pp-brand-text">AgentLayer</span>
@@ -46,12 +46,12 @@ export const ProductPage = ({ onInstallClick }) => {
         </a>
 
         <nav className="pp-nav">
-          <a href="#wallet" className="pp-nav-item">Wallet</a>
-          <a href="#mcp" className="pp-nav-item pp-nav-active">MCP</a>
-          <a href="#use-cases" className="pp-nav-item">Use Cases</a>
-          <a href="#how-to-use" className="pp-nav-item">How to use</a>
-          <a href="#for-investors" className="pp-nav-item">For Investors</a>
-          <a href="#about-agent-layer" className="pp-nav-item">About</a>
+          <a href="/wallet" className="pp-nav-item">Wallet</a>
+          <a href="/mcp" className="pp-nav-item pp-nav-active">MCP</a>
+          <a href="/use-cases" className="pp-nav-item">Use Cases</a>
+          <a href="/how-to-use" className="pp-nav-item">How to use</a>
+          <a href="/for-investors" className="pp-nav-item">For Investors</a>
+          <a href="/about" className="pp-nav-item">About</a>
         </nav>
 
         <a href="#" className="pp-btn-cta" onClick={(event) => {
@@ -111,10 +111,10 @@ export const ProductPage = ({ onInstallClick }) => {
             <h2 className="pp-footer-title">finance</h2>
             <div className="pp-footer-links">
               <div className="pp-link-col">
-                <a href="#wallet">Wallet</a>
-                <a href="#mcp">MCP</a>
-                <a href="#use-cases">Use Cases</a>
-                <a href="#how-to-use">How to use</a>
+                <a href="/wallet">Wallet</a>
+                <a href="/mcp">MCP</a>
+                <a href="/use-cases">Use Cases</a>
+                <a href="/how-to-use">How to use</a>
               </div>
               <div className="pp-link-col">
                 <a href="https://docs.agent-layer.tech" target="_blank" rel="noreferrer">Docs</a>
@@ -135,8 +135,8 @@ export const ProductPage = ({ onInstallClick }) => {
                 <span className="footer-ca-label">CA:</span>
                 <span className="footer-ca-value">444DPguaifQZ5NicFicD9Kni6emKexyq<wbr />qG4dEkUaBAGS</span>
               </span>
-              <a href="#about-agent-layer">About Agent Layer</a>
-              <a href="#terms">Terms</a>
+              <a href="/about">About Agent Layer</a>
+              <a href="/terms">Terms</a>
             </div>
           </div>
         </div>
