@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Fixed the npm `files` allowlist dropping `.env.example` for `wdk-evm-wallet`
+  and `wdk-btc-wallet`. Both templates are tracked in git and correctly
+  un-ignored (`!.env.example` in `.gitignore`), but the root `package.json`
+  `files` list enumerated each wdk package's shipped files individually and
+  omitted `.env.example` (unlike the `agent-wallet/.env.example` entry, which
+  was listed correctly). On a machine with no pre-existing `.env`,
+  `run-local.sh`'s self-heal (`cp .env.example .env`) failed under `set -eu`,
+  and the Python bridge surfaced this as an opaque "wdk-evm-wallet exited
+  before becoming healthy" with no indication that the template file itself
+  was missing from the installed package.
+  - `package.json`
+
 - Fixed local EVM autostart incorrectly trusting any healthy same-version
   `wdk-evm-wallet` already listening on the shared localhost port. If a temp or
   alternate `OPENCLAW_HOME` had left a daemon running, host runtimes could hit
