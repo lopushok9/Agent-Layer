@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added a stable per-home identity and verified PID ownership record for the
+  local EVM daemon. Restarts now signal only the confirmed listener, while a
+  bounded single-listener compatibility path upgrades pre-identity daemons.
+
 - Disabled implicit Argon2id-to-HKDF rewrites during normal wallet reads.
   Opt-in envelope migration now creates and verifies an Argon2id rollback
   backup, restores the original on write failure, and refuses stale restores

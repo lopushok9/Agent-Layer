@@ -22,11 +22,14 @@ from agent_wallet.config import (
     resolve_openclaw_home,
     settings,
 )
+from agent_wallet.file_ops import atomic_write_text
 from agent_wallet.providers.wdk_evm_local import WdkEvmLocalClient
 from agent_wallet.user_wallets import normalize_user_id
 from agent_wallet.wallet_layer.base import WalletBackendError
 
 LOCAL_WDK_EVM_HOSTS = {"127.0.0.1", "localhost", "::1"}
+_SERVICE_OWNER_FILENAME = "service-owner.json"
+_INSTANCE_ID_FILENAME = "instance-id"
 
 
 def _normalize_evm_network(value: str | None) -> str:
@@ -93,6 +96,52 @@ def _expected_local_service_data_dir() -> Path:
     return (resolve_openclaw_home() / "wdk-evm-wallet").resolve()
 
 
+def _expected_local_service_instance_id() -> str:
+    path = _expected_local_service_data_dir() / _INSTANCE_ID_FILENAME
+    try:
+        existing = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        existing = ""
+    if existing:
+        return existing
+    generated = secrets.token_hex(16)
+    atomic_write_text(path, generated + "\n", mode=0o600)
+    return generated
+
+
+def _service_owner_path() -> Path:
+    return _expected_local_service_data_dir() / _SERVICE_OWNER_FILENAME
+
+
+def _read_service_owner() -> dict[str, Any] | None:
+    try:
+        payload = json.loads(_service_owner_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _write_service_owner(health: dict[str, Any], service_url: str) -> int:
+    expected_instance = _expected_local_service_instance_id()
+    instance_id = str(health.get("instanceId") or "").strip()
+    try:
+        pid = int(health.get("pid") or 0)
+    except (TypeError, ValueError):
+        pid = 0
+    if instance_id != expected_instance or pid <= 0:
+        raise WalletBackendError("wdk-evm-wallet health did not confirm local process ownership.")
+    payload = {
+        "version": 1,
+        "pid": pid,
+        "instance_id": instance_id,
+        "port": urlparse(service_url).port or 8081,
+        "data_dir": str(_expected_local_service_data_dir()),
+        "service_version": str(health.get("version") or "").strip() or None,
+    }
+    atomic_write_text(_service_owner_path(), json.dumps(payload, indent=2) + "\n", mode=0o600)
+    return pid
+
+
 def _same_path(left: str | Path | None, right: str | Path | None) -> bool:
     if left is None or right is None:
         return False
@@ -118,6 +167,10 @@ def _should_restart_local_service(
 
     reported_data_dir = str(health.get("dataDir") or "").strip()
     if reported_data_dir and not _same_path(reported_data_dir, _expected_local_service_data_dir()):
+        return True
+
+    reported_instance = str(health.get("instanceId") or "").strip()
+    if reported_data_dir and reported_instance != _expected_local_service_instance_id():
         return True
 
     return False
@@ -147,42 +200,77 @@ def _listening_pids(port: int) -> list[int]:
     return pids
 
 
-def _stop_local_service(service_url: str) -> None:
+def _stop_local_service(service_url: str, health: dict[str, Any] | None = None) -> None:
     """Gracefully stop a local wdk-evm-wallet daemon so a fresh one can start.
 
     SIGTERM the listener(s), wait for /health to drop, then SIGKILL as a fallback.
     """
     port = urlparse(service_url).port or 8081
-    pids = _listening_pids(port)
-    if not pids:
-        # Nothing identifiable to stop (e.g. lsof missing). Surface a clear,
-        # actionable error rather than racing into an EADDRINUSE start failure.
+    current_health = health if health is not None else _service_health(service_url)
+    if not current_health or current_health.get("service") != "wdk-evm-wallet":
         raise WalletBackendError(
-            f"A stale wdk-evm-wallet is running on port {port} but could not be "
-            "identified to restart it. Stop it manually and retry."
+            f"Refusing to stop an unidentified service on port {port}."
         )
-    for pid in pids:
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            continue
-        except PermissionError as exc:
-            raise WalletBackendError(
-                f"Cannot stop stale wdk-evm-wallet (pid {pid}): {exc}."
-            ) from exc
+    listeners = _listening_pids(port)
+    owner = _read_service_owner()
+    expected_instance = _expected_local_service_instance_id()
+    reported_instance = str(current_health.get("instanceId") or "").strip()
+    reported_data_dir = str(current_health.get("dataDir") or "").strip()
+    try:
+        reported_pid = int(current_health.get("pid") or 0)
+    except (TypeError, ValueError):
+        reported_pid = 0
+
+    owned_pid = 0
+    if reported_instance == expected_instance and reported_pid > 0:
+        owner_matches = (
+            not owner
+            or (
+                int(owner.get("pid") or 0) == reported_pid
+                and str(owner.get("instance_id") or "") == expected_instance
+                and int(owner.get("port") or 0) == port
+            )
+            or int(owner.get("pid") or 0) not in listeners
+        )
+        if owner_matches and (not listeners or reported_pid in listeners):
+            owned_pid = reported_pid
+    elif not reported_instance and reported_data_dir and len(listeners) == 1:
+        # One-time compatibility path for pre-instance-id daemons.
+        owned_pid = listeners[0]
+
+    if owned_pid <= 0:
+        raise WalletBackendError(
+            f"A stale wdk-evm-wallet is running on port {port} but ownership could not be verified. "
+            "Stop it manually and retry."
+        )
+    try:
+        os.kill(owned_pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    except PermissionError as exc:
+        raise WalletBackendError(
+            f"Cannot stop stale wdk-evm-wallet (pid {owned_pid}): {exc}."
+        ) from exc
     deadline = time.time() + 10.0
     while time.time() < deadline:
         if _service_health(service_url) is None:
+            try:
+                _service_owner_path().unlink()
+            except FileNotFoundError:
+                pass
             return
         time.sleep(0.3)
-    for pid in _listening_pids(port):
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            continue
+    try:
+        os.kill(owned_pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
     deadline = time.time() + 5.0
     while time.time() < deadline:
         if _service_health(service_url) is None:
+            try:
+                _service_owner_path().unlink()
+            except FileNotFoundError:
+                pass
             return
         time.sleep(0.3)
     raise WalletBackendError(f"Failed to stop stale wdk-evm-wallet on port {port}.")
@@ -222,8 +310,10 @@ def _auto_start_local_service(service_url: str, network: str) -> None:
         if not _is_local_service_url(service_url):
             return
         if not _should_restart_local_service(health, wallet_root=wallet_root):
+            if str(health.get("instanceId") or "").strip():
+                _write_service_owner(health, service_url)
             return
-        _stop_local_service(service_url)
+        _stop_local_service(service_url, health)
     if not _is_local_service_url(service_url):
         raise WalletBackendError(
             f"wdk-evm-wallet is unreachable at {_health_url(service_url)} and auto-start only supports localhost URLs."
@@ -237,6 +327,7 @@ def _auto_start_local_service(service_url: str, network: str) -> None:
     env["HOST"] = parsed.hostname or "127.0.0.1"
     env["PORT"] = str(parsed.port or 8081)
     env["WDK_EVM_NETWORK"] = _normalize_evm_network(network)
+    env["WDK_EVM_INSTANCE_ID"] = _expected_local_service_instance_id()
     process = subprocess.Popen(  # noqa: S603
         ["sh", str(wallet_root / "run-local.sh")],
         cwd=str(wallet_root),
@@ -248,7 +339,9 @@ def _auto_start_local_service(service_url: str, network: str) -> None:
     )
     deadline = time.time() + 30.0
     while time.time() < deadline:
-        if _service_is_healthy(service_url):
+        health = _service_health(service_url)
+        if health is not None:
+            _write_service_owner(health, service_url)
             return
         if process.poll() is not None:
             raise WalletBackendError("wdk-evm-wallet exited before becoming healthy.")

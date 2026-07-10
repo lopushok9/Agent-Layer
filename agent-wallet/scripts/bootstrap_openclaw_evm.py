@@ -142,9 +142,11 @@ def _auto_start_local_service(
     # steady state is a no-op. See agent_wallet.evm_user_wallets for the shared
     # health/version/stop helpers.
     from agent_wallet.evm_user_wallets import (
+        _expected_local_service_instance_id,
         _service_health,
         _should_restart_local_service,
         _stop_local_service,
+        _write_service_owner,
     )
 
     restarted = False
@@ -152,7 +154,7 @@ def _auto_start_local_service(
     if health is not None:
         if not _should_restart_local_service(health, wallet_root=wdk_wallet_root):
             return {"started": False, "already_healthy": True}
-        _stop_local_service(service_url)
+        _stop_local_service(service_url, health)
         restarted = True
 
     if not _is_local_service_url(service_url):
@@ -175,6 +177,7 @@ def _auto_start_local_service(
     env["HOST"] = host
     env["PORT"] = str(port)
     env["WDK_EVM_NETWORK"] = network
+    env["WDK_EVM_INSTANCE_ID"] = _expected_local_service_instance_id()
 
     with log_path.open("a", encoding="utf-8") as log_file:
         process = subprocess.Popen(  # noqa: S603
@@ -189,12 +192,14 @@ def _auto_start_local_service(
 
     deadline = time.time() + 30.0
     while time.time() < deadline:
-        if _service_is_healthy(service_url):
+        health = _service_health(service_url)
+        if health is not None:
+            pid = _write_service_owner(health, service_url)
             return {
                 "started": True,
                 "already_healthy": False,
                 "restarted": restarted,
-                "pid": process.pid,
+                "pid": pid,
                 "log_path": str(log_path),
             }
         if process.poll() is not None:

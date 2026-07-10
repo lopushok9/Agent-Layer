@@ -52,6 +52,7 @@ def main() -> None:
         auth_token=auth_token,
         health_data_dir=_resolve_data_dir(),
         version=_resolve_version(),
+        instance_id=os.getenv("WDK_EVM_INSTANCE_ID", "").strip() or None,
     ):
         while True:
             time.sleep(1)

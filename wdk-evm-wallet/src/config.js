@@ -150,6 +150,27 @@ function ensureLocalAuthToken(tokenPath, configuredToken = "") {
   return generated;
 }
 
+function ensureInstanceId(instanceIdPath, configuredInstanceId = "") {
+  const direct = String(configuredInstanceId ?? "").trim();
+  if (direct) {
+    return direct;
+  }
+  fs.mkdirSync(path.dirname(instanceIdPath), { recursive: true, mode: 0o700 });
+  try {
+    const existing = fs.readFileSync(instanceIdPath, "utf8").trim();
+    if (existing) {
+      fs.chmodSync(instanceIdPath, 0o600);
+      return existing;
+    }
+  } catch {
+    // Generate a stable install identity below.
+  }
+  const generated = crypto.randomUUID();
+  fs.writeFileSync(instanceIdPath, generated + "\n", { encoding: "utf8", mode: 0o600 });
+  fs.chmodSync(instanceIdPath, 0o600);
+  return generated;
+}
+
 function normalizeNetworkKey(value) {
   const normalized = String(value ?? "").trim().toLowerCase();
   const aliases = {
@@ -201,6 +222,8 @@ export function loadConfig(env = process.env) {
   const authTokenPath =
     String(env.WDK_EVM_LOCAL_TOKEN_PATH ?? "").trim() ||
     path.join(openClawHome, "wdk-evm-wallet", "local-auth-token");
+  const instanceIdPath =
+    String(env.WDK_EVM_INSTANCE_ID_PATH ?? "").trim() || path.join(dataDir, "instance-id");
   const providerMode = parseProviderMode(env.WDK_EVM_RPC_PROVIDER_MODE, "gateway");
   const providerGatewayUrl =
     String(env.PROVIDER_GATEWAY_URL ?? "").trim() || DEFAULT_PROVIDER_GATEWAY_URL;
@@ -294,6 +317,7 @@ export function loadConfig(env = process.env) {
     network,
     openClawHome,
     dataDir,
+    instanceId: ensureInstanceId(instanceIdPath, env.WDK_EVM_INSTANCE_ID),
     authRequired: true,
     authTokenPath,
     authToken: ensureLocalAuthToken(authTokenPath, env.WDK_EVM_LOCAL_TOKEN),

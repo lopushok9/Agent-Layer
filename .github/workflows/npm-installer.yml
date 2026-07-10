@@ -66,6 +66,12 @@ jobs:
       - name: Smoke EVM wrong-home daemon recovery
         run: python agent-wallet/tests/smoke_openclaw_evm_runtime_restart_wrong_home.py
 
+      - name: Smoke EVM daemon ownership
+        run: python agent-wallet/tests/smoke_evm_service_ownership.py
+
+      - name: Test EVM daemon instance identity
+        run: npm run test:identity --prefix wdk-evm-wallet
+
       - name: Validate npm package contents
         run: npm pack --dry-run
 

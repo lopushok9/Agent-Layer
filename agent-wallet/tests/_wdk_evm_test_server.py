@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from contextlib import AbstractContextManager
@@ -34,6 +35,7 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
         response_delays: dict[str, float] | None = None,
         start_empty: bool = False,
         version: str | None = None,
+        instance_id: str | None = None,
     ):
         self.network = network
         self.host = host
@@ -41,6 +43,7 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
         self.auth_token = str(auth_token).strip()
         self.health_data_dir = str(health_data_dir or "").strip() or None
         self.version = str(version or _default_service_version()).strip()
+        self.instance_id = str(instance_id or "").strip() or None
         self.error_responses = dict(error_responses or {})
         self.response_delays = {
             str(key): float(value) for key, value in (response_delays or {}).items()
@@ -123,6 +126,9 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                     }
                     if outer.health_data_dir:
                         payload["dataDir"] = outer.health_data_dir
+                    if outer.instance_id:
+                        payload["instanceId"] = outer.instance_id
+                        payload["pid"] = os.getpid()
                     self._send(200, payload)
                     return
                 if self.path == "/v1/evm/wallets":

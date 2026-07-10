@@ -300,6 +300,8 @@ async function handleRequest(request, response) {
         chainId: runtimeConfig.chainId,
         host: config.host,
         dataDir: config.dataDir,
+        instanceId: config.instanceId,
+        pid: process.pid,
         authRequired: config.authRequired,
         unlockTimeoutSeconds: config.unlockTimeoutSeconds,
         availableNetworks: Object.keys(config.networkProfiles),
