@@ -1047,6 +1047,18 @@ function readBootKeyFromRuntimeResolver(env = process.env) {
   }
 }
 
+function resolveLegacyInstallerBootKey(env = process.env) {
+  for (const [source, key] of [
+    ["legacy_keystore", readBootKeyFromKeystore(env)],
+    ["current_runtime_env", currentBootKey(env)],
+    ["configured_file", resolveBootKeyFromFile(env)],
+    ["default_file", readTextIfExists(defaultBootKeyFile(env)).trim()],
+  ]) {
+    if (key) return { key, source };
+  }
+  return { key: "", source: "none" };
+}
+
 // Provision the boot key into the OS keystore via the freshly installed runtime's
 // Python. Returns true only when the import stored AND verified the key, so the
 // caller may safely drop the plaintext .env copy. Best-effort: false on any failure
@@ -1340,14 +1352,17 @@ function buildInstallerEnv(args) {
   const sealedKeysPath = path.join(resolveOpenclawHome(env), "sealed_keys.json");
   const sealedKeysExist = fs.existsSync(sealedKeysPath);
   const dryRun = hasFlag(args, "--dry-run");
+  let bootKeySource = env.AGENT_WALLET_BOOT_KEY ? "environment" : "none";
   if (!env.AGENT_WALLET_BOOT_KEY) {
     const runtimeResolution = readBootKeyFromRuntimeResolver(env);
-    const existingBootKey = runtimeResolution.supported
-      ? runtimeResolution.key
-      : readBootKeyFromKeystore(env) ||
-        resolveBootKeyFromFile(env) ||
-        readTextIfExists(defaultBootKeyFile(env)).trim() ||
-        currentBootKey(env);
+    const fallback = runtimeResolution.supported
+      ? {
+          key: runtimeResolution.key,
+          source: runtimeResolution.key ? "runtime_verified" : "runtime_rejected",
+        }
+      : resolveLegacyInstallerBootKey(env);
+    const existingBootKey = fallback.key;
+    bootKeySource = fallback.source;
     if (existingBootKey) {
       env.AGENT_WALLET_BOOT_KEY = existingBootKey;
     }
@@ -1367,6 +1382,7 @@ function buildInstallerEnv(args) {
   if (!sealedKeysExist && shouldGenerateSecrets && !env.AGENT_WALLET_BOOT_KEY) {
     generated.AGENT_WALLET_BOOT_KEY = token();
     env.AGENT_WALLET_BOOT_KEY = generated.AGENT_WALLET_BOOT_KEY;
+    bootKeySource = "generated";
   }
   if (!sealedKeysExist && shouldGenerateSecrets && !env.AGENT_WALLET_MASTER_KEY) {
     generated.AGENT_WALLET_MASTER_KEY = token();
@@ -1376,7 +1392,7 @@ function buildInstallerEnv(args) {
     generated.AGENT_WALLET_APPROVAL_SECRET = token();
     env.AGENT_WALLET_APPROVAL_SECRET = generated.AGENT_WALLET_APPROVAL_SECRET;
   }
-  return { env, generated };
+  return { env, generated, bootKeySource };
 }
 
 function runInstall(args, { commandName = "install" } = {}) {
@@ -1410,7 +1426,7 @@ function runInstall(args, { commandName = "install" } = {}) {
     console.error(error.message);
     return 1;
   }
-  const { env, generated } = installerEnv;
+  const { env, generated, bootKeySource } = installerEnv;
   if (stagingRoot) {
     env.OPENCLAW_INSTALL_FINAL_ROOT = releaseRoot;
     writeUpdateJournal("preparing", { staging_root: stagingRoot, release_root: releaseRoot }, env);
@@ -1566,6 +1582,7 @@ function runInstall(args, { commandName = "install" } = {}) {
         current_runtime: currentPath,
         previous_runtime: readLinkOrNull(previousPath),
         generated_runtime_secrets: Object.keys(generated),
+        boot_key_source: bootKeySource,
         staged: Boolean(stagingRoot),
         release_state: "verified",
         integration_refresh: integrationRefresh,

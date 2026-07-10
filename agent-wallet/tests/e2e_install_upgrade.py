@@ -2,8 +2,9 @@
 
 Seeds what a pre-keystore release (<= 0.1.62) left on disk — sealed_keys.json
 encrypted with boot key K0, plus an old release whose agent-wallet/.env holds
-AGENT_WALLET_BOOT_KEY=K0 (with `current` pointing at it) — then runs the real
-Node installer with NO key in the environment and asserts the upgrade contract:
+AGENT_WALLET_BOOT_KEY=K0 (with `current` pointing at it), plus a conflicting
+stale shared boot-key file — then runs the real Node installer with NO key in
+the environment and asserts the upgrade contract:
 
   1. the installer adopts K0 from the current runtime's .env — it must never
      generate a fresh key over existing sealed secrets;
@@ -105,6 +106,7 @@ def main() -> None:
         f"AGENT_WALLET_BOOT_KEY={LEGACY_KEY}\nAGENT_WALLET_KEEP_ME=other-config\n",
         encoding="utf-8",
     )
+    (runtime_base / "boot-key").write_text("stale-conflicting-boot-key\n", encoding="utf-8")
     (runtime_base / "current").symlink_to(runtime_base / "releases" / OLD_VERSION)
 
     def run_py(code: str) -> subprocess.CompletedProcess[str]:

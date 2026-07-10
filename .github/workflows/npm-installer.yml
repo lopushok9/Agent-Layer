@@ -51,6 +51,21 @@ jobs:
       - name: Smoke sealed config installer
         run: python agent-wallet/tests/smoke_install_openclaw_local_config_sealed.py
 
+      - name: Smoke verified boot-key resolution
+        run: python agent-wallet/tests/smoke_boot_key_verified_resolution.py
+
+      - name: Smoke legacy update boot-key precedence
+        run: python agent-wallet/tests/smoke_legacy_update_boot_key_precedence.py
+
+      - name: Smoke staged install failure isolation
+        run: python agent-wallet/tests/smoke_install_verify_rollback.py
+
+      - name: Smoke editor path migration
+        run: python agent-wallet/tests/smoke_update_repairs_editor_installs.py
+
+      - name: Smoke EVM wrong-home daemon recovery
+        run: python agent-wallet/tests/smoke_openclaw_evm_runtime_restart_wrong_home.py
+
       - name: Validate npm package contents
         run: npm pack --dry-run
 

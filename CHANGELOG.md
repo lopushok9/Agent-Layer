@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Preserved upgrades from pre-resolver runtimes by ordering the legacy Node
+  fallback as keystore, current runtime env, then legacy files. Installer output
+  now reports the non-secret boot-key source, and CI covers conflicting legacy
+  sources, staged verification failures, editor migration, and EVM wrong-home
+  daemon recovery.
+
 - Replaced automatic editor reinstallation after every runtime update with a
   narrow migration of stale runtime-owned symlinks and Hermes env paths. Codex
   and Claude MCP source manifests are now immutable; only user-owned Claude
