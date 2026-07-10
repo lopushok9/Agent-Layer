@@ -20,6 +20,7 @@ USER_SCOPED_KEY_SALT = b"openclaw-agent-wallet-user-key-v1"
 
 KDF_ARGON2ID = "argon2id"
 KDF_HKDF_SHA256 = "hkdf-sha256"
+ARGON2ID_BACKUP_SUFFIX = ".argon2id.bak"
 _HKDF_INFO = b"openclaw-agent-wallet-envelope-hkdf-v1"
 
 
@@ -201,6 +202,89 @@ def decrypt_secret_material(
     return plaintext.decode("utf-8")
 
 
+def migrate_envelope_to_hkdf(
+    path: Path,
+    secret_material: str,
+    *,
+    master_key: str,
+    metadata: dict[str, Any] | None = None,
+) -> Path | None:
+    """Rewrite one verified argon2id envelope with a rollback-safe backup."""
+    raw_text = path.read_text(encoding="utf-8")
+    if envelope_kdf(raw_text) != KDF_ARGON2ID:
+        return None
+    if decrypt_secret_material(raw_text, master_key=master_key) != secret_material:
+        raise WalletBackendError("Argon2id envelope verification failed before migration.")
+
+    backup = path.with_name(path.name + ARGON2ID_BACKUP_SUFFIX)
+    if backup.exists():
+        backup_text = backup.read_text(encoding="utf-8")
+        if envelope_kdf(backup_text) != KDF_ARGON2ID:
+            raise WalletBackendError(f"Envelope migration backup is invalid: {backup}")
+        if decrypt_secret_material(backup_text, master_key=master_key) != secret_material:
+            raise WalletBackendError(f"Envelope migration backup does not match: {backup}")
+    else:
+        atomic_write_text(backup, raw_text, mode=0o600)
+        if backup.read_text(encoding="utf-8") != raw_text:
+            raise WalletBackendError(f"Envelope migration backup could not be verified: {backup}")
+
+    if metadata is None:
+        try:
+            parsed = json.loads(raw_text)
+            original_metadata = parsed.get("metadata") if isinstance(parsed, dict) else None
+        except ValueError:
+            original_metadata = None
+        metadata = original_metadata if isinstance(original_metadata, dict) else None
+
+    migrated = encrypt_secret_material(
+        secret_material,
+        master_key=master_key,
+        metadata=metadata,
+        kdf=KDF_HKDF_SHA256,
+    )
+    if decrypt_secret_material(migrated, master_key=master_key) != secret_material:
+        raise WalletBackendError("HKDF envelope verification failed before migration.")
+    if path.read_text(encoding="utf-8") != raw_text:
+        raise WalletBackendError(f"Envelope changed during migration: {path}")
+
+    try:
+        atomic_write_text(path, migrated, mode=0o600)
+        written = path.read_text(encoding="utf-8")
+        if decrypt_secret_material(written, master_key=master_key) != secret_material:
+            raise WalletBackendError("HKDF envelope verification failed after migration.")
+    except Exception:
+        atomic_write_text(path, raw_text, mode=0o600)
+        raise
+    return backup
+
+
+def restore_argon2id_envelope(path: Path, *, master_key: str) -> bool:
+    """Restore a migration backup only when it contains the same plaintext."""
+    backup = path.with_name(path.name + ARGON2ID_BACKUP_SUFFIX)
+    if not backup.exists():
+        return False
+    current_text = path.read_text(encoding="utf-8")
+    backup_text = backup.read_text(encoding="utf-8")
+    current_secret = decrypt_secret_material(current_text, master_key=master_key)
+    backup_secret = decrypt_secret_material(backup_text, master_key=master_key)
+    if current_secret != backup_secret:
+        raise WalletBackendError(
+            f"Refusing to restore stale envelope backup with different contents: {backup}"
+        )
+    if envelope_kdf(backup_text) != KDF_ARGON2ID:
+        raise WalletBackendError(f"Envelope migration backup is invalid: {backup}")
+    atomic_write_text(path, backup_text, mode=0o600)
+    return True
+
+
+def remove_envelope_migration_backup(path: Path) -> None:
+    """Discard a rollback backup after the envelope's logical content changes."""
+    try:
+        path.with_name(path.name + ARGON2ID_BACKUP_SUFFIX).unlink()
+    except FileNotFoundError:
+        pass
+
+
 def load_wallet_secret_material(
     path: Path,
     *,
@@ -227,3 +311,4 @@ def write_encrypted_wallet_file(
         metadata=metadata,
     )
     atomic_write_text(path, payload, mode=0o600)
+    remove_envelope_migration_backup(path)

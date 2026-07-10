@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Disabled implicit Argon2id-to-HKDF rewrites during normal wallet reads.
+  Opt-in envelope migration now creates and verifies an Argon2id rollback
+  backup, restores the original on write failure, and refuses stale restores
+  after logical secret contents change.
+
 - Persisted the verified boot-key keystore backend under each OpenClaw home so
   `auto` selection remains stable across updates and desktop session changes.
   Explicit backend overrides still work, and temporary fallback use does not

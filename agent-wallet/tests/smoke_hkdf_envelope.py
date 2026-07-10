@@ -1,11 +1,10 @@
-"""HKDF-SHA256 envelope kdf: fast writes, argon2id read compat, lazy migration.
+"""HKDF-SHA256 envelopes with read compatibility and rollback-safe migration.
 
 The boot key and sealed master key are machine-generated high-entropy secrets,
 so argon2id password-hardness buys nothing there while costing ~1s per derive.
-New envelopes default to hkdf-sha256; argon2id envelopes decrypt forever and
-migrate lazily on first successful unseal (kill switch:
-AGENT_WALLET_ENVELOPE_KDF_MIGRATION=0; force old writes:
-AGENT_WALLET_ENVELOPE_KDF=argon2id).
+New envelopes default to hkdf-sha256; argon2id envelopes remain readable and
+normal reads never rewrite them. Explicit migration requires
+AGENT_WALLET_ENVELOPE_KDF_MIGRATION=1 and creates a verified backup.
 """
 from __future__ import annotations
 
@@ -73,8 +72,7 @@ def main() -> None:
     assert encrypted_storage.envelope_kdf(forced) == "argon2id"
     os.environ.pop("AGENT_WALLET_ENVELOPE_KDF")
 
-    # 6. Lazy migration: an argon2id sealed file is rewritten to hkdf on the
-    # first successful unseal, preserving contents.
+    # 6. Normal reads preserve argon2id for rollback compatibility.
     sealed_path = sealed_keys.resolve_sealed_keys_path()
     sealed_path.parent.mkdir(parents=True, exist_ok=True)
     legacy_sealed = encrypted_storage.encrypt_secret_material(
@@ -83,22 +81,35 @@ def main() -> None:
     sealed_path.write_text(legacy_sealed, encoding="utf-8")
     sealed_keys.clear_unseal_cache()
     assert sealed_keys.unseal_keys("boot")["master_key"] == "m1"
-    migrated_raw = sealed_path.read_text(encoding="utf-8")
-    assert encrypted_storage.envelope_kdf(migrated_raw) == "hkdf-sha256", "sealed file must migrate"
-    sealed_keys.clear_unseal_cache()
-    assert sealed_keys.unseal_keys("boot")["master_key"] == "m1", "migrated file must unseal"
+    assert encrypted_storage.envelope_kdf(sealed_path.read_text(encoding="utf-8")) == "argon2id"
+    backup_path = sealed_path.with_name(sealed_path.name + encrypted_storage.ARGON2ID_BACKUP_SUFFIX)
+    assert not backup_path.exists()
 
-    # 7. Migration kill switch leaves the file untouched.
-    os.environ["AGENT_WALLET_ENVELOPE_KDF_MIGRATION"] = "0"
-    sealed_path.write_text(legacy_sealed, encoding="utf-8")
+    # 7. Opt-in migration writes a verified backup that can restore the old KDF.
+    os.environ["AGENT_WALLET_ENVELOPE_KDF_MIGRATION"] = "1"
     sealed_keys.clear_unseal_cache()
     assert sealed_keys.unseal_keys("boot")["master_key"] == "m1"
-    assert (
-        encrypted_storage.envelope_kdf(sealed_path.read_text(encoding="utf-8")) == "argon2id"
-    ), "kill switch must prevent migration"
-    os.environ.pop("AGENT_WALLET_ENVELOPE_KDF_MIGRATION")
+    assert encrypted_storage.envelope_kdf(sealed_path.read_text(encoding="utf-8")) == "hkdf-sha256"
+    assert encrypted_storage.envelope_kdf(backup_path.read_text(encoding="utf-8")) == "argon2id"
+    assert encrypted_storage.restore_argon2id_envelope(sealed_path, master_key="boot") is True
+    assert encrypted_storage.envelope_kdf(sealed_path.read_text(encoding="utf-8")) == "argon2id"
+    sealed_keys.seal_keys("boot", {"master_key": "m2"})
+    assert not backup_path.exists(), "logical secret updates must discard stale backups"
 
-    # 8. User wallet files migrate lazily too (same scope, same address).
+    stale_path = TEMP_HOME / "stale-envelope.json"
+    stale_path.write_text(legacy, encoding="utf-8")
+    encrypted_storage.migrate_envelope_to_hkdf(stale_path, "legacy", master_key="k1")
+    stale_path.write_text(
+        encrypted_storage.encrypt_secret_material("changed", master_key="k1"),
+        encoding="utf-8",
+    )
+    try:
+        encrypted_storage.restore_argon2id_envelope(stale_path, master_key="k1")
+        raise AssertionError("stale backup restore must fail")
+    except WalletBackendError:
+        pass
+
+    # 8. User wallet migration preserves scope/address and creates its own backup.
     os.environ["AGENT_WALLET_BOOT_KEY"] = "boot"
     os.environ["AGENT_WALLET_ENCRYPT_USER_WALLETS"] = "1"
     config.reload_settings()
@@ -129,6 +140,8 @@ def main() -> None:
     assert info["address"] == material["address"]
     migrated_wallet = wallet_path.read_text(encoding="utf-8")
     assert encrypted_storage.envelope_kdf(migrated_wallet) == "hkdf-sha256", "wallet must migrate"
+    wallet_backup = wallet_path.with_name(wallet_path.name + encrypted_storage.ARGON2ID_BACKUP_SUFFIX)
+    assert encrypted_storage.envelope_kdf(wallet_backup.read_text(encoding="utf-8")) == "argon2id"
     payload = json.loads(migrated_wallet)
     assert (payload.get("metadata") or {}).get("key_scope") == "per-user-derived"
     info2 = user_wallets.ensure_user_solana_wallet(user_id, network=network)

@@ -183,12 +183,11 @@ def _maybe_migrate_wallet_envelope_kdf(
     key_scope: str | None,
     address: str,
 ) -> None:
-    """Lazily rewrite an argon2id wallet envelope as hkdf-sha256.
+    """Opt-in rewrite of argon2id as HKDF with a verified rollback backup.
 
     Re-encrypts with the SAME key scope that just decrypted the file, so this
-    never performs a scope migration through the back door. Best-effort: any
-    failure leaves the (still readable) argon2id file untouched. Kill switch:
-    AGENT_WALLET_ENVELOPE_KDF_MIGRATION=0.
+    never performs a scope migration through the back door. Normal reads do not
+    mutate storage; opt in with AGENT_WALLET_ENVELOPE_KDF_MIGRATION=1.
     """
     from agent_wallet.config import envelope_kdf_migration_enabled
     from agent_wallet.encrypted_storage import (
@@ -214,7 +213,9 @@ def _maybe_migrate_wallet_envelope_kdf(
             master_key = resolve_wallet_master_key()
         if not master_key.strip():
             return
-        write_encrypted_wallet_file(
+        from agent_wallet.encrypted_storage import migrate_envelope_to_hkdf
+
+        migrate_envelope_to_hkdf(
             path,
             secret_material,
             master_key=master_key,
