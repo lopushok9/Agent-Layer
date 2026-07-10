@@ -166,10 +166,29 @@ The GitHub Releases page should contain a new prerelease named
 
 ### Promote a beta to stable
 
-Once a beta checks out, ship the same version as a stable `latest` release by
-following the **Stable Release** steps with the promoted version number (e.g.
-`0.1.11`). The update notice that runtimes show to agents reads the `latest`
-dist-tag, so users are only nudged toward promoted releases, never betas.
+Once a beta checks out, promote the exact published tarball instead of rebuilding
+it under a different version:
+
+1. Open the `promote npm beta` workflow in GitHub Actions.
+2. Enter the current beta version, for example `0.1.11-beta.1`.
+3. Enable the confirmation input and run the workflow.
+
+The workflow verifies that the version is the current `beta`, refuses to move
+`latest` backward, records its registry integrity, and installs that exact npm
+artifact into an isolated OpenClaw home. Only after acceptance succeeds does it
+move `latest`; if post-write verification fails, the previous `latest` is
+restored. The existing GitHub prerelease is then marked stable.
+
+Because npm packages are immutable, the promoted artifact keeps its prerelease
+version string while becoming the stable `latest` channel. This guarantees that
+production receives the same bytes tested on beta.
+
+The workflow requires a repository secret named `NPM_PROMOTION_TOKEN`. npm OIDC
+trusted publishing only authorizes publish operations, not `dist-tag` changes,
+so this must be a granular token scoped to `@agentlayer.tech/wallet` with package
+write access and bypass-2FA enabled. Do not reuse a broad account token.
+Configure required reviewers and main-branch deployment protection on the
+`npm-production` GitHub environment before using promotion in production.
 
 ## What Ships
 

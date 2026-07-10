@@ -36,6 +36,9 @@ jobs:
       - name: Check release version metadata
         run: npm run check:release-version
 
+      - name: Test release promotion policy
+        run: npm run test:release-promotion
+
       - name: Smoke npm installer wrapper
         run: python agent-wallet/tests/smoke_npm_installer.py
 
@@ -79,6 +82,9 @@ jobs:
     needs: verify
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
+    concurrency:
+      group: agent-wallet-npm-release
+      cancel-in-progress: false
     permissions:
       contents: write
       id-token: write

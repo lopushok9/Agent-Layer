@@ -1,0 +1,110 @@
+name: promote npm beta
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Published beta version to promote, for example 0.1.74-beta.1"
+        required: true
+        type: string
+      confirm:
+        description: "Move npm latest after acceptance checks"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    if: inputs.confirm && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: npm-production
+    concurrency:
+      group: agent-wallet-npm-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Resolve and validate immutable registry artifact
+        id: artifact
+        env:
+          PACKAGE_NAME: "@agentlayer.tech/wallet"
+          TARGET_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          metadata="$(npm view "${PACKAGE_NAME}@${TARGET_VERSION}" version dist.integrity --json)"
+          resolved="$(node -e 'const value=JSON.parse(process.argv[1]); process.stdout.write(String(value.version || ""));' "$metadata")"
+          integrity="$(node -e 'const value=JSON.parse(process.argv[1]); process.stdout.write(String(value.dist?.integrity || ""));' "$metadata")"
+          beta="$(npm view "${PACKAGE_NAME}@beta" version)"
+          latest="$(npm view "${PACKAGE_NAME}@latest" version)"
+          node scripts/validate_npm_promotion.mjs \
+            "$TARGET_VERSION" "$beta" "$latest" "$resolved" "$integrity"
+          {
+            echo "version=$TARGET_VERSION"
+            echo "integrity=$integrity"
+            echo "previous_latest=$latest"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Acceptance test exact published artifact
+        env:
+          PACKAGE_NAME: "@agentlayer.tech/wallet"
+          TARGET_VERSION: ${{ steps.artifact.outputs.version }}
+          OPENCLAW_HOME: ${{ runner.temp }}/promotion-home
+          HERMES_HOME: ${{ runner.temp }}/promotion-hermes
+          AGENT_WALLET_CODEX_PLUGIN_ROOT: ${{ runner.temp }}/promotion-codex
+          AGENT_WALLET_CLAUDE_CODE_MARKETPLACE_DIR: ${{ runner.temp }}/promotion-claude-marketplace
+          AGENT_WALLET_CLAUDE_CODE_CACHE_ROOT: ${{ runner.temp }}/promotion-claude-cache
+          AGENT_WALLET_UPDATE_CHECK_DISABLE: "1"
+        run: |
+          set -euo pipefail
+          spec="${PACKAGE_NAME}@${TARGET_VERSION}"
+          test "$(npx --yes --package="$spec" wallet --version)" = "$TARGET_VERSION"
+          npx --yes --package="$spec" wallet install --yes --backend none --skip-node-setup
+          status="$(npx --yes --package="$spec" wallet status)"
+          node -e '
+            const status = JSON.parse(process.argv[1]);
+            if (!status.ok || status.active_version !== process.argv[2] || !status.runtime_in_sync?.in_sync) {
+              throw new Error("promotion acceptance failed: " + JSON.stringify(status));
+            }
+          ' "$status" "$TARGET_VERSION"
+
+      - name: Promote with verified rollback
+        env:
+          PACKAGE_NAME: "@agentlayer.tech/wallet"
+          TARGET_VERSION: ${{ steps.artifact.outputs.version }}
+          EXPECTED_INTEGRITY: ${{ steps.artifact.outputs.integrity }}
+          PREVIOUS_LATEST: ${{ steps.artifact.outputs.previous_latest }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_PROMOTION_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$NODE_AUTH_TOKEN" || {
+            echo "NPM_PROMOTION_TOKEN is required for npm dist-tag writes." >&2
+            exit 1
+          }
+          rollback() {
+            npm dist-tag add "${PACKAGE_NAME}@${PREVIOUS_LATEST}" latest
+          }
+          trap rollback ERR
+          npm dist-tag add "${PACKAGE_NAME}@${TARGET_VERSION}" latest
+          actual_version="$(npm view "${PACKAGE_NAME}@latest" version)"
+          actual_integrity="$(npm view "${PACKAGE_NAME}@latest" dist.integrity)"
+          test "$actual_version" = "$TARGET_VERSION"
+          test "$actual_integrity" = "$EXPECTED_INTEGRITY"
+          trap - ERR
+
+      - name: Mark the existing GitHub release stable
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_VERSION: ${{ steps.artifact.outputs.version }}
+        run: |
+          release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/v${TARGET_VERSION}" --jq .id)"
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+            -F prerelease=false \
+            -f make_latest=true

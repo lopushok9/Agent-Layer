@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added a guarded npm beta-promotion workflow that acceptance-tests the exact
+  registry artifact, verifies its integrity, rejects downgrades, serializes with
+  publish jobs, and restores the previous `latest` tag if verification fails.
+
 - Added a stable per-home identity and verified PID ownership record for the
   local EVM daemon. Restarts now signal only the confirmed listener, while a
   bounded single-listener compatibility path upgrades pre-identity daemons.
