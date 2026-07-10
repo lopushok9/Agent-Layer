@@ -1,7 +1,9 @@
 """Configuration for agent wallet backends."""
 
+import hashlib
 import os
 from pathlib import Path
+from typing import Iterator
 
 from pydantic_settings import BaseSettings
 
@@ -393,7 +395,8 @@ def envelope_kdf_migration_enabled() -> bool:
     return _env_bool("AGENT_WALLET_ENVELOPE_KDF_MIGRATION", True)
 
 
-_boot_key_keystore_cache: dict[str, str] = {}
+_boot_key_keystore_cache: dict[tuple[str, str, str], str] = {}
+_boot_key_validation_cache: dict[tuple[str, str, int, int], bool] = {}
 
 
 def clear_secret_caches() -> None:
@@ -405,6 +408,7 @@ def clear_secret_caches() -> None:
     directly in tests that rotate keystore contents in-process.
     """
     _boot_key_keystore_cache.clear()
+    _boot_key_validation_cache.clear()
     from agent_wallet.keystore import clear_keystore_cache
 
     clear_keystore_cache()
@@ -425,40 +429,133 @@ def read_boot_key_from_keystore() -> str:
     try:
         from agent_wallet.keystore import BOOT_KEY_ITEM, resolve_keystore
 
-        service_key = os.getenv("AGENT_WALLET_KEYSTORE_SERVICE", "").strip()
-        cached = _boot_key_keystore_cache.get(service_key)
+        cache_key = (
+            os.getenv("AGENT_WALLET_KEYSTORE_BACKEND", "auto").strip().lower(),
+            os.getenv("AGENT_WALLET_KEYSTORE_SERVICE", "").strip(),
+            str(resolve_openclaw_home().resolve()),
+        )
+        cached = _boot_key_keystore_cache.get(cache_key)
         if cached:
             return cached
         value = resolve_keystore().get(BOOT_KEY_ITEM)
         text = value.strip() if isinstance(value, str) else ""
         if text:
-            _boot_key_keystore_cache[service_key] = text
+            _boot_key_keystore_cache[cache_key] = text
         return text
     except Exception:
         return ""
 
 
-def resolve_boot_key() -> str:
-    """Resolve the boot key used to unlock sealed secrets from disk.
+def _read_boot_key_file(path_value: str) -> str:
+    if not path_value.strip():
+        return ""
+    try:
+        return Path(path_value).expanduser().read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
 
-    Precedence (superset of the legacy lookup, so existing installs keep working):
+
+def _boot_key_candidates() -> Iterator[tuple[str, str]]:
+    seen: set[str] = set()
+
+    def candidate(source: str, value: str) -> tuple[str, str] | None:
+        if not value or value in seen:
+            return None
+        seen.add(value)
+        return source, value
+
+    for item in (
+        candidate("environment", os.getenv("AGENT_WALLET_BOOT_KEY", "").strip()),
+        candidate("runtime_env", settings.agent_wallet_boot_key.strip()),
+    ):
+        if item:
+            yield item
+
+    keystore_item = candidate("keystore", read_boot_key_from_keystore())
+    if keystore_item:
+        yield keystore_item
+
+    configured_file = os.getenv(
+        "AGENT_WALLET_BOOT_KEY_FILE", settings.agent_wallet_boot_key_file
+    ).strip()
+    configured_item = candidate("configured_file", _read_boot_key_file(configured_file))
+    if configured_item:
+        yield configured_item
+
+    default_file = resolve_openclaw_home() / "agent-wallet-runtime" / "boot-key"
+    if not configured_file or Path(configured_file).expanduser() != default_file:
+        default_item = candidate("default_file", _read_boot_key_file(str(default_file)))
+        if default_item:
+            yield default_item
+
+
+def _boot_key_unlocks_sealed_file(boot_key: str) -> bool | None:
+    sealed_path = resolve_openclaw_home() / "sealed_keys.json"
+    try:
+        stat = sealed_path.stat()
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return False
+
+    cache_key = (boot_key, str(sealed_path), stat.st_mtime_ns, stat.st_size)
+    cached = _boot_key_validation_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        from agent_wallet.sealed_keys import unseal_keys
+
+        unseal_keys(boot_key)
+        valid = True
+    except Exception:
+        valid = False
+    if len(_boot_key_validation_cache) >= 8:
+        _boot_key_validation_cache.clear()
+    _boot_key_validation_cache[cache_key] = valid
+    return valid
+
+
+def _resolve_boot_key_candidate() -> tuple[str, str, bool, list[str], bool]:
+    rejected: list[str] = []
+    for source, value in _boot_key_candidates():
+        verified = _boot_key_unlocks_sealed_file(value)
+        if verified is not False:
+            return value, source, verified is True, rejected, bool(rejected)
+        rejected.append(source)
+    return "", "none", False, rejected, len(rejected) > 1
+
+
+def resolve_boot_key() -> str:
+    """Resolve a boot key, verifying candidates against sealed secrets when present.
+
+    Precedence remains compatible with legacy installs:
       1. AGENT_WALLET_BOOT_KEY env / settings override
       2. OS keystore (the hardened path)
       3. AGENT_WALLET_BOOT_KEY_FILE / boot-key file (legacy)
+
+    A stale higher-priority candidate cannot mask a lower-priority key that
+    actually unlocks ``sealed_keys.json``.
     """
-    direct = os.getenv("AGENT_WALLET_BOOT_KEY", settings.agent_wallet_boot_key).strip()
-    if direct:
-        return direct
-    from_keystore = read_boot_key_from_keystore()
-    if from_keystore:
-        return from_keystore
-    key_file = os.getenv("AGENT_WALLET_BOOT_KEY_FILE", settings.agent_wallet_boot_key_file).strip()
-    if not key_file:
-        return ""
-    try:
-        return Path(key_file).expanduser().read_text(encoding="utf-8").strip()
-    except OSError:
-        return ""
+    return _resolve_boot_key_candidate()[0]
+
+
+def resolve_boot_key_for_installer() -> str:
+    """Stable installer bridge; older runtimes lack this symbol and use JS fallback."""
+    return resolve_boot_key()
+
+
+def boot_key_resolution_status() -> dict[str, object]:
+    """Return non-secret diagnostics for doctor/install reporting."""
+    value, source, verified, rejected, conflict = _resolve_boot_key_candidate()
+    fingerprint = hashlib.sha256(value.encode("utf-8")).hexdigest()[:12] if value else None
+    return {
+        "available": bool(value),
+        "source": source,
+        "sealed_keys_verified": verified,
+        "conflict_detected": conflict,
+        "rejected_sources": rejected,
+        "fingerprint": fingerprint,
+    }
 
 
 def _reject_legacy_runtime_secret_env(var_name: str) -> None:

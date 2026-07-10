@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Centralized installer boot-key selection in the active Python runtime. When
+  sealed secrets exist, conflicting env, keystore, and legacy-file candidates
+  are tested against `sealed_keys.json`; a stale higher-priority value can no
+  longer mask the key that actually decrypts the bundle. Older runtimes retain
+  the existing JavaScript fallback for upgrade compatibility.
+
 - Removed a test-only `OPENCLAW_HOME` pin that leaked into the published Claude
   Code MCP manifest. Installer regression tests now isolate every editor home,
   assert that tracked plugin sources remain unchanged, and inspect the packed

@@ -944,6 +944,32 @@ function readBootKeyFromKeystore(env = process.env) {
   }
 }
 
+// New runtimes own boot-key precedence and verify candidates against
+// sealed_keys.json. An import failure means the active runtime predates this
+// bridge, so callers may use the legacy JS fallback below.
+function readBootKeyFromRuntimeResolver(env = process.env) {
+  const runtimeRoot = resolvedCurrentRuntimeRoot(env);
+  if (!runtimeRoot) return { supported: false, key: "" };
+  const py = resolveVenvPython(runtimeRoot);
+  if (!py) return { supported: false, key: "" };
+  try {
+    const res = spawnSync(
+      py,
+      ["-c", "from agent_wallet.config import resolve_boot_key_for_installer as r; print(r())"],
+      {
+        cwd: path.join(runtimeRoot, "agent-wallet"),
+        encoding: "utf8",
+        timeout: positiveIntEnv("AGENT_WALLET_KEYSTORE_BRIDGE_TIMEOUT_MS", KEYSTORE_BRIDGE_TIMEOUT_MS, env),
+        env: { ...env, OPENCLAW_HOME: resolveOpenclawHome(env) },
+      },
+    );
+    if ((res.status ?? 1) !== 0) return { supported: false, key: "" };
+    return { supported: true, key: String(res.stdout || "").trim() };
+  } catch {
+    return { supported: false, key: "" };
+  }
+}
+
 // Provision the boot key into the OS keystore via the freshly installed runtime's
 // Python. Returns true only when the import stored AND verified the key, so the
 // caller may safely drop the plaintext .env copy. Best-effort: false on any failure
@@ -1237,14 +1263,13 @@ function buildInstallerEnv(args) {
   const sealedKeysExist = fs.existsSync(sealedKeysPath);
   const dryRun = hasFlag(args, "--dry-run");
   if (!env.AGENT_WALLET_BOOT_KEY) {
-    // Keep installer/update boot-key resolution aligned with the runtime:
-    // explicit env first, then keystore, then plaintext fallback paths. A stale
-    // boot-key file must not override a good keystore key and break updates.
-    const existingBootKey =
-      readBootKeyFromKeystore(env) ||
-      resolveBootKeyFromFile(env) ||
-      readTextIfExists(defaultBootKeyFile(env)).trim() ||
-      currentBootKey(env);
+    const runtimeResolution = readBootKeyFromRuntimeResolver(env);
+    const existingBootKey = runtimeResolution.supported
+      ? runtimeResolution.key
+      : readBootKeyFromKeystore(env) ||
+        resolveBootKeyFromFile(env) ||
+        readTextIfExists(defaultBootKeyFile(env)).trim() ||
+        currentBootKey(env);
     if (existingBootKey) {
       env.AGENT_WALLET_BOOT_KEY = existingBootKey;
     }
