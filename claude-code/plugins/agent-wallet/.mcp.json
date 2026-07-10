@@ -7,8 +7,7 @@
       ],
       "env": {
         "FASTMCP_SHOW_SERVER_BANNER": "false",
-        "FASTMCP_LOG_LEVEL": "ERROR",
-        "OPENCLAW_HOME": "/tmp/openclaw-cli-install-keystore-precedence-smoke"
+        "FASTMCP_LOG_LEVEL": "ERROR"
       }
     }
   }

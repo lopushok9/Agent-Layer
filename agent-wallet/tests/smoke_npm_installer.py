@@ -2,20 +2,21 @@
 
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import shutil
 import subprocess
+import tarfile
+import tempfile
 from pathlib import Path
 
 
 def main() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     package_version = json.loads((repo_root / "package.json").read_text(encoding="utf-8"))["version"]
-    temp_root = Path("/tmp/openclaw-npm-installer-smoke")
-    if temp_root.exists():
-        shutil.rmtree(temp_root)
-    temp_root.mkdir(parents=True, exist_ok=True)
+    temp_root = Path(tempfile.mkdtemp(prefix="openclaw-npm-installer-"))
+    atexit.register(shutil.rmtree, temp_root, ignore_errors=True)
 
     config_path = temp_root / "openclaw.json"
     env_path = temp_root / ".env"
@@ -257,6 +258,20 @@ def main() -> None:
     tarball_name = pack_payload[0]["filename"]
     tarball_path = repo_root / tarball_name
     try:
+        with tarfile.open(tarball_path, "r:gz") as archive:
+            mcp_members = [
+                member
+                for member in archive.getmembers()
+                if member.isfile() and member.name.endswith("/.mcp.json")
+            ]
+            assert mcp_members, "npm package contains no MCP manifests"
+            for member in mcp_members:
+                packed_file = archive.extractfile(member)
+                assert packed_file is not None
+                text = packed_file.read().decode("utf-8")
+                assert "/tmp/" not in text, f"temporary path leaked into {member.name}"
+                assert "/Users/" not in text, f"user path leaked into {member.name}"
+
         npm_exec_temp_root = temp_root / "npm-exec-update"
         npm_exec_env = dict(env)
         npm_exec_env["OPENCLAW_HOME"] = str(npm_exec_temp_root)

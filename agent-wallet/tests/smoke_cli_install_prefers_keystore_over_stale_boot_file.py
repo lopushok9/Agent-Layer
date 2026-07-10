@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -15,10 +17,8 @@ def main() -> None:
     cli = repo_root / "bin" / "openclaw-agent-wallet.mjs"
     installer = repo_root / "agent-wallet" / "scripts" / "install_agent_wallet.py"
 
-    temp_root = Path("/tmp/openclaw-cli-install-keystore-precedence-smoke")
-    if temp_root.exists():
-        shutil.rmtree(temp_root)
-    temp_root.mkdir(parents=True, exist_ok=True)
+    temp_root = Path(tempfile.mkdtemp(prefix="openclaw-cli-install-keystore-precedence-"))
+    atexit.register(shutil.rmtree, temp_root, ignore_errors=True)
 
     config_path = temp_root / "openclaw.json"
     env_path = temp_root / ".env"
@@ -28,6 +28,19 @@ def main() -> None:
     initial_env["AGENT_WALLET_MASTER_KEY"] = "test-master-key-for-cli-install-keystore"
     initial_env["AGENT_WALLET_APPROVAL_SECRET"] = "test-approval-secret-for-cli-install-keystore"
     initial_env["AGENT_WALLET_KEYSTORE_BACKEND"] = "plaintext"
+    initial_env["HERMES_HOME"] = str(temp_root / "hermes-home")
+    initial_env["CODEX_HOME"] = str(temp_root / "codex-home")
+    initial_env["AGENT_WALLET_CODEX_PLUGIN_ROOT"] = str(temp_root / "codex-plugins")
+    initial_env["AGENT_WALLET_CODEX_MARKETPLACE_PATH"] = str(
+        temp_root / "codex-marketplace.json"
+    )
+    initial_env["AGENT_WALLET_CLAUDE_CODE_MARKETPLACE_DIR"] = str(
+        temp_root / "claude-marketplace"
+    )
+    initial_env["AGENT_WALLET_CLAUDE_CODE_CACHE_ROOT"] = str(temp_root / "claude-cache")
+
+    claude_mcp = repo_root / "claude-code" / "plugins" / "agent-wallet" / ".mcp.json"
+    claude_mcp_before = claude_mcp.read_bytes()
 
     initial = subprocess.run(
         [
@@ -111,6 +124,7 @@ def main() -> None:
     status_payload = json.loads(status.stdout)
     package_version = json.loads((repo_root / "package.json").read_text(encoding="utf-8"))["version"]
     assert status_payload["active_version"] == package_version
+    assert claude_mcp.read_bytes() == claude_mcp_before
 
     print("smoke_cli_install_prefers_keystore_over_stale_boot_file: ok")
 

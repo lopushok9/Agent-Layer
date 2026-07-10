@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Removed a test-only `OPENCLAW_HOME` pin that leaked into the published Claude
+  Code MCP manifest. Installer regression tests now isolate every editor home,
+  assert that tracked plugin sources remain unchanged, and inspect the packed
+  npm MCP manifests for temporary or user-specific absolute paths.
+
 ## v0.1.73 - 2026-07-09
 
 - Fixed CLI installer/update boot-key precedence when recovering an existing
