@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Persisted the verified boot-key keystore backend under each OpenClaw home so
+  `auto` selection remains stable across updates and desktop session changes.
+  Explicit backend overrides still work, and temporary fallback use does not
+  overwrite the pinned backend.
+
 - Preserved upgrades from pre-resolver runtimes by ordering the legacy Node
   fallback as keystore, current runtime env, then legacy files. Installer output
   now reports the non-secret boot-key source, and CI covers conflicting legacy

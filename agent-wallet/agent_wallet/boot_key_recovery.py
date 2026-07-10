@@ -8,8 +8,8 @@ wallet files. See BOOT_KEY_KEYCHAIN_ARCHITECTURE.md.
 
 from __future__ import annotations
 
-from agent_wallet.config import read_boot_key_from_keystore, resolve_boot_key
-from agent_wallet.keystore import BOOT_KEY_ITEM, resolve_keystore
+from agent_wallet.config import clear_secret_caches, resolve_boot_key
+from agent_wallet.keystore import BOOT_KEY_ITEM, record_keystore_backend, resolve_keystore
 from agent_wallet.wallet_layer.base import WalletBackendError
 
 _EXPORT_WARNING = (
@@ -35,11 +35,13 @@ def import_boot_key(value: str) -> dict:
         raise WalletBackendError("A non-empty boot key is required for import.")
     store = resolve_keystore()
     store.set(BOOT_KEY_ITEM, key)
-    if read_boot_key_from_keystore() != key:
+    if store.get(BOOT_KEY_ITEM) != key:
         raise WalletBackendError(
             f"Boot key import could not be verified from the {store.backend_id} keystore."
         )
-    return {"imported": True, "backend": store.backend_id}
+    state = record_keystore_backend(store)
+    clear_secret_caches()
+    return {"imported": True, "backend": store.backend_id, "backend_state": state}
 
 
 def export_warning() -> str:

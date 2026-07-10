@@ -16,7 +16,12 @@ from agent_wallet.config import (
     settings,
 )
 from agent_wallet.file_ops import atomic_write_text
-from agent_wallet.keystore import BOOT_KEY_ITEM, PlaintextFileStore, resolve_keystore
+from agent_wallet.keystore import (
+    BOOT_KEY_ITEM,
+    PlaintextFileStore,
+    record_keystore_backend,
+    resolve_keystore,
+)
 
 _ENV_LINE_PREFIX = "AGENT_WALLET_BOOT_KEY="
 
@@ -129,6 +134,8 @@ def migrate_boot_key_to_keystore() -> dict:
     # Do not sweep into a plaintext fallback: that offers no at-rest improvement,
     # and the user explicitly chose to stay on the current file in that case.
     if isinstance(store, PlaintextFileStore):
+        if read_boot_key_from_keystore():
+            record_keystore_backend(store)
         return {"migrated": False, "backend": store.backend_id, "swept_env_files": 0,
                 "removed_boot_key_file": False, "reason": "no-os-keystore"}
 
@@ -145,12 +152,13 @@ def migrate_boot_key_to_keystore() -> dict:
             return {"migrated": False, "backend": store.backend_id, "swept_env_files": 0,
                     "removed_boot_key_file": False, "reason": f"keystore-set-failed: {exc}"}
         # Verify-before-delete.
-        if read_boot_key_from_keystore() != legacy_key:
+        if store.get(BOOT_KEY_ITEM) != legacy_key:
             return {"migrated": False, "backend": store.backend_id, "swept_env_files": 0,
                     "removed_boot_key_file": False, "reason": "verify-failed"}
         authoritative = legacy_key
         first_time = True
 
+    record_keystore_backend(store)
     swept, removed = _sweep_plaintext(home, authoritative)
     migrated = first_time or swept > 0 or removed
     return {"migrated": migrated, "backend": store.backend_id, "swept_env_files": swept,

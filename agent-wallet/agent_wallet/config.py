@@ -546,6 +546,8 @@ def resolve_boot_key_for_installer() -> str:
 
 def boot_key_resolution_status() -> dict[str, object]:
     """Return non-secret diagnostics for doctor/install reporting."""
+    from agent_wallet.keystore import keystore_backend_status
+
     value, source, verified, rejected, conflict = _resolve_boot_key_candidate()
     fingerprint = hashlib.sha256(value.encode("utf-8")).hexdigest()[:12] if value else None
     return {
@@ -555,6 +557,7 @@ def boot_key_resolution_status() -> dict[str, object]:
         "conflict_detected": conflict,
         "rejected_sources": rejected,
         "fingerprint": fingerprint,
+        "keystore": keystore_backend_status(),
     }
 
 

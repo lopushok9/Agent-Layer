@@ -13,6 +13,7 @@ BOOT_KEY_KEYCHAIN_ARCHITECTURE.md.
 
 from __future__ import annotations
 
+import json
 import os
 import platform
 import shutil
@@ -27,6 +28,8 @@ KEYSTORE_SERVICE = "ai.agentlayer.wallet"
 BOOT_KEY_ITEM = "boot_key"
 _PROBE_ITEM = "__probe__"
 _KEYSTORE_BACKEND_ENV = "AGENT_WALLET_KEYSTORE_BACKEND"
+_KEYSTORE_STATE_VERSION = 1
+_KEYSTORE_STATE_FILENAME = "backend.json"
 
 _SECURITY_BIN = "/usr/bin/security"
 _SUBPROCESS_TIMEOUT = 10.0
@@ -47,6 +50,31 @@ def _backend_preference() -> str:
     Override with AGENT_WALLET_KEYSTORE_BACKEND=plaintext|macos-keychain|native|...
     """
     return os.getenv(_KEYSTORE_BACKEND_ENV, "auto").strip().lower()
+
+
+def _state_path() -> Path:
+    return resolve_openclaw_home() / "keystore" / _KEYSTORE_STATE_FILENAME
+
+
+def _read_backend_state() -> dict[str, str] | None:
+    try:
+        payload = json.loads(_state_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(payload, dict) or payload.get("version") != _KEYSTORE_STATE_VERSION:
+        return None
+    backend = str(payload.get("backend") or "").strip()
+    service = str(payload.get("service") or "").strip()
+    if backend not in {
+        "macos-keychain",
+        "windows-dpapi",
+        "linux-secretservice",
+        "plaintext-file",
+    }:
+        return None
+    if service != _service():
+        return None
+    return {"backend": backend, "service": service}
 
 
 class KeyStoreError(Exception):
@@ -247,7 +275,7 @@ class PlaintextFileStore:
             pass
 
 
-_keystore_cache: dict[tuple[str, str], KeyStore] = {}
+_keystore_cache: dict[tuple[str, str, str], KeyStore] = {}
 
 
 def clear_keystore_cache() -> None:
@@ -263,7 +291,11 @@ def resolve_keystore() -> KeyStore:
     (preference, service) for the process lifetime. Cleared by
     ``agent_wallet.config.clear_secret_caches`` / ``reload_settings``.
     """
-    cache_key = (_backend_preference(), _service())
+    cache_key = (
+        _backend_preference(),
+        _service(),
+        str(resolve_openclaw_home().resolve()),
+    )
     cached = _keystore_cache.get(cache_key)
     if cached is not None:
         return cached
@@ -293,6 +325,12 @@ def _resolve_keystore_uncached() -> KeyStore:
         # _backend_usable falls back gracefully if a session still can't authorize.
         candidates = [MacKeychainStore(), WindowsDpapiStore(), LinuxSecretServiceStore()]
 
+    if preference == "auto":
+        state = _read_backend_state()
+        pinned = _store_for_backend(state["backend"]) if state else None
+        if pinned is not None:
+            candidates = [pinned, *[item for item in candidates if item.backend_id != pinned.backend_id]]
+
     for candidate in candidates:
         try:
             if candidate.available() and _backend_usable(candidate):
@@ -300,6 +338,48 @@ def _resolve_keystore_uncached() -> KeyStore:
         except Exception:
             continue
     return PlaintextFileStore()
+
+
+def _store_for_backend(backend_id: str) -> KeyStore | None:
+    stores: dict[str, KeyStore] = {
+        "macos-keychain": MacKeychainStore(),
+        "windows-dpapi": WindowsDpapiStore(),
+        "linux-secretservice": LinuxSecretServiceStore(),
+        "plaintext-file": PlaintextFileStore(),
+    }
+    return stores.get(backend_id)
+
+
+def record_keystore_backend(store: KeyStore) -> dict[str, object]:
+    """Persist a verified boot-key backend without replacing a temporary fallback."""
+    existing = _read_backend_state()
+    preference = _backend_preference()
+    if preference == "auto" and existing and existing["backend"] != store.backend_id:
+        return {
+            "recorded": False,
+            "backend": existing["backend"],
+            "fallback_backend": store.backend_id,
+        }
+    payload = {
+        "version": _KEYSTORE_STATE_VERSION,
+        "backend": store.backend_id,
+        "service": _service(),
+    }
+    atomic_write_text(_state_path(), json.dumps(payload, indent=2) + "\n", mode=0o600)
+    return {"recorded": True, "backend": store.backend_id, "fallback_backend": None}
+
+
+def keystore_backend_status() -> dict[str, object]:
+    """Return non-secret diagnostics for the selected and persisted backend."""
+    state = _read_backend_state()
+    selected = resolve_keystore().backend_id
+    pinned = state["backend"] if state else None
+    return {
+        "selected": selected,
+        "pinned": pinned,
+        "fallback_active": bool(pinned and selected != pinned),
+        "preference": _backend_preference(),
+    }
 
 
 def _backend_usable(candidate: KeyStore) -> bool:
