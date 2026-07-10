@@ -25,6 +25,7 @@ INCLUDED_RUNTIME_ROOT_FILES = [
     "setup.sh",
 ]
 INCLUDED_RUNTIME_TOP_LEVEL_DIRS = [
+    "claude-code",
     "codex",
     ".openclaw",
     "agent-wallet",

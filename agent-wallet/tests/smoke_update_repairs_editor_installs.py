@@ -44,6 +44,11 @@ def main() -> None:
     (old_release / "hermes" / "plugins" / "agent_wallet" / "plugin.yaml").write_text("name: agent_wallet\n", encoding="utf-8")
     (old_release / "codex" / "plugins" / "agent-wallet" / ".codex-plugin").mkdir(parents=True, exist_ok=True)
     _write_json(old_release / "codex" / "plugins" / "agent-wallet" / ".codex-plugin" / "plugin.json", {"name": "agent-wallet"})
+    (old_release / "claude-code" / "plugins" / "agent-wallet").mkdir(parents=True, exist_ok=True)
+    _write_json(
+        old_release / "claude-code" / "plugins" / "agent-wallet" / ".mcp.json",
+        {"mcpServers": {"agent-wallet": {"command": "sh", "env": {}}}},
+    )
 
     hermes_home = temp_root / "hermes-home"
     hermes_plugin_target = hermes_home / "plugins" / "agent_wallet"
@@ -69,13 +74,26 @@ def main() -> None:
         },
     )
 
+    claude_marketplace = temp_root / "claude-marketplace"
+    claude_plugin_target = claude_marketplace / "plugins" / "agent-wallet"
+    claude_plugin_target.parent.mkdir(parents=True, exist_ok=True)
+    claude_plugin_target.symlink_to(old_release / "claude-code" / "plugins" / "agent-wallet")
+    claude_cache = temp_root / "claude-cache"
+    claude_cache_mcp = claude_cache / "agentlayer-local" / "agent-wallet" / "0.1.0" / ".mcp.json"
+    _write_json(
+        claude_cache_mcp,
+        {"mcpServers": {"agent-wallet": {"command": "sh", "env": {}}}},
+    )
+    source_mcp = repo_root / "claude-code" / "plugins" / "agent-wallet" / ".mcp.json"
+    source_mcp_before = source_mcp.read_bytes()
+
     env = dict(os.environ)
     env["OPENCLAW_HOME"] = str(home)
     env["HERMES_HOME"] = str(hermes_home)
     env["AGENT_WALLET_CODEX_PLUGIN_ROOT"] = str(codex_plugin_root)
     env["AGENT_WALLET_CODEX_MARKETPLACE_PATH"] = str(marketplace_path)
-    env["AGENT_WALLET_CLAUDE_CODE_MARKETPLACE_DIR"] = str(temp_root / "claude-marketplace")
-    env["AGENT_WALLET_CLAUDE_CODE_CACHE_ROOT"] = str(temp_root / "claude-cache")
+    env["AGENT_WALLET_CLAUDE_CODE_MARKETPLACE_DIR"] = str(claude_marketplace)
+    env["AGENT_WALLET_CLAUDE_CODE_CACHE_ROOT"] = str(claude_cache)
     env["OPENCLAW_AGENT_WALLET_UPDATE_CLI_PATH"] = str(cli)
     env["AGENT_WALLET_BOOT_KEY"] = "test-boot-key-for-update-repair"
     env["AGENT_WALLET_MASTER_KEY"] = "test-master-key-for-update-repair"
@@ -107,13 +125,22 @@ def main() -> None:
     refresh = {item["name"]: item for item in payload["integration_refresh"]}
     assert refresh["hermes"]["ok"] is True, refresh
     assert refresh["codex"]["ok"] is True, refresh
+    assert refresh["claude-code"]["ok"] is True, refresh
 
     assert os.readlink(hermes_plugin_target) == str(current / "hermes" / "plugins" / "agent_wallet")
     assert os.readlink(codex_plugin_target) == str(current / "codex" / "plugins" / "agent-wallet")
+    assert os.readlink(claude_plugin_target) == str(
+        current / "claude-code" / "plugins" / "agent-wallet"
+    )
 
     hermes_env = (hermes_home / ".env").read_text(encoding="utf-8")
     assert f"AGENT_WALLET_PACKAGE_ROOT={current / 'agent-wallet'}" in hermes_env
     assert f"AGENT_WALLET_PYTHON={old_release / 'agent-wallet' / '.runtime-venv' / 'bin' / 'python'}" not in hermes_env
+    cache_env = json.loads(claude_cache_mcp.read_text(encoding="utf-8"))["mcpServers"][
+        "agent-wallet"
+    ]["env"]
+    assert cache_env["OPENCLAW_HOME"] == str(home), cache_env
+    assert source_mcp.read_bytes() == source_mcp_before
 
     print("smoke_update_repairs_editor_installs: ok")
 

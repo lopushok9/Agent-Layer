@@ -64,6 +64,7 @@ def main() -> None:
     assert (runtime_root / "agent-wallet").exists()
     assert (runtime_root / ".openclaw" / "extensions" / "agent-wallet").exists()
     assert (runtime_root / "codex" / "plugins" / "agent-wallet" / ".codex-plugin" / "plugin.json").exists()
+    assert (runtime_root / "claude-code" / "plugins" / "agent-wallet" / ".mcp.json").exists()
     assert (runtime_root / "codex" / "plugins" / "agent-wallet" / "skills" / "wallet-sol" / "SKILL.md").exists()
     assert (runtime_root / "hermes" / "plugins" / "agent_wallet" / "plugin.yaml").exists()
     assert (runtime_root / "agent-wallet" / "scripts" / "manage_openclaw_evm_wallet.py").exists()

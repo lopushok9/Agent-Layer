@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Replaced automatic editor reinstallation after every runtime update with a
+  narrow migration of stale runtime-owned symlinks and Hermes env paths. Codex
+  and Claude MCP source manifests are now immutable; only user-owned Claude
+  cache copies may receive a custom `OPENCLAW_HOME` pin. The versioned runtime
+  now includes the previously omitted `claude-code/` bridge.
+
 - Staged normal installs under hidden `releases/.staging-*` directories and
   verify them before switching `current`. Failed candidates are moved to
   `.failed-*`, excluded from `available_releases`, and recorded in an update

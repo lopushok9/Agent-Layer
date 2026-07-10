@@ -1,4 +1,4 @@
-"""Smoke test: claude install pins OPENCLAW_HOME into bundle + cache .mcp.json."""
+"""Smoke test: Claude install pins only user-owned cache MCP manifests."""
 
 from __future__ import annotations
 
@@ -47,9 +47,9 @@ def main() -> None:
         )
         assert res.returncode == 0, res.stderr + res.stdout
 
-        # Bundle .mcp.json pinned with OPENCLAW_HOME, existing key preserved, python NOT pinned.
+        # Runtime/package sources are immutable, even for a custom home.
         bundle_env = json.loads((mcp_dir / ".mcp.json").read_text())["mcpServers"]["agent-wallet"]["env"]
-        assert bundle_env["OPENCLAW_HOME"] == str(home), bundle_env
+        assert "OPENCLAW_HOME" not in bundle_env, bundle_env
         assert bundle_env["FASTMCP_LOG_LEVEL"] == "ERROR", bundle_env
         assert "AGENT_WALLET_PYTHON" not in bundle_env, bundle_env
 
@@ -57,18 +57,15 @@ def main() -> None:
         cache_env = json.loads(cache_mcp.read_text())["mcpServers"]["agent-wallet"]["env"]
         assert cache_env["OPENCLAW_HOME"] == str(home), cache_env
 
-        _assert_default_home_self_heals(repo_root, cli, tmp)
+        _assert_default_home_preserves_source(cli, tmp)
 
         print("OK smoke_editor_mcp_env_pin")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def _assert_default_home_self_heals(repo_root: Path, cli: Path, tmp: Path) -> None:
-    """When the install home is the default ~/.openclaw, the redundant
-    OPENCLAW_HOME pin must NOT be written, and an existing stale pin must be
-    removed so version-controlled bundle files stay clean (run_mcp.sh derives
-    the default home itself)."""
+def _assert_default_home_preserves_source(cli: Path, tmp: Path) -> None:
+    """Default-home installs must also leave their source manifest untouched."""
     fake_home = tmp / "defaulthome"
     home = fake_home / ".openclaw"  # equals expandHome("~/.openclaw") under HOME=fake_home
     release = home / "agent-wallet-runtime/releases/9.9.9"
@@ -93,7 +90,7 @@ def _assert_default_home_self_heals(repo_root: Path, cli: Path, tmp: Path) -> No
     )
     assert res.returncode == 0, res.stderr + res.stdout
     bundle_env = json.loads((mcp_dir / ".mcp.json").read_text())["mcpServers"]["agent-wallet"]["env"]
-    assert "OPENCLAW_HOME" not in bundle_env, f"stale pin should be removed: {bundle_env}"
+    assert bundle_env["OPENCLAW_HOME"] == "/stale/openclaw", bundle_env
     assert bundle_env["FASTMCP_LOG_LEVEL"] == "ERROR", bundle_env
 
 

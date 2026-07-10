@@ -1546,7 +1546,7 @@ function runInstall(args, { commandName = "install" } = {}) {
   switchSymlink(currentPath, releaseRoot);
   writeUpdateJournal("committed", { release_root: releaseRoot, previous_runtime: previousTarget }, env);
 
-  const integrationRefresh = refreshInstalledEditorIntegrations(env);
+  const integrationRefresh = repairInstalledEditorIntegrations(env);
 
   const pythonInfo = activePythonRuntimeInfo(env);
   const nodeInfo = activeNodeRuntimeInfo(env)
@@ -2009,7 +2009,7 @@ function runHermesInstall(args) {
 function runCodexInstall(args) {
   const codexHome = resolveCodexHome();
   const pluginSource = resolveCodexPluginSource();
-  const pinnedEnv = pinEditorMcpEnv(pluginSource);
+  const pinnedEnv = { pinned: false, reason: "plugin source is immutable" };
   const pluginRoot = resolveCodexPluginInstallRoot();
   const pluginTarget = path.join(pluginRoot, "agent-wallet");
   const marketplacePath = resolveCodexMarketplacePath();
@@ -2131,10 +2131,6 @@ function pinHomeIntoMcpFile(mcpPath, env = process.env) {
   return { pinned: true, openclaw_home: home, path: mcpPath };
 }
 
-function pinEditorMcpEnv(pluginSource, env = process.env) {
-  return pinHomeIntoMcpFile(path.join(pluginSource, ".mcp.json"), env);
-}
-
 // Claude Code copies the plugin into a version-keyed cache and reads THAT copy,
 // so the bundle pin alone is ineffective once a cache exists. Pin every cached
 // copy too. Cache root is overridable for tests.
@@ -2207,8 +2203,7 @@ function ensureClaudeCodeMarketplace(marketplaceDir, pluginSource, force) {
 
 function runClaudeCodeInstall(args) {
   const pluginSource = resolveClaudeCodePluginSource();
-  const pinnedEnv = pinEditorMcpEnv(pluginSource);
-  const pinnedCache = pinClaudeCacheCopies();
+  const pinnedEnv = { pinned: false, reason: "plugin source is immutable" };
   const force = hasFlag(args, "--force");
   const skipEnable = hasFlag(args, "--skip-enable");
   const claudeBin = commandPath("claude");
@@ -2270,6 +2265,7 @@ function runClaudeCodeInstall(args) {
   }
 
   const ok = enable.skipped || enable.ok;
+  const pinnedCache = pinClaudeCacheCopies();
   const pluginDirFlagFull = `claude --plugin-dir ${pluginSource}`;
   console.log(
     JSON.stringify(
@@ -2294,75 +2290,115 @@ function runClaudeCodeInstall(args) {
   return enable.skipped || enable.ok ? 0 : 1;
 }
 
-function hermesInstallPresent(env = process.env) {
-  const hermesHome = resolveHermesHome(env);
-  return (
-    fs.existsSync(path.join(hermesHome, "plugins", "agent_wallet")) ||
-    fs.existsSync(path.join(hermesHome, ".env"))
-  );
-}
-
-function codexInstallPresent(env = process.env) {
-  return (
-    fs.existsSync(path.join(resolveCodexPluginInstallRoot(env), "agent-wallet")) ||
-    fs.existsSync(resolveCodexMarketplacePath(env))
-  );
-}
-
-function claudeCodeInstallPresent(env = process.env) {
-  const marketplaceDir = resolveClaudeCodeMarketplaceDir(env);
-  const cacheRoot = path.resolve(
-    expandHome(env.AGENT_WALLET_CLAUDE_CODE_CACHE_ROOT || "~/.claude/plugins/cache"),
-  );
-  return (
-    fs.existsSync(path.join(marketplaceDir, "plugins", "agent-wallet")) ||
-    fs.existsSync(path.join(cacheRoot, CLAUDE_CODE_MARKETPLACE_NAME, "agent-wallet"))
-  );
-}
-
-function captureInstallerRefresh(name, runFn, args) {
-  const originalLog = console.log;
-  const lines = [];
-  console.log = (...items) => {
-    lines.push(items.join(" "));
-  };
+function runtimeReleasePath(value, env = process.env) {
+  if (!value) return false;
   try {
-    const code = runFn(args);
-    const output = lines.join("\n");
-    return {
-      name,
-      attempted: true,
-      ok: code === 0,
-      code,
-      payload: output ? extractTrailingJson(output) : null,
-      error: code === 0 ? "" : output.trim(),
-    };
-  } catch (error) {
-    return {
-      name,
-      attempted: true,
-      ok: false,
-      code: 1,
-      payload: null,
-      error: error?.message || String(error),
-    };
-  } finally {
-    console.log = originalLog;
+    const releasesRoot = path.join(resolveRuntimeBase(env), "releases");
+    const relative = path.relative(releasesRoot, path.resolve(expandHome(String(value))));
+    return Boolean(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`);
+  } catch {
+    return false;
   }
 }
 
-function refreshInstalledEditorIntegrations(env = process.env) {
+function pathEntryExists(pathname) {
+  try {
+    fs.lstatSync(pathname);
+    return true;
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+function repairRuntimeSymlink(name, linkPath, desiredTarget, env = process.env) {
+  let rawTarget;
+  try {
+    const stat = fs.lstatSync(linkPath);
+    if (!stat.isSymbolicLink()) {
+      return { name, attempted: false, ok: true, repaired: false, reason: "not a symlink" };
+    }
+    rawTarget = fs.readlinkSync(linkPath);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return { name, attempted: false, ok: true, repaired: false, reason: "not installed" };
+    }
+    return { name, attempted: true, ok: false, repaired: false, error: error.message };
+  }
+
+  const absoluteTarget = path.resolve(path.dirname(linkPath), rawTarget);
+  const logicalCurrent = currentRuntimePath(env);
+  if (absoluteTarget === path.resolve(desiredTarget) || absoluteTarget.startsWith(`${logicalCurrent}${path.sep}`)) {
+    return { name, attempted: true, ok: true, repaired: false, reason: "already current" };
+  }
+  if (!runtimeReleasePath(absoluteTarget, env)) {
+    return { name, attempted: false, ok: true, repaired: false, reason: "external target preserved" };
+  }
+  if (!fs.existsSync(desiredTarget)) {
+    return { name, attempted: true, ok: false, repaired: false, error: `missing ${desiredTarget}` };
+  }
+  switchSymlink(linkPath, desiredTarget);
+  return { name, attempted: true, ok: true, repaired: true, target: desiredTarget };
+}
+
+function repairHermesEnv(env = process.env) {
+  const envPath = path.join(resolveHermesHome(env), ".env");
+  const existing = readEnvFile(envPath);
+  const repaired = [];
+  const currentPackage = path.join(currentRuntimePath(env), "agent-wallet");
+  if (runtimeReleasePath(existing.AGENT_WALLET_PACKAGE_ROOT, env)) {
+    envFileSet(envPath, { AGENT_WALLET_PACKAGE_ROOT: currentPackage });
+    repaired.push("AGENT_WALLET_PACKAGE_ROOT");
+  }
+  if (runtimeReleasePath(existing.AGENT_WALLET_PYTHON, env)) {
+    const currentPython = resolveVenvPython(currentRuntimePath(env));
+    if (currentPython) {
+      envFileSet(envPath, { AGENT_WALLET_PYTHON: currentPython });
+    } else {
+      envFileUnset(envPath, ["AGENT_WALLET_PYTHON"]);
+    }
+    repaired.push("AGENT_WALLET_PYTHON");
+  }
+  return repaired;
+}
+
+function repairInstalledEditorIntegrations(env = process.env) {
   const results = [];
-  if (hermesInstallPresent(env)) {
-    results.push(captureInstallerRefresh("hermes", runHermesInstall, ["--yes", "--force", "--skip-enable"]));
-  }
-  if (codexInstallPresent(env)) {
-    results.push(captureInstallerRefresh("codex", runCodexInstall, ["--yes", "--force", "--skip-enable"]));
-  }
-  if (claudeCodeInstallPresent(env)) {
-    results.push(
-      captureInstallerRefresh("claude-code", runClaudeCodeInstall, ["--yes", "--force", "--skip-enable"]),
+  const currentRoot = currentRuntimePath(env);
+  const hermesTarget = path.join(resolveHermesHome(env), "plugins", "agent_wallet");
+  if (pathEntryExists(hermesTarget) || fs.existsSync(path.join(resolveHermesHome(env), ".env"))) {
+    const result = repairRuntimeSymlink(
+      "hermes",
+      hermesTarget,
+      path.join(currentRoot, "hermes", "plugins", "agent_wallet"),
+      env,
     );
+    result.env_repaired = repairHermesEnv(env);
+    results.push(result);
+  }
+
+  const codexTarget = path.join(resolveCodexPluginInstallRoot(env), "agent-wallet");
+  if (pathEntryExists(codexTarget)) {
+    results.push(
+      repairRuntimeSymlink(
+        "codex",
+        codexTarget,
+        path.join(currentRoot, "codex", "plugins", "agent-wallet"),
+        env,
+      ),
+    );
+  }
+
+  const claudeTarget = path.join(resolveClaudeCodeMarketplaceDir(env), "plugins", "agent-wallet");
+  if (pathEntryExists(claudeTarget)) {
+    const result = repairRuntimeSymlink(
+      "claude-code",
+      claudeTarget,
+      path.join(currentRoot, "claude-code", "plugins", "agent-wallet"),
+      env,
+    );
+    result.cache_pins = pinClaudeCacheCopies(env);
+    results.push(result);
   }
   return results;
 }
