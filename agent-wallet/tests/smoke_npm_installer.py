@@ -58,6 +58,8 @@ def main() -> None:
     assert payload["configured"] is False
     assert payload["node_runtime"]["skipped"] is True
     assert Path(payload["runtime_root"]).resolve() == runtime_root.resolve()
+    assert payload["staging_root"]
+    assert not Path(payload["staging_root"]).exists()
     assert (runtime_root / "setup.sh").exists()
     assert (runtime_root / "agent-wallet").exists()
     assert (runtime_root / ".openclaw" / "extensions" / "agent-wallet").exists()

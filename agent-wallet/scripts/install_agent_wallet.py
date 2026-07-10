@@ -862,6 +862,7 @@ def main() -> None:
     source_wdk_btc_root = Path(args.wdk_btc_root).expanduser().resolve()
     source_wdk_evm_root = Path(args.wdk_evm_root).expanduser().resolve()
     runtime_root = Path(args.runtime_root).expanduser().resolve()
+    final_runtime_root = os.getenv("OPENCLAW_INSTALL_FINAL_ROOT", "").strip()
     config_path = Path(args.config_path).expanduser()
     env_path = Path(args.env_path).expanduser()
     env_example_path = Path(args.env_example_path).expanduser()
@@ -1039,7 +1040,8 @@ def main() -> None:
                 "extension_path": str(extension_path),
                 "wdk_btc_root": str(wdk_btc_root),
                 "wdk_evm_root": str(wdk_evm_root),
-                "runtime_root": str(runtime_root),
+                "runtime_root": final_runtime_root or str(runtime_root),
+                "staging_root": str(runtime_root) if final_runtime_root else None,
                 "install_from_runtime": bool(args.install_from_runtime),
                 "python_bin": str(python_bin),
                 "venv_created": venv_created,

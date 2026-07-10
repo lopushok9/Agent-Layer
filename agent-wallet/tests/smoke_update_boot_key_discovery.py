@@ -61,6 +61,7 @@ def main() -> None:
     assert payload["dry_run"] is True
     assert payload["current_version"] == package_version
     assert payload["target_version"] == package_version
+    assert not (runtime_base / "update-journal.json").exists()
 
     print("smoke_update_boot_key_discovery: ok")
 

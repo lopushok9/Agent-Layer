@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Staged normal installs under hidden `releases/.staging-*` directories and
+  verify them before switching `current`. Failed candidates are moved to
+  `.failed-*`, excluded from `available_releases`, and recorded in an update
+  journal; on failure, existing `current` and `previous` pointers remain untouched.
+
 - Centralized installer boot-key selection in the active Python runtime. When
   sealed secrets exist, conflicting env, keystore, and legacy-file candidates
   are tested against `sealed_keys.json`; a stale higher-priority value can no

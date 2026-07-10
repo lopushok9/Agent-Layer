@@ -380,6 +380,69 @@ function releaseRootFor(version, env = process.env) {
   return path.join(resolveRuntimeBase(env), "releases", version);
 }
 
+function stagingRootFor(version, env = process.env) {
+  return path.join(
+    resolveRuntimeBase(env),
+    "releases",
+    `.staging-${version}-${process.pid}-${Date.now()}`,
+  );
+}
+
+function updateJournalPath(env = process.env) {
+  return path.join(resolveRuntimeBase(env), "update-journal.json");
+}
+
+function writeUpdateJournal(state, details = {}, env = process.env) {
+  writeJsonFile(updateJournalPath(env), {
+    schema_version: 1,
+    state,
+    version: packageVersion,
+    updated_at: new Date().toISOString(),
+    ...details,
+  });
+}
+
+function writeReleaseState(runtimeRoot, state, details = {}) {
+  writeJsonFile(path.join(runtimeRoot, ".agent-wallet-release.json"), {
+    schema_version: 1,
+    version: packageVersion,
+    state,
+    updated_at: new Date().toISOString(),
+    ...details,
+  });
+}
+
+function failStagingRuntime(stagingRoot, error) {
+  if (!stagingRoot || !fs.existsSync(stagingRoot)) return null;
+  writeReleaseState(stagingRoot, "failed", { error: String(error || "install failed") });
+  const failedRoot = path.join(
+    path.dirname(stagingRoot),
+    `.failed-${packageVersion}-${Date.now()}`,
+  );
+  fs.renameSync(stagingRoot, failedRoot);
+  return failedRoot;
+}
+
+function commitStagedRuntime(stagingRoot, releaseRoot) {
+  if (!stagingRoot) return null;
+  let replacedRoot = null;
+  if (fs.existsSync(releaseRoot)) {
+    replacedRoot = uniquePathWithSuffix(
+      path.join(path.dirname(releaseRoot), `${path.basename(releaseRoot)}-replaced`),
+    );
+    fs.renameSync(releaseRoot, replacedRoot);
+  }
+  try {
+    fs.renameSync(stagingRoot, releaseRoot);
+  } catch (error) {
+    if (replacedRoot && !fs.existsSync(releaseRoot)) {
+      fs.renameSync(replacedRoot, releaseRoot);
+    }
+    throw error;
+  }
+  return replacedRoot;
+}
+
 function currentRuntimePath(env = process.env) {
   return path.join(resolveRuntimeBase(env), "current");
 }
@@ -507,7 +570,21 @@ function listReleases(env = process.env) {
   try {
     return fs
       .readdirSync(releasesDir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+      .map((entry) => entry.name)
+      .sort();
+  } catch (error) {
+    if (error?.code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+function listFailedReleases(env = process.env) {
+  const releasesDir = path.join(resolveRuntimeBase(env), "releases");
+  try {
+    return fs
+      .readdirSync(releasesDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name.startsWith(".failed-"))
       .map((entry) => entry.name)
       .sort();
   } catch (error) {
@@ -1244,6 +1321,7 @@ function runStatus(args = []) {
     previous_runtime: readLinkOrNull(previousRuntimePath()),
     active_version: activeVersion(),
     available_releases: listReleases(),
+    failed_releases: listFailedReleases(),
     update_available: computeUpdateAvailability(),
     runtime_in_sync: computeRuntimeInSync(),
   };
@@ -1315,9 +1393,11 @@ function runInstall(args, { commandName = "install" } = {}) {
   const previousPath = previousRuntimePath();
   const installerArgs = withoutCliOnlyArgs(args);
   const dryRun = hasFlag(args, "--dry-run");
+  const stagingRoot = !explicitRuntimeRoot && !dryRun ? stagingRootFor(packageVersion) : null;
+  const installRoot = stagingRoot || releaseRoot;
 
   if (!hasFlag(installerArgs, "--runtime-root")) {
-    installerArgs.push("--runtime-root", releaseRoot);
+    installerArgs.push("--runtime-root", installRoot);
   }
   if (!hasFlag(installerArgs, "--install-from-runtime")) {
     installerArgs.push("--install-from-runtime");
@@ -1331,6 +1411,10 @@ function runInstall(args, { commandName = "install" } = {}) {
     return 1;
   }
   const { env, generated } = installerEnv;
+  if (stagingRoot) {
+    env.OPENCLAW_INSTALL_FINAL_ROOT = releaseRoot;
+    writeUpdateJournal("preparing", { staging_root: stagingRoot, release_root: releaseRoot }, env);
+  }
   const result = spawnSync("sh", [setupPath, ...installerArgs], {
     cwd: packageRoot,
     stdio: "inherit",
@@ -1338,10 +1422,22 @@ function runInstall(args, { commandName = "install" } = {}) {
   });
 
   if (result.error) {
+    const failedRoot = failStagingRuntime(stagingRoot, result.error.message);
+    if (!dryRun) {
+      writeUpdateJournal("failed", { failed_runtime: failedRoot, error: result.error.message }, env);
+    }
     console.error(result.error.message);
     return 1;
   }
   if ((result.status ?? 1) !== 0) {
+    const failedRoot = failStagingRuntime(stagingRoot, `installer exited with ${result.status ?? 1}`);
+    if (!dryRun) {
+      writeUpdateJournal(
+        "failed",
+        { failed_runtime: failedRoot, error: `installer exited with ${result.status ?? 1}` },
+        env,
+      );
+    }
     return result.status ?? 1;
   }
 
@@ -1349,34 +1445,21 @@ function runInstall(args, { commandName = "install" } = {}) {
     return 0;
   }
 
-  const currentTarget = existingRuntimePointerTarget(currentPath);
-  if (currentTarget) {
-    switchSymlink(previousPath, currentTarget);
-  }
-  switchSymlink(currentPath, releaseRoot);
-
   // Installs that pass --skip-python-setup may have no venv, so this handshake
   // would fail and trigger a spurious rollback; such flows must set
   // AGENT_WALLET_VERIFY_DISABLE=1 (verifyRuntime then skips).
-  const verification = verifyRuntime(releaseRoot, env);
+  const currentTarget = existingRuntimePointerTarget(currentPath);
+  const verification = verifyRuntime(installRoot, env);
   if (!verification.ok && !verification.skipped) {
-    const rollbackTarget = currentTarget; // pre-switch target captured before the switch, if any
-    const rolledBack = Boolean(rollbackTarget);
-    if (rolledBack) {
-      switchSymlink(currentPath, rollbackTarget);
-    }
+    const failedRoot = failStagingRuntime(stagingRoot, verification.error);
+    const rolledBack = Boolean(currentTarget);
     const previousVersion = rolledBack
-      ? path.basename(path.resolve(path.dirname(currentPath), rollbackTarget))
+      ? path.basename(currentTarget)
       : null;
 
     let human;
     let fix;
     if (!rolledBack) {
-      // First install / no good fallback — leave no active runtime rather than a
-      // broken one. Deliberately do NOT point `previous` at the broken release,
-      // so a later `rollback` cannot reactivate it; the release stays under
-      // releases/<version> for inspection via `install --version`.
-      removeRuntimePointer(currentPath);
       human =
         verification.category === "broken_release"
           ? `Release ${packageVersion} is broken and there is no previous working version to fall back to. Nothing is active. This is a bad release — please report it; a patched version will follow.`
@@ -1405,7 +1488,9 @@ function runInstall(args, { commandName = "install" } = {}) {
           category: verification.category || "unknown",
           error: `runtime verification failed: ${verification.error}`,
           rolled_back: rolledBack,
+          switched_current: false,
           kept_version: previousVersion,
+          failed_runtime: failedRoot,
           current_runtime_target: readLinkOrNull(currentPath),
           message: human,
           fix,
@@ -1414,15 +1499,20 @@ function runInstall(args, { commandName = "install" } = {}) {
         2,
       ),
     );
+    writeUpdateJournal(
+      "failed",
+      { failed_runtime: failedRoot, error: verification.error, kept_version: previousVersion },
+      env,
+    );
     return 1;
   }
 
   if (env.AGENT_WALLET_BOOT_KEY) {
-    const envPath = path.join(releaseRoot, "agent-wallet", ".env");
+    const envPath = path.join(installRoot, "agent-wallet", ".env");
     // Prefer the OS keystore: provision the boot key there and keep the plaintext
     // out of the release .env entirely. Only fall back to the legacy .env write when
     // no keystore round-trip is possible, so the runtime can still resolve the key.
-    if (provisionBootKeyToKeystore(releaseRoot, env, env.AGENT_WALLET_BOOT_KEY)) {
+    if (provisionBootKeyToKeystore(installRoot, env, env.AGENT_WALLET_BOOT_KEY)) {
       envFileUnset(envPath, ["AGENT_WALLET_BOOT_KEY"]);
     } else {
       envFileSet(envPath, {
@@ -1430,6 +1520,31 @@ function runInstall(args, { commandName = "install" } = {}) {
       });
     }
   }
+
+  writeReleaseState(installRoot, "verified", {
+    verification_skipped: Boolean(verification.skipped),
+  });
+  writeUpdateJournal("verified", { staging_root: stagingRoot, release_root: releaseRoot }, env);
+
+  let replacedRoot = null;
+  try {
+    replacedRoot = commitStagedRuntime(stagingRoot, releaseRoot);
+  } catch (error) {
+    const failedRoot = failStagingRuntime(stagingRoot, error.message);
+    writeUpdateJournal("failed", { failed_runtime: failedRoot, error: error.message }, env);
+    console.error(`Could not commit staged runtime: ${error.message}`);
+    return 1;
+  }
+
+  const previousTarget =
+    currentTarget && path.resolve(currentTarget) === path.resolve(releaseRoot) && replacedRoot
+      ? replacedRoot
+      : currentTarget;
+  if (previousTarget) {
+    switchSymlink(previousPath, previousTarget);
+  }
+  switchSymlink(currentPath, releaseRoot);
+  writeUpdateJournal("committed", { release_root: releaseRoot, previous_runtime: previousTarget }, env);
 
   const integrationRefresh = refreshInstalledEditorIntegrations(env);
 
@@ -1451,6 +1566,8 @@ function runInstall(args, { commandName = "install" } = {}) {
         current_runtime: currentPath,
         previous_runtime: readLinkOrNull(previousPath),
         generated_runtime_secrets: Object.keys(generated),
+        staged: Boolean(stagingRoot),
+        release_state: "verified",
         integration_refresh: integrationRefresh,
       },
       null,
