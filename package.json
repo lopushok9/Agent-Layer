@@ -43,6 +43,7 @@
     "agent-wallet/.env.example",
     "agent-wallet/AGENTS.md",
     "agent-wallet/README.md",
+    "agent-wallet/UPGRADE_COMPATIBILITY.md",
     "agent-wallet/openclaw.plugin.json",
     "agent-wallet/pyproject.toml",
     ".openclaw/AGENTS.md",

@@ -89,6 +89,7 @@ These instructions apply to the entire `agent-wallet/` tree.
   - installer scripts and README examples
 - When changing approval or signing behavior, update the runtime, adapter, CLI bridge, and smoke tests together.
 - If a change affects the OpenClaw bridge, update the TypeScript extension and the Python contract in the same change set.
+- Preserve the direct-upgrade floor and legacy removal policy documented in `UPGRADE_COMPATIBILITY.md`.
 
 ### Coding style
 - Follow existing Python style and type-hint usage.
