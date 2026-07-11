@@ -66,6 +66,9 @@ jobs:
       - name: Smoke editor path migration
         run: python agent-wallet/tests/smoke_update_repairs_editor_installs.py
 
+      - name: Smoke unmanaged integration preservation
+        run: python agent-wallet/tests/smoke_update_preserves_unmanaged_integrations.py
+
       - name: Smoke host integration ownership registry
         run: python agent-wallet/tests/smoke_integration_registry.py
 

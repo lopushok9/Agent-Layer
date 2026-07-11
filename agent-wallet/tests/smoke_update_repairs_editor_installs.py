@@ -38,13 +38,48 @@ def main() -> None:
     current.parent.mkdir(parents=True, exist_ok=True)
     current.symlink_to(old_release)
 
+    openclaw_config = home / "openclaw.json"
+    _write_json(
+        openclaw_config,
+        {
+            "plugins": {
+                "load": {
+                    "paths": [
+                        str(old_release / ".openclaw" / "extensions" / "agent-wallet")
+                    ]
+                },
+                "entries": {
+                    "agent-wallet": {
+                        "enabled": True,
+                        "config": {
+                            "backend": "none",
+                            "packageRoot": str(old_release / "agent-wallet"),
+                        },
+                    }
+                },
+            }
+        },
+    )
+
     (old_release / "agent-wallet" / "agent_wallet").mkdir(parents=True, exist_ok=True)
     (old_release / "agent-wallet" / "agent_wallet" / "__init__.py").write_text("__version__='0.0.9'\n", encoding="utf-8")
     (old_release / "hermes" / "plugins" / "agent_wallet").mkdir(parents=True, exist_ok=True)
     (old_release / "hermes" / "plugins" / "agent_wallet" / "plugin.yaml").write_text("name: agent_wallet\n", encoding="utf-8")
     (old_release / "codex" / "plugins" / "agent-wallet" / ".codex-plugin").mkdir(parents=True, exist_ok=True)
-    _write_json(old_release / "codex" / "plugins" / "agent-wallet" / ".codex-plugin" / "plugin.json", {"name": "agent-wallet"})
+    _write_json(
+        old_release / "codex" / "plugins" / "agent-wallet" / ".codex-plugin" / "plugin.json",
+        {"name": "agent-wallet", "version": "0.0.9"},
+    )
     (old_release / "claude-code" / "plugins" / "agent-wallet").mkdir(parents=True, exist_ok=True)
+    _write_json(
+        old_release
+        / "claude-code"
+        / "plugins"
+        / "agent-wallet"
+        / ".claude-plugin"
+        / "plugin.json",
+        {"name": "agent-wallet", "version": "0.0.9"},
+    )
     _write_json(
         old_release / "claude-code" / "plugins" / "agent-wallet" / ".mcp.json",
         {"mcpServers": {"agent-wallet": {"command": "sh", "env": {}}}},
@@ -70,7 +105,12 @@ def main() -> None:
         {
             "name": "local",
             "interface": {"displayName": "Local Plugins"},
-            "plugins": [],
+            "plugins": [
+                {
+                    "name": "agent-wallet",
+                    "source": {"source": "local", "path": "./plugins/agent-wallet"},
+                }
+            ],
         },
     )
 
@@ -78,6 +118,13 @@ def main() -> None:
     claude_plugin_target = claude_marketplace / "plugins" / "agent-wallet"
     claude_plugin_target.parent.mkdir(parents=True, exist_ok=True)
     claude_plugin_target.symlink_to(old_release / "claude-code" / "plugins" / "agent-wallet")
+    _write_json(
+        claude_marketplace / ".claude-plugin" / "marketplace.json",
+        {
+            "name": "agentlayer-local",
+            "plugins": [{"name": "agent-wallet", "source": "./plugins/agent-wallet"}],
+        },
+    )
     claude_cache = temp_root / "claude-cache"
     claude_cache_mcp = claude_cache / "agentlayer-local" / "agent-wallet" / "0.1.0" / ".mcp.json"
     _write_json(
@@ -86,6 +133,17 @@ def main() -> None:
     )
     source_mcp = repo_root / "claude-code" / "plugins" / "agent-wallet" / ".mcp.json"
     source_mcp_before = source_mcp.read_bytes()
+
+    fake_bin = temp_root / "bin"
+    fake_bin.mkdir()
+    host_log = temp_root / "host-refresh.log"
+    for command in ("codex", "claude"):
+        script = fake_bin / command
+        script.write_text(
+            f"#!/bin/sh\nprintf '%s %s\\n' '{command}' \"$*\" >> '{host_log}'\n",
+            encoding="utf-8",
+        )
+        script.chmod(0o755)
 
     env = dict(os.environ)
     env["OPENCLAW_HOME"] = str(home)
@@ -99,6 +157,7 @@ def main() -> None:
     env["AGENT_WALLET_MASTER_KEY"] = "test-master-key-for-update-repair"
     env["AGENT_WALLET_APPROVAL_SECRET"] = "test-approval-secret-for-update-repair"
     env["AGENT_WALLET_VERIFY_DISABLE"] = "1"
+    env["PATH"] = f"{fake_bin}{os.pathsep}{env.get('PATH', '')}"
 
     completed = subprocess.run(
         [
@@ -126,9 +185,17 @@ def main() -> None:
     assert refresh["hermes"]["ok"] is True, refresh
     assert refresh["codex"]["ok"] is True, refresh
     assert refresh["claude-code"]["ok"] is True, refresh
+    assert refresh["openclaw"]["ok"] is True, refresh
 
     registry = json.loads((runtime_base / "integrations.json").read_text(encoding="utf-8"))
     assert registry["integrations"]["openclaw"]["managed"] is True, registry
+    updated_openclaw = json.loads(openclaw_config.read_text(encoding="utf-8"))
+    assert updated_openclaw["plugins"]["load"]["paths"] == [
+        str(current / ".openclaw" / "extensions" / "agent-wallet")
+    ]
+    assert updated_openclaw["plugins"]["entries"]["agent-wallet"]["config"][
+        "packageRoot"
+    ] == str(current / "agent-wallet")
 
     assert os.readlink(hermes_plugin_target) == str(current / "hermes" / "plugins" / "agent_wallet")
     assert os.readlink(codex_plugin_target) == str(current / "codex" / "plugins" / "agent-wallet")
@@ -144,6 +211,10 @@ def main() -> None:
     ]["env"]
     assert cache_env["OPENCLAW_HOME"] == str(home), cache_env
     assert source_mcp.read_bytes() == source_mcp_before
+    host_commands = host_log.read_text(encoding="utf-8")
+    assert "codex plugin add agent-wallet@local" in host_commands, host_commands
+    assert "claude plugin marketplace add" in host_commands, host_commands
+    assert "claude plugin install agent-wallet@agentlayer-local" in host_commands, host_commands
 
     print("smoke_update_repairs_editor_installs: ok")
 
