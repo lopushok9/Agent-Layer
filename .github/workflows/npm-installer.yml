@@ -66,6 +66,9 @@ jobs:
       - name: Smoke editor path migration
         run: python agent-wallet/tests/smoke_update_repairs_editor_installs.py
 
+      - name: Smoke host integration ownership registry
+        run: python agent-wallet/tests/smoke_integration_registry.py
+
       - name: Smoke EVM wrong-home daemon recovery
         run: python agent-wallet/tests/smoke_openclaw_evm_runtime_restart_wrong_home.py
 

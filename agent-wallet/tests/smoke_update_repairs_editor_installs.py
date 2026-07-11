@@ -127,6 +127,9 @@ def main() -> None:
     assert refresh["codex"]["ok"] is True, refresh
     assert refresh["claude-code"]["ok"] is True, refresh
 
+    registry = json.loads((runtime_base / "integrations.json").read_text(encoding="utf-8"))
+    assert registry["integrations"]["openclaw"]["managed"] is True, registry
+
     assert os.readlink(hermes_plugin_target) == str(current / "hermes" / "plugins" / "agent_wallet")
     assert os.readlink(codex_plugin_target) == str(current / "codex" / "plugins" / "agent-wallet")
     assert os.readlink(claude_plugin_target) == str(

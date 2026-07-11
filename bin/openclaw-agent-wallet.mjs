@@ -392,6 +392,36 @@ function updateJournalPath(env = process.env) {
   return path.join(resolveRuntimeBase(env), "update-journal.json");
 }
 
+function integrationRegistryPath(env = process.env) {
+  return path.join(resolveRuntimeBase(env), "integrations.json");
+}
+
+function readIntegrationRegistry(env = process.env) {
+  const payload = readJsonFile(integrationRegistryPath(env));
+  if (!payload || payload.schema_version !== 1 || typeof payload.integrations !== "object") {
+    return { schema_version: 1, integrations: {} };
+  }
+  return payload;
+}
+
+function recordManagedIntegration(name, details = {}, env = process.env) {
+  const registry = readIntegrationRegistry(env);
+  registry.integrations[name] = {
+    managed: true,
+    installed_version: packageVersion,
+    updated_at: new Date().toISOString(),
+    ...details,
+  };
+  registry.updated_at = new Date().toISOString();
+  writeJsonFile(integrationRegistryPath(env), registry);
+  return registry.integrations[name];
+}
+
+function managedIntegration(name, env = process.env) {
+  const entry = readIntegrationRegistry(env).integrations[name];
+  return entry && entry.managed === true ? entry : null;
+}
+
 function writeUpdateJournal(state, details = {}, env = process.env) {
   writeJsonFile(updateJournalPath(env), {
     schema_version: 1,
@@ -1562,6 +1592,18 @@ function runInstall(args, { commandName = "install" } = {}) {
   switchSymlink(currentPath, releaseRoot);
   writeUpdateJournal("committed", { release_root: releaseRoot, previous_runtime: previousTarget }, env);
 
+  recordManagedIntegration(
+    "openclaw",
+    {
+      config_path: path.resolve(
+        expandHome(parseFlagValue(args, "--config-path") || path.join(resolveOpenclawHome(env), "openclaw.json")),
+      ),
+      extension_path: path.join(currentPath, ".openclaw", "extensions", "agent-wallet"),
+      package_root: path.join(currentPath, "agent-wallet"),
+    },
+    env,
+  );
+
   const integrationRefresh = repairInstalledEditorIntegrations(env);
 
   const pythonInfo = activePythonRuntimeInfo(env);
@@ -2001,6 +2043,12 @@ function runHermesInstall(args) {
     }
   }
 
+  recordManagedIntegration("hermes", {
+    hermes_home: hermesHome,
+    plugin_target: pluginTarget,
+    env_path: hermesEnvPath,
+  });
+
   console.log(
     JSON.stringify(
       {
@@ -2085,6 +2133,13 @@ function runCodexInstall(args) {
       };
     }
   }
+
+  recordManagedIntegration("codex", {
+    codex_home: codexHome,
+    plugin_target: pluginTarget,
+    marketplace_path: marketplace.marketplace_path,
+    marketplace_name: marketplace.marketplace_name,
+  });
 
   console.log(
     JSON.stringify(
@@ -2280,6 +2335,14 @@ function runClaudeCodeInstall(args) {
       }
     }
   }
+
+  recordManagedIntegration("claude-code", {
+    marketplace_dir: marketplaceDir,
+    plugin_target: pluginLink,
+    cache_root: path.resolve(
+      expandHome(process.env.AGENT_WALLET_CLAUDE_CODE_CACHE_ROOT || "~/.claude/plugins/cache"),
+    ),
+  });
 
   const ok = enable.skipped || enable.ok;
   const pinnedCache = pinClaudeCacheCopies();
