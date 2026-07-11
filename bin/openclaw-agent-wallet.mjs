@@ -1434,19 +1434,18 @@ function buildInstallerEnv(args) {
   const sealedKeysExist = fs.existsSync(sealedKeysPath);
   const dryRun = hasFlag(args, "--dry-run");
   let bootKeySource = env.AGENT_WALLET_BOOT_KEY ? "environment" : "none";
-  if (!env.AGENT_WALLET_BOOT_KEY) {
-    const runtimeResolution = readBootKeyFromRuntimeResolver(env);
-    const fallback = runtimeResolution.supported
-      ? {
-          key: runtimeResolution.key,
-          source: runtimeResolution.key ? "runtime_verified" : "runtime_rejected",
-        }
-      : resolveLegacyInstallerBootKey(env);
-    const existingBootKey = fallback.key;
-    bootKeySource = fallback.source;
-    if (existingBootKey) {
-      env.AGENT_WALLET_BOOT_KEY = existingBootKey;
+  const runtimeResolution = readBootKeyFromRuntimeResolver(env);
+  if (runtimeResolution.supported) {
+    bootKeySource = runtimeResolution.key ? "runtime_verified" : "runtime_rejected";
+    if (runtimeResolution.key) {
+      env.AGENT_WALLET_BOOT_KEY = runtimeResolution.key;
+    } else {
+      delete env.AGENT_WALLET_BOOT_KEY;
     }
+  } else if (!env.AGENT_WALLET_BOOT_KEY) {
+    const fallback = resolveLegacyInstallerBootKey(env);
+    bootKeySource = fallback.source;
+    if (fallback.key) env.AGENT_WALLET_BOOT_KEY = fallback.key;
   }
 
   const shouldGenerateSecrets =
