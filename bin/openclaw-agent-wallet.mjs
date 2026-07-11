@@ -6,6 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createUpdateTransactionManager } from "./lib/update-transaction.mjs";
 
 const cliPath = fileURLToPath(import.meta.url);
 const packageRoot = path.resolve(path.dirname(cliPath), "..");
@@ -388,100 +389,31 @@ function stagingRootFor(version, env = process.env) {
   );
 }
 
-function updateJournalPath(env = process.env) {
-  return path.join(resolveRuntimeBase(env), "update-journal.json");
+function updateTransactions(env = process.env) {
+  return createUpdateTransactionManager({
+    runtimeBase: resolveRuntimeBase(env),
+    packageVersion,
+    env,
+  });
 }
 
-function updateLockPath(env = process.env) {
-  return path.join(resolveRuntimeBase(env), "update.lock");
-}
-
-function processIsRunning(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error?.code !== "ESRCH";
-  }
-}
-
-function acquireUpdateLock(env = process.env, allowStaleRetry = true) {
-  const lockPath = updateLockPath(env);
-  const ownerPath = path.join(lockPath, "owner.json");
-  const token = crypto.randomUUID();
-  fs.mkdirSync(resolveRuntimeBase(env), { recursive: true });
-  try {
-    fs.mkdirSync(lockPath);
-  } catch (error) {
-    if (error?.code !== "EEXIST") throw error;
-    let owner = null;
-    try {
-      owner = readJsonFile(ownerPath);
-    } catch {
-      // An unreadable lock is not safe to steal automatically.
-    }
-    const stale = owner?.hostname === os.hostname() && !processIsRunning(Number(owner.pid));
-    if (stale && allowStaleRetry) {
-      fs.rmSync(lockPath, { recursive: true, force: true });
-      return acquireUpdateLock(env, false);
-    }
-    return {
-      ok: false,
-      path: lockPath,
-      owner: owner ? { pid: owner.pid, hostname: owner.hostname, started_at: owner.started_at } : null,
-    };
-  }
-  try {
-    writeJsonFileAtomic(ownerPath, {
-      schema_version: 1,
-      pid: process.pid,
-      hostname: os.hostname(),
-      token,
-      started_at: new Date().toISOString(),
-    });
-  } catch (error) {
-    fs.rmSync(lockPath, { recursive: true, force: true });
-    throw error;
-  }
-  return { ok: true, path: lockPath, owner_path: ownerPath, token };
+function acquireUpdateLock(env = process.env) {
+  return updateTransactions(env).acquireLock();
 }
 
 function releaseUpdateLock(lock) {
-  if (!lock?.ok) return;
-  try {
-    const owner = readJsonFile(lock.owner_path);
-    if (owner?.token === lock.token) fs.rmSync(lock.path, { recursive: true, force: true });
-  } catch {
-    // Never remove a lock whose ownership can no longer be verified.
-  }
+  return createUpdateTransactionManager({
+    runtimeBase: path.dirname(lock.path),
+    packageVersion,
+  }).releaseLock(lock);
 }
 
 function holdUpdateLockForTest(env = process.env) {
-  const milliseconds = Number.parseInt(String(env.AGENT_WALLET_TEST_HOLD_LOCK_MS || ""), 10);
-  if (!Number.isFinite(milliseconds) || milliseconds <= 0) return;
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+  updateTransactions(env).holdLockForTest();
 }
 
 function readUpdateJournal(env = process.env) {
-  try {
-    return readJsonFile(updateJournalPath(env));
-  } catch (error) {
-    return { schema_version: 1, state: "corrupt", error: error.message };
-  }
-}
-
-function runtimeOwnedPath(candidate, env = process.env) {
-  if (!candidate) return false;
-  const runtimeBase = path.resolve(resolveRuntimeBase(env));
-  const relative = path.relative(runtimeBase, path.resolve(candidate));
-  return relative !== "" && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
-}
-
-function interruptedRuntimePath(version, env = process.env) {
-  return uniquePathWithSuffix(
-    path.join(resolveRuntimeBase(env), "releases", `.interrupted-${version || "unknown"}-${Date.now()}`),
-  );
+  return updateTransactions(env).readJournal();
 }
 
 function integrationRegistryPath(env = process.env) {
@@ -539,99 +471,15 @@ function integrationSyncStatus(env = process.env) {
 }
 
 function writeUpdateJournal(state, details = {}, env = process.env) {
-  writeJsonFileAtomic(updateJournalPath(env), {
-    ...details,
-    schema_version: 2,
-    state,
-    version: details.version || packageVersion,
-    updated_at: new Date().toISOString(),
-  });
+  updateTransactions(env).writeJournal(state, details);
 }
 
 function recoverInterruptedUpdate(env = process.env) {
-  const journal = readUpdateJournal(env);
-  if (!journal || ["committed", "failed", "recovered"].includes(journal.state)) {
-    return { attempted: false, ok: true, reason: "no interrupted update" };
-  }
-  if (journal.state === "corrupt") {
-    return { attempted: false, ok: false, reason: "update journal is corrupt", error: journal.error };
-  }
-  const paths = [journal.staging_root, journal.release_root, journal.replaced_root].filter(Boolean);
-  if (paths.some((candidate) => !runtimeOwnedPath(candidate, env))) {
-    return { attempted: false, ok: false, reason: "update journal contains an unsafe path" };
-  }
-
-  if (journal.state === "committing") {
-    const releaseExists = Boolean(journal.release_root && fs.existsSync(journal.release_root));
-    const replacedExists = Boolean(journal.replaced_root && fs.existsSync(journal.replaced_root));
-    if (!releaseExists && replacedExists) {
-      fs.renameSync(journal.replaced_root, journal.release_root);
-      writeUpdateJournal(
-        "recovered",
-        { ...journal, state: undefined, action: "restored_replaced_release" },
-        env,
-      );
-      return { attempted: true, ok: true, action: "restored_replaced_release" };
-    }
-    if (releaseExists) {
-      writeUpdateJournal(
-        "recovered",
-        { ...journal, state: undefined, action: "release_already_present" },
-        env,
-      );
-      return { attempted: true, ok: true, action: "release_already_present" };
-    }
-    return { attempted: true, ok: false, reason: "interrupted commit has no recoverable release" };
-  }
-
-  if (["preparing", "verified"].includes(journal.state)) {
-    let quarantined = null;
-    if (journal.staging_root && fs.existsSync(journal.staging_root)) {
-      quarantined = interruptedRuntimePath(journal.version, env);
-      fs.renameSync(journal.staging_root, quarantined);
-    }
-    writeUpdateJournal(
-      "recovered",
-      { ...journal, state: undefined, action: "quarantined_incomplete_staging", quarantined_runtime: quarantined },
-      env,
-    );
-    return { attempted: true, ok: true, action: "quarantined_incomplete_staging", quarantined_runtime: quarantined };
-  }
-  return { attempted: false, ok: false, reason: `unsupported update journal state: ${journal.state}` };
+  return updateTransactions(env).recover();
 }
 
 function updateRecoveryStatus(env = process.env) {
-  const journal = readUpdateJournal(env);
-  const state = journal?.state || null;
-  const currentPath = currentRuntimePath(env);
-  const currentTarget = readLinkOrNull(currentPath);
-  const currentResolves = Boolean(currentTarget && fs.existsSync(path.resolve(path.dirname(currentPath), currentTarget)));
-  let lockOwner = null;
-  try {
-    const owner = readJsonFile(path.join(updateLockPath(env), "owner.json"));
-    if (owner) {
-      lockOwner = {
-        pid: owner.pid,
-        hostname: owner.hostname,
-        started_at: owner.started_at,
-        active: owner.hostname === os.hostname() ? processIsRunning(Number(owner.pid)) : null,
-      };
-    }
-  } catch {
-    // Report an unreadable lock as present without trusting its contents.
-    if (fs.existsSync(updateLockPath(env))) lockOwner = { unreadable: true };
-  }
-  const needsRecovery = Boolean(
-    state && !["committed", "failed", "recovered"].includes(state),
-  );
-  return {
-    journal_schema_version: journal?.schema_version || null,
-    state,
-    journal_ok: state !== "corrupt",
-    needs_recovery: needsRecovery,
-    current_resolves: currentTarget ? currentResolves : null,
-    lock: lockOwner,
-  };
+  return updateTransactions(env).status();
 }
 
 function writeReleaseState(runtimeRoot, state, details = {}) {
