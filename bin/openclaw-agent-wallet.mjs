@@ -392,6 +392,27 @@ function updateJournalPath(env = process.env) {
   return path.join(resolveRuntimeBase(env), "update-journal.json");
 }
 
+function readUpdateJournal(env = process.env) {
+  try {
+    return readJsonFile(updateJournalPath(env));
+  } catch (error) {
+    return { schema_version: 1, state: "corrupt", error: error.message };
+  }
+}
+
+function runtimeOwnedPath(candidate, env = process.env) {
+  if (!candidate) return false;
+  const runtimeBase = path.resolve(resolveRuntimeBase(env));
+  const relative = path.relative(runtimeBase, path.resolve(candidate));
+  return relative !== "" && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
+function interruptedRuntimePath(version, env = process.env) {
+  return uniquePathWithSuffix(
+    path.join(resolveRuntimeBase(env), "releases", `.interrupted-${version || "unknown"}-${Date.now()}`),
+  );
+}
+
 function integrationRegistryPath(env = process.env) {
   return path.join(resolveRuntimeBase(env), "integrations.json");
 }
@@ -447,13 +468,65 @@ function integrationSyncStatus(env = process.env) {
 }
 
 function writeUpdateJournal(state, details = {}, env = process.env) {
-  writeJsonFile(updateJournalPath(env), {
-    schema_version: 1,
-    state,
-    version: packageVersion,
-    updated_at: new Date().toISOString(),
+  writeJsonFileAtomic(updateJournalPath(env), {
     ...details,
+    schema_version: 2,
+    state,
+    version: details.version || packageVersion,
+    updated_at: new Date().toISOString(),
   });
+}
+
+function recoverInterruptedUpdate(env = process.env) {
+  const journal = readUpdateJournal(env);
+  if (!journal || ["committed", "failed", "recovered"].includes(journal.state)) {
+    return { attempted: false, ok: true, reason: "no interrupted update" };
+  }
+  if (journal.state === "corrupt") {
+    return { attempted: false, ok: false, reason: "update journal is corrupt", error: journal.error };
+  }
+  const paths = [journal.staging_root, journal.release_root, journal.replaced_root].filter(Boolean);
+  if (paths.some((candidate) => !runtimeOwnedPath(candidate, env))) {
+    return { attempted: false, ok: false, reason: "update journal contains an unsafe path" };
+  }
+
+  if (journal.state === "committing") {
+    const releaseExists = Boolean(journal.release_root && fs.existsSync(journal.release_root));
+    const replacedExists = Boolean(journal.replaced_root && fs.existsSync(journal.replaced_root));
+    if (!releaseExists && replacedExists) {
+      fs.renameSync(journal.replaced_root, journal.release_root);
+      writeUpdateJournal(
+        "recovered",
+        { ...journal, state: undefined, action: "restored_replaced_release" },
+        env,
+      );
+      return { attempted: true, ok: true, action: "restored_replaced_release" };
+    }
+    if (releaseExists) {
+      writeUpdateJournal(
+        "recovered",
+        { ...journal, state: undefined, action: "release_already_present" },
+        env,
+      );
+      return { attempted: true, ok: true, action: "release_already_present" };
+    }
+    return { attempted: true, ok: false, reason: "interrupted commit has no recoverable release" };
+  }
+
+  if (["preparing", "verified"].includes(journal.state)) {
+    let quarantined = null;
+    if (journal.staging_root && fs.existsSync(journal.staging_root)) {
+      quarantined = interruptedRuntimePath(journal.version, env);
+      fs.renameSync(journal.staging_root, quarantined);
+    }
+    writeUpdateJournal(
+      "recovered",
+      { ...journal, state: undefined, action: "quarantined_incomplete_staging", quarantined_runtime: quarantined },
+      env,
+    );
+    return { attempted: true, ok: true, action: "quarantined_incomplete_staging", quarantined_runtime: quarantined };
+  }
+  return { attempted: false, ok: false, reason: `unsupported update journal state: ${journal.state}` };
 }
 
 function writeReleaseState(runtimeRoot, state, details = {}) {
@@ -477,14 +550,14 @@ function failStagingRuntime(stagingRoot, error) {
   return failedRoot;
 }
 
-function commitStagedRuntime(stagingRoot, releaseRoot) {
+function commitStagedRuntime(stagingRoot, releaseRoot, replacedRoot = null, env = process.env) {
   if (!stagingRoot) return null;
-  let replacedRoot = null;
   if (fs.existsSync(releaseRoot)) {
-    replacedRoot = uniquePathWithSuffix(
+    replacedRoot ||= uniquePathWithSuffix(
       path.join(path.dirname(releaseRoot), `${path.basename(releaseRoot)}-replaced`),
     );
     fs.renameSync(releaseRoot, replacedRoot);
+    if (env.AGENT_WALLET_TEST_EXIT_AFTER_RELEASE_RENAME === "1") process.exit(86);
   }
   try {
     fs.renameSync(stagingRoot, releaseRoot);
@@ -1522,6 +1595,13 @@ function runInstall(args, { commandName = "install" } = {}) {
   const previousPath = previousRuntimePath();
   const installerArgs = withoutCliOnlyArgs(args);
   const dryRun = hasFlag(args, "--dry-run");
+  const recovery = dryRun
+    ? { attempted: false, ok: true, reason: "dry run" }
+    : recoverInterruptedUpdate(process.env);
+  if (!recovery.ok) {
+    console.error(`Could not recover interrupted update: ${recovery.reason || recovery.error}`);
+    return 1;
+  }
   const stagingRoot = !explicitRuntimeRoot && !dryRun ? stagingRootFor(packageVersion) : null;
   const installRoot = stagingRoot || releaseRoot;
 
@@ -1542,7 +1622,17 @@ function runInstall(args, { commandName = "install" } = {}) {
   const { env, generated, bootKeySource } = installerEnv;
   if (stagingRoot) {
     env.OPENCLAW_INSTALL_FINAL_ROOT = releaseRoot;
-    writeUpdateJournal("preparing", { staging_root: stagingRoot, release_root: releaseRoot }, env);
+    writeUpdateJournal(
+      "preparing",
+      {
+        transaction_id: crypto.randomUUID(),
+        staging_root: stagingRoot,
+        release_root: releaseRoot,
+        current_target_before: readLinkOrNull(currentPath),
+        previous_target_before: readLinkOrNull(previousPath),
+      },
+      env,
+    );
   }
   const result = spawnSync("sh", [setupPath, ...installerArgs], {
     cwd: packageRoot,
@@ -1681,11 +1771,32 @@ function runInstall(args, { commandName = "install" } = {}) {
   writeReleaseState(installRoot, "verified", {
     verification_skipped: Boolean(verification.skipped),
   });
-  writeUpdateJournal("verified", { staging_root: stagingRoot, release_root: releaseRoot }, env);
+  writeUpdateJournal(
+    "verified",
+    { ...readUpdateJournal(env), staging_root: stagingRoot, release_root: releaseRoot },
+    env,
+  );
 
   let replacedRoot = null;
   try {
-    replacedRoot = commitStagedRuntime(stagingRoot, releaseRoot);
+    replacedRoot = fs.existsSync(releaseRoot)
+      ? uniquePathWithSuffix(
+          path.join(path.dirname(releaseRoot), `${path.basename(releaseRoot)}-replaced`),
+        )
+      : null;
+    writeUpdateJournal(
+      "committing",
+      {
+        ...readUpdateJournal(env),
+        staging_root: stagingRoot,
+        release_root: releaseRoot,
+        replaced_root: replacedRoot,
+        current_target_before: readLinkOrNull(currentPath),
+        previous_target_before: readLinkOrNull(previousPath),
+      },
+      env,
+    );
+    replacedRoot = commitStagedRuntime(stagingRoot, releaseRoot, replacedRoot, env);
   } catch (error) {
     const failedRoot = failStagingRuntime(stagingRoot, error.message);
     writeUpdateJournal("failed", { failed_runtime: failedRoot, error: error.message }, env);
@@ -1701,7 +1812,11 @@ function runInstall(args, { commandName = "install" } = {}) {
     switchSymlink(previousPath, previousTarget);
   }
   switchSymlink(currentPath, releaseRoot);
-  writeUpdateJournal("committed", { release_root: releaseRoot, previous_runtime: previousTarget }, env);
+  writeUpdateJournal(
+    "committed",
+    { ...readUpdateJournal(env), release_root: releaseRoot, previous_runtime: previousTarget },
+    env,
+  );
 
   recordManagedIntegration(
     "openclaw",
@@ -1739,6 +1854,7 @@ function runInstall(args, { commandName = "install" } = {}) {
         boot_key_source: bootKeySource,
         staged: Boolean(stagingRoot),
         release_state: "verified",
+        recovery,
         integration_refresh: integrationRefresh,
         global_cli_refresh: globalCliRefresh,
       },

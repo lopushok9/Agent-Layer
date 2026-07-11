@@ -66,6 +66,9 @@ jobs:
       - name: Smoke staged install failure isolation
         run: python agent-wallet/tests/smoke_install_verify_rollback.py
 
+      - name: Smoke interrupted commit recovery
+        run: python agent-wallet/tests/smoke_update_recovers_interrupted_commit.py
+
       - name: Smoke editor path migration
         run: python agent-wallet/tests/smoke_update_repairs_editor_installs.py
 
