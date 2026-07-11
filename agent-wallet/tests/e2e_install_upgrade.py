@@ -73,6 +73,12 @@ def main() -> None:
     env = dict(os.environ)
     env["OPENCLAW_HOME"] = str(temp_home)
     env["AGENT_WALLET_KEYSTORE_SERVICE"] = TEST_SERVICE
+    env["HERMES_HOME"] = str(temp_home / "hermes-home")
+    env["CODEX_HOME"] = str(temp_home / "codex-home")
+    env["AGENT_WALLET_CODEX_PLUGIN_ROOT"] = str(temp_home / "codex-plugins")
+    env["AGENT_WALLET_CODEX_MARKETPLACE_PATH"] = str(temp_home / "marketplace.json")
+    env["AGENT_WALLET_CLAUDE_CODE_MARKETPLACE_DIR"] = str(temp_home / "claude-marketplace")
+    env["AGENT_WALLET_CLAUDE_CODE_CACHE_ROOT"] = str(temp_home / "claude-cache")
     for var in (
         "AGENT_WALLET_BOOT_KEY",
         "AGENT_WALLET_BOOT_KEY_FILE",
