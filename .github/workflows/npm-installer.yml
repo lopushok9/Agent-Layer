@@ -72,6 +72,9 @@ jobs:
       - name: Smoke update lock
         run: python agent-wallet/tests/smoke_update_lock.py
 
+      - name: Smoke update recovery diagnostics
+        run: python agent-wallet/tests/smoke_update_recovery_status.py
+
       - name: Smoke editor path migration
         run: python agent-wallet/tests/smoke_update_repairs_editor_installs.py
 

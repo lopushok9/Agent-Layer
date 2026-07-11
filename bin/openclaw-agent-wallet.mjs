@@ -600,6 +600,40 @@ function recoverInterruptedUpdate(env = process.env) {
   return { attempted: false, ok: false, reason: `unsupported update journal state: ${journal.state}` };
 }
 
+function updateRecoveryStatus(env = process.env) {
+  const journal = readUpdateJournal(env);
+  const state = journal?.state || null;
+  const currentPath = currentRuntimePath(env);
+  const currentTarget = readLinkOrNull(currentPath);
+  const currentResolves = Boolean(currentTarget && fs.existsSync(path.resolve(path.dirname(currentPath), currentTarget)));
+  let lockOwner = null;
+  try {
+    const owner = readJsonFile(path.join(updateLockPath(env), "owner.json"));
+    if (owner) {
+      lockOwner = {
+        pid: owner.pid,
+        hostname: owner.hostname,
+        started_at: owner.started_at,
+        active: owner.hostname === os.hostname() ? processIsRunning(Number(owner.pid)) : null,
+      };
+    }
+  } catch {
+    // Report an unreadable lock as present without trusting its contents.
+    if (fs.existsSync(updateLockPath(env))) lockOwner = { unreadable: true };
+  }
+  const needsRecovery = Boolean(
+    state && !["committed", "failed", "recovered"].includes(state),
+  );
+  return {
+    journal_schema_version: journal?.schema_version || null,
+    state,
+    journal_ok: state !== "corrupt",
+    needs_recovery: needsRecovery,
+    current_resolves: currentTarget ? currentResolves : null,
+    lock: lockOwner,
+  };
+}
+
 function writeReleaseState(runtimeRoot, state, details = {}) {
   writeJsonFile(path.join(runtimeRoot, ".agent-wallet-release.json"), {
     schema_version: 1,
@@ -1558,10 +1592,20 @@ function runDoctor(args = []) {
     fix: integrationSync.in_sync ? "" : "wallet update --yes",
   });
 
+  const recoveryStatus = updateRecoveryStatus(env);
+  checks.push({
+    name: "update_recovery_state",
+    ok: true,
+    ...recoveryStatus,
+    error: "",
+    fix: recoveryStatus.needs_recovery ? "wallet install --yes" : "",
+  });
+
   const ok = checks.every((c) => c.ok);
   console.log(
     JSON.stringify(
       {
+        schema_version: 1,
         ok,
         package_name: packageJson.name,
         package_version: packageVersion,
@@ -1581,6 +1625,7 @@ function runDoctor(args = []) {
 
 function runStatus(args = []) {
   const payload = {
+    schema_version: 1,
     ok: true,
     package_name: packageJson.name,
     package_version: packageVersion,
@@ -1594,6 +1639,7 @@ function runStatus(args = []) {
     update_available: computeUpdateAvailability(),
     runtime_in_sync: computeRuntimeInSync(),
     framework_integrations: integrationSyncStatus(),
+    update_recovery: updateRecoveryStatus(),
   };
   if (hasFlag(args, "--verbose")) {
     payload.verbose = true;
