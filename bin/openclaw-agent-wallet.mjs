@@ -1902,7 +1902,10 @@ function runInstallUnlocked(args, { commandName = "install" } = {}) {
   );
 
   const integrationRefresh = repairInstalledEditorIntegrations(env);
-  const globalCliRefresh = refreshGlobalCliIfNeeded(env);
+  const globalCliRefresh = safelyRefreshIntegration(
+    "global-cli",
+    () => refreshGlobalCliIfNeeded(env),
+  );
 
   const pythonInfo = activePythonRuntimeInfo(env);
   const nodeInfo = activeNodeRuntimeInfo(env)
@@ -3111,43 +3114,69 @@ function refreshClaudeCodeIntegration(entry, env = process.env) {
   };
 }
 
-function repairInstalledEditorIntegrations(env = process.env) {
-  const results = [repairOpenclawIntegration(env)];
-  const currentRoot = currentRuntimePath(env);
-  const hermesEntry = managedIntegration("hermes", env) || legacyHermesIntegration(env);
-  if (hermesEntry) {
-    const hermesTarget = path.resolve(expandHome(hermesEntry.plugin_target));
-    const hermesEnvPath = path.resolve(expandHome(hermesEntry.env_path));
-    const result = repairRuntimeSymlink(
-      "hermes",
-      hermesTarget,
-      path.join(currentRoot, "hermes", "plugins", "agent_wallet"),
-      env,
-      { allowExternal: true },
-    );
-    result.env_repaired = repairHermesEnv(hermesEnvPath, env);
-    result.restart_required = true;
-    if (result.ok) {
-      recordManagedIntegration(
-        "hermes",
-        {
-          ...hermesEntry,
-          plugin_target: hermesTarget,
-          env_path: hermesEnvPath,
-          restart_required: true,
-        },
-        env,
-      );
-    }
-    results.push(result);
+function safelyRefreshIntegration(name, callback) {
+  try {
+    return callback();
+  } catch (error) {
+    const fix = name === "global-cli"
+      ? "Re-run: wallet update --yes"
+      : name === "openclaw"
+        ? "Re-run: wallet install --yes"
+        : `Re-run: wallet ${name} install --yes`;
+    return {
+      name,
+      attempted: true,
+      ok: false,
+      repaired: false,
+      error: error?.message || String(error),
+      restart_required: false,
+      fix,
+    };
   }
+}
 
-  const codexEntry = managedIntegration("codex", env) || legacyCodexIntegration(env);
-  if (codexEntry) results.push(refreshCodexIntegration(codexEntry, env));
+function refreshHermesIntegration(env = process.env) {
+  const currentRoot = currentRuntimePath(env);
+  const entry = managedIntegration("hermes", env) || legacyHermesIntegration(env);
+  if (!entry) return null;
+  const target = path.resolve(expandHome(entry.plugin_target));
+  const envPath = path.resolve(expandHome(entry.env_path));
+  const result = repairRuntimeSymlink(
+    "hermes",
+    target,
+    path.join(currentRoot, "hermes", "plugins", "agent_wallet"),
+    env,
+    { allowExternal: true },
+  );
+  result.env_repaired = repairHermesEnv(envPath, env);
+  result.restart_required = true;
+  if (result.ok) {
+    recordManagedIntegration(
+      "hermes",
+      { ...entry, plugin_target: target, env_path: envPath, restart_required: true },
+      env,
+    );
+  }
+  return result;
+}
 
-  const claudeEntry = managedIntegration("claude-code", env) || legacyClaudeCodeIntegration(env);
-  if (claudeEntry) results.push(refreshClaudeCodeIntegration(claudeEntry, env));
-  return results;
+function refreshRegisteredCodexIntegration(env = process.env) {
+  const entry = managedIntegration("codex", env) || legacyCodexIntegration(env);
+  return entry ? refreshCodexIntegration(entry, env) : null;
+}
+
+function refreshRegisteredClaudeCodeIntegration(env = process.env) {
+  const entry = managedIntegration("claude-code", env) || legacyClaudeCodeIntegration(env);
+  return entry ? refreshClaudeCodeIntegration(entry, env) : null;
+}
+
+function repairInstalledEditorIntegrations(env = process.env) {
+  return [
+    safelyRefreshIntegration("openclaw", () => repairOpenclawIntegration(env)),
+    safelyRefreshIntegration("hermes", () => refreshHermesIntegration(env)),
+    safelyRefreshIntegration("codex", () => refreshRegisteredCodexIntegration(env)),
+    safelyRefreshIntegration("claude-code", () => refreshRegisteredClaudeCodeIntegration(env)),
+  ].filter(Boolean);
 }
 
 const args = process.argv.slice(2);
