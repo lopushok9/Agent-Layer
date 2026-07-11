@@ -57,6 +57,9 @@ jobs:
       - name: Smoke verified boot-key resolution
         run: python agent-wallet/tests/smoke_boot_key_verified_resolution.py
 
+      - name: Smoke staged boot-key rejection
+        run: python agent-wallet/tests/smoke_install_rejects_unverified_boot_key.py
+
       - name: Smoke legacy update boot-key precedence
         run: python agent-wallet/tests/smoke_legacy_update_boot_key_precedence.py
 

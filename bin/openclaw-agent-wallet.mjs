@@ -1231,6 +1231,39 @@ function verifyRuntime(releaseRoot, env = process.env) {
   };
 }
 
+function verifyBootKeyWithRuntime(releaseRoot, env = process.env) {
+  const sealedPath = path.join(resolveOpenclawHome(env), "sealed_keys.json");
+  if (!fs.existsSync(sealedPath)) return { ok: true, required: false };
+  const key = String(env.AGENT_WALLET_BOOT_KEY || "").trim();
+  if (!key) return { ok: false, required: true, error: "no verified boot key is available" };
+  const python =
+    env.AGENT_WALLET_PYTHON ||
+    env.OPENCLAW_AGENT_WALLET_PYTHON ||
+    resolveVenvPython(releaseRoot);
+  if (!python) {
+    if (String(env.AGENT_WALLET_VERIFY_DISABLE || "") === "1") {
+      return { ok: true, required: true, skipped: true };
+    }
+    return { ok: false, required: true, error: "staged Python runtime is unavailable" };
+  }
+  const result = spawnSync(
+    python,
+    [
+      "-c",
+      "from agent_wallet.sealed_keys import unseal_keys; import os; unseal_keys(os.environ['AGENT_WALLET_BOOT_KEY']); print('ok')",
+    ],
+    {
+      cwd: path.join(releaseRoot, "agent-wallet"),
+      encoding: "utf8",
+      timeout: positiveIntEnv("AGENT_WALLET_KEYSTORE_BRIDGE_TIMEOUT_MS", KEYSTORE_BRIDGE_TIMEOUT_MS, env),
+      env: { ...env, OPENCLAW_HOME: resolveOpenclawHome(env) },
+    },
+  );
+  return result.status === 0
+    ? { ok: true, required: true }
+    : { ok: false, required: true, error: "selected boot key does not unlock sealed wallet state" };
+}
+
 function resolveEditorServerChecks(env = process.env) {
   const checks = [];
   // Claude Code's launcher (run_mcp.sh) falls back to the runtime codex
@@ -1599,6 +1632,34 @@ function runInstall(args, { commandName = "install" } = {}) {
       "failed",
       { failed_runtime: failedRoot, error: verification.error, kept_version: previousVersion },
       env,
+    );
+    return 1;
+  }
+
+  const bootKeyVerification = verifyBootKeyWithRuntime(installRoot, env);
+  if (!bootKeyVerification.ok) {
+    const failedRoot = failStagingRuntime(stagingRoot, bootKeyVerification.error);
+    writeUpdateJournal(
+      "failed",
+      { failed_runtime: failedRoot, error: bootKeyVerification.error },
+      env,
+    );
+    console.error(
+      JSON.stringify(
+        {
+          ok: false,
+          command: commandName,
+          version: packageVersion,
+          category: "boot_key_rejected",
+          error: bootKeyVerification.error,
+          switched_current: false,
+          failed_runtime: failedRoot,
+          current_runtime_target: readLinkOrNull(currentPath),
+          fix: "Remove stale AGENT_WALLET_BOOT_KEY overrides and retry the update.",
+        },
+        null,
+        2,
+      ),
     );
     return 1;
   }
