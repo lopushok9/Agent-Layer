@@ -29,10 +29,19 @@ def export_boot_key() -> str:
 
 
 def import_boot_key(value: str) -> dict:
-    """Write a recorded boot key into the OS keystore and verify the read-back."""
+    """Validate and write a recorded boot key, then verify the read-back."""
     key = str(value or "").strip()
     if not key:
         raise WalletBackendError("A non-empty boot key is required for import.")
+    from agent_wallet.sealed_keys import resolve_sealed_keys_path, unseal_keys
+
+    if resolve_sealed_keys_path().exists():
+        try:
+            unseal_keys(key)
+        except Exception as exc:
+            raise WalletBackendError(
+                "The supplied boot key does not unlock the existing sealed wallet state."
+            ) from exc
     store = resolve_keystore()
     store.set(BOOT_KEY_ITEM, key)
     if store.get(BOOT_KEY_ITEM) != key:
