@@ -26,10 +26,17 @@ def main() -> None:
 
     env = dict(os.environ)
     env["OPENCLAW_HOME"] = str(temp_root)
+    env["npm_config_cache"] = str(temp_root / "npm-cache")
     env["AGENT_WALLET_BOOT_KEY"] = "test-boot-key-for-npm-installer"
     env["AGENT_WALLET_MASTER_KEY"] = "test-master-key-for-npm-installer"
     env["AGENT_WALLET_APPROVAL_SECRET"] = "test-approval-secret-for-npm-installer"
     env["AGENT_WALLET_VERIFY_DISABLE"] = "1"
+    env["HERMES_HOME"] = str(temp_root / "hermes-home")
+    env["CODEX_HOME"] = str(temp_root / "codex-home")
+    env["AGENT_WALLET_CODEX_PLUGIN_ROOT"] = str(temp_root / "codex-plugins")
+    env["AGENT_WALLET_CODEX_MARKETPLACE_PATH"] = str(
+        temp_root / "agents" / "plugins" / "marketplace.json"
+    )
     env["AGENT_WALLET_CLAUDE_CODE_MARKETPLACE_DIR"] = str(temp_root / "claude-marketplace")
     env["AGENT_WALLET_CLAUDE_CODE_CACHE_ROOT"] = str(temp_root / "claude-cache")
 
@@ -256,6 +263,7 @@ def main() -> None:
         text=True,
         check=True,
         cwd=repo_root,
+        env=env,
     )
     pack_payload = json.loads(pack_result.stdout)
     tarball_name = pack_payload[0]["filename"]
