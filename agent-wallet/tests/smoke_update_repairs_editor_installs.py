@@ -189,6 +189,10 @@ def main() -> None:
 
     registry = json.loads((runtime_base / "integrations.json").read_text(encoding="utf-8"))
     assert registry["integrations"]["openclaw"]["managed"] is True, registry
+    assert all(
+        entry["installed_version"] == package_version
+        for entry in registry["integrations"].values()
+    ), registry
     updated_openclaw = json.loads(openclaw_config.read_text(encoding="utf-8"))
     assert updated_openclaw["plugins"]["load"]["paths"] == [
         str(current / ".openclaw" / "extensions" / "agent-wallet")
@@ -215,6 +219,12 @@ def main() -> None:
     assert "codex plugin add agent-wallet@local" in host_commands, host_commands
     assert "claude plugin marketplace add" in host_commands, host_commands
     assert "claude plugin install agent-wallet@agentlayer-local" in host_commands, host_commands
+
+    status_result = subprocess.run(
+        ["node", str(cli), "status"], capture_output=True, text=True, check=True, env=env
+    )
+    framework_status = json.loads(status_result.stdout)["framework_integrations"]
+    assert framework_status["in_sync"] is True, framework_status
 
     print("smoke_update_repairs_editor_installs: ok")
 

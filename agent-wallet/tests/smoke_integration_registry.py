@@ -62,6 +62,21 @@ def main() -> None:
             assert entry["installed_version"], (name, entry)
             assert not any("key" in field.lower() or "secret" in field.lower() for field in entry)
 
+        status_result = subprocess.run(
+            ["node", str(cli), "status"],
+            check=True,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        status = json.loads(status_result.stdout)["framework_integrations"]
+        assert status["in_sync"] is True, status
+        assert {entry["name"] for entry in status["integrations"]} == {
+            "hermes",
+            "codex",
+            "claude-code",
+        }, status
+
         print("smoke_integration_registry: ok")
     finally:
         shutil.rmtree(temp_root, ignore_errors=True)

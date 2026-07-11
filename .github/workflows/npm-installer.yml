@@ -69,6 +69,9 @@ jobs:
       - name: Smoke unmanaged integration preservation
         run: python agent-wallet/tests/smoke_update_preserves_unmanaged_integrations.py
 
+      - name: Smoke global CLI refresh
+        run: python agent-wallet/tests/smoke_update_refreshes_global_cli.py
+
       - name: Smoke host integration ownership registry
         run: python agent-wallet/tests/smoke_integration_registry.py
 

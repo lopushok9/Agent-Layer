@@ -422,6 +422,30 @@ function managedIntegration(name, env = process.env) {
   return entry && entry.managed === true ? entry : null;
 }
 
+function integrationSyncStatus(env = process.env) {
+  const active = activeVersion(env);
+  const registry = readIntegrationRegistry(env);
+  const integrations = Object.entries(registry.integrations)
+    .filter(([, entry]) => entry?.managed === true)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, entry]) => {
+      const versionInSync = active === null || entry.installed_version === active;
+      const registrationOk = entry.registration_ok !== false;
+      return {
+        name,
+        installed_version: entry.installed_version || null,
+        active_version: active,
+        in_sync: versionInSync && registrationOk,
+        registration_ok: registrationOk,
+        restart_required: Boolean(entry.restart_required),
+      };
+    });
+  return {
+    in_sync: integrations.every((entry) => entry.in_sync),
+    integrations,
+  };
+}
+
 function writeUpdateJournal(state, details = {}, env = process.env) {
   writeJsonFile(updateJournalPath(env), {
     schema_version: 1,
@@ -1347,6 +1371,16 @@ function runDoctor(args = []) {
     fix: rsync.in_sync === false ? "npm run release:local" : "",
   });
 
+  const integrationSync = integrationSyncStatus(env);
+  checks.push({
+    name: "framework_integrations_in_sync",
+    ok: true,
+    in_sync: integrationSync.in_sync,
+    integrations: integrationSync.integrations,
+    error: "",
+    fix: integrationSync.in_sync ? "" : "wallet update --yes",
+  });
+
   const ok = checks.every((c) => c.ok);
   console.log(
     JSON.stringify(
@@ -1382,6 +1416,7 @@ function runStatus(args = []) {
     failed_releases: listFailedReleases(),
     update_available: computeUpdateAvailability(),
     runtime_in_sync: computeRuntimeInSync(),
+    framework_integrations: integrationSyncStatus(),
   };
   if (hasFlag(args, "--verbose")) {
     payload.verbose = true;
@@ -1621,6 +1656,7 @@ function runInstall(args, { commandName = "install" } = {}) {
   );
 
   const integrationRefresh = repairInstalledEditorIntegrations(env);
+  const globalCliRefresh = refreshGlobalCliIfNeeded(env);
 
   const pythonInfo = activePythonRuntimeInfo(env);
   const nodeInfo = activeNodeRuntimeInfo(env)
@@ -1644,6 +1680,7 @@ function runInstall(args, { commandName = "install" } = {}) {
         staged: Boolean(stagingRoot),
         release_state: "verified",
         integration_refresh: integrationRefresh,
+        global_cli_refresh: globalCliRefresh,
       },
       null,
       2,
@@ -2063,6 +2100,8 @@ function runHermesInstall(args) {
     hermes_home: hermesHome,
     plugin_target: pluginTarget,
     env_path: hermesEnvPath,
+    restart_required: true,
+    ...(enable.skipped ? {} : { registration_ok: enable.ok }),
   });
 
   console.log(
@@ -2155,6 +2194,8 @@ function runCodexInstall(args) {
     plugin_target: pluginTarget,
     marketplace_path: marketplace.marketplace_path,
     marketplace_name: marketplace.marketplace_name,
+    restart_required: true,
+    ...(add.skipped ? {} : { registration_ok: add.ok }),
   });
 
   console.log(
@@ -2358,6 +2399,8 @@ function runClaudeCodeInstall(args) {
     cache_root: path.resolve(
       expandHome(process.env.AGENT_WALLET_CLAUDE_CODE_CACHE_ROOT || "~/.claude/plugins/cache"),
     ),
+    restart_required: true,
+    ...(enable.skipped ? {} : { registration_ok: enable.ok }),
   });
 
   const ok = enable.skipped || enable.ok;
@@ -2531,7 +2574,12 @@ function repairOpenclawIntegration(env = process.env) {
   writeJsonFileAtomic(configPath, config);
   recordManagedIntegration(
     "openclaw",
-    { config_path: configPath, extension_path: extensionPath, package_root: packageRootPath },
+    {
+      config_path: configPath,
+      extension_path: extensionPath,
+      package_root: packageRootPath,
+      restart_required: true,
+    },
     env,
   );
   return {
@@ -2635,6 +2683,57 @@ function runHostRefresh(command, args, env = process.env) {
   };
 }
 
+function globalNpmPackageInfo(env = process.env) {
+  const npmBin = commandPath("npm");
+  if (!npmBin) return null;
+  const rootResult = spawnSync(npmBin, ["root", "--global"], { encoding: "utf8", env });
+  if (rootResult.status !== 0) return null;
+  const packageRoot = path.join(rootResult.stdout.trim(), ...packageJson.name.split("/"));
+  try {
+    const manifest = readJsonFile(path.join(packageRoot, "package.json"));
+    if (manifest?.name !== packageJson.name) return null;
+    return { npm_bin: npmBin, package_root: packageRoot, version: manifest.version || null };
+  } catch {
+    return null;
+  }
+}
+
+function refreshGlobalCliIfNeeded(env = process.env) {
+  const installed = globalNpmPackageInfo(env);
+  if (!installed) {
+    return { attempted: false, ok: true, reason: "global package is not installed" };
+  }
+  if (installed.version === packageVersion) {
+    return { attempted: false, ok: true, reason: "already current", version: packageVersion };
+  }
+  const fromNpmCache = path.resolve(packageRoot).split(path.sep).includes("_npx");
+  const forced = env.AGENT_WALLET_FORCE_GLOBAL_CLI_REFRESH === "1";
+  if (!fromNpmCache && !forced) {
+    return {
+      attempted: false,
+      ok: false,
+      reason: "installer is not running from npm exec",
+      installed_version: installed.version,
+      target_version: packageVersion,
+      fix: `npm install --global ${packageJson.name}@${packageVersion}`,
+    };
+  }
+  const packageSpec = `${packageJson.name}@${packageVersion}`;
+  const result = spawnSync(
+    installed.npm_bin,
+    ["install", "--global", "--no-audit", "--no-fund", packageSpec],
+    { encoding: "utf8", env },
+  );
+  return {
+    attempted: true,
+    ok: result.status === 0,
+    previous_version: installed.version,
+    target_version: packageVersion,
+    error: result.status === 0 ? "" : (result.stderr || result.stdout || "").trim(),
+    fix: result.status === 0 ? "" : `npm install --global ${packageSpec}`,
+  };
+}
+
 function refreshCodexIntegration(entry, env = process.env) {
   const pluginTarget = path.resolve(
     expandHome(entry.plugin_target || path.join(resolveCodexPluginInstallRoot(env), "agent-wallet")),
@@ -2664,6 +2763,7 @@ function refreshCodexIntegration(entry, env = process.env) {
       marketplace_path: marketplacePath,
       marketplace_name: marketplace.marketplace_name,
       registration_ok: registration.ok,
+      restart_required: true,
     },
     env,
   );
@@ -2722,6 +2822,7 @@ function refreshClaudeCodeIntegration(entry, env = process.env) {
       plugin_target: pluginTarget,
       cache_root: cacheRoot,
       registration_ok: registration.ok,
+      restart_required: true,
     },
     env,
   );
@@ -2754,7 +2855,12 @@ function repairInstalledEditorIntegrations(env = process.env) {
     if (result.ok) {
       recordManagedIntegration(
         "hermes",
-        { ...hermesEntry, plugin_target: hermesTarget, env_path: hermesEnvPath },
+        {
+          ...hermesEntry,
+          plugin_target: hermesTarget,
+          env_path: hermesEnvPath,
+          restart_required: true,
+        },
         env,
       );
     }
