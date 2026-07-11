@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+## v0.1.75 - 2026-07-11
+
+- Added a persistent, non-secret ownership registry for OpenClaw, Hermes,
+  Codex, and Claude Code integrations. Explicit installs are now distinguishable
+  from unrelated external plugins across runtime upgrades.
+
+- Fixed `wallet update` so managed framework integrations advance with the
+  verified `current` runtime. OpenClaw config and Hermes paths are repaired,
+  while Codex and Claude Code registrations and versioned caches are refreshed
+  through their host CLIs.
+
+- Added guarded adoption for legacy AgentLayer installs. Existing integrations
+  are adopted only when their registration and plugin manifests both identify
+  AgentLayer; unowned symlinks and external plugins remain untouched.
+
+- Added per-framework synchronization details to `wallet status` and
+  `wallet doctor`, including failed host registration and restart requirements.
+  npm-exec installs also refresh an already-installed stale global CLI without
+  making global installation mandatory.
+
+- Expanded installer regression coverage for managed upgrades, unmanaged
+  integration preservation, global CLI refresh, host registration, and
+  hermetic framework/npm homes.
+
+## v0.1.74 - 2026-07-10
+
 - Added a guarded npm beta-promotion workflow that acceptance-tests the exact
   registry artifact, verifies its integrity, rejects downgrades, serializes with
   publish jobs, and restores the previous `latest` tag if verification fails.
