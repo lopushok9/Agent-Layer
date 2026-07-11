@@ -392,6 +392,77 @@ function updateJournalPath(env = process.env) {
   return path.join(resolveRuntimeBase(env), "update-journal.json");
 }
 
+function updateLockPath(env = process.env) {
+  return path.join(resolveRuntimeBase(env), "update.lock");
+}
+
+function processIsRunning(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code !== "ESRCH";
+  }
+}
+
+function acquireUpdateLock(env = process.env, allowStaleRetry = true) {
+  const lockPath = updateLockPath(env);
+  const ownerPath = path.join(lockPath, "owner.json");
+  const token = crypto.randomUUID();
+  fs.mkdirSync(resolveRuntimeBase(env), { recursive: true });
+  try {
+    fs.mkdirSync(lockPath);
+  } catch (error) {
+    if (error?.code !== "EEXIST") throw error;
+    let owner = null;
+    try {
+      owner = readJsonFile(ownerPath);
+    } catch {
+      // An unreadable lock is not safe to steal automatically.
+    }
+    const stale = owner?.hostname === os.hostname() && !processIsRunning(Number(owner.pid));
+    if (stale && allowStaleRetry) {
+      fs.rmSync(lockPath, { recursive: true, force: true });
+      return acquireUpdateLock(env, false);
+    }
+    return {
+      ok: false,
+      path: lockPath,
+      owner: owner ? { pid: owner.pid, hostname: owner.hostname, started_at: owner.started_at } : null,
+    };
+  }
+  try {
+    writeJsonFileAtomic(ownerPath, {
+      schema_version: 1,
+      pid: process.pid,
+      hostname: os.hostname(),
+      token,
+      started_at: new Date().toISOString(),
+    });
+  } catch (error) {
+    fs.rmSync(lockPath, { recursive: true, force: true });
+    throw error;
+  }
+  return { ok: true, path: lockPath, owner_path: ownerPath, token };
+}
+
+function releaseUpdateLock(lock) {
+  if (!lock?.ok) return;
+  try {
+    const owner = readJsonFile(lock.owner_path);
+    if (owner?.token === lock.token) fs.rmSync(lock.path, { recursive: true, force: true });
+  } catch {
+    // Never remove a lock whose ownership can no longer be verified.
+  }
+}
+
+function holdUpdateLockForTest(env = process.env) {
+  const milliseconds = Number.parseInt(String(env.AGENT_WALLET_TEST_HOLD_LOCK_MS || ""), 10);
+  if (!Number.isFinite(milliseconds) || milliseconds <= 0) return;
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+}
+
 function readUpdateJournal(env = process.env) {
   try {
     return readJsonFile(updateJournalPath(env));
@@ -1581,7 +1652,7 @@ function buildInstallerEnv(args) {
   return { env, generated, bootKeySource };
 }
 
-function runInstall(args, { commandName = "install" } = {}) {
+function runInstallUnlocked(args, { commandName = "install" } = {}) {
   if (!fs.existsSync(setupPath)) {
     console.error(`Missing bundled setup.sh at ${setupPath}`);
     return 1;
@@ -1863,6 +1934,34 @@ function runInstall(args, { commandName = "install" } = {}) {
     ),
   );
   return 0;
+}
+
+function runInstall(args, options = {}) {
+  if (hasFlag(args, "--dry-run")) return runInstallUnlocked(args, options);
+  const lock = acquireUpdateLock(process.env);
+  if (!lock.ok) {
+    console.error(
+      JSON.stringify(
+        {
+          ok: false,
+          category: "update_locked",
+          error: "Another wallet install or update is already running.",
+          lock_path: lock.path,
+          lock_owner: lock.owner,
+          fix: "Wait for the active update to finish, then retry.",
+        },
+        null,
+        2,
+      ),
+    );
+    return 1;
+  }
+  try {
+    holdUpdateLockForTest(process.env);
+    return runInstallUnlocked(args, options);
+  } finally {
+    releaseUpdateLock(lock);
+  }
 }
 
 function resolveUpdatePackageSpec(env = process.env) {

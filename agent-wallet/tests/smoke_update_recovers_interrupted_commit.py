@@ -90,6 +90,7 @@ def main() -> None:
         assert journal["state"] == "committing", journal
         assert not Path(journal["release_root"]).exists(), journal
         assert Path(journal["replaced_root"]).exists(), journal
+        assert (runtime_base / "update.lock").exists()
 
         recovered = _install(cli, env)
         assert recovered.returncode == 0, recovered.stderr
@@ -101,6 +102,7 @@ def main() -> None:
         }, payload
         assert current.exists()
         assert current.resolve() == release
+        assert not (runtime_base / "update.lock").exists()
         final_journal = json.loads(
             (runtime_base / "update-journal.json").read_text(encoding="utf-8")
         )

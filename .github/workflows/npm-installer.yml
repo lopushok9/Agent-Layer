@@ -69,6 +69,9 @@ jobs:
       - name: Smoke interrupted commit recovery
         run: python agent-wallet/tests/smoke_update_recovers_interrupted_commit.py
 
+      - name: Smoke update lock
+        run: python agent-wallet/tests/smoke_update_lock.py
+
       - name: Smoke editor path migration
         run: python agent-wallet/tests/smoke_update_repairs_editor_installs.py
 
