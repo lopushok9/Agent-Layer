@@ -1,4 +1,4 @@
-"""Smoke test: CLI install prefers keystore over a stale boot-key file."""
+"""CLI install rejects stale explicit/file keys in favor of a verified keystore key."""
 
 from __future__ import annotations
 
@@ -10,6 +10,28 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+
+def _last_json(text: str) -> dict:
+    depth = 0
+    start = None
+    payloads: list[dict] = []
+    for index, char in enumerate(text):
+        if char == "{":
+            if depth == 0:
+                start = index
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0 and start is not None:
+                try:
+                    payloads.append(json.loads(text[start : index + 1]))
+                except json.JSONDecodeError:
+                    pass
+                start = None
+    if not payloads:
+        raise AssertionError(f"No JSON object found in: {text!r}")
+    return payloads[-1]
 
 
 def main() -> None:
@@ -91,6 +113,7 @@ def main() -> None:
             "AGENT_WALLET_APPROVAL_SECRET",
         }
     }
+    cli_env["AGENT_WALLET_BOOT_KEY"] = "stale-explicit-env-key"
     cli_env["AGENT_WALLET_VERIFY_DISABLE"] = "1"
 
     updated = subprocess.run(
@@ -113,6 +136,11 @@ def main() -> None:
     )
     updated_payload = json.loads(updated.stdout)
     assert updated_payload["ok"] is True
+    install_payload = _last_json(updated.stderr)
+    assert install_payload["boot_key_source"] == "runtime_verified", install_payload
+    assert keystore_path.read_text(encoding="utf-8").strip() == initial_env[
+        "AGENT_WALLET_BOOT_KEY"
+    ]
 
     status = subprocess.run(
         ["node", str(cli), "status"],

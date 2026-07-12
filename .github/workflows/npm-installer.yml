@@ -57,11 +57,26 @@ jobs:
       - name: Smoke verified boot-key resolution
         run: python agent-wallet/tests/smoke_boot_key_verified_resolution.py
 
+      - name: Smoke staged boot-key rejection
+        run: python agent-wallet/tests/smoke_install_rejects_unverified_boot_key.py
+
       - name: Smoke legacy update boot-key precedence
         run: python agent-wallet/tests/smoke_legacy_update_boot_key_precedence.py
 
       - name: Smoke staged install failure isolation
         run: python agent-wallet/tests/smoke_install_verify_rollback.py
+
+      - name: Smoke interrupted commit recovery
+        run: python agent-wallet/tests/smoke_update_recovers_interrupted_commit.py
+
+      - name: Smoke update lock
+        run: python agent-wallet/tests/smoke_update_lock.py
+
+      - name: Smoke update recovery diagnostics
+        run: python agent-wallet/tests/smoke_update_recovery_status.py
+
+      - name: Test update transaction state matrix
+        run: node --test agent-wallet/tests/update_transaction.test.mjs
 
       - name: Smoke editor path migration
         run: python agent-wallet/tests/smoke_update_repairs_editor_installs.py
@@ -69,11 +84,20 @@ jobs:
       - name: Smoke unmanaged integration preservation
         run: python agent-wallet/tests/smoke_update_preserves_unmanaged_integrations.py
 
+      - name: Smoke cross-home integration preservation
+        run: python agent-wallet/tests/smoke_update_preserves_cross_home_integrations.py
+
+      - name: Smoke integration failure isolation
+        run: python agent-wallet/tests/smoke_update_isolates_integration_failures.py
+
       - name: Smoke global CLI refresh
         run: python agent-wallet/tests/smoke_update_refreshes_global_cli.py
 
       - name: Smoke host integration ownership registry
         run: python agent-wallet/tests/smoke_integration_registry.py
+
+      - name: Smoke corrupt integration registry recovery
+        run: python agent-wallet/tests/smoke_update_recovers_corrupt_integration_registry.py
 
       - name: Smoke EVM wrong-home daemon recovery
         run: python agent-wallet/tests/smoke_openclaw_evm_runtime_restart_wrong_home.py

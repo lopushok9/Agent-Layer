@@ -27,6 +27,8 @@ def main() -> None:
         keystore.MacKeychainStore.get,
         keystore.MacKeychainStore.set,
         keystore.MacKeychainStore.delete,
+        keystore.WindowsDpapiStore.available,
+        keystore.LinuxSecretServiceStore.available,
     )
     try:
         keystore.MacKeychainStore.available = lambda _self: native_available
@@ -35,6 +37,8 @@ def main() -> None:
             lambda _self, name, value: native_values.__setitem__(name, value)
         )
         keystore.MacKeychainStore.delete = lambda _self, name: native_values.pop(name, None)
+        keystore.WindowsDpapiStore.available = lambda _self: False
+        keystore.LinuxSecretServiceStore.available = lambda _self: False
 
         store = keystore.resolve_keystore()
         assert store.backend_id == "macos-keychain"
@@ -73,6 +77,8 @@ def main() -> None:
             keystore.MacKeychainStore.get,
             keystore.MacKeychainStore.set,
             keystore.MacKeychainStore.delete,
+            keystore.WindowsDpapiStore.available,
+            keystore.LinuxSecretServiceStore.available,
         ) = original
         shutil.rmtree(home, ignore_errors=True)
 

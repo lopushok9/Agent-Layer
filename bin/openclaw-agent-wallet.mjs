@@ -6,6 +6,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createBootKeyManager } from "./lib/boot-key.mjs";
+import { createHostIntegrationManager, createIntegrationManager } from "./lib/integrations.mjs";
+import { createUpdateTransactionManager } from "./lib/update-transaction.mjs";
 
 const cliPath = fileURLToPath(import.meta.url);
 const packageRoot = path.resolve(path.dirname(cliPath), "..");
@@ -388,72 +391,83 @@ function stagingRootFor(version, env = process.env) {
   );
 }
 
-function updateJournalPath(env = process.env) {
-  return path.join(resolveRuntimeBase(env), "update-journal.json");
+function updateTransactions(env = process.env) {
+  return createUpdateTransactionManager({
+    runtimeBase: resolveRuntimeBase(env),
+    packageVersion,
+    env,
+  });
 }
 
-function integrationRegistryPath(env = process.env) {
-  return path.join(resolveRuntimeBase(env), "integrations.json");
+function acquireUpdateLock(env = process.env) {
+  return updateTransactions(env).acquireLock();
 }
 
-function readIntegrationRegistry(env = process.env) {
-  const payload = readJsonFile(integrationRegistryPath(env));
-  if (!payload || payload.schema_version !== 1 || typeof payload.integrations !== "object") {
-    return { schema_version: 1, integrations: {} };
-  }
-  return payload;
+function releaseUpdateLock(lock) {
+  return createUpdateTransactionManager({
+    runtimeBase: path.dirname(lock.path),
+    packageVersion,
+  }).releaseLock(lock);
+}
+
+function holdUpdateLockForTest(env = process.env) {
+  updateTransactions(env).holdLockForTest();
+}
+
+function readUpdateJournal(env = process.env) {
+  return updateTransactions(env).readJournal();
+}
+
+function integrations(env = process.env) {
+  return createIntegrationManager({
+    runtimeBase: resolveRuntimeBase(env),
+    packageVersion,
+    activeVersion: () => activeVersion(env),
+  });
 }
 
 function recordManagedIntegration(name, details = {}, env = process.env) {
-  const registry = readIntegrationRegistry(env);
-  registry.integrations[name] = {
-    ...details,
-    managed: true,
-    installed_version: packageVersion,
-    updated_at: new Date().toISOString(),
-  };
-  registry.updated_at = new Date().toISOString();
-  writeJsonFileAtomic(integrationRegistryPath(env), registry);
-  return registry.integrations[name];
-}
-
-function managedIntegration(name, env = process.env) {
-  const entry = readIntegrationRegistry(env).integrations[name];
-  return entry && entry.managed === true ? entry : null;
+  return integrations(env).record(name, details);
 }
 
 function integrationSyncStatus(env = process.env) {
-  const active = activeVersion(env);
-  const registry = readIntegrationRegistry(env);
-  const integrations = Object.entries(registry.integrations)
-    .filter(([, entry]) => entry?.managed === true)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([name, entry]) => {
-      const versionInSync = active === null || entry.installed_version === active;
-      const registrationOk = entry.registration_ok !== false;
-      return {
-        name,
-        installed_version: entry.installed_version || null,
-        active_version: active,
-        in_sync: versionInSync && registrationOk,
-        registration_ok: registrationOk,
-        restart_required: Boolean(entry.restart_required),
-      };
-    });
-  return {
-    in_sync: integrations.every((entry) => entry.in_sync),
-    integrations,
-  };
+  return integrations(env).status();
+}
+
+function hostIntegrations(env = process.env) {
+  return createHostIntegrationManager({
+    env,
+    packageRoot,
+    registry: integrations(env),
+    currentRuntimePath: currentRuntimePath(env),
+    openclawHome: resolveOpenclawHome(env),
+    hermesHome: resolveHermesHome(env),
+    codexHome: resolveCodexHome(env),
+    codexPluginRoot: resolveCodexPluginInstallRoot(env),
+    codexMarketplacePath: resolveCodexMarketplacePath(env),
+    claudeMarketplaceDir: resolveClaudeCodeMarketplaceDir(env),
+    claudeMarketplaceName: CLAUDE_CODE_MARKETPLACE_NAME,
+    expandHome,
+    resolveVenvPython,
+    commandPath,
+    repairRuntimeSymlink,
+    repairHermesEnv,
+    ensureCodexMarketplaceEntry,
+    ensureClaudeCodeMarketplace,
+    pinClaudeCacheCopies,
+  });
 }
 
 function writeUpdateJournal(state, details = {}, env = process.env) {
-  writeJsonFile(updateJournalPath(env), {
-    schema_version: 1,
-    state,
-    version: packageVersion,
-    updated_at: new Date().toISOString(),
-    ...details,
-  });
+  updateTransactions(env).writeJournal(state, details);
+}
+
+function recoverInterruptedUpdate(env = process.env) {
+  return updateTransactions(env).recover();
+}
+
+function updateRecoveryStatus(env = process.env) {
+  return updateTransactions(env).status();
 }
 
 function writeReleaseState(runtimeRoot, state, details = {}) {
@@ -477,14 +491,14 @@ function failStagingRuntime(stagingRoot, error) {
   return failedRoot;
 }
 
-function commitStagedRuntime(stagingRoot, releaseRoot) {
+function commitStagedRuntime(stagingRoot, releaseRoot, replacedRoot = null, env = process.env) {
   if (!stagingRoot) return null;
-  let replacedRoot = null;
   if (fs.existsSync(releaseRoot)) {
-    replacedRoot = uniquePathWithSuffix(
+    replacedRoot ||= uniquePathWithSuffix(
       path.join(path.dirname(releaseRoot), `${path.basename(releaseRoot)}-replaced`),
     );
     fs.renameSync(releaseRoot, replacedRoot);
+    if (env.AGENT_WALLET_TEST_EXIT_AFTER_RELEASE_RENAME === "1") process.exit(86);
   }
   try {
     fs.renameSync(stagingRoot, releaseRoot);
@@ -1014,146 +1028,36 @@ function writeJsonFileAtomic(pathname, value, mode = 0o600) {
   }
 }
 
-function currentBootKey(env = process.env) {
-  const currentRoot = resolvedCurrentRuntimeRoot(env);
-  if (!currentRoot) return "";
-  return readEnvFile(path.join(currentRoot, "agent-wallet", ".env")).AGENT_WALLET_BOOT_KEY || "";
-}
-
-function readTextIfExists(pathname) {
-  try {
-    return fs.readFileSync(pathname, "utf8");
-  } catch (error) {
-    if (error?.code === "ENOENT") return "";
-    throw error;
-  }
-}
-
-function writeSecretFile(pathname, value) {
-  fs.mkdirSync(path.dirname(pathname), { recursive: true });
-  fs.writeFileSync(pathname, `${String(value || "").trim()}\n`, { mode: 0o600 });
-  try {
-    fs.chmodSync(pathname, 0o600);
-  } catch {
-    // ignored
-  }
-}
-
-function resolveBootKeyFromFile(env = process.env) {
-  const keyFile = String(env.AGENT_WALLET_BOOT_KEY_FILE || "").trim();
-  if (!keyFile) return "";
-  return readTextIfExists(path.resolve(expandHome(keyFile))).trim();
-}
-
-function defaultBootKeyFile(env = process.env) {
-  return path.join(resolveRuntimeBase(env), "boot-key");
+function bootKeys(env = process.env) {
+  return createBootKeyManager({
+    runtimeBase: resolveRuntimeBase(env),
+    openclawHome: resolveOpenclawHome(env),
+    currentRuntimeRoot: () => resolvedCurrentRuntimeRoot(env),
+    resolveVenvPython,
+    expandHome,
+    bridgeTimeoutMs: positiveIntEnv(
+      "AGENT_WALLET_KEYSTORE_BRIDGE_TIMEOUT_MS",
+      KEYSTORE_BRIDGE_TIMEOUT_MS,
+      env,
+    ),
+    env,
+  });
 }
 
 function ensureBootKeyFile(env = process.env) {
-  const configuredFile = String(env.AGENT_WALLET_BOOT_KEY_FILE || "").trim();
-  const keyFile = configuredFile ? path.resolve(expandHome(configuredFile)) : defaultBootKeyFile(env);
-  const existing = readTextIfExists(keyFile).trim();
-  if (existing) {
-    return { path: keyFile, status: "existing" };
-  }
-  const bootKey = String(env.AGENT_WALLET_BOOT_KEY || "").trim() || resolveBootKeyFromFile(env) || currentBootKey(env);
-  if (!bootKey) {
-    return { path: keyFile, status: "missing" };
-  }
-  writeSecretFile(keyFile, bootKey);
-  return { path: keyFile, status: "created" };
+  return bootKeys(env).ensureFile();
 }
 
-// Read the boot key from the OS keystore via the current runtime's Python
-// (best-effort, "" on any failure). Lets a re-install after the runtime migration
-// — which moves the key into the keystore and deletes every plaintext copy — still
-// resolve the existing boot key instead of refusing to touch sealed secrets.
-function readBootKeyFromKeystore(env = process.env) {
-  const runtimeRoot = resolvedCurrentRuntimeRoot(env);
-  if (!runtimeRoot) return "";
-  const py = resolveVenvPython(runtimeRoot);
-  if (!py) return "";
-  try {
-    const res = spawnSync(
-      py,
-      ["-c", "from agent_wallet.config import read_boot_key_from_keystore as r; print(r())"],
-      {
-        cwd: path.join(runtimeRoot, "agent-wallet"),
-        encoding: "utf8",
-        timeout: positiveIntEnv("AGENT_WALLET_KEYSTORE_BRIDGE_TIMEOUT_MS", KEYSTORE_BRIDGE_TIMEOUT_MS, env),
-        env: { ...env, OPENCLAW_HOME: resolveOpenclawHome(env) },
-      },
-    );
-    if ((res.status ?? 1) !== 0) return "";
-    return String(res.stdout || "").trim();
-  } catch {
-    return "";
-  }
-}
-
-// New runtimes own boot-key precedence and verify candidates against
-// sealed_keys.json. An import failure means the active runtime predates this
-// bridge, so callers may use the legacy JS fallback below.
 function readBootKeyFromRuntimeResolver(env = process.env) {
-  const runtimeRoot = resolvedCurrentRuntimeRoot(env);
-  if (!runtimeRoot) return { supported: false, key: "" };
-  const py = resolveVenvPython(runtimeRoot);
-  if (!py) return { supported: false, key: "" };
-  try {
-    const res = spawnSync(
-      py,
-      ["-c", "from agent_wallet.config import resolve_boot_key_for_installer as r; print(r())"],
-      {
-        cwd: path.join(runtimeRoot, "agent-wallet"),
-        encoding: "utf8",
-        timeout: positiveIntEnv("AGENT_WALLET_KEYSTORE_BRIDGE_TIMEOUT_MS", KEYSTORE_BRIDGE_TIMEOUT_MS, env),
-        env: { ...env, OPENCLAW_HOME: resolveOpenclawHome(env) },
-      },
-    );
-    if ((res.status ?? 1) !== 0) return { supported: false, key: "" };
-    return { supported: true, key: String(res.stdout || "").trim() };
-  } catch {
-    return { supported: false, key: "" };
-  }
+  return bootKeys(env).resolveFromRuntime();
 }
 
 function resolveLegacyInstallerBootKey(env = process.env) {
-  for (const [source, key] of [
-    ["legacy_keystore", readBootKeyFromKeystore(env)],
-    ["current_runtime_env", currentBootKey(env)],
-    ["configured_file", resolveBootKeyFromFile(env)],
-    ["default_file", readTextIfExists(defaultBootKeyFile(env)).trim()],
-  ]) {
-    if (key) return { key, source };
-  }
-  return { key: "", source: "none" };
+  return bootKeys(env).resolveLegacy();
 }
 
-// Provision the boot key into the OS keystore via the freshly installed runtime's
-// Python. Returns true only when the import stored AND verified the key, so the
-// caller may safely drop the plaintext .env copy. Best-effort: false on any failure
-// (e.g. no usable keystore), in which case the caller keeps the legacy .env write.
 function provisionBootKeyToKeystore(releaseRoot, env, bootKey) {
-  const key = String(bootKey || "").trim();
-  if (!key) return false;
-  const py = resolveVenvPython(releaseRoot);
-  if (!py) return false;
-  try {
-    const res = spawnSync(
-      py,
-      ["-m", "agent_wallet.openclaw_cli", "boot-key-import", "--key-stdin"],
-      {
-        cwd: path.join(releaseRoot, "agent-wallet"),
-        input: key,
-        encoding: "utf8",
-        timeout: positiveIntEnv("AGENT_WALLET_KEYSTORE_BRIDGE_TIMEOUT_MS", KEYSTORE_BRIDGE_TIMEOUT_MS, env),
-        env: { ...env, OPENCLAW_HOME: resolveOpenclawHome(env) },
-      },
-    );
-    return (res.status ?? 1) === 0;
-  } catch {
-    return false;
-  }
+  return bootKeys(env).provision(releaseRoot, bootKey);
 }
 
 function resolveVenvPython(releaseRoot) {
@@ -1229,6 +1133,10 @@ function verifyRuntime(releaseRoot, env = process.env) {
     error: `MCP initialize handshake failed: ${detail || "no serverInfo in response"}`,
     category: classifyVerifyError(detail),
   };
+}
+
+function verifyBootKeyWithRuntime(releaseRoot, env = process.env) {
+  return bootKeys(env).verifyWithRuntime(releaseRoot);
 }
 
 function resolveEditorServerChecks(env = process.env) {
@@ -1381,10 +1289,20 @@ function runDoctor(args = []) {
     fix: integrationSync.in_sync ? "" : "wallet update --yes",
   });
 
+  const recoveryStatus = updateRecoveryStatus(env);
+  checks.push({
+    name: "update_recovery_state",
+    ok: true,
+    ...recoveryStatus,
+    error: "",
+    fix: recoveryStatus.needs_recovery ? "wallet install --yes" : "",
+  });
+
   const ok = checks.every((c) => c.ok);
   console.log(
     JSON.stringify(
       {
+        schema_version: 1,
         ok,
         package_name: packageJson.name,
         package_version: packageVersion,
@@ -1404,6 +1322,7 @@ function runDoctor(args = []) {
 
 function runStatus(args = []) {
   const payload = {
+    schema_version: 1,
     ok: true,
     package_name: packageJson.name,
     package_version: packageVersion,
@@ -1417,6 +1336,7 @@ function runStatus(args = []) {
     update_available: computeUpdateAvailability(),
     runtime_in_sync: computeRuntimeInSync(),
     framework_integrations: integrationSyncStatus(),
+    update_recovery: updateRecoveryStatus(),
   };
   if (hasFlag(args, "--verbose")) {
     payload.verbose = true;
@@ -1434,19 +1354,18 @@ function buildInstallerEnv(args) {
   const sealedKeysExist = fs.existsSync(sealedKeysPath);
   const dryRun = hasFlag(args, "--dry-run");
   let bootKeySource = env.AGENT_WALLET_BOOT_KEY ? "environment" : "none";
-  if (!env.AGENT_WALLET_BOOT_KEY) {
-    const runtimeResolution = readBootKeyFromRuntimeResolver(env);
-    const fallback = runtimeResolution.supported
-      ? {
-          key: runtimeResolution.key,
-          source: runtimeResolution.key ? "runtime_verified" : "runtime_rejected",
-        }
-      : resolveLegacyInstallerBootKey(env);
-    const existingBootKey = fallback.key;
-    bootKeySource = fallback.source;
-    if (existingBootKey) {
-      env.AGENT_WALLET_BOOT_KEY = existingBootKey;
+  const runtimeResolution = readBootKeyFromRuntimeResolver(env);
+  if (runtimeResolution.supported) {
+    bootKeySource = runtimeResolution.key ? "runtime_verified" : "runtime_rejected";
+    if (runtimeResolution.key) {
+      env.AGENT_WALLET_BOOT_KEY = runtimeResolution.key;
+    } else {
+      delete env.AGENT_WALLET_BOOT_KEY;
     }
+  } else if (!env.AGENT_WALLET_BOOT_KEY) {
+    const fallback = resolveLegacyInstallerBootKey(env);
+    bootKeySource = fallback.source;
+    if (fallback.key) env.AGENT_WALLET_BOOT_KEY = fallback.key;
   }
 
   const shouldGenerateSecrets =
@@ -1476,7 +1395,7 @@ function buildInstallerEnv(args) {
   return { env, generated, bootKeySource };
 }
 
-function runInstall(args, { commandName = "install" } = {}) {
+function runInstallUnlocked(args, { commandName = "install" } = {}) {
   if (!fs.existsSync(setupPath)) {
     console.error(`Missing bundled setup.sh at ${setupPath}`);
     return 1;
@@ -1490,6 +1409,13 @@ function runInstall(args, { commandName = "install" } = {}) {
   const previousPath = previousRuntimePath();
   const installerArgs = withoutCliOnlyArgs(args);
   const dryRun = hasFlag(args, "--dry-run");
+  const recovery = dryRun
+    ? { attempted: false, ok: true, reason: "dry run" }
+    : recoverInterruptedUpdate(process.env);
+  if (!recovery.ok) {
+    console.error(`Could not recover interrupted update: ${recovery.reason || recovery.error}`);
+    return 1;
+  }
   const stagingRoot = !explicitRuntimeRoot && !dryRun ? stagingRootFor(packageVersion) : null;
   const installRoot = stagingRoot || releaseRoot;
 
@@ -1510,7 +1436,17 @@ function runInstall(args, { commandName = "install" } = {}) {
   const { env, generated, bootKeySource } = installerEnv;
   if (stagingRoot) {
     env.OPENCLAW_INSTALL_FINAL_ROOT = releaseRoot;
-    writeUpdateJournal("preparing", { staging_root: stagingRoot, release_root: releaseRoot }, env);
+    writeUpdateJournal(
+      "preparing",
+      {
+        transaction_id: crypto.randomUUID(),
+        staging_root: stagingRoot,
+        release_root: releaseRoot,
+        current_target_before: readLinkOrNull(currentPath),
+        previous_target_before: readLinkOrNull(previousPath),
+      },
+      env,
+    );
   }
   const result = spawnSync("sh", [setupPath, ...installerArgs], {
     cwd: packageRoot,
@@ -1604,6 +1540,34 @@ function runInstall(args, { commandName = "install" } = {}) {
     return 1;
   }
 
+  const bootKeyVerification = verifyBootKeyWithRuntime(installRoot, env);
+  if (!bootKeyVerification.ok) {
+    const failedRoot = failStagingRuntime(stagingRoot, bootKeyVerification.error);
+    writeUpdateJournal(
+      "failed",
+      { failed_runtime: failedRoot, error: bootKeyVerification.error },
+      env,
+    );
+    console.error(
+      JSON.stringify(
+        {
+          ok: false,
+          command: commandName,
+          version: packageVersion,
+          category: "boot_key_rejected",
+          error: bootKeyVerification.error,
+          switched_current: false,
+          failed_runtime: failedRoot,
+          current_runtime_target: readLinkOrNull(currentPath),
+          fix: "Remove stale AGENT_WALLET_BOOT_KEY overrides and retry the update.",
+        },
+        null,
+        2,
+      ),
+    );
+    return 1;
+  }
+
   if (env.AGENT_WALLET_BOOT_KEY) {
     const envPath = path.join(installRoot, "agent-wallet", ".env");
     // Prefer the OS keystore: provision the boot key there and keep the plaintext
@@ -1621,11 +1585,32 @@ function runInstall(args, { commandName = "install" } = {}) {
   writeReleaseState(installRoot, "verified", {
     verification_skipped: Boolean(verification.skipped),
   });
-  writeUpdateJournal("verified", { staging_root: stagingRoot, release_root: releaseRoot }, env);
+  writeUpdateJournal(
+    "verified",
+    { ...readUpdateJournal(env), staging_root: stagingRoot, release_root: releaseRoot },
+    env,
+  );
 
   let replacedRoot = null;
   try {
-    replacedRoot = commitStagedRuntime(stagingRoot, releaseRoot);
+    replacedRoot = fs.existsSync(releaseRoot)
+      ? uniquePathWithSuffix(
+          path.join(path.dirname(releaseRoot), `${path.basename(releaseRoot)}-replaced`),
+        )
+      : null;
+    writeUpdateJournal(
+      "committing",
+      {
+        ...readUpdateJournal(env),
+        staging_root: stagingRoot,
+        release_root: releaseRoot,
+        replaced_root: replacedRoot,
+        current_target_before: readLinkOrNull(currentPath),
+        previous_target_before: readLinkOrNull(previousPath),
+      },
+      env,
+    );
+    replacedRoot = commitStagedRuntime(stagingRoot, releaseRoot, replacedRoot, env);
   } catch (error) {
     const failedRoot = failStagingRuntime(stagingRoot, error.message);
     writeUpdateJournal("failed", { failed_runtime: failedRoot, error: error.message }, env);
@@ -1641,7 +1626,11 @@ function runInstall(args, { commandName = "install" } = {}) {
     switchSymlink(previousPath, previousTarget);
   }
   switchSymlink(currentPath, releaseRoot);
-  writeUpdateJournal("committed", { release_root: releaseRoot, previous_runtime: previousTarget }, env);
+  writeUpdateJournal(
+    "committed",
+    { ...readUpdateJournal(env), release_root: releaseRoot, previous_runtime: previousTarget },
+    env,
+  );
 
   recordManagedIntegration(
     "openclaw",
@@ -1656,7 +1645,10 @@ function runInstall(args, { commandName = "install" } = {}) {
   );
 
   const integrationRefresh = repairInstalledEditorIntegrations(env);
-  const globalCliRefresh = refreshGlobalCliIfNeeded(env);
+  const globalCliRefresh = safelyRefreshIntegration(
+    "global-cli",
+    () => refreshGlobalCliIfNeeded(env),
+  );
 
   const pythonInfo = activePythonRuntimeInfo(env);
   const nodeInfo = activeNodeRuntimeInfo(env)
@@ -1679,6 +1671,7 @@ function runInstall(args, { commandName = "install" } = {}) {
         boot_key_source: bootKeySource,
         staged: Boolean(stagingRoot),
         release_state: "verified",
+        recovery,
         integration_refresh: integrationRefresh,
         global_cli_refresh: globalCliRefresh,
       },
@@ -1687,6 +1680,34 @@ function runInstall(args, { commandName = "install" } = {}) {
     ),
   );
   return 0;
+}
+
+function runInstall(args, options = {}) {
+  if (hasFlag(args, "--dry-run")) return runInstallUnlocked(args, options);
+  const lock = acquireUpdateLock(process.env);
+  if (!lock.ok) {
+    console.error(
+      JSON.stringify(
+        {
+          ok: false,
+          category: "update_locked",
+          error: "Another wallet install or update is already running.",
+          lock_path: lock.path,
+          lock_owner: lock.owner,
+          fix: "Wait for the active update to finish, then retry.",
+        },
+        null,
+        2,
+      ),
+    );
+    return 1;
+  }
+  try {
+    holdUpdateLockForTest(process.env);
+    return runInstallUnlocked(args, options);
+  } finally {
+    releaseUpdateLock(lock);
+  }
 }
 
 function resolveUpdatePackageSpec(env = process.env) {
@@ -2500,189 +2521,6 @@ function repairHermesEnv(envPath, env = process.env) {
   return repaired;
 }
 
-function legacyHermesIntegration(env = process.env) {
-  const hermesHome = resolveHermesHome(env);
-  const pluginTarget = path.join(hermesHome, "plugins", "agent_wallet");
-  let target;
-  try {
-    if (!fs.lstatSync(pluginTarget).isSymbolicLink()) return null;
-    target = path.resolve(path.dirname(pluginTarget), fs.readlinkSync(pluginTarget));
-  } catch {
-    return null;
-  }
-  const manifest = readTextIfExists(path.join(target, "plugin.yaml"));
-  if (!/^name:\s*agent[-_]wallet\s*$/m.test(manifest)) return null;
-  return recordManagedIntegration(
-    "hermes",
-    {
-      hermes_home: hermesHome,
-      plugin_target: pluginTarget,
-      env_path: path.join(hermesHome, ".env"),
-      adopted_legacy_install: true,
-    },
-    env,
-  );
-}
-
-function repairOpenclawIntegration(env = process.env) {
-  const entry = managedIntegration("openclaw", env);
-  if (!entry) {
-    return { name: "openclaw", attempted: false, ok: true, repaired: false, reason: "not managed" };
-  }
-  const configPath = path.resolve(
-    expandHome(entry.config_path || path.join(resolveOpenclawHome(env), "openclaw.json")),
-  );
-  let config;
-  try {
-    config = readJsonFile(configPath);
-  } catch (error) {
-    return { name: "openclaw", attempted: true, ok: false, repaired: false, error: error.message };
-  }
-  if (!config || typeof config !== "object") {
-    return { name: "openclaw", attempted: true, ok: false, repaired: false, error: `missing ${configPath}` };
-  }
-
-  const currentRoot = currentRuntimePath(env);
-  const extensionPath = path.join(currentRoot, ".openclaw", "extensions", "agent-wallet");
-  const packageRootPath = path.join(currentRoot, "agent-wallet");
-  const pythonBin = resolveVenvPython(currentRoot);
-  const plugins = config.plugins && typeof config.plugins === "object" ? config.plugins : (config.plugins = {});
-  const load = plugins.load && typeof plugins.load === "object" ? plugins.load : (plugins.load = {});
-  const paths = Array.isArray(load.paths) ? load.paths : [];
-  load.paths = [
-    ...paths.filter((item) => {
-      const value = String(item || "");
-      return !value.replaceAll("\\", "/").endsWith("/.openclaw/extensions/agent-wallet");
-    }),
-    extensionPath,
-  ];
-  const entries = plugins.entries && typeof plugins.entries === "object" ? plugins.entries : (plugins.entries = {});
-  const walletEntry = entries["agent-wallet"];
-  if (!walletEntry || typeof walletEntry !== "object") {
-    return {
-      name: "openclaw",
-      attempted: false,
-      ok: true,
-      repaired: false,
-      reason: "plugin entry not configured",
-    };
-  }
-  walletEntry.enabled = true;
-  walletEntry.config = walletEntry.config && typeof walletEntry.config === "object" ? walletEntry.config : {};
-  walletEntry.config.packageRoot = packageRootPath;
-  if (pythonBin) walletEntry.config.pythonBin = pythonBin;
-  writeJsonFileAtomic(configPath, config);
-  recordManagedIntegration(
-    "openclaw",
-    {
-      config_path: configPath,
-      extension_path: extensionPath,
-      package_root: packageRootPath,
-      restart_required: true,
-    },
-    env,
-  );
-  return {
-    name: "openclaw",
-    attempted: true,
-    ok: true,
-    repaired: true,
-    config_path: configPath,
-    restart_required: true,
-  };
-}
-
-function symlinkManifestMatches(linkPath, manifestRelativePath, expectedName) {
-  let target;
-  try {
-    if (!fs.lstatSync(linkPath).isSymbolicLink()) return false;
-    target = path.resolve(path.dirname(linkPath), fs.readlinkSync(linkPath));
-  } catch {
-    return false;
-  }
-  try {
-    const manifest = readJsonFile(path.join(target, manifestRelativePath));
-    return manifest && manifest.name === expectedName;
-  } catch {
-    return false;
-  }
-}
-
-function legacyCodexIntegration(env = process.env) {
-  const marketplacePath = resolveCodexMarketplacePath(env);
-  let marketplace;
-  try {
-    marketplace = readJsonFile(marketplacePath);
-  } catch {
-    return null;
-  }
-  const pluginTarget = path.join(resolveCodexPluginInstallRoot(env), "agent-wallet");
-  const registered = Array.isArray(marketplace?.plugins) && marketplace.plugins.some(
-    (item) => item?.name === "agent-wallet" && item?.source?.source === "local",
-  );
-  if (!registered || !symlinkManifestMatches(pluginTarget, ".codex-plugin/plugin.json", "agent-wallet")) {
-    return null;
-  }
-  return recordManagedIntegration(
-    "codex",
-    {
-      codex_home: resolveCodexHome(env),
-      plugin_target: pluginTarget,
-      marketplace_path: marketplacePath,
-      marketplace_name: String(marketplace.name || "local"),
-      adopted_legacy_install: true,
-    },
-    env,
-  );
-}
-
-function legacyClaudeCodeIntegration(env = process.env) {
-  const marketplaceDir = resolveClaudeCodeMarketplaceDir(env);
-  let manifest;
-  try {
-    manifest = readJsonFile(path.join(marketplaceDir, ".claude-plugin", "marketplace.json"));
-  } catch {
-    return null;
-  }
-  const pluginTarget = path.join(marketplaceDir, "plugins", "agent-wallet");
-  const registered = manifest?.name === CLAUDE_CODE_MARKETPLACE_NAME &&
-    Array.isArray(manifest.plugins) && manifest.plugins.some((item) => item?.name === "agent-wallet");
-  if (!registered || !symlinkManifestMatches(pluginTarget, ".claude-plugin/plugin.json", "agent-wallet")) {
-    return null;
-  }
-  return recordManagedIntegration(
-    "claude-code",
-    {
-      marketplace_dir: marketplaceDir,
-      plugin_target: pluginTarget,
-      cache_root: path.resolve(
-        expandHome(env.AGENT_WALLET_CLAUDE_CODE_CACHE_ROOT || "~/.claude/plugins/cache"),
-      ),
-      adopted_legacy_install: true,
-    },
-    env,
-  );
-}
-
-function runHostRefresh(command, args, env = process.env) {
-  const binary = commandPath(command);
-  if (!binary) {
-    return {
-      attempted: false,
-      ok: false,
-      error: `${command} CLI not found`,
-      fix: args.join(" "),
-    };
-  }
-  const result = spawnSync(binary, args, { cwd: packageRoot, encoding: "utf8", env });
-  return {
-    attempted: true,
-    ok: result.status === 0,
-    error: result.status === 0 ? "" : (result.stderr || result.stdout || "").trim(),
-    fix: result.status === 0 ? "" : `${command} ${args.join(" ")}`,
-  };
-}
-
 function globalNpmPackageInfo(env = process.env) {
   const npmBin = commandPath("npm");
   if (!npmBin) return null;
@@ -2734,145 +2572,12 @@ function refreshGlobalCliIfNeeded(env = process.env) {
   };
 }
 
-function refreshCodexIntegration(entry, env = process.env) {
-  const pluginTarget = path.resolve(
-    expandHome(entry.plugin_target || path.join(resolveCodexPluginInstallRoot(env), "agent-wallet")),
-  );
-  const marketplacePath = path.resolve(
-    expandHome(entry.marketplace_path || resolveCodexMarketplacePath(env)),
-  );
-  const link = repairRuntimeSymlink(
-    "codex",
-    pluginTarget,
-    path.join(currentRuntimePath(env), "codex", "plugins", "agent-wallet"),
-    env,
-    { allowExternal: true },
-  );
-  if (!link.ok) return link;
-  const marketplace = ensureCodexMarketplaceEntry({ marketplacePath, pluginName: "agent-wallet" });
-  const registration = runHostRefresh(
-    "codex",
-    ["plugin", "add", `agent-wallet@${marketplace.marketplace_name}`],
-    { ...env, CODEX_HOME: entry.codex_home || resolveCodexHome(env) },
-  );
-  recordManagedIntegration(
-    "codex",
-    {
-      ...entry,
-      plugin_target: pluginTarget,
-      marketplace_path: marketplacePath,
-      marketplace_name: marketplace.marketplace_name,
-      registration_ok: registration.ok,
-      restart_required: true,
-    },
-    env,
-  );
-  return {
-    ...link,
-    ok: link.ok && registration.ok,
-    registration,
-    restart_required: true,
-  };
-}
-
-function refreshClaudeCodeIntegration(entry, env = process.env) {
-  const marketplaceDir = path.resolve(
-    expandHome(entry.marketplace_dir || resolveClaudeCodeMarketplaceDir(env)),
-  );
-  const cacheRoot = path.resolve(
-    expandHome(entry.cache_root || env.AGENT_WALLET_CLAUDE_CODE_CACHE_ROOT || "~/.claude/plugins/cache"),
-  );
-  const pluginTarget = path.resolve(
-    expandHome(entry.plugin_target || path.join(marketplaceDir, "plugins", "agent-wallet")),
-  );
-  const link = repairRuntimeSymlink(
-    "claude-code",
-    pluginTarget,
-    path.join(currentRuntimePath(env), "claude-code", "plugins", "agent-wallet"),
-    env,
-    { allowExternal: true },
-  );
-  if (!link.ok) return link;
-  ensureClaudeCodeMarketplace(
-    marketplaceDir,
-    path.join(currentRuntimePath(env), "claude-code", "plugins", "agent-wallet"),
-    true,
-  );
-  const marketplaceAdd = runHostRefresh(
-    "claude",
-    ["plugin", "marketplace", "add", marketplaceDir, "--scope", "user"],
-    env,
-  );
-  const registration = marketplaceAdd.ok
-    ? runHostRefresh(
-        "claude",
-        ["plugin", "install", `agent-wallet@${CLAUDE_CODE_MARKETPLACE_NAME}`, "--scope", "user"],
-        env,
-      )
-    : { attempted: false, ok: false, error: "marketplace refresh failed", fix: marketplaceAdd.fix };
-  const cachePins = pinClaudeCacheCopies({
-    ...env,
-    AGENT_WALLET_CLAUDE_CODE_CACHE_ROOT: cacheRoot,
-  });
-  recordManagedIntegration(
-    "claude-code",
-    {
-      ...entry,
-      marketplace_dir: marketplaceDir,
-      plugin_target: pluginTarget,
-      cache_root: cacheRoot,
-      registration_ok: registration.ok,
-      restart_required: true,
-    },
-    env,
-  );
-  return {
-    ...link,
-    ok: link.ok && marketplaceAdd.ok && registration.ok,
-    marketplace_add: marketplaceAdd,
-    registration,
-    cache_pins: cachePins,
-    restart_required: true,
-  };
+function safelyRefreshIntegration(name, callback) {
+  return integrations().safelyRefresh(name, callback);
 }
 
 function repairInstalledEditorIntegrations(env = process.env) {
-  const results = [repairOpenclawIntegration(env)];
-  const currentRoot = currentRuntimePath(env);
-  const hermesEntry = managedIntegration("hermes", env) || legacyHermesIntegration(env);
-  if (hermesEntry) {
-    const hermesTarget = path.resolve(expandHome(hermesEntry.plugin_target));
-    const hermesEnvPath = path.resolve(expandHome(hermesEntry.env_path));
-    const result = repairRuntimeSymlink(
-      "hermes",
-      hermesTarget,
-      path.join(currentRoot, "hermes", "plugins", "agent_wallet"),
-      env,
-      { allowExternal: true },
-    );
-    result.env_repaired = repairHermesEnv(hermesEnvPath, env);
-    result.restart_required = true;
-    if (result.ok) {
-      recordManagedIntegration(
-        "hermes",
-        {
-          ...hermesEntry,
-          plugin_target: hermesTarget,
-          env_path: hermesEnvPath,
-          restart_required: true,
-        },
-        env,
-      );
-    }
-    results.push(result);
-  }
-
-  const codexEntry = managedIntegration("codex", env) || legacyCodexIntegration(env);
-  if (codexEntry) results.push(refreshCodexIntegration(codexEntry, env));
-
-  const claudeEntry = managedIntegration("claude-code", env) || legacyClaudeCodeIntegration(env);
-  if (claudeEntry) results.push(refreshClaudeCodeIntegration(claudeEntry, env));
-  return results;
+  return hostIntegrations(env).refreshAll();
 }
 
 const args = process.argv.slice(2);

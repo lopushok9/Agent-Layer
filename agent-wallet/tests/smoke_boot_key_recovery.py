@@ -18,6 +18,7 @@ def main() -> None:
         shutil.rmtree(temp_home)
     os.environ["OPENCLAW_HOME"] = str(temp_home)
     os.environ["AGENT_WALLET_KEYSTORE_SERVICE"] = "ai.agentlayer.wallet.smoketest"
+    os.environ["AGENT_WALLET_KEYSTORE_BACKEND"] = "plaintext"
     for var in ("AGENT_WALLET_BOOT_KEY", "AGENT_WALLET_BOOT_KEY_FILE"):
         os.environ.pop(var, None)
 
@@ -29,6 +30,7 @@ def main() -> None:
     store.delete(BOOT_KEY_ITEM)
 
     from agent_wallet.boot_key_recovery import export_boot_key, import_boot_key
+    from agent_wallet.sealed_keys import seal_keys
 
     try:
         # No key yet -> export raises.
@@ -42,6 +44,18 @@ def main() -> None:
         status = import_boot_key("RECOVERED-KEY")
         assert status["imported"] is True, status
         assert config.read_boot_key_from_keystore() == "RECOVERED-KEY"
+
+        # Existing sealed state must be validated before the keystore is changed.
+        seal_keys("RECOVERED-KEY", {"master_key": "master", "approval_secret": "approval"})
+        try:
+            import_boot_key("STALE-RECOVERY-KEY")
+            raise AssertionError("stale import should have been rejected")
+        except WalletBackendError as exc:
+            assert "does not unlock" in str(exc)
+        assert store.get(BOOT_KEY_ITEM) == "RECOVERED-KEY"
+
+        # A valid re-import remains idempotent with sealed state present.
+        assert import_boot_key("RECOVERED-KEY")["imported"] is True
 
         # export now returns it.
         assert export_boot_key() == "RECOVERED-KEY"
