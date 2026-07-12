@@ -123,10 +123,26 @@ export function createHostIntegrationManager({
   ensureClaudeCodeMarketplace,
   pinClaudeCacheCopies,
 }) {
+  const runtimeBase = path.dirname(currentRuntimePath);
+
+  function runtimeOwnedTarget(target) {
+    const relative = path.relative(runtimeBase, path.resolve(target));
+    return relative === "" || (!relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+  }
+
+  function symlinkTarget(linkPath) {
+    try {
+      if (!fs.lstatSync(linkPath).isSymbolicLink()) return null;
+      return path.resolve(path.dirname(linkPath), fs.readlinkSync(linkPath));
+    } catch {
+      return null;
+    }
+  }
+
   function symlinkManifestMatches(linkPath, manifestRelativePath, expectedName) {
     try {
-      if (!fs.lstatSync(linkPath).isSymbolicLink()) return false;
-      const target = path.resolve(path.dirname(linkPath), fs.readlinkSync(linkPath));
+      const target = symlinkTarget(linkPath);
+      if (!target || !runtimeOwnedTarget(target)) return false;
       return readJson(path.join(target, manifestRelativePath))?.name === expectedName;
     } catch {
       return false;
@@ -135,13 +151,8 @@ export function createHostIntegrationManager({
 
   function adoptHermes() {
     const pluginTarget = path.join(hermesHome, "plugins", "agent_wallet");
-    let target;
-    try {
-      if (!fs.lstatSync(pluginTarget).isSymbolicLink()) return null;
-      target = path.resolve(path.dirname(pluginTarget), fs.readlinkSync(pluginTarget));
-    } catch {
-      return null;
-    }
+    const target = symlinkTarget(pluginTarget);
+    if (!target || !runtimeOwnedTarget(target)) return null;
     let manifest = "";
     try {
       manifest = fs.readFileSync(path.join(target, "plugin.yaml"), "utf8");

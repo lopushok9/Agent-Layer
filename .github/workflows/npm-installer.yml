@@ -81,6 +81,9 @@ jobs:
       - name: Smoke unmanaged integration preservation
         run: python agent-wallet/tests/smoke_update_preserves_unmanaged_integrations.py
 
+      - name: Smoke cross-home integration preservation
+        run: python agent-wallet/tests/smoke_update_preserves_cross_home_integrations.py
+
       - name: Smoke integration failure isolation
         run: python agent-wallet/tests/smoke_update_isolates_integration_failures.py
 
