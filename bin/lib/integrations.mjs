@@ -26,16 +26,50 @@ function writeJsonAtomic(pathname, value) {
 export function createIntegrationManager({ runtimeBase, packageVersion, activeVersion }) {
   const registryPath = path.join(runtimeBase, "integrations.json");
 
+  function emptyRegistry(error = "") {
+    return {
+      schema_version: 1,
+      integrations: {},
+      ...(error ? { registry_error: error } : {}),
+    };
+  }
+
   function readRegistry() {
-    const payload = readJson(registryPath);
-    if (!payload || payload.schema_version !== 1 || typeof payload.integrations !== "object") {
-      return { schema_version: 1, integrations: {} };
+    let payload;
+    try {
+      payload = readJson(registryPath);
+    } catch (error) {
+      return emptyRegistry(`integration registry is unreadable: ${error.message}`);
+    }
+    if (!payload) return emptyRegistry();
+    if (
+      payload.schema_version !== 1 ||
+      !payload.integrations ||
+      typeof payload.integrations !== "object" ||
+      Array.isArray(payload.integrations)
+    ) {
+      return emptyRegistry("integration registry schema is invalid");
     }
     return payload;
   }
 
+  function quarantineCorruptRegistry(registry) {
+    if (!registry.registry_error || !fs.existsSync(registryPath)) return null;
+    let backup = `${registryPath}.corrupt-${Date.now()}`;
+    let suffix = 2;
+    while (fs.existsSync(backup)) {
+      backup = `${registryPath}.corrupt-${Date.now()}-${suffix}`;
+      suffix += 1;
+    }
+    fs.renameSync(registryPath, backup);
+    return backup;
+  }
+
   function record(name, details = {}) {
-    const registry = readRegistry();
+    let registry = readRegistry();
+    const corruptBackup = quarantineCorruptRegistry(registry);
+    if (registry.registry_error) registry = emptyRegistry();
+    if (corruptBackup) registry.recovered_corrupt_registry = path.basename(corruptBackup);
     registry.integrations[name] = {
       ...details,
       managed: true,
@@ -54,7 +88,8 @@ export function createIntegrationManager({ runtimeBase, packageVersion, activeVe
 
   function status() {
     const active = activeVersion();
-    const integrations = Object.entries(readRegistry().integrations)
+    const registry = readRegistry();
+    const managedIntegrations = Object.entries(registry.integrations)
       .filter(([, entry]) => entry?.managed === true)
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([name, entry]) => {
@@ -69,7 +104,13 @@ export function createIntegrationManager({ runtimeBase, packageVersion, activeVe
           restart_required: Boolean(entry.restart_required),
         };
       });
-    return { in_sync: integrations.every((entry) => entry.in_sync), integrations };
+    return {
+      in_sync: !registry.registry_error && managedIntegrations.every((entry) => entry.in_sync),
+      registry_ok: !registry.registry_error,
+      registry_error: registry.registry_error || "",
+      recovered_corrupt_registry: registry.recovered_corrupt_registry || null,
+      integrations: managedIntegrations,
+    };
   }
 
   function safelyRefresh(name, callback) {
