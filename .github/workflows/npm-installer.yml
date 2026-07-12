@@ -75,6 +75,9 @@ jobs:
       - name: Smoke update recovery diagnostics
         run: python agent-wallet/tests/smoke_update_recovery_status.py
 
+      - name: Test update transaction state matrix
+        run: node --test agent-wallet/tests/update_transaction.test.mjs
+
       - name: Smoke editor path migration
         run: python agent-wallet/tests/smoke_update_repairs_editor_installs.py
 
