@@ -6,6 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createBootKeyManager } from "./lib/boot-key.mjs";
 import { createUpdateTransactionManager } from "./lib/update-transaction.mjs";
 
 const cliPath = fileURLToPath(import.meta.url);
@@ -1040,12 +1041,6 @@ function writeJsonFileAtomic(pathname, value, mode = 0o600) {
   }
 }
 
-function currentBootKey(env = process.env) {
-  const currentRoot = resolvedCurrentRuntimeRoot(env);
-  if (!currentRoot) return "";
-  return readEnvFile(path.join(currentRoot, "agent-wallet", ".env")).AGENT_WALLET_BOOT_KEY || "";
-}
-
 function readTextIfExists(pathname) {
   try {
     return fs.readFileSync(pathname, "utf8");
@@ -1055,131 +1050,36 @@ function readTextIfExists(pathname) {
   }
 }
 
-function writeSecretFile(pathname, value) {
-  fs.mkdirSync(path.dirname(pathname), { recursive: true });
-  fs.writeFileSync(pathname, `${String(value || "").trim()}\n`, { mode: 0o600 });
-  try {
-    fs.chmodSync(pathname, 0o600);
-  } catch {
-    // ignored
-  }
-}
-
-function resolveBootKeyFromFile(env = process.env) {
-  const keyFile = String(env.AGENT_WALLET_BOOT_KEY_FILE || "").trim();
-  if (!keyFile) return "";
-  return readTextIfExists(path.resolve(expandHome(keyFile))).trim();
-}
-
-function defaultBootKeyFile(env = process.env) {
-  return path.join(resolveRuntimeBase(env), "boot-key");
+function bootKeys(env = process.env) {
+  return createBootKeyManager({
+    runtimeBase: resolveRuntimeBase(env),
+    openclawHome: resolveOpenclawHome(env),
+    currentRuntimeRoot: () => resolvedCurrentRuntimeRoot(env),
+    resolveVenvPython,
+    expandHome,
+    bridgeTimeoutMs: positiveIntEnv(
+      "AGENT_WALLET_KEYSTORE_BRIDGE_TIMEOUT_MS",
+      KEYSTORE_BRIDGE_TIMEOUT_MS,
+      env,
+    ),
+    env,
+  });
 }
 
 function ensureBootKeyFile(env = process.env) {
-  const configuredFile = String(env.AGENT_WALLET_BOOT_KEY_FILE || "").trim();
-  const keyFile = configuredFile ? path.resolve(expandHome(configuredFile)) : defaultBootKeyFile(env);
-  const existing = readTextIfExists(keyFile).trim();
-  if (existing) {
-    return { path: keyFile, status: "existing" };
-  }
-  const bootKey = String(env.AGENT_WALLET_BOOT_KEY || "").trim() || resolveBootKeyFromFile(env) || currentBootKey(env);
-  if (!bootKey) {
-    return { path: keyFile, status: "missing" };
-  }
-  writeSecretFile(keyFile, bootKey);
-  return { path: keyFile, status: "created" };
+  return bootKeys(env).ensureFile();
 }
 
-// Read the boot key from the OS keystore via the current runtime's Python
-// (best-effort, "" on any failure). Lets a re-install after the runtime migration
-// — which moves the key into the keystore and deletes every plaintext copy — still
-// resolve the existing boot key instead of refusing to touch sealed secrets.
-function readBootKeyFromKeystore(env = process.env) {
-  const runtimeRoot = resolvedCurrentRuntimeRoot(env);
-  if (!runtimeRoot) return "";
-  const py = resolveVenvPython(runtimeRoot);
-  if (!py) return "";
-  try {
-    const res = spawnSync(
-      py,
-      ["-c", "from agent_wallet.config import read_boot_key_from_keystore as r; print(r())"],
-      {
-        cwd: path.join(runtimeRoot, "agent-wallet"),
-        encoding: "utf8",
-        timeout: positiveIntEnv("AGENT_WALLET_KEYSTORE_BRIDGE_TIMEOUT_MS", KEYSTORE_BRIDGE_TIMEOUT_MS, env),
-        env: { ...env, OPENCLAW_HOME: resolveOpenclawHome(env) },
-      },
-    );
-    if ((res.status ?? 1) !== 0) return "";
-    return String(res.stdout || "").trim();
-  } catch {
-    return "";
-  }
-}
-
-// New runtimes own boot-key precedence and verify candidates against
-// sealed_keys.json. An import failure means the active runtime predates this
-// bridge, so callers may use the legacy JS fallback below.
 function readBootKeyFromRuntimeResolver(env = process.env) {
-  const runtimeRoot = resolvedCurrentRuntimeRoot(env);
-  if (!runtimeRoot) return { supported: false, key: "" };
-  const py = resolveVenvPython(runtimeRoot);
-  if (!py) return { supported: false, key: "" };
-  try {
-    const res = spawnSync(
-      py,
-      ["-c", "from agent_wallet.config import resolve_boot_key_for_installer as r; print(r())"],
-      {
-        cwd: path.join(runtimeRoot, "agent-wallet"),
-        encoding: "utf8",
-        timeout: positiveIntEnv("AGENT_WALLET_KEYSTORE_BRIDGE_TIMEOUT_MS", KEYSTORE_BRIDGE_TIMEOUT_MS, env),
-        env: { ...env, OPENCLAW_HOME: resolveOpenclawHome(env) },
-      },
-    );
-    if ((res.status ?? 1) !== 0) return { supported: false, key: "" };
-    return { supported: true, key: String(res.stdout || "").trim() };
-  } catch {
-    return { supported: false, key: "" };
-  }
+  return bootKeys(env).resolveFromRuntime();
 }
 
 function resolveLegacyInstallerBootKey(env = process.env) {
-  for (const [source, key] of [
-    ["legacy_keystore", readBootKeyFromKeystore(env)],
-    ["current_runtime_env", currentBootKey(env)],
-    ["configured_file", resolveBootKeyFromFile(env)],
-    ["default_file", readTextIfExists(defaultBootKeyFile(env)).trim()],
-  ]) {
-    if (key) return { key, source };
-  }
-  return { key: "", source: "none" };
+  return bootKeys(env).resolveLegacy();
 }
 
-// Provision the boot key into the OS keystore via the freshly installed runtime's
-// Python. Returns true only when the import stored AND verified the key, so the
-// caller may safely drop the plaintext .env copy. Best-effort: false on any failure
-// (e.g. no usable keystore), in which case the caller keeps the legacy .env write.
 function provisionBootKeyToKeystore(releaseRoot, env, bootKey) {
-  const key = String(bootKey || "").trim();
-  if (!key) return false;
-  const py = resolveVenvPython(releaseRoot);
-  if (!py) return false;
-  try {
-    const res = spawnSync(
-      py,
-      ["-m", "agent_wallet.openclaw_cli", "boot-key-import", "--key-stdin"],
-      {
-        cwd: path.join(releaseRoot, "agent-wallet"),
-        input: key,
-        encoding: "utf8",
-        timeout: positiveIntEnv("AGENT_WALLET_KEYSTORE_BRIDGE_TIMEOUT_MS", KEYSTORE_BRIDGE_TIMEOUT_MS, env),
-        env: { ...env, OPENCLAW_HOME: resolveOpenclawHome(env) },
-      },
-    );
-    return (res.status ?? 1) === 0;
-  } catch {
-    return false;
-  }
+  return bootKeys(env).provision(releaseRoot, bootKey);
 }
 
 function resolveVenvPython(releaseRoot) {
@@ -1258,36 +1158,7 @@ function verifyRuntime(releaseRoot, env = process.env) {
 }
 
 function verifyBootKeyWithRuntime(releaseRoot, env = process.env) {
-  const sealedPath = path.join(resolveOpenclawHome(env), "sealed_keys.json");
-  if (!fs.existsSync(sealedPath)) return { ok: true, required: false };
-  const key = String(env.AGENT_WALLET_BOOT_KEY || "").trim();
-  if (!key) return { ok: false, required: true, error: "no verified boot key is available" };
-  const python =
-    env.AGENT_WALLET_PYTHON ||
-    env.OPENCLAW_AGENT_WALLET_PYTHON ||
-    resolveVenvPython(releaseRoot);
-  if (!python) {
-    if (String(env.AGENT_WALLET_VERIFY_DISABLE || "") === "1") {
-      return { ok: true, required: true, skipped: true };
-    }
-    return { ok: false, required: true, error: "staged Python runtime is unavailable" };
-  }
-  const result = spawnSync(
-    python,
-    [
-      "-c",
-      "from agent_wallet.sealed_keys import unseal_keys; import os; unseal_keys(os.environ['AGENT_WALLET_BOOT_KEY']); print('ok')",
-    ],
-    {
-      cwd: path.join(releaseRoot, "agent-wallet"),
-      encoding: "utf8",
-      timeout: positiveIntEnv("AGENT_WALLET_KEYSTORE_BRIDGE_TIMEOUT_MS", KEYSTORE_BRIDGE_TIMEOUT_MS, env),
-      env: { ...env, OPENCLAW_HOME: resolveOpenclawHome(env) },
-    },
-  );
-  return result.status === 0
-    ? { ok: true, required: true }
-    : { ok: false, required: true, error: "selected boot key does not unlock sealed wallet state" };
+  return bootKeys(env).verifyWithRuntime(releaseRoot);
 }
 
 function resolveEditorServerChecks(env = process.env) {
