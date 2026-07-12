@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createBootKeyManager } from "./lib/boot-key.mjs";
+import { createIntegrationManager } from "./lib/integrations.mjs";
 import { createUpdateTransactionManager } from "./lib/update-transaction.mjs";
 
 const cliPath = fileURLToPath(import.meta.url);
@@ -417,58 +418,24 @@ function readUpdateJournal(env = process.env) {
   return updateTransactions(env).readJournal();
 }
 
-function integrationRegistryPath(env = process.env) {
-  return path.join(resolveRuntimeBase(env), "integrations.json");
-}
-
-function readIntegrationRegistry(env = process.env) {
-  const payload = readJsonFile(integrationRegistryPath(env));
-  if (!payload || payload.schema_version !== 1 || typeof payload.integrations !== "object") {
-    return { schema_version: 1, integrations: {} };
-  }
-  return payload;
+function integrations(env = process.env) {
+  return createIntegrationManager({
+    runtimeBase: resolveRuntimeBase(env),
+    packageVersion,
+    activeVersion: () => activeVersion(env),
+  });
 }
 
 function recordManagedIntegration(name, details = {}, env = process.env) {
-  const registry = readIntegrationRegistry(env);
-  registry.integrations[name] = {
-    ...details,
-    managed: true,
-    installed_version: packageVersion,
-    updated_at: new Date().toISOString(),
-  };
-  registry.updated_at = new Date().toISOString();
-  writeJsonFileAtomic(integrationRegistryPath(env), registry);
-  return registry.integrations[name];
+  return integrations(env).record(name, details);
 }
 
 function managedIntegration(name, env = process.env) {
-  const entry = readIntegrationRegistry(env).integrations[name];
-  return entry && entry.managed === true ? entry : null;
+  return integrations(env).managed(name);
 }
 
 function integrationSyncStatus(env = process.env) {
-  const active = activeVersion(env);
-  const registry = readIntegrationRegistry(env);
-  const integrations = Object.entries(registry.integrations)
-    .filter(([, entry]) => entry?.managed === true)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([name, entry]) => {
-      const versionInSync = active === null || entry.installed_version === active;
-      const registrationOk = entry.registration_ok !== false;
-      return {
-        name,
-        installed_version: entry.installed_version || null,
-        active_version: active,
-        in_sync: versionInSync && registrationOk,
-        registration_ok: registrationOk,
-        restart_required: Boolean(entry.restart_required),
-      };
-    });
-  return {
-    in_sync: integrations.every((entry) => entry.in_sync),
-    integrations,
-  };
+  return integrations(env).status();
 }
 
 function writeUpdateJournal(state, details = {}, env = process.env) {
@@ -2880,24 +2847,7 @@ function refreshClaudeCodeIntegration(entry, env = process.env) {
 }
 
 function safelyRefreshIntegration(name, callback) {
-  try {
-    return callback();
-  } catch (error) {
-    const fix = name === "global-cli"
-      ? "Re-run: wallet update --yes"
-      : name === "openclaw"
-        ? "Re-run: wallet install --yes"
-        : `Re-run: wallet ${name} install --yes`;
-    return {
-      name,
-      attempted: true,
-      ok: false,
-      repaired: false,
-      error: error?.message || String(error),
-      restart_required: false,
-      fix,
-    };
-  }
+  return integrations().safelyRefresh(name, callback);
 }
 
 function refreshHermesIntegration(env = process.env) {
@@ -2936,12 +2886,12 @@ function refreshRegisteredClaudeCodeIntegration(env = process.env) {
 }
 
 function repairInstalledEditorIntegrations(env = process.env) {
-  return [
-    safelyRefreshIntegration("openclaw", () => repairOpenclawIntegration(env)),
-    safelyRefreshIntegration("hermes", () => refreshHermesIntegration(env)),
-    safelyRefreshIntegration("codex", () => refreshRegisteredCodexIntegration(env)),
-    safelyRefreshIntegration("claude-code", () => refreshRegisteredClaudeCodeIntegration(env)),
-  ].filter(Boolean);
+  return integrations(env).refreshAll({
+    openclaw: () => repairOpenclawIntegration(env),
+    hermes: () => refreshHermesIntegration(env),
+    codex: () => refreshRegisteredCodexIntegration(env),
+    "claude-code": () => refreshRegisteredClaudeCodeIntegration(env),
+  });
 }
 
 const args = process.argv.slice(2);
