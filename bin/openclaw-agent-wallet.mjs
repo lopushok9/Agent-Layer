@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createBootKeyManager } from "./lib/boot-key.mjs";
-import { createIntegrationManager } from "./lib/integrations.mjs";
+import { createHostIntegrationManager, createIntegrationManager } from "./lib/integrations.mjs";
 import { createUpdateTransactionManager } from "./lib/update-transaction.mjs";
 
 const cliPath = fileURLToPath(import.meta.url);
@@ -430,12 +430,32 @@ function recordManagedIntegration(name, details = {}, env = process.env) {
   return integrations(env).record(name, details);
 }
 
-function managedIntegration(name, env = process.env) {
-  return integrations(env).managed(name);
-}
-
 function integrationSyncStatus(env = process.env) {
   return integrations(env).status();
+}
+
+function hostIntegrations(env = process.env) {
+  return createHostIntegrationManager({
+    env,
+    packageRoot,
+    registry: integrations(env),
+    currentRuntimePath: currentRuntimePath(env),
+    openclawHome: resolveOpenclawHome(env),
+    hermesHome: resolveHermesHome(env),
+    codexHome: resolveCodexHome(env),
+    codexPluginRoot: resolveCodexPluginInstallRoot(env),
+    codexMarketplacePath: resolveCodexMarketplacePath(env),
+    claudeMarketplaceDir: resolveClaudeCodeMarketplaceDir(env),
+    claudeMarketplaceName: CLAUDE_CODE_MARKETPLACE_NAME,
+    expandHome,
+    resolveVenvPython,
+    commandPath,
+    repairRuntimeSymlink,
+    repairHermesEnv,
+    ensureCodexMarketplaceEntry,
+    ensureClaudeCodeMarketplace,
+    pinClaudeCacheCopies,
+  });
 }
 
 function writeUpdateJournal(state, details = {}, env = process.env) {
@@ -1005,15 +1025,6 @@ function writeJsonFileAtomic(pathname, value, mode = 0o600) {
     } catch {
       // ignored
     }
-  }
-}
-
-function readTextIfExists(pathname) {
-  try {
-    return fs.readFileSync(pathname, "utf8");
-  } catch (error) {
-    if (error?.code === "ENOENT") return "";
-    throw error;
   }
 }
 
@@ -2510,189 +2521,6 @@ function repairHermesEnv(envPath, env = process.env) {
   return repaired;
 }
 
-function legacyHermesIntegration(env = process.env) {
-  const hermesHome = resolveHermesHome(env);
-  const pluginTarget = path.join(hermesHome, "plugins", "agent_wallet");
-  let target;
-  try {
-    if (!fs.lstatSync(pluginTarget).isSymbolicLink()) return null;
-    target = path.resolve(path.dirname(pluginTarget), fs.readlinkSync(pluginTarget));
-  } catch {
-    return null;
-  }
-  const manifest = readTextIfExists(path.join(target, "plugin.yaml"));
-  if (!/^name:\s*agent[-_]wallet\s*$/m.test(manifest)) return null;
-  return recordManagedIntegration(
-    "hermes",
-    {
-      hermes_home: hermesHome,
-      plugin_target: pluginTarget,
-      env_path: path.join(hermesHome, ".env"),
-      adopted_legacy_install: true,
-    },
-    env,
-  );
-}
-
-function repairOpenclawIntegration(env = process.env) {
-  const entry = managedIntegration("openclaw", env);
-  if (!entry) {
-    return { name: "openclaw", attempted: false, ok: true, repaired: false, reason: "not managed" };
-  }
-  const configPath = path.resolve(
-    expandHome(entry.config_path || path.join(resolveOpenclawHome(env), "openclaw.json")),
-  );
-  let config;
-  try {
-    config = readJsonFile(configPath);
-  } catch (error) {
-    return { name: "openclaw", attempted: true, ok: false, repaired: false, error: error.message };
-  }
-  if (!config || typeof config !== "object") {
-    return { name: "openclaw", attempted: true, ok: false, repaired: false, error: `missing ${configPath}` };
-  }
-
-  const currentRoot = currentRuntimePath(env);
-  const extensionPath = path.join(currentRoot, ".openclaw", "extensions", "agent-wallet");
-  const packageRootPath = path.join(currentRoot, "agent-wallet");
-  const pythonBin = resolveVenvPython(currentRoot);
-  const plugins = config.plugins && typeof config.plugins === "object" ? config.plugins : (config.plugins = {});
-  const load = plugins.load && typeof plugins.load === "object" ? plugins.load : (plugins.load = {});
-  const paths = Array.isArray(load.paths) ? load.paths : [];
-  load.paths = [
-    ...paths.filter((item) => {
-      const value = String(item || "");
-      return !value.replaceAll("\\", "/").endsWith("/.openclaw/extensions/agent-wallet");
-    }),
-    extensionPath,
-  ];
-  const entries = plugins.entries && typeof plugins.entries === "object" ? plugins.entries : (plugins.entries = {});
-  const walletEntry = entries["agent-wallet"];
-  if (!walletEntry || typeof walletEntry !== "object") {
-    return {
-      name: "openclaw",
-      attempted: false,
-      ok: true,
-      repaired: false,
-      reason: "plugin entry not configured",
-    };
-  }
-  walletEntry.enabled = true;
-  walletEntry.config = walletEntry.config && typeof walletEntry.config === "object" ? walletEntry.config : {};
-  walletEntry.config.packageRoot = packageRootPath;
-  if (pythonBin) walletEntry.config.pythonBin = pythonBin;
-  writeJsonFileAtomic(configPath, config);
-  recordManagedIntegration(
-    "openclaw",
-    {
-      config_path: configPath,
-      extension_path: extensionPath,
-      package_root: packageRootPath,
-      restart_required: true,
-    },
-    env,
-  );
-  return {
-    name: "openclaw",
-    attempted: true,
-    ok: true,
-    repaired: true,
-    config_path: configPath,
-    restart_required: true,
-  };
-}
-
-function symlinkManifestMatches(linkPath, manifestRelativePath, expectedName) {
-  let target;
-  try {
-    if (!fs.lstatSync(linkPath).isSymbolicLink()) return false;
-    target = path.resolve(path.dirname(linkPath), fs.readlinkSync(linkPath));
-  } catch {
-    return false;
-  }
-  try {
-    const manifest = readJsonFile(path.join(target, manifestRelativePath));
-    return manifest && manifest.name === expectedName;
-  } catch {
-    return false;
-  }
-}
-
-function legacyCodexIntegration(env = process.env) {
-  const marketplacePath = resolveCodexMarketplacePath(env);
-  let marketplace;
-  try {
-    marketplace = readJsonFile(marketplacePath);
-  } catch {
-    return null;
-  }
-  const pluginTarget = path.join(resolveCodexPluginInstallRoot(env), "agent-wallet");
-  const registered = Array.isArray(marketplace?.plugins) && marketplace.plugins.some(
-    (item) => item?.name === "agent-wallet" && item?.source?.source === "local",
-  );
-  if (!registered || !symlinkManifestMatches(pluginTarget, ".codex-plugin/plugin.json", "agent-wallet")) {
-    return null;
-  }
-  return recordManagedIntegration(
-    "codex",
-    {
-      codex_home: resolveCodexHome(env),
-      plugin_target: pluginTarget,
-      marketplace_path: marketplacePath,
-      marketplace_name: String(marketplace.name || "local"),
-      adopted_legacy_install: true,
-    },
-    env,
-  );
-}
-
-function legacyClaudeCodeIntegration(env = process.env) {
-  const marketplaceDir = resolveClaudeCodeMarketplaceDir(env);
-  let manifest;
-  try {
-    manifest = readJsonFile(path.join(marketplaceDir, ".claude-plugin", "marketplace.json"));
-  } catch {
-    return null;
-  }
-  const pluginTarget = path.join(marketplaceDir, "plugins", "agent-wallet");
-  const registered = manifest?.name === CLAUDE_CODE_MARKETPLACE_NAME &&
-    Array.isArray(manifest.plugins) && manifest.plugins.some((item) => item?.name === "agent-wallet");
-  if (!registered || !symlinkManifestMatches(pluginTarget, ".claude-plugin/plugin.json", "agent-wallet")) {
-    return null;
-  }
-  return recordManagedIntegration(
-    "claude-code",
-    {
-      marketplace_dir: marketplaceDir,
-      plugin_target: pluginTarget,
-      cache_root: path.resolve(
-        expandHome(env.AGENT_WALLET_CLAUDE_CODE_CACHE_ROOT || "~/.claude/plugins/cache"),
-      ),
-      adopted_legacy_install: true,
-    },
-    env,
-  );
-}
-
-function runHostRefresh(command, args, env = process.env) {
-  const binary = commandPath(command);
-  if (!binary) {
-    return {
-      attempted: false,
-      ok: false,
-      error: `${command} CLI not found`,
-      fix: args.join(" "),
-    };
-  }
-  const result = spawnSync(binary, args, { cwd: packageRoot, encoding: "utf8", env });
-  return {
-    attempted: true,
-    ok: result.status === 0,
-    error: result.status === 0 ? "" : (result.stderr || result.stdout || "").trim(),
-    fix: result.status === 0 ? "" : `${command} ${args.join(" ")}`,
-  };
-}
-
 function globalNpmPackageInfo(env = process.env) {
   const npmBin = commandPath("npm");
   if (!npmBin) return null;
@@ -2744,154 +2572,12 @@ function refreshGlobalCliIfNeeded(env = process.env) {
   };
 }
 
-function refreshCodexIntegration(entry, env = process.env) {
-  const pluginTarget = path.resolve(
-    expandHome(entry.plugin_target || path.join(resolveCodexPluginInstallRoot(env), "agent-wallet")),
-  );
-  const marketplacePath = path.resolve(
-    expandHome(entry.marketplace_path || resolveCodexMarketplacePath(env)),
-  );
-  const link = repairRuntimeSymlink(
-    "codex",
-    pluginTarget,
-    path.join(currentRuntimePath(env), "codex", "plugins", "agent-wallet"),
-    env,
-    { allowExternal: true },
-  );
-  if (!link.ok) return link;
-  const marketplace = ensureCodexMarketplaceEntry({ marketplacePath, pluginName: "agent-wallet" });
-  const registration = runHostRefresh(
-    "codex",
-    ["plugin", "add", `agent-wallet@${marketplace.marketplace_name}`],
-    { ...env, CODEX_HOME: entry.codex_home || resolveCodexHome(env) },
-  );
-  recordManagedIntegration(
-    "codex",
-    {
-      ...entry,
-      plugin_target: pluginTarget,
-      marketplace_path: marketplacePath,
-      marketplace_name: marketplace.marketplace_name,
-      registration_ok: registration.ok,
-      restart_required: true,
-    },
-    env,
-  );
-  return {
-    ...link,
-    ok: link.ok && registration.ok,
-    registration,
-    restart_required: true,
-  };
-}
-
-function refreshClaudeCodeIntegration(entry, env = process.env) {
-  const marketplaceDir = path.resolve(
-    expandHome(entry.marketplace_dir || resolveClaudeCodeMarketplaceDir(env)),
-  );
-  const cacheRoot = path.resolve(
-    expandHome(entry.cache_root || env.AGENT_WALLET_CLAUDE_CODE_CACHE_ROOT || "~/.claude/plugins/cache"),
-  );
-  const pluginTarget = path.resolve(
-    expandHome(entry.plugin_target || path.join(marketplaceDir, "plugins", "agent-wallet")),
-  );
-  const link = repairRuntimeSymlink(
-    "claude-code",
-    pluginTarget,
-    path.join(currentRuntimePath(env), "claude-code", "plugins", "agent-wallet"),
-    env,
-    { allowExternal: true },
-  );
-  if (!link.ok) return link;
-  ensureClaudeCodeMarketplace(
-    marketplaceDir,
-    path.join(currentRuntimePath(env), "claude-code", "plugins", "agent-wallet"),
-    true,
-  );
-  const marketplaceAdd = runHostRefresh(
-    "claude",
-    ["plugin", "marketplace", "add", marketplaceDir, "--scope", "user"],
-    env,
-  );
-  const registration = marketplaceAdd.ok
-    ? runHostRefresh(
-        "claude",
-        ["plugin", "install", `agent-wallet@${CLAUDE_CODE_MARKETPLACE_NAME}`, "--scope", "user"],
-        env,
-      )
-    : { attempted: false, ok: false, error: "marketplace refresh failed", fix: marketplaceAdd.fix };
-  const cachePins = pinClaudeCacheCopies({
-    ...env,
-    AGENT_WALLET_CLAUDE_CODE_CACHE_ROOT: cacheRoot,
-  });
-  recordManagedIntegration(
-    "claude-code",
-    {
-      ...entry,
-      marketplace_dir: marketplaceDir,
-      plugin_target: pluginTarget,
-      cache_root: cacheRoot,
-      registration_ok: registration.ok,
-      restart_required: true,
-    },
-    env,
-  );
-  return {
-    ...link,
-    ok: link.ok && marketplaceAdd.ok && registration.ok,
-    marketplace_add: marketplaceAdd,
-    registration,
-    cache_pins: cachePins,
-    restart_required: true,
-  };
-}
-
 function safelyRefreshIntegration(name, callback) {
   return integrations().safelyRefresh(name, callback);
 }
 
-function refreshHermesIntegration(env = process.env) {
-  const currentRoot = currentRuntimePath(env);
-  const entry = managedIntegration("hermes", env) || legacyHermesIntegration(env);
-  if (!entry) return null;
-  const target = path.resolve(expandHome(entry.plugin_target));
-  const envPath = path.resolve(expandHome(entry.env_path));
-  const result = repairRuntimeSymlink(
-    "hermes",
-    target,
-    path.join(currentRoot, "hermes", "plugins", "agent_wallet"),
-    env,
-    { allowExternal: true },
-  );
-  result.env_repaired = repairHermesEnv(envPath, env);
-  result.restart_required = true;
-  if (result.ok) {
-    recordManagedIntegration(
-      "hermes",
-      { ...entry, plugin_target: target, env_path: envPath, restart_required: true },
-      env,
-    );
-  }
-  return result;
-}
-
-function refreshRegisteredCodexIntegration(env = process.env) {
-  const entry = managedIntegration("codex", env) || legacyCodexIntegration(env);
-  return entry ? refreshCodexIntegration(entry, env) : null;
-}
-
-function refreshRegisteredClaudeCodeIntegration(env = process.env) {
-  const entry = managedIntegration("claude-code", env) || legacyClaudeCodeIntegration(env);
-  return entry ? refreshClaudeCodeIntegration(entry, env) : null;
-}
-
 function repairInstalledEditorIntegrations(env = process.env) {
-  return integrations(env).refreshAll({
-    openclaw: () => repairOpenclawIntegration(env),
-    hermes: () => refreshHermesIntegration(env),
-    codex: () => refreshRegisteredCodexIntegration(env),
-    "claude-code": () => refreshRegisteredClaudeCodeIntegration(env),
-  });
+  return hostIntegrations(env).refreshAll();
 }
 
 const args = process.argv.slice(2);
