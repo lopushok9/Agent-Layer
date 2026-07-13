@@ -6,7 +6,7 @@ import test from "node:test";
 
 import { loadConfig } from "../src/config.js";
 
-test("ethereum and base mainnet profiles are always forced through provider-gateway alchemy", () => {
+test("ethereum, base, and robinhood mainnet profiles are always forced through provider-gateway alchemy", () => {
   const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "wdk-evm-config-"));
   try {
     const config = loadConfig({
@@ -17,6 +17,7 @@ test("ethereum and base mainnet profiles are always forced through provider-gate
       PROVIDER_GATEWAY_BEARER_TOKEN: "gateway-secret",
       WDK_EVM_ETHEREUM_RPC_URL: "https://direct-eth.example",
       WDK_EVM_BASE_RPC_URL: "https://direct-base.example",
+      WDK_EVM_ROBINHOOD_RPC_URL: "https://direct-robinhood.example",
       WDK_EVM_SEPOLIA_RPC_URL: "https://direct-sepolia.example",
       WDK_EVM_BASE_SEPOLIA_RPC_URL: "https://direct-base-sepolia.example",
     });
@@ -28,6 +29,10 @@ test("ethereum and base mainnet profiles are always forced through provider-gate
     assert.equal(
       config.networkProfiles.base.providerUrl,
       "https://gateway.example/v1/evm/rpc/base?provider=alchemy&token=gateway-secret"
+    );
+    assert.equal(
+      config.networkProfiles.robinhood.providerUrl,
+      "https://gateway.example/v1/evm/rpc/robinhood?provider=alchemy&token=gateway-secret"
     );
     assert.equal(config.networkProfiles.sepolia.providerUrl, "https://direct-sepolia.example");
     assert.equal(

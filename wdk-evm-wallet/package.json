@@ -15,7 +15,8 @@
     "test:lido-runtime": "node --test --test-concurrency=1 tests/smoke_lido_runtime.mjs",
     "test:uniswap-runtime": "node --test --test-concurrency=1 tests/smoke_uniswap_runtime.mjs",
     "test:unit": "node --test tests/unit_uniswap_helpers.mjs",
-    "test:identity": "node --test tests/unit_instance_identity.mjs"
+    "test:identity": "node --test tests/unit_instance_identity.mjs",
+    "test:network-config": "node --test tests/unit_network_config.mjs"
   },
   "dependencies": {
     "@morpho-org/morpho-sdk": "^3.2.0",
