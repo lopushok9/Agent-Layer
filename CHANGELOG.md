@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## v0.1.77 - 2026-07-13
+
+- Added Robinhood Chain mainnet (`chainId` 4663) to the local EVM wallet,
+  provider gateway, OpenClaw extension, and Codex bridge. The existing EVM
+  wallet address can now be selected with `set_evm_network=robinhood` or the
+  `robinhood` wallet alias.
+
+- Added Robinhood support to native/ERC-20 balance reads, fee estimates,
+  transfers, receipts, portfolio token discovery through the gateway, and
+  mainnet confirmation safeguards.
+
+- Added Uniswap Trading API CLASSIC quote and swap support on Robinhood,
+  including the Robinhood Universal Router allow-list and cross-network router
+  rejection coverage.
+
+- Kept unsupported Robinhood protocol surfaces intentionally unavailable:
+  LI.FI routes, Velora, Aave, Morpho, and Lido remain limited to their
+  previously supported networks.
+
 ## v0.1.75 - 2026-07-11
 
 - Added a persistent, non-secret ownership registry for OpenClaw, Hermes,

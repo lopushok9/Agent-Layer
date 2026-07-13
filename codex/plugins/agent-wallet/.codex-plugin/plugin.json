@@ -1,6 +1,6 @@
 {
   "name": "agent-wallet",
-  "version": "0.1.76",
+  "version": "0.1.77",
   "description": "Codex plugin bridge for the AgentLayer wallet runtime.",
   "author": {
     "name": "AgentLayer"
