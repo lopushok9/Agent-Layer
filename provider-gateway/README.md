@@ -14,7 +14,7 @@ This service is deliberately narrow:
 - shared Jupiter Earn relay
 - shared Flash Trade perps read relay
 - shared Solana RPC gateway with method allowlist
-- shared EVM RPC gateway for ethereum/base with method allowlist
+- shared EVM RPC gateway for ethereum/base/robinhood with method allowlist
 - no wallet custody
 - no transaction signing
 
@@ -29,7 +29,7 @@ Implemented endpoints:
 - `GET /health` — public health and capability snapshot
 - `GET /v1/status` — authenticated status and provider capabilities
 - `POST /v1/rpc` — authenticated Solana JSON-RPC proxy with method allowlist
-- `POST /v1/evm/rpc/{network}` — authenticated raw EVM JSON-RPC proxy for `ethereum` / `base`
+- `POST /v1/evm/rpc/{network}` — authenticated raw EVM JSON-RPC proxy for `ethereum` / `base` / `robinhood`
 - `GET /v1/bags/trade/quote` — authenticated Bags trade quote
 - `POST /v1/bags/trade/swap` — authenticated Bags swap transaction creation
 - `POST /v1/bags/launch/token-info` — authenticated Bags token metadata creation
@@ -122,8 +122,8 @@ Configure the surfaces you want to expose:
   - `HELIUS_API_KEY`, or
   - `ALCHEMY_API_KEY`
 - shared EVM RPC:
-  - `SHARED_EVM_ETHEREUM_RPC_URL` / `SHARED_EVM_BASE_RPC_URL`, or
-  - `ALCHEMY_ETHEREUM_RPC_URL` / `ALCHEMY_BASE_RPC_URL`, or
+  - `SHARED_EVM_ETHEREUM_RPC_URL` / `SHARED_EVM_BASE_RPC_URL` / `SHARED_EVM_ROBINHOOD_RPC_URL`, or
+  - `ALCHEMY_ETHEREUM_RPC_URL` / `ALCHEMY_BASE_RPC_URL` / `ALCHEMY_ROBINHOOD_RPC_URL`, or
   - `ALCHEMY_API_KEY`
 - Bags relay:
   - `BAGS_API_KEY`
@@ -260,7 +260,7 @@ curl "http://localhost:8000/v1/houdini/quotes/private?from=sol-token-id&to=sol-t
 - explicit Bags launch / fees mode via the gateway-backed Bags client
 - explicit Jupiter Earn mode via the gateway-backed Earn client
 - explicit Houdini mode via the gateway-backed private payout client
-- `wdk-evm-wallet` uses this service as its upstream RPC transport for `ethereum` / `base` mainnet
+- `wdk-evm-wallet` uses this service as its upstream RPC transport for `ethereum` / `base` / `robinhood` mainnet
 
 Default Jupiter swap routing stays direct regardless of whether RPC is shared or user-owned. The gateway is used here for Bags launch/fees and Jupiter Earn, not for ordinary swaps.
 
@@ -285,8 +285,10 @@ Recommended setup:
    - optional shared EVM RPC:
      - `SHARED_EVM_ETHEREUM_RPC_URL`
      - `SHARED_EVM_BASE_RPC_URL`
+     - `SHARED_EVM_ROBINHOOD_RPC_URL`
      - `ALCHEMY_ETHEREUM_RPC_URL`
      - `ALCHEMY_BASE_RPC_URL`
+     - `ALCHEMY_ROBINHOOD_RPC_URL`
      - or reuse `ALCHEMY_API_KEY`
    - optional:
      - `PROVIDER_GATEWAY_BEARER_TOKEN`
@@ -350,8 +352,10 @@ Example production variable sets:
    - plus one of:
      - `SHARED_EVM_ETHEREUM_RPC_URL=...`
      - `SHARED_EVM_BASE_RPC_URL=...`
+     - `SHARED_EVM_ROBINHOOD_RPC_URL=...`
      - `ALCHEMY_ETHEREUM_RPC_URL=...`
      - `ALCHEMY_BASE_RPC_URL=...`
+     - `ALCHEMY_ROBINHOOD_RPC_URL=...`
      - `ALCHEMY_API_KEY=...`
 
 5. Protected gateway
