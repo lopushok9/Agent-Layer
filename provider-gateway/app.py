@@ -872,16 +872,20 @@ def _resolve_rpc_url(provider: str, network: str) -> tuple[str, str]:
 
 def _resolve_evm_rpc_url(provider: str, network: str) -> tuple[str, str]:
     network_key = network.strip().lower()
-    if network_key not in {"ethereum", "base"}:
-        raise RuntimeError("Shared EVM provider gateway RPC currently supports only ethereum and base.")
+    if network_key not in {"ethereum", "base", "robinhood"}:
+        raise RuntimeError(
+            "Shared EVM provider gateway RPC currently supports only ethereum, base, and robinhood."
+        )
 
     shared_by_network = {
         "ethereum": _provider_url_from_env("SHARED_EVM_ETHEREUM_RPC_URL"),
         "base": _provider_url_from_env("SHARED_EVM_BASE_RPC_URL"),
+        "robinhood": _provider_url_from_env("SHARED_EVM_ROBINHOOD_RPC_URL"),
     }
     alchemy_url_by_network = {
         "ethereum": _provider_url_from_env("ALCHEMY_ETHEREUM_RPC_URL"),
         "base": _provider_url_from_env("ALCHEMY_BASE_RPC_URL"),
+        "robinhood": _provider_url_from_env("ALCHEMY_ROBINHOOD_RPC_URL"),
     }
 
     alchemy_key = _trim(os.getenv("ALCHEMY_API_KEY"))
@@ -890,6 +894,8 @@ def _resolve_evm_rpc_url(provider: str, network: str) -> tuple[str, str]:
             alchemy_url_by_network["ethereum"] = f"https://eth-mainnet.g.alchemy.com/v2/{alchemy_key}"
         if not alchemy_url_by_network["base"]:
             alchemy_url_by_network["base"] = f"https://base-mainnet.g.alchemy.com/v2/{alchemy_key}"
+        if not alchemy_url_by_network["robinhood"]:
+            alchemy_url_by_network["robinhood"] = f"https://robinhood-mainnet.g.alchemy.com/v2/{alchemy_key}"
 
     if provider == "shared":
         shared_url = shared_by_network[network_key]
@@ -926,7 +932,7 @@ def _status_payload() -> dict[str, Any]:
             continue
 
     evm_rpc_upstreams: dict[str, list[str]] = {}
-    for network in ("ethereum", "base"):
+    for network in ("ethereum", "base", "robinhood"):
         available: list[str] = []
         for provider in ("shared", "alchemy"):
             try:
