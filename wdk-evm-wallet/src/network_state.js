@@ -11,10 +11,13 @@ function assertValidNetwork(network, fieldName = "network") {
     "eth-mainnet": "ethereum",
     "base-mainnet": "base",
     base_sepolia: "base-sepolia",
+    "robinhood-mainnet": "robinhood",
   };
   const effective = aliases[normalized] || normalized;
-  if (!["ethereum", "sepolia", "base", "base-sepolia"].includes(effective)) {
-    throw new Error(`${fieldName} must be one of: ethereum, sepolia, base, base-sepolia.`);
+  if (!["ethereum", "sepolia", "base", "base-sepolia", "robinhood"].includes(effective)) {
+    throw new Error(
+      `${fieldName} must be one of: ethereum, sepolia, base, base-sepolia, robinhood.`
+    );
   }
   return effective;
 }
