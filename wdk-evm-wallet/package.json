@@ -17,7 +17,8 @@
     "test:unit": "node --test tests/unit_uniswap_helpers.mjs",
     "test:identity": "node --test tests/unit_instance_identity.mjs",
     "test:network-config": "node --test tests/unit_network_config.mjs",
-    "test:network-state": "node --test tests/unit_network_state.mjs"
+    "test:network-state": "node --test tests/unit_network_state.mjs",
+    "test:wallet-network": "node --test tests/unit_wdk_wallet_network.mjs"
   },
   "dependencies": {
     "@morpho-org/morpho-sdk": "^3.2.0",
