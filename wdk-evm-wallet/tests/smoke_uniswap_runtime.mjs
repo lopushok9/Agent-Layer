@@ -288,7 +288,7 @@ test("quote: unsupported network is rejected", async () => {
         tokenInAmount: "1000000000000000000",
         network: "sepolia",
       }),
-      /supported only on ethereum and base/
+      /supported only on ethereum, base, and robinhood/
     );
   } finally {
     h.restore();

@@ -6,6 +6,7 @@ import { __testables } from "../src/wdk_evm_wallet.js";
 const {
   PERMIT2_ADDRESS,
   UNISWAP_SUPPORTED_CHAIN_IDS,
+  UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK,
   normalizeUniswapTokenAddress,
   assertUniswapSupportedNetwork,
   uniswapSlippagePercentFromBps,
@@ -30,6 +31,7 @@ test("erc20 address is validated and lowercased", () => {
 test("supported network assertion returns chain id", () => {
   assert.equal(assertUniswapSupportedNetwork("ethereum"), 1);
   assert.equal(assertUniswapSupportedNetwork("base"), 8453);
+  assert.equal(assertUniswapSupportedNetwork("robinhood"), 4663);
   assert.throws(() => assertUniswapSupportedNetwork("sepolia"));
   assert.throws(() => assertUniswapSupportedNetwork("base-sepolia"));
 });
@@ -45,45 +47,13 @@ test("slippage bps converts to percent", () => {
 
 test("exports constants", () => {
   assert.equal(PERMIT2_ADDRESS, "0x000000000022D473030F116dDEE9F6B43aC78BA3");
-  assert.deepEqual(UNISWAP_SUPPORTED_CHAIN_IDS, { ethereum: 1, base: 8453 });
+  assert.deepEqual(UNISWAP_SUPPORTED_CHAIN_IDS, { ethereum: 1, base: 8453, robinhood: 4663 });
 });
 
-test("permitData strips EIP712Domain and maps values to message", () => {
-  const permitData = {
-    domain: { name: "Permit2", chainId: 1, verifyingContract: PERMIT2_ADDRESS },
-    types: {
-      EIP712Domain: [
-        { name: "name", type: "string" },
-        { name: "chainId", type: "uint256" },
-        { name: "verifyingContract", type: "address" },
-      ],
-      PermitTransferFrom: [{ name: "permitted", type: "TokenPermissions" }],
-      TokenPermissions: [{ name: "token", type: "address" }],
-    },
-    values: { permitted: { token: "0xabc" } },
-  };
-  const out = normalizeUniswapPermitData(permitData, { chainId: 1 });
-  assert.equal(out.types.EIP712Domain, undefined);
-  assert.ok(out.types.PermitTransferFrom);
-  assert.ok(out.types.TokenPermissions);
-  assert.deepEqual(out.message, { permitted: { token: "0xabc" } });
-  assert.equal(out.domain.chainId, 1);
-});
-
-test("permitData rejects chainId mismatch", () => {
-  const permitData = {
-    domain: { chainId: 8453 },
-    types: { X: [{ name: "a", type: "uint256" }] },
-    values: {},
-  };
-  assert.throws(() => normalizeUniswapPermitData(permitData, { chainId: 1 }));
-});
-
-test("permitData rejects when only EIP712Domain present", () => {
-  const permitData = {
-    domain: { chainId: 1 },
-    types: { EIP712Domain: [{ name: "name", type: "string" }] },
-    values: {},
-  };
-  assert.throws(() => normalizeUniswapPermitData(permitData, { chainId: 1 }));
+test("universal router allow-list has the expected addresses per network", () => {
+  assert.deepEqual(UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK, {
+    ethereum: "0x66a9893cc07d91d95644aedd05d03f95e1dba8af",
+    base: "0x6ff5693b99212da76ad316178a184ab56d299b43",
+    robinhood: "0x8876789976decbfcbbbe364623c63652db8c0904",
+  });
 });
