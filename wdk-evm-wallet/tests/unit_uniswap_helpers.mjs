@@ -57,3 +57,43 @@ test("universal router allow-list has the expected addresses per network", () =>
     robinhood: "0x8876789976decbfcbbbe364623c63652db8c0904",
   });
 });
+
+test("permitData strips EIP712Domain and maps values to message", () => {
+  const permitData = {
+    domain: { name: "Permit2", chainId: 1, verifyingContract: PERMIT2_ADDRESS },
+    types: {
+      EIP712Domain: [
+        { name: "name", type: "string" },
+        { name: "chainId", type: "uint256" },
+        { name: "verifyingContract", type: "address" },
+      ],
+      PermitTransferFrom: [{ name: "permitted", type: "TokenPermissions" }],
+      TokenPermissions: [{ name: "token", type: "address" }],
+    },
+    values: { permitted: { token: "0xabc" } },
+  };
+  const out = normalizeUniswapPermitData(permitData, { chainId: 1 });
+  assert.equal(out.types.EIP712Domain, undefined);
+  assert.ok(out.types.PermitTransferFrom);
+  assert.ok(out.types.TokenPermissions);
+  assert.deepEqual(out.message, { permitted: { token: "0xabc" } });
+  assert.equal(out.domain.chainId, 1);
+});
+
+test("permitData rejects chainId mismatch", () => {
+  const permitData = {
+    domain: { chainId: 8453 },
+    types: { X: [{ name: "a", type: "uint256" }] },
+    values: {},
+  };
+  assert.throws(() => normalizeUniswapPermitData(permitData, { chainId: 1 }));
+});
+
+test("permitData rejects when only EIP712Domain present", () => {
+  const permitData = {
+    domain: { chainId: 1 },
+    types: { EIP712Domain: [{ name: "name", type: "string" }] },
+    values: {},
+  };
+  assert.throws(() => normalizeUniswapPermitData(permitData, { chainId: 1 }));
+});
