@@ -370,6 +370,7 @@ def _normalize_wallet_backend(value: Any) -> str:
         "ethereum": "wdk_evm_local",
         "eth": "wdk_evm_local",
         "base": "wdk_evm_local",
+        "robinhood": "wdk_evm_local",
         "wdk_evm_local": "wdk_evm_local",
         "wdk-evm-local": "wdk_evm_local",
         "evm_local": "wdk_evm_local",
@@ -383,7 +384,7 @@ def _normalize_wallet_backend(value: Any) -> str:
     }
     backend = aliases.get(normalized, normalized)
     if backend not in BACKENDS:
-        raise RuntimeError("Wallet backend must be solana, evm, base, ethereum, btc, or bitcoin.")
+        raise RuntimeError("Wallet backend must be solana, evm, ethereum, base, robinhood, btc, or bitcoin.")
     return backend
 
 
@@ -409,9 +410,9 @@ def _normalize_evm_network(value: Any) -> str:
 def _normalize_selectable_evm_network(value: Any) -> str:
     network = _normalize_evm_network(value)
     if network in {"sepolia", "base-sepolia", "base_sepolia"}:
-        raise RuntimeError("EVM testnets are no longer supported. Use ethereum or base.")
-    if network not in {"ethereum", "base"}:
-        raise RuntimeError("EVM network must be 'ethereum' or 'base'.")
+        raise RuntimeError("EVM testnets are no longer supported. Use ethereum, base, or robinhood.")
+    if network not in {"ethereum", "base", "robinhood"}:
+        raise RuntimeError("EVM network must be 'ethereum', 'base', or 'robinhood'.")
     return network
 
 
@@ -419,6 +420,8 @@ def _implied_evm_network_from_backend_alias(value: Any) -> str | None:
     normalized = str(value or "").strip().lower()
     if normalized in {"base", "base-mainnet"}:
         return "base"
+    if normalized == "robinhood":
+        return "robinhood"
     if normalized in {"ethereum", "eth", "mainnet", "eth-mainnet"}:
         return "ethereum"
     return None
@@ -471,7 +474,7 @@ def _default_backend() -> str:
 
 def _default_evm_network() -> str | None:
     configured = _normalize_evm_network(os.getenv("WDK_EVM_NETWORK"))
-    if configured in {"ethereum", "base"}:
+    if configured in {"ethereum", "base", "robinhood"}:
         return configured
     return _configured_network_for_backend("wdk_evm_local")
 
@@ -1205,11 +1208,11 @@ def _manual_tool_definitions() -> list[dict[str, Any]]:
                 "properties": {
                     "backend": {
                         "type": "string",
-                        "description": "solana, evm, base, ethereum, btc, or bitcoin.",
+                        "description": "solana, evm, ethereum, base, robinhood, btc, or bitcoin.",
                     },
                     "network": {
                         "type": "string",
-                        "description": "Optional network override. Use base or ethereum for EVM.",
+                        "description": "Optional network override. Use ethereum, base, or robinhood for EVM.",
                     },
                     "address": {
                         "type": "string",
@@ -1244,7 +1247,7 @@ def _manual_tool_definitions() -> list[dict[str, Any]]:
                 "properties": {
                     "backend": {
                         "type": "string",
-                        "description": "solana, evm, base, ethereum, btc, or bitcoin.",
+                        "description": "solana, evm, ethereum, base, robinhood, btc, or bitcoin.",
                     },
                     "wallet": {
                         "type": "string",
@@ -1262,14 +1265,14 @@ def _manual_tool_definitions() -> list[dict[str, Any]]:
         {
             "name": "set_evm_network",
             "description": (
-                "Set the active EVM network for this Codex MCP session to ethereum or base."
+                "Set the active EVM network for this Codex MCP session to ethereum, base, or robinhood."
             ),
             "input_schema": {
                 "type": "object",
                 "properties": {
                     "network": {
                         "type": "string",
-                        "description": "ethereum or base.",
+                        "description": "ethereum, base, or robinhood.",
                     }
                 },
                 "required": ["network"],

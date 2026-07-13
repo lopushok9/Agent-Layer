@@ -142,7 +142,7 @@ _PRICE_CACHE: dict[str, tuple[float, float]] = {}
 
 def _normalize_network(network: str) -> str:
     normalized = str(network or "").strip().lower()
-    if normalized not in {"ethereum", "base"}:
+    if normalized not in {"ethereum", "base", "robinhood"}:
         raise ProviderError("evm-portfolio", f"Unsupported EVM portfolio network: {network}")
     return normalized
 
@@ -207,7 +207,7 @@ async def _gateway_rpc_call(network: str, method: str, params: list[Any]) -> dic
     if not gateway_url:
         raise ProviderError(
             "evm-portfolio",
-            "Provider gateway URL is required for EVM portfolio lookup on ethereum/base.",
+            "Provider gateway URL is required for EVM portfolio lookup on ethereum/base/robinhood.",
         )
     try:
         response = await client.post(

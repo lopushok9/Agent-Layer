@@ -23,7 +23,7 @@ Use this skill before calling OpenClaw wallet tools. It is the routing guide for
 ## Provider Map
 
 - Solana same-chain swap: `swap_solana_tokens` via Jupiter.
-- EVM same-chain swap: `swap_evm_tokens` via Velora, ERC-20 to ERC-20 on `ethereum` or `base`.
+- EVM same-chain swap: `swap_evm_tokens` via Velora, ERC-20 to ERC-20 on `ethereum` or `base`; `swap_evm_uniswap_tokens` via Uniswap Trading API on `ethereum`, `base`, or `robinhood`.
 - Cross-chain Solana -> EVM: `swap_solana_lifi_cross_chain_tokens` via LI.FI.
 - Cross-chain EVM -> EVM/Solana: `swap_evm_lifi_cross_chain_tokens` via LI.FI.
 - SOL/SPL transfers: `transfer_sol`, `transfer_spl_token`.
@@ -97,6 +97,9 @@ Use this skill before calling OpenClaw wallet tools. It is the routing guide for
 - EVM same-chain Velora swap: `swap_evm_tokens`
   - Params: `token_in`, `token_out`, `amount_in_raw` base-unit string, `mode`, `purpose`, optional `network`.
   - Current intended path is ERC-20 to ERC-20 on `ethereum` or `base`.
+- EVM same-chain Uniswap swap: `swap_evm_uniswap_tokens`
+  - Params: `token_in`, `token_out`, `amount_in_raw` base-unit string, `mode`, `purpose`, optional `network`.
+  - Current intended path supports `ethereum`, `base`, and `robinhood` with CLASSIC routing.
 - EVM swap quote only: `get_evm_swap_quote`
   - Params: `token_in`, `token_out`, `amount_in_raw`, optional `network`.
 

@@ -18,6 +18,7 @@ const PREVIEW_BOUND_SWAP_TOOLS = new Set([
   "flash_trade_open_position",
   "flash_trade_close_position",
 ]);
+const EVM_CORE_NETWORKS = ["ethereum", "base", "robinhood"];
 const AUTONOMOUS_BASE_SWAP_TOOLS = new Set([
   "swap_evm_tokens",
   "swap_evm_uniswap_tokens",
@@ -202,6 +203,7 @@ function normalizeWalletBackend(value) {
     ethereum: "wdk_evm_local",
     eth: "wdk_evm_local",
     base: "wdk_evm_local",
+    robinhood: "wdk_evm_local",
     wdk_evm_local: "wdk_evm_local",
     "wdk-evm-local": "wdk_evm_local",
     evm_local: "wdk_evm_local",
@@ -215,7 +217,7 @@ function normalizeWalletBackend(value) {
   };
   const backend = aliases[normalized] || normalized;
   if (!["solana_local", "wdk_evm_local", "wdk_btc_local"].includes(backend)) {
-    throw new Error("Wallet backend must be solana, evm, base, ethereum, btc, or bitcoin.");
+    throw new Error("Wallet backend must be solana, evm, ethereum, base, robinhood, btc, or bitcoin.");
   }
   return backend;
 }
@@ -240,10 +242,10 @@ function normalizeEvmNetwork(value) {
 function normalizeSelectableEvmNetwork(value) {
   const network = normalizeEvmNetwork(value);
   if (["sepolia", "base-sepolia", "base_sepolia"].includes(network)) {
-    throw new Error("EVM testnets are no longer supported. Use ethereum or base.");
+    throw new Error("EVM testnets are no longer supported. Use ethereum, base, or robinhood.");
   }
-  if (!["ethereum", "base"].includes(network)) {
-    throw new Error("EVM network must be 'ethereum' or 'base'.");
+  if (!EVM_CORE_NETWORKS.includes(network)) {
+    throw new Error("EVM network must be 'ethereum', 'base', or 'robinhood'.");
   }
   return network;
 }
@@ -289,7 +291,7 @@ function normalizeBtcNetwork(value) {
 function defaultSelectableEvmNetwork(api) {
   const config = resolvePluginConfig(api);
   const configured = normalizeEvmNetwork(config.network || process.env.WDK_EVM_NETWORK);
-  return ["ethereum", "base"].includes(configured) ? configured : null;
+  return EVM_CORE_NETWORKS.includes(configured) ? configured : null;
 }
 
 function defaultSolanaNetwork(api) {
@@ -841,12 +843,12 @@ const walletSessionToolDefinitions = [
       properties: {
         backend: {
           type: "string",
-          enum: ["solana", "sol", "evm", "ethereum", "base", "bitcoin", "btc"],
+          enum: ["solana", "sol", "evm", "ethereum", "base", "robinhood", "bitcoin", "btc"],
           description: "Wallet backend or common alias to make active.",
         },
         network: {
           type: "string",
-          description: "Optional network for the selected wallet. Examples: mainnet, ethereum, base, bitcoin.",
+          description: "Optional network for the selected wallet. Examples: mainnet, ethereum, base, robinhood, bitcoin.",
         },
       },
       required: ["backend"],
@@ -1537,7 +1539,7 @@ const evmToolDefinitions = [
       properties: {
         network: {
           type: "string",
-          enum: ["ethereum", "base"],
+          enum: EVM_CORE_NETWORKS,
           description: "Optional EVM network override for this request.",
         },
       },
@@ -1552,7 +1554,7 @@ const evmToolDefinitions = [
       properties: {
         network: {
           type: "string",
-          enum: ["ethereum", "base"],
+          enum: EVM_CORE_NETWORKS,
           description: "Optional EVM network override for this request.",
         },
       },
@@ -1571,7 +1573,7 @@ const evmToolDefinitions = [
         },
         network: {
           type: "string",
-          enum: ["ethereum", "base"],
+          enum: EVM_CORE_NETWORKS,
           description: "Optional EVM network override for this request.",
         },
       },
@@ -1628,7 +1630,7 @@ const evmToolDefinitions = [
       properties: {
         network: {
           type: "string",
-          enum: ["ethereum", "base"],
+          enum: EVM_CORE_NETWORKS,
         },
       },
       additionalProperties: false,
@@ -1637,13 +1639,13 @@ const evmToolDefinitions = [
   {
     name: "set_evm_network",
     description:
-      "Select the active EVM network for subsequent wallet tool calls in this OpenClaw plugin session. Use this to switch between ethereum and base instead of editing code or plugin configuration.",
+      "Select the active EVM network for subsequent wallet tool calls in this OpenClaw plugin session. Use this to switch between ethereum, base, and robinhood instead of editing code or plugin configuration.",
     parameters: {
       type: "object",
       properties: {
         network: {
           type: "string",
-          enum: ["ethereum", "base"],
+          enum: EVM_CORE_NETWORKS,
           description: "EVM network to make active for subsequent calls.",
         },
       },
@@ -1658,7 +1660,7 @@ const evmToolDefinitions = [
       type: "object",
       properties: {
         token_address: { type: "string" },
-        network: { type: "string", enum: ["ethereum", "base"] },
+        network: { type: "string", enum: EVM_CORE_NETWORKS },
       },
       required: ["token_address"],
       additionalProperties: false,
@@ -1671,7 +1673,7 @@ const evmToolDefinitions = [
       type: "object",
       properties: {
         token_address: { type: "string" },
-        network: { type: "string", enum: ["ethereum", "base"] },
+        network: { type: "string", enum: EVM_CORE_NETWORKS },
       },
       required: ["token_address"],
       additionalProperties: false,
@@ -1683,7 +1685,7 @@ const evmToolDefinitions = [
     parameters: {
       type: "object",
       properties: {
-        network: { type: "string", enum: ["ethereum", "base"] },
+        network: { type: "string", enum: EVM_CORE_NETWORKS },
       },
       additionalProperties: false,
     },
@@ -1695,7 +1697,7 @@ const evmToolDefinitions = [
       type: "object",
       properties: {
         tx_hash: { type: "string" },
-        network: { type: "string", enum: ["ethereum", "base"] },
+        network: { type: "string", enum: EVM_CORE_NETWORKS },
       },
       required: ["tx_hash"],
       additionalProperties: false,
@@ -1960,6 +1962,42 @@ const evmToolDefinitions = [
     },
   },
   {
+    name: "get_uniswap_swap_quote",
+    description: "Get a read-only Uniswap Trading API quote (CLASSIC routing) for an ERC-20 or native ETH swap on ethereum, base, or robinhood. This does not approve, sign, or execute a swap.",
+    parameters: {
+      type: "object",
+      properties: {
+        token_in: { type: "string" },
+        token_out: { type: "string" },
+        amount_in_raw: { type: "string" },
+        slippage_bps: { type: "integer" },
+        network: { type: "string", enum: EVM_CORE_NETWORKS },
+      },
+      required: ["token_in", "token_out", "amount_in_raw"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "swap_evm_uniswap_tokens",
+    description: "Preview, prepare, or execute an ERC-20 or native ETH swap through the Uniswap Trading API (CLASSIC routing) on ethereum, base, or robinhood. ERC-20 inputs use Permit2 EIP-712 signing automatically. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
+    optional: true,
+    parameters: {
+      type: "object",
+      properties: {
+        token_in: { type: "string" },
+        token_out: { type: "string" },
+        amount_in_raw: { type: "string" },
+        slippage_bps: { type: "integer" },
+        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
+        purpose: { type: "string" },
+        user_intent: { type: "boolean" },
+        network: { type: "string", enum: EVM_CORE_NETWORKS },
+      },
+      required: ["token_in", "token_out", "amount_in_raw", "mode", "purpose"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "swap_evm_lifi_cross_chain_tokens",
     description: "Preview, prepare, or execute an EVM-origin cross-chain swap through LI.FI. This currently supports ethereum/base as the source network and ethereum/base/solana as the destination chain. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
     optional: true,
@@ -2004,7 +2042,7 @@ const evmToolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        network: { type: "string", enum: ["ethereum", "base"] },
+        network: { type: "string", enum: EVM_CORE_NETWORKS },
       },
       required: ["recipient", "amount_wei", "mode", "purpose"],
       additionalProperties: false,
@@ -2023,7 +2061,7 @@ const evmToolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        network: { type: "string", enum: ["ethereum", "base"] },
+        network: { type: "string", enum: EVM_CORE_NETWORKS },
       },
       required: ["token_address", "recipient", "amount_raw", "mode", "purpose"],
       additionalProperties: false,

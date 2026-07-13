@@ -123,13 +123,13 @@ def normalize_evm_network(network: str | None) -> str:
         from agent_wallet.wallet_layer.base import WalletBackendError
 
         raise WalletBackendError(
-            "EVM testnets are no longer supported by agent-wallet. Use ethereum or base."
+            "EVM testnets are no longer supported by agent-wallet. Use ethereum, base, or robinhood."
         )
-    if normalized not in {"ethereum", "base"}:
+    if normalized not in {"ethereum", "base", "robinhood"}:
         from agent_wallet.wallet_layer.base import WalletBackendError
 
         raise WalletBackendError(
-            f"Unsupported EVM network: {normalized}. Use ethereum or base."
+            f"Unsupported EVM network: {normalized}. Use ethereum, base, or robinhood."
         )
     return normalized
 

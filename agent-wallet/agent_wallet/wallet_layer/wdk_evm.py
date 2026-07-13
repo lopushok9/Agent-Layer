@@ -668,8 +668,8 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "configured_network": self.network,
             "service_active_network": str(data.get("activeNetwork") or "").strip() or None,
             "available_networks": sorted(str(key) for key in profiles.keys()),
-            "agent_selectable_networks": ["ethereum", "base"],
-            "swap_supported_networks": ["ethereum", "base"],
+            "agent_selectable_networks": ["ethereum", "base", "robinhood"],
+            "swap_supported_networks": ["ethereum", "base", "robinhood"],
             "network_profiles": {
                 str(network): {
                     **dict(profile),

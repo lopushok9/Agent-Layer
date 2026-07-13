@@ -73,6 +73,7 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
         mapping = {
             "ethereum": 1,
             "base": 8453,
+            "robinhood": 4663,
         }
         return mapping[network]
 

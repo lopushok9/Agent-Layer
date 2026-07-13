@@ -90,15 +90,16 @@ class FakeEvmBackend(AgentWalletBackend):
             "network": self.network,
             "configured_network": self.network,
             "service_active_network": self.network,
-            "available_networks": ["base", "ethereum"],
-            "agent_selectable_networks": ["ethereum", "base"],
-            "swap_supported_networks": ["ethereum", "base"],
+            "available_networks": ["base", "ethereum", "robinhood"],
+            "agent_selectable_networks": ["ethereum", "base", "robinhood"],
+            "swap_supported_networks": ["ethereum", "base", "robinhood"],
             "network_profiles": {
                 "ethereum": {"chainId": 1, "providerUrl": "https://gateway.example/v1/evm/rpc/ethereum?provider=alchemy"},
                 "base": {"chainId": 8453, "providerUrl": "https://gateway.example/v1/evm/rpc/base?provider=alchemy"},
+                "robinhood": {"chainId": 4663, "providerUrl": "https://gateway.example/v1/evm/rpc/robinhood?provider=alchemy"},
             },
             "selected_profile": {
-                "chainId": 1 if self.network == "ethereum" else 8453,
+                "chainId": {"ethereum": 1, "base": 8453, "robinhood": 4663}[self.network],
                 "providerUrl": f"https://gateway.example/v1/evm/rpc/{self.network}?provider=alchemy",
             },
             "source": "fake",
@@ -1125,6 +1126,83 @@ class FakeEvmBackend(AgentWalletBackend):
             "source": "fake",
         }
 
+    async def get_uniswap_swap_quote(
+        self,
+        *,
+        token_in: str,
+        token_out: str,
+        amount_in_raw: str,
+        slippage_bps: int | None = None,
+    ) -> dict:
+        return {
+            "chain": "evm",
+            "network": self.network,
+            "token_in": token_in,
+            "token_out": token_out,
+            "amount_in_raw": amount_in_raw,
+            "protocol": "uniswap",
+            "routing": "CLASSIC",
+            "chain_id": {"ethereum": 1, "base": 8453, "robinhood": 4663}[self.network],
+            "slippage_bps": slippage_bps,
+            "source": "fake",
+        }
+
+    async def preview_uniswap_swap(
+        self,
+        *,
+        token_in: str,
+        token_out: str,
+        amount_in_raw: str,
+        slippage_bps: int | None = None,
+    ) -> dict:
+        return {
+            "chain": "evm",
+            "network": self.network,
+            "asset_type": "evm-uniswap-swap",
+            "asset": "ERC20",
+            "wallet": "evm-wallet-123",
+            "from_address": await self.get_address(),
+            "token_in": token_in,
+            "token_out": token_out,
+            "input_amount_raw": amount_in_raw,
+            "estimated_output_amount_raw": "995000",
+            "minimum_output_amount_raw": "985050",
+            "slippage_bps": slippage_bps,
+            "swap_provider": "uniswap",
+            "routing": "CLASSIC",
+            "quote_fingerprint": "uniswap-fingerprint-1",
+            "router": "0x8876789976decbfcbbbe364623c63652db8c0904",
+            "simulation": {"ok": True, "skipped": False, "reason": None, "message": None, "details": None},
+            "swap_transaction": {"to": "0x8876789976decbfcbbbe364623c63652db8c0904", "value": "0", "data_hash": "uniswap-data-hash-1"},
+            "source": "fake",
+        }
+
+    async def send_uniswap_swap(
+        self,
+        *,
+        token_in: str,
+        token_out: str,
+        amount_in_raw: str,
+        slippage_bps: int | None = None,
+        expected_quote_fingerprint: str | None = None,
+        minimum_output_amount_raw: str | None = None,
+    ) -> dict:
+        if expected_quote_fingerprint and expected_quote_fingerprint != "uniswap-fingerprint-1":
+            raise WalletBackendError("uniswap quote changed", code="uniswap_quote_changed")
+        if minimum_output_amount_raw and minimum_output_amount_raw != "985050":
+            raise WalletBackendError("minimum output mismatch", code="uniswap_quote_changed")
+        return {
+            **await self.preview_uniswap_swap(
+                token_in=token_in,
+                token_out=token_out,
+                amount_in_raw=amount_in_raw,
+                slippage_bps=slippage_bps,
+            ),
+            "hash": "0x" + "e" * 64,
+            "broadcasted": True,
+            "confirmed": False,
+        }
+
     async def preview_evm_swap(
         self,
         *,
@@ -1542,6 +1620,8 @@ async def _main() -> None:
     assert "manage_evm_lido_withdrawal" in tool_names
     assert "get_evm_swap_quote" in tool_names
     assert "swap_evm_tokens" in tool_names
+    assert "get_uniswap_swap_quote" in tool_names
+    assert "swap_evm_uniswap_tokens" in tool_names
     assert "transfer_evm_native" in tool_names
     assert "transfer_evm_token" in tool_names
     assert "transfer_btc" not in tool_names
@@ -1573,6 +1653,7 @@ async def _main() -> None:
     assert network_info.data["configured_network"] == "base"
     assert "ethereum" in network_info.data["agent_selectable_networks"]
     assert "base" in network_info.data["agent_selectable_networks"]
+    assert "robinhood" in network_info.data["agent_selectable_networks"]
 
     switch_adapter = OpenClawWalletAdapter(FakeEvmBackend())
     switched_network = await switch_adapter.invoke("set_evm_network", {"network": "base"})
@@ -1591,6 +1672,40 @@ async def _main() -> None:
     )
     assert default_balance_after_switch.ok is True
     assert default_balance_after_switch.data["network"] == "base"
+
+    robinhood_network = await switch_adapter.invoke("set_evm_network", {"network": "robinhood"})
+    assert robinhood_network.ok is True
+    assert robinhood_network.data["session_active_network"] == "robinhood"
+    robinhood_balance = await switch_adapter.invoke("get_wallet_balance", {})
+    assert robinhood_balance.ok is True
+    assert robinhood_balance.data["network"] == "robinhood"
+
+    robinhood_uniswap_quote = await adapter.invoke(
+        "get_uniswap_swap_quote",
+        {
+            "token_in": "native",
+            "token_out": "0x2222222222222222222222222222222222222222",
+            "amount_in_raw": "1000000000000000",
+            "network": "robinhood",
+        },
+    )
+    assert robinhood_uniswap_quote.ok is True
+    assert robinhood_uniswap_quote.data["network"] == "robinhood"
+    assert robinhood_uniswap_quote.data["chain_id"] == 4663
+
+    robinhood_uniswap_preview = await adapter.invoke(
+        "swap_evm_uniswap_tokens",
+        {
+            "token_in": "native",
+            "token_out": "0x2222222222222222222222222222222222222222",
+            "amount_in_raw": "1000000000000000",
+            "mode": "preview",
+            "purpose": "test robinhood uniswap preview",
+            "network": "robinhood",
+        },
+    )
+    assert robinhood_uniswap_preview.ok is True
+    assert robinhood_uniswap_preview.data["network"] == "robinhood"
 
     rejected_network = await switch_adapter.invoke("set_evm_network", {"network": "polygon"})
     assert rejected_network.ok is False

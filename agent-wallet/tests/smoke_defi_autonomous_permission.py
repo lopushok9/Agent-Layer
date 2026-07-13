@@ -276,6 +276,7 @@ class FakeDefiBackend(AgentWalletBackend):
 
 
 async def main() -> None:
+    assert "robinhood" in autonomous_permissions.DEFI_TOOLS_NETWORKS
     install_test_sealed_secrets(
         Path("/tmp/openclaw-defi-autonomous-smoke"),
         boot_key="test-boot-key-for-defi-autonomous-smoke",

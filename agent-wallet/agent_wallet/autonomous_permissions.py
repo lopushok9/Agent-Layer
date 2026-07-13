@@ -23,7 +23,7 @@ BASE_SWAP_NETWORK = "base"
 BASE_SWAP_TOOLS = frozenset({"swap_evm_tokens", "swap_evm_uniswap_tokens"})
 BASE_SWAP_ISSUER = "autonomous-permission:base-swaps"
 DEFI_TOOLS_SCOPE = "defi_tools"
-DEFI_TOOLS_NETWORKS = frozenset({"base", "ethereum"})
+DEFI_TOOLS_NETWORKS = frozenset({"base", "ethereum", "robinhood"})
 DEFI_TOOLS = frozenset(
     {
         "manage_evm_aave_position",
@@ -219,7 +219,7 @@ def authorize_defi_tool(*, tool_name: str, network: str, summary: dict[str, Any]
     if str(tool_name) not in DEFI_TOOLS:
         raise WalletBackendError("Autonomous DeFi permission only covers supported EVM DeFi tools.")
     if normalized_network not in DEFI_TOOLS_NETWORKS:
-        raise WalletBackendError("Autonomous DeFi permission only applies on ethereum or base.")
+        raise WalletBackendError("Autonomous DeFi permission only applies on ethereum, base, or robinhood.")
     if not is_defi_tools_approved():
         raise WalletBackendError(
             "Autonomous execution is not enabled. Ask the user to run "

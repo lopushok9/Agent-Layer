@@ -28,7 +28,10 @@ async def _run() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         seen_urls.append(str(request.url))
         seen_auth.append(request.headers.get("authorization"))
-        assert request.url == httpx.URL("https://gateway.example/v1/evm/rpc/base?provider=alchemy")
+        assert request.url in {
+            httpx.URL("https://gateway.example/v1/evm/rpc/base?provider=alchemy"),
+            httpx.URL("https://gateway.example/v1/evm/rpc/robinhood?provider=alchemy"),
+        }
         return httpx.Response(
             200,
             json={
@@ -58,6 +61,12 @@ async def _run() -> None:
         assert balances[0]["contract_address"].lower() == "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
         assert seen_urls == ["https://gateway.example/v1/evm/rpc/base?provider=alchemy"]
         assert seen_auth == ["Bearer gateway-token"]
+        balances = await evm_portfolio.fetch_token_balances(
+            "0x2222222222222222222222222222222222222222",
+            "robinhood",
+        )
+        assert len(balances) == 1
+        assert seen_urls[-1] == "https://gateway.example/v1/evm/rpc/robinhood?provider=alchemy"
     finally:
         evm_portfolio.get_client = original_get_client
         await client.aclose()

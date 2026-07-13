@@ -39,7 +39,7 @@ If the preview result includes a confirmation_summary or mainnet_warning, surfac
 Never bypass the approval token requirement for wallet writes.
 In OpenClaw, switch between Solana, EVM, and Bitcoin wallets with set_wallet_backend.
 The plugin config is the startup default, not something to edit during a normal conversation.
-For EVM wallets, switch between Ethereum and Base with set_evm_network or by passing the
+For EVM wallets, switch between Ethereum, Base, and Robinhood with set_evm_network or by passing the
 network argument to EVM tools. Do not edit code, plugin config, or environment variables
 just to switch the active EVM network.
 """.strip()
@@ -74,7 +74,7 @@ class OpenClawWalletAdapter:
         if chain == "bitcoin":
             return normalized == "bitcoin"
         if chain == "evm":
-            return normalized in {"ethereum", "base", "eip155:1", "eip155:8453"}
+            return normalized in {"ethereum", "base", "robinhood", "eip155:1", "eip155:8453", "eip155:4663"}
         if chain == "solana":
             return normalized in {"mainnet", "solana:5eykt4usfv8p8njdtrepy1vzkqzkvdp"}
         return normalized == "mainnet"
@@ -101,9 +101,9 @@ class OpenClawWalletAdapter:
         }
         network = aliases.get(network, network)
         if network in {"sepolia", "base-sepolia", "base_sepolia"}:
-            raise WalletBackendError("EVM testnets are no longer supported. Use ethereum or base.")
-        if network not in {"ethereum", "base"}:
-            raise WalletBackendError("EVM network must be 'ethereum' or 'base'.")
+            raise WalletBackendError("EVM testnets are no longer supported. Use ethereum, base, or robinhood.")
+        if network not in {"ethereum", "base", "robinhood"}:
+            raise WalletBackendError("EVM network must be 'ethereum', 'base', or 'robinhood'.")
         return network
 
     def _resolve_backend_for_args(self, args: dict[str, Any]) -> AgentWalletBackend:
@@ -386,7 +386,7 @@ class OpenClawWalletAdapter:
         elif scope == autonomous_permissions.DEFI_TOOLS_SCOPE:
             if network not in autonomous_permissions.DEFI_TOOLS_NETWORKS:
                 raise WalletBackendError(
-                    "Autonomous DeFi permission only applies on ethereum or base. "
+                    "Autonomous DeFi permission only applies on ethereum, base, or robinhood. "
                     "Use set_evm_network or the network parameter to select a supported network."
                 )
             if not autonomous_permissions.is_defi_tools_approved():
@@ -1178,7 +1178,7 @@ class OpenClawWalletAdapter:
                         "properties": {
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base"],
+                                "enum": ["ethereum", "base", "robinhood"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -1195,7 +1195,7 @@ class OpenClawWalletAdapter:
                         "properties": {
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base"],
+                                "enum": ["ethereum", "base", "robinhood"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -1220,7 +1220,7 @@ class OpenClawWalletAdapter:
                             },
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base"],
+                                "enum": ["ethereum", "base", "robinhood"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -1301,7 +1301,7 @@ class OpenClawWalletAdapter:
                         "properties": {
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base"],
+                                "enum": ["ethereum", "base", "robinhood"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -1314,7 +1314,7 @@ class OpenClawWalletAdapter:
                     name="set_evm_network",
                     description=(
                         "Select the active EVM network for subsequent wallet tool calls in this "
-                        "runtime session. Use this to switch between ethereum and base instead "
+                        "runtime session. Use this to switch between ethereum, base, and robinhood instead "
                         "of editing code or plugin configuration."
                     ),
                     input_schema={
@@ -1322,7 +1322,7 @@ class OpenClawWalletAdapter:
                         "properties": {
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base"],
+                                "enum": ["ethereum", "base", "robinhood"],
                                 "description": "EVM network to make active for subsequent calls.",
                             },
                         },
@@ -1344,7 +1344,7 @@ class OpenClawWalletAdapter:
                             },
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base"],
+                                "enum": ["ethereum", "base", "robinhood"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -1366,7 +1366,7 @@ class OpenClawWalletAdapter:
                             },
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base"],
+                                "enum": ["ethereum", "base", "robinhood"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -1384,7 +1384,7 @@ class OpenClawWalletAdapter:
                         "properties": {
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base"],
+                                "enum": ["ethereum", "base", "robinhood"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -1405,7 +1405,7 @@ class OpenClawWalletAdapter:
                             },
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base"],
+                                "enum": ["ethereum", "base", "robinhood"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -1438,7 +1438,7 @@ class OpenClawWalletAdapter:
                             "approval_token": {"type": "string"},
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base"],
+                                "enum": ["ethereum", "base", "robinhood"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -1473,7 +1473,7 @@ class OpenClawWalletAdapter:
                             "approval_token": {"type": "string"},
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base"],
+                                "enum": ["ethereum", "base", "robinhood"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -2175,7 +2175,7 @@ class OpenClawWalletAdapter:
                         name="get_uniswap_swap_quote",
                         description=(
                             "Get a read-only Uniswap Trading API quote (CLASSIC routing) for an ERC-20 or native ETH swap "
-                            "on ethereum or base. Supports full EIP-712 Permit2 path for ERC-20 inputs. "
+                            "on ethereum, base, or robinhood. Supports full EIP-712 Permit2 path for ERC-20 inputs. "
                             "This does not approve, sign, or execute a swap."
                         ),
                         input_schema={
@@ -2199,8 +2199,8 @@ class OpenClawWalletAdapter:
                                 },
                                 "network": {
                                     "type": "string",
-                                    "enum": ["ethereum", "base"],
-                                    "description": "EVM network. Uniswap Trading API supports ethereum and base only.",
+                                    "enum": ["ethereum", "base", "robinhood"],
+                                    "description": "EVM network. Uniswap Trading API supports ethereum, base, and robinhood.",
                                 },
                             },
                             "required": ["token_in", "token_out", "amount_in_raw"],
@@ -2216,7 +2216,7 @@ class OpenClawWalletAdapter:
                         name="swap_evm_uniswap_tokens",
                         description=(
                             "Preview, prepare, or execute an ERC-20 or native ETH swap through the Uniswap Trading API "
-                            "(CLASSIC routing) on ethereum or base. ERC-20 inputs use Permit2 EIP-712 signing automatically. "
+                            "(CLASSIC routing) on ethereum, base, or robinhood. ERC-20 inputs use Permit2 EIP-712 signing automatically. "
                             "Prepare returns an execution plan only. Execute requires a host-issued approval token bound to the previewed operation "
                             "unless the high-trust autonomous permission group is enabled."
                         ),
@@ -2248,8 +2248,8 @@ class OpenClawWalletAdapter:
                                 "approval_token": {"type": "string"},
                                 "network": {
                                     "type": "string",
-                                    "enum": ["ethereum", "base"],
-                                    "description": "EVM network. Uniswap Trading API supports ethereum and base only.",
+                                    "enum": ["ethereum", "base", "robinhood"],
+                                    "description": "EVM network. Uniswap Trading API supports ethereum, base, and robinhood.",
                                 },
                             },
                             "required": ["token_in", "token_out", "amount_in_raw", "mode", "purpose"],

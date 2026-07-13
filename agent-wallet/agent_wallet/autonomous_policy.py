@@ -46,7 +46,7 @@ AUTONOMOUS_ISSUER = "autonomous-policy"
 
 #: Networks treated as "real money" and therefore gated behind
 #: ``allow_mainnet`` regardless of the per-tool allow-list.
-MAINNET_NETWORKS = frozenset({"mainnet", "mainnet-beta", "ethereum", "base", "arbitrum", "optimism", "polygon"})
+MAINNET_NETWORKS = frozenset({"mainnet", "mainnet-beta", "ethereum", "base", "robinhood", "arbitrum", "optimism", "polygon"})
 
 TokenIssuer = Callable[..., str]
 
