@@ -13,6 +13,12 @@ const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 // Universal Router v2.0 on base (must match UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK).
 const BASE_ROUTER = "0x6ff5693b99212da76ad316178a184ab56d299b43";
 const BASE_USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
+// Universal Router v2.0 on robinhood (must match UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK).
+const ROBINHOOD_ROUTER = "0x8876789976decbfcbbbe364623c63652db8c0904";
+// Placeholder ERC-20 test double on robinhood — the mocked RPC below returns
+// canned metadata for any token address, so this does not need to be a real
+// deployed contract.
+const ROBINHOOD_TOKEN = "0x3333333333333333333333333333333333333333";
 
 const NAME_SELECTOR = "0x06fdde03";
 const SYMBOL_SELECTOR = "0x95d89b41";
@@ -28,7 +34,7 @@ function encodeAbiString(value) {
 
 // Mirrors the live Trading API shape: Permit2 AllowanceTransfer (PermitSingle),
 // domain has no `version`, and `types` does not include an EIP712Domain entry.
-function permitDataFixture(chainId) {
+function permitDataFixture(chainId, token, spender) {
   return {
     domain: { name: "Permit2", chainId, verifyingContract: PERMIT2 },
     types: {
@@ -45,16 +51,18 @@ function permitDataFixture(chainId) {
       ],
     },
     values: {
-      details: { token: BASE_USDC, amount: "1000000", expiration: "9999999999", nonce: "0" },
-      spender: BASE_ROUTER,
+      details: { token, amount: "1000000", expiration: "9999999999", nonce: "0" },
+      spender,
       sigDeadline: "9999999999",
     },
   };
 }
 
 function createHarness(options = {}) {
-  const chainId = 8453;
-  const network = "base";
+  const chainId = options.chainId ?? 8453;
+  const network = options.network ?? "base";
+  const router = (options.router ?? BASE_ROUTER).toLowerCase();
+  const erc20Token = options.erc20Token ?? BASE_USDC;
   const providerUrl = "http://fake-rpc.local";
   const apiBase = "https://uniswap-test.local/v1";
   const state = {
@@ -136,14 +144,14 @@ function createHarness(options = {}) {
             gasFee: "5000000000000000",
             gasFeeUSD: "0.01",
           },
-          permitData: erc20In ? permitDataFixture(chainId) : null,
+          permitData: erc20In ? permitDataFixture(chainId, erc20Token, router) : null,
         });
       }
       if (requestUrl.endsWith("/swap")) {
         state.swapBodies.push(body);
         return ok({
           swap: {
-            to: options.swapRouter || BASE_ROUTER,
+            to: options.swapRouter || router,
             data: options.swapData || "0xabcdef",
             value: options.swapValue || "0x0",
           },
@@ -456,6 +464,82 @@ test("send: /swap calldata to an unexpected router is rejected", async () => {
         tokenOut: BASE_USDC,
         tokenInAmount: "1000000000000000000",
         network: "base",
+      }),
+      (err) => err.errorCode === "uniswap_unexpected_router"
+    );
+  } finally {
+    h.restore();
+  }
+});
+
+test("quote: native ETH -> ERC-20 on robinhood uses chain id 4663 and CLASSIC routing", async () => {
+  const h = createHarness({
+    network: "robinhood",
+    chainId: 4663,
+    router: ROBINHOOD_ROUTER,
+    erc20Token: ROBINHOOD_TOKEN,
+  });
+  try {
+    const result = await h.service.quoteUniswapSwap({
+      seedPhrase: VALID_MNEMONIC,
+      tokenIn: "native",
+      tokenOut: ROBINHOOD_TOKEN,
+      tokenInAmount: "1000000000000000000",
+      network: "robinhood",
+    });
+    assert.equal(result.protocol, "uniswap");
+    assert.equal(result.routing, "CLASSIC");
+    assert.equal(result.outputAmountFormatted, "0.99");
+    const body = h.state.quoteBodies.at(-1);
+    assert.equal(body.tokenInChainId, 4663);
+    assert.equal(body.tokenOutChainId, 4663);
+  } finally {
+    h.restore();
+  }
+});
+
+test("send: native ETH -> ERC-20 on robinhood broadcasts to the robinhood Universal Router", async () => {
+  const h = createHarness({
+    network: "robinhood",
+    chainId: 4663,
+    router: ROBINHOOD_ROUTER,
+    erc20Token: ROBINHOOD_TOKEN,
+    swapValue: "0xde0b6b3a7640000",
+  });
+  try {
+    const result = await h.service.sendUniswapSwap({
+      seedPhrase: VALID_MNEMONIC,
+      tokenIn: "native",
+      tokenOut: ROBINHOOD_TOKEN,
+      tokenInAmount: "1000000000000000000",
+      network: "robinhood",
+    });
+    assert.equal(result.result.hash, `0x${"d".repeat(64)}`);
+    assert.equal(h.state.sendCalls.length, 1);
+    assert.equal(h.state.sendCalls[0].to.toLowerCase(), ROBINHOOD_ROUTER.toLowerCase());
+  } finally {
+    h.restore();
+  }
+});
+
+test("send: a base-network router address is rejected when the active network is robinhood", async () => {
+  // Cross-network regression guard: the Trading API response's `to` must match
+  // the *active* network's allow-listed router, not any known router.
+  const h = createHarness({
+    network: "robinhood",
+    chainId: 4663,
+    router: ROBINHOOD_ROUTER,
+    erc20Token: ROBINHOOD_TOKEN,
+    swapRouter: BASE_ROUTER,
+  });
+  try {
+    await assert.rejects(
+      h.service.sendUniswapSwap({
+        seedPhrase: VALID_MNEMONIC,
+        tokenIn: "native",
+        tokenOut: ROBINHOOD_TOKEN,
+        tokenInAmount: "1000000000000000000",
+        network: "robinhood",
       }),
       (err) => err.errorCode === "uniswap_unexpected_router"
     );
