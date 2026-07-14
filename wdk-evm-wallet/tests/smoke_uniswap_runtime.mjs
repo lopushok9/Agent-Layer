@@ -594,6 +594,7 @@ test("quote: native ETH -> ERC-20 on robinhood uses chain id 4663 and CLASSIC ro
     const body = h.state.quoteBodies.at(-1);
     assert.equal(body.tokenInChainId, 4663);
     assert.equal(body.tokenOutChainId, 4663);
+    assert.deepEqual(body.protocols, ["V3", "UNISWAPX_V3"]);
   } finally {
     h.restore();
   }

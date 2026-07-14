@@ -31,16 +31,22 @@ const UNISWAP_EXECUTION_PROFILES = {
     chainId: 1,
     universalRouters: { "2.0": "0x66a9893cc07d91d95644aedd05d03f95e1dba8af" },
     wrappedNative: "0xc02aaA39b223fe8d0a0e5c4f27ead9083c756cc2".toLowerCase(),
+    ammProtocols: ["V2", "V3", "V4"],
   },
   base: {
     chainId: 8453,
     universalRouters: { "2.0": "0x6ff5693b99212da76ad316178a184ab56d299b43" },
     wrappedNative: "0x4200000000000000000000000000000000000006",
+    ammProtocols: ["V2", "V3", "V4"],
   },
   robinhood: {
     chainId: 4663,
     universalRouters: { "2.0": "0x8876789976decbfcbbbe364623c63652db8c0904" },
     wrappedNative: "0x0bd7d308f8e1639fab988df18a8011f41eacad73",
+    // Robinhood's official deployment exposes the V3 stack. Asking the Trading
+    // API for undeployed V2/V4 routes can make an otherwise valid V3-only pair
+    // appear unavailable, so keep the protocol set chain-specific.
+    ammProtocols: ["V3"],
   },
 };
 // Compatibility export for callers/tests. New execution code resolves a router
@@ -5420,7 +5426,7 @@ export class WdkEvmWalletService {
       routerVersion: routerProfile.routerVersion,
       chainId,
     };
-    const ammProtocols = ["V2", "V3", "V4"];
+    const ammProtocols = routerProfile.ammProtocols;
     let payload;
     try {
       // Prefer the full route set. On a sub-minimum UniswapX request the API can
