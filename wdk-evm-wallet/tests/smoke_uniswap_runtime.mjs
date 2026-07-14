@@ -120,6 +120,13 @@ function createHarness(options = {}) {
       const ok = (payload) => ({ ok: true, status: 200, json: async () => payload });
       if (requestUrl.endsWith("/quote")) {
         state.quoteBodies.push(body);
+        if (
+          options.noQuoteWhenUniswapXRequested &&
+          Array.isArray(body.protocols) &&
+          body.protocols.some((protocol) => String(protocol).startsWith("UNISWAPX_"))
+        ) {
+          return { ok: false, status: 400, json: async () => ({ message: "No quotes available" }) };
+        }
         const routing = options.routing || "CLASSIC";
         const erc20In = body.tokenIn !== ZERO;
         // Successive /quote calls can return drifting output amounts (preview vs
@@ -269,6 +276,25 @@ test("quote: UniswapX routing is returned as an executable order plan", async ()
     assert.equal(result.routing, "DUTCH_V3");
     assert.equal(result.router, null);
     assert.equal(result.permitRequired, true);
+  } finally {
+    h.restore();
+  }
+});
+
+test("quote: falls back to AMM-only when a sub-minimum UniswapX request has no quote", async () => {
+  const h = createHarness({ noQuoteWhenUniswapXRequested: true });
+  try {
+    const result = await h.service.quoteUniswapSwap({
+      seedPhrase: VALID_MNEMONIC,
+      tokenIn: "native",
+      tokenOut: BASE_USDC,
+      tokenInAmount: "100000000000000",
+      network: "base",
+    });
+    assert.equal(result.routing, "CLASSIC");
+    assert.equal(h.state.quoteBodies.length, 2);
+    assert.deepEqual(h.state.quoteBodies[0].protocols, ["V2", "V3", "V4", "UNISWAPX_V3"]);
+    assert.deepEqual(h.state.quoteBodies[1].protocols, ["V2", "V3", "V4"]);
   } finally {
     h.restore();
   }

@@ -943,6 +943,15 @@ function buildDirectWrappedNativeOperation(networkProfile, swapRequest) {
   return null;
 }
 
+function isUniswapNoQuotesAvailableError(error) {
+  return (
+    error &&
+    typeof error === "object" &&
+    error.errorCode === "network_unavailable" &&
+    /no quotes available/i.test(String(error.message || ""))
+  );
+}
+
 function uniswapSlippagePercentFromBps(bps) {
   const parsed = Number(bps);
   if (!Number.isInteger(parsed) || parsed < 0 || parsed > 5000) {
@@ -5396,7 +5405,7 @@ export class WdkEvmWalletService {
 
   async #fetchUniswapQuote({ runtimeConfig, routerProfile, address, swapRequest }) {
     const chainId = UNISWAP_SUPPORTED_CHAIN_IDS[runtimeConfig.network];
-    const payload = await this.#uniswapTradingApiRequest("/quote", {
+    const quoteRequest = {
       swapper: address,
       tokenIn: swapRequest.tokenIn,
       tokenOut: swapRequest.tokenOut,
@@ -5405,18 +5414,39 @@ export class WdkEvmWalletService {
       amount: swapRequest.tokenInAmount.toString(),
       type: "EXACT_INPUT",
       slippageTolerance: swapRequest.slippagePercent,
-      // Keep an AMM fallback while allowing the chain's supported UniswapX route.
-      protocols: [
-        "V2",
-        "V3",
-        "V4",
-        runtimeConfig.network === "ethereum" ? "UNISWAPX_V2" : "UNISWAPX_V3",
-      ],
-    }, {
+    };
+    const requestOptions = {
       erc20EthEnabled: isZeroAddress(swapRequest.tokenIn),
       routerVersion: routerProfile.routerVersion,
       chainId,
-    });
+    };
+    const ammProtocols = ["V2", "V3", "V4"];
+    let payload;
+    try {
+      // Prefer the full route set. On a sub-minimum UniswapX request the API can
+      // return No quotes available even when an AMM pool is liquid, so retry the
+      // same exact swap through AMMs only before reporting a quote failure.
+      payload = await this.#uniswapTradingApiRequest(
+        "/quote",
+        {
+          ...quoteRequest,
+          protocols: [
+            ...ammProtocols,
+            runtimeConfig.network === "ethereum" ? "UNISWAPX_V2" : "UNISWAPX_V3",
+          ],
+        },
+        requestOptions
+      );
+    } catch (error) {
+      if (!isUniswapNoQuotesAvailableError(error)) {
+        throw error;
+      }
+      payload = await this.#uniswapTradingApiRequest(
+        "/quote",
+        { ...quoteRequest, protocols: ammProtocols },
+        requestOptions
+      );
+    }
     const routing = String(payload.routing || "").toUpperCase();
     if (!UNISWAP_CLASSIC_ROUTINGS.has(routing) && !UNISWAPX_ROUTINGS.has(routing)) {
       throw createTaggedError(
