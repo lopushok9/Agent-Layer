@@ -4052,6 +4052,7 @@ export class WdkEvmWalletService {
       tokenInMetadata,
       tokenOutMetadata,
       inputAmountFormatted: formatUnits(swapRequest.tokenInAmount, tokenInMetadata.decimals),
+      outputAmount: plan.tokenOutAmount.toString(),
       outputAmountFormatted: formatUnits(plan.tokenOutAmount, tokenOutMetadata.decimals),
       quoteFingerprint: plan.quoteFingerprint,
       slippageBps: plan.slippageBps,

@@ -628,6 +628,7 @@ test("quote: robinhood falls back to a locally quoted V3 direct route when Tradi
     assert.equal(result.source, "uniswap-v3-direct-fallback");
     assert.equal(result.executionKind, "v3-direct");
     assert.equal(result.router, ROBINHOOD_SWAP_ROUTER02);
+    assert.equal(result.outputAmount, "123456");
     assert.equal(result.minimumOutputAmountRaw, "122839");
     assert.equal(result.allowance.approvalRequired, false);
     assert.equal(h.state.quoteBodies.length, 2);
