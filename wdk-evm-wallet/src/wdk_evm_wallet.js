@@ -47,6 +47,11 @@ const UNISWAP_EXECUTION_PROFILES = {
     // API for undeployed V2/V4 routes can make an otherwise valid V3-only pair
     // appear unavailable, so keep the protocol set chain-specific.
     ammProtocols: ["V3"],
+    v3DirectFallback: {
+      quoterV2: "0x33e885ed0ec9bf04ecfb19341582aadcb4c8a9e7",
+      swapRouter02: "0xcaf681a66d020601342297493863e78c959e5cb2",
+      feeTiers: [100, 500, 3000, 10000],
+    },
   },
 };
 // Compatibility export for callers/tests. New execution code resolves a router
@@ -65,6 +70,14 @@ const UNISWAP_WRAPPED_NATIVE_BY_NETWORK = Object.fromEntries(
 );
 const WETH_DEPOSIT_SELECTOR = "0xd0e30db0";
 const WETH_WITHDRAW_SELECTOR = "0x2e1a7d4d";
+const UNISWAP_V3_QUOTER_INTERFACE = new Interface([
+  "function quoteExactInputSingle((address tokenIn,address tokenOut,uint256 amountIn,uint24 fee,uint160 sqrtPriceLimitX96) params) external returns (uint256 amountOut,uint160 sqrtPriceX96After,uint32 initializedTicksCrossed,uint256 gasEstimate)",
+]);
+const UNISWAP_V3_SWAP_ROUTER_INTERFACE = new Interface([
+  "function exactInputSingle((address tokenIn,address tokenOut,uint24 fee,address recipient,uint256 amountIn,uint256 amountOutMinimum,uint160 sqrtPriceLimitX96) params) payable returns (uint256 amountOut)",
+  "function unwrapWETH9(uint256 amountMinimum,address recipient) payable",
+  "function multicall(bytes[] data) payable returns (bytes[] results)",
+]);
 const UNISWAP_CLASSIC_ROUTINGS = new Set(["CLASSIC"]);
 const UNISWAPX_ROUTINGS = new Set(["DUTCH_V2", "DUTCH_V3", "LIMIT_ORDER", "PRIORITY"]);
 const AAVE_RAY = 10n ** 27n;
@@ -947,6 +960,52 @@ function buildDirectWrappedNativeOperation(networkProfile, swapRequest) {
     };
   }
   return null;
+}
+
+function buildUniswapV3DirectSwapTransaction({
+  networkProfile,
+  recipient,
+  swapRequest,
+  feeTier,
+  minimumTokenOutAmount,
+}) {
+  const fallback = networkProfile.v3DirectFallback;
+  if (!fallback) {
+    throw new Error("Uniswap V3 direct fallback is not configured for this network.");
+  }
+  const nativeTokenIn = isZeroAddress(swapRequest.tokenIn);
+  const nativeTokenOut = isZeroAddress(swapRequest.tokenOut);
+  const effectiveTokenIn = nativeTokenIn ? networkProfile.wrappedNative : swapRequest.tokenIn;
+  const effectiveTokenOut = nativeTokenOut ? networkProfile.wrappedNative : swapRequest.tokenOut;
+  const exactInput = UNISWAP_V3_SWAP_ROUTER_INTERFACE.encodeFunctionData("exactInputSingle", [
+    {
+      tokenIn: effectiveTokenIn,
+      tokenOut: effectiveTokenOut,
+      fee: feeTier,
+      // For an ETH output the router must receive WETH first, then unwrap it in
+      // the same atomic multicall. All other paths transfer directly to the user.
+      recipient: nativeTokenOut ? fallback.swapRouter02 : recipient,
+      amountIn: swapRequest.tokenInAmount,
+      amountOutMinimum: minimumTokenOutAmount,
+      sqrtPriceLimitX96: 0,
+    },
+  ]);
+  const data = nativeTokenOut
+    ? UNISWAP_V3_SWAP_ROUTER_INTERFACE.encodeFunctionData("multicall(bytes[])", [
+        [
+          exactInput,
+          UNISWAP_V3_SWAP_ROUTER_INTERFACE.encodeFunctionData("unwrapWETH9", [
+            minimumTokenOutAmount,
+            recipient,
+          ]),
+        ],
+      ])
+    : exactInput;
+  return {
+    to: fallback.swapRouter02,
+    data,
+    value: nativeTokenIn ? swapRequest.tokenInAmount : 0n,
+  };
 }
 
 function isUniswapNoQuotesAvailableError(error) {
@@ -4020,6 +4079,8 @@ export class WdkEvmWalletService {
       source:
         plan.executionKind === "wrap" || plan.executionKind === "unwrap"
           ? "canonical-wrapped-native"
+          : plan.executionKind === "v3-direct"
+            ? "uniswap-v3-direct-fallback"
           : "uniswap-trading-api",
     };
   }
@@ -5471,6 +5532,130 @@ export class WdkEvmWalletService {
     return payload;
   }
 
+  async #quoteRobinhoodV3Direct({ runtimeConfig, networkProfile, swapRequest }) {
+    const fallback = networkProfile.v3DirectFallback;
+    if (!fallback) {
+      return null;
+    }
+    const tokenIn = isZeroAddress(swapRequest.tokenIn)
+      ? networkProfile.wrappedNative
+      : swapRequest.tokenIn;
+    const tokenOut = isZeroAddress(swapRequest.tokenOut)
+      ? networkProfile.wrappedNative
+      : swapRequest.tokenOut;
+    let best = null;
+    for (const feeTier of fallback.feeTiers) {
+      const data = UNISWAP_V3_QUOTER_INTERFACE.encodeFunctionData("quoteExactInputSingle", [
+        {
+          tokenIn,
+          tokenOut,
+          amountIn: swapRequest.tokenInAmount,
+          fee: feeTier,
+          sqrtPriceLimitX96: 0,
+        },
+      ]);
+      try {
+        const raw = await rpcRequest(runtimeConfig.providerUrl, "eth_call", [
+          { to: fallback.quoterV2, data },
+          "latest",
+        ]);
+        const decoded = UNISWAP_V3_QUOTER_INTERFACE.decodeFunctionResult(
+          "quoteExactInputSingle",
+          raw
+        );
+        const amountOut = BigInt(decoded[0]);
+        if (amountOut > 0n && (!best || amountOut > best.amountOut)) {
+          best = { feeTier, amountOut, gasEstimate: BigInt(decoded[3]) };
+        }
+      } catch {
+        // A missing pool and a failed Quoter call are equivalent for this
+        // constrained direct route. Try every reviewed fee tier before failing.
+      }
+    }
+    return best;
+  }
+
+  async #buildRobinhoodV3DirectFallbackPlan({ account, runtimeConfig, address, swapRequest }) {
+    const networkProfile = getUniswapNetworkExecutionProfile(runtimeConfig.network);
+    const quoted = await this.#quoteRobinhoodV3Direct({
+      runtimeConfig,
+      networkProfile,
+      swapRequest,
+    });
+    if (!quoted) {
+      return null;
+    }
+    const slippageBps = Math.round(swapRequest.slippagePercent * 100);
+    const minimumTokenOutAmount =
+      quoted.amountOut - (quoted.amountOut * BigInt(slippageBps)) / 10000n;
+    const nativeTokenIn = isZeroAddress(swapRequest.tokenIn);
+    const spender = nativeTokenIn ? null : networkProfile.v3DirectFallback.swapRouter02;
+    const allowanceState = nativeTokenIn
+      ? { currentAllowance: swapRequest.tokenInAmount, error: null }
+      : await this.#getSwapAllowanceState({
+          account,
+          tokenAddress: swapRequest.tokenIn,
+          spender,
+        });
+    const approval = nativeTokenIn
+      ? { required: false, estimatedFee: 0n, steps: [] }
+      : await this.#buildSwapApprovalPlan({
+          account,
+          runtimeConfig,
+          tokenAddress: swapRequest.tokenIn,
+          spender,
+          requiredAmount: swapRequest.tokenInAmount,
+          currentAllowance: allowanceState.currentAllowance,
+        });
+    const preparedTransaction = buildUniswapV3DirectSwapTransaction({
+      networkProfile,
+      recipient: address,
+      swapRequest,
+      feeTier: quoted.feeTier,
+      minimumTokenOutAmount,
+    });
+    const quoteFingerprint = sha256Hex(
+      JSON.stringify({
+        chainId: runtimeConfig.chainId,
+        network: runtimeConfig.network,
+        from: address.toLowerCase(),
+        router: networkProfile.v3DirectFallback.swapRouter02,
+        spender: spender ? spender.toLowerCase() : null,
+        tokenIn: swapRequest.tokenIn.toLowerCase(),
+        tokenOut: swapRequest.tokenOut.toLowerCase(),
+        tokenInAmount: swapRequest.tokenInAmount.toString(),
+        feeTier: quoted.feeTier,
+        slippageBps,
+        executionKind: "v3-direct",
+      })
+    );
+    return {
+      quoteResponse: null,
+      permitData: null,
+      isNativeTokenIn: nativeTokenIn,
+      spender,
+      currentAllowance: allowanceState.currentAllowance,
+      allowanceReadError: allowanceState.error,
+      approval,
+      tokenInAmount: swapRequest.tokenInAmount,
+      tokenOutAmount: quoted.amountOut,
+      minimumTokenOutAmount,
+      slippageBps,
+      routing: "CLASSIC",
+      executionKind: "v3-direct",
+      isUniswapX: false,
+      quoteFingerprint,
+      // QuoterV2 returns a gas-unit estimate, not a wei-denominated fee.
+      // Keep the fee field empty rather than mislabeling units in the preview.
+      gasFee: null,
+      gasFeeUSD: null,
+      router: networkProfile.v3DirectFallback.swapRouter02,
+      routerProfile: null,
+      preparedTransaction,
+      v3FeeTier: quoted.feeTier,
+    };
+  }
+
   async #buildUniswapSwapPlan({ account, runtimeConfig, address, swapRequest }) {
     const networkProfile = getUniswapNetworkExecutionProfile(runtimeConfig.network);
     const directOperation = buildDirectWrappedNativeOperation(networkProfile, swapRequest);
@@ -5513,12 +5698,29 @@ export class WdkEvmWalletService {
     }
 
     const routerProfile = this.#resolveUniswapRouterProfile(runtimeConfig);
-    const quoteResponse = await this.#fetchUniswapQuote({
-      runtimeConfig,
-      routerProfile,
-      address,
-      swapRequest,
-    });
+    let quoteResponse;
+    try {
+      quoteResponse = await this.#fetchUniswapQuote({
+        runtimeConfig,
+        routerProfile,
+        address,
+        swapRequest,
+      });
+    } catch (error) {
+      if (runtimeConfig.network !== "robinhood" || !isUniswapNoQuotesAvailableError(error)) {
+        throw error;
+      }
+      const fallbackPlan = await this.#buildRobinhoodV3DirectFallbackPlan({
+        account,
+        runtimeConfig,
+        address,
+        swapRequest,
+      });
+      if (fallbackPlan) {
+        return fallbackPlan;
+      }
+      throw error;
+    }
     const permitData = quoteResponse.permitData ?? null;
     const isNativeTokenIn = isZeroAddress(swapRequest.tokenIn);
     const spender = isNativeTokenIn ? null : PERMIT2_ADDRESS;

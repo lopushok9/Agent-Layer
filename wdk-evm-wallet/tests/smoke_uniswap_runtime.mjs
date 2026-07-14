@@ -15,6 +15,7 @@ const BASE_ROUTER = "0x6ff5693b99212da76ad316178a184ab56d299b43";
 const BASE_USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 // Universal Router v2.0 on robinhood (must match UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK).
 const ROBINHOOD_ROUTER = "0x8876789976decbfcbbbe364623c63652db8c0904";
+const ROBINHOOD_SWAP_ROUTER02 = "0xcaf681a66d020601342297493863e78c959e5cb2";
 const ROBINHOOD_WETH = "0x0bd7d308f8e1639fab988df18a8011f41eacad73";
 // Placeholder ERC-20 test double on robinhood — the mocked RPC below returns
 // canned metadata for any token address, so this does not need to be a real
@@ -31,6 +32,10 @@ function encodeAbiString(value) {
   const offset = "20".padStart(64, "0");
   const length = (data.length / 2).toString(16).padStart(64, "0");
   return `0x${offset}${length}${data.padEnd(Math.ceil(data.length / 64) * 64, "0")}`;
+}
+
+function encodeAbiUintWords(values) {
+  return `0x${values.map((value) => BigInt(value).toString(16).padStart(64, "0")).join("")}`;
 }
 
 // Mirrors the live Trading API shape: Permit2 AllowanceTransfer (PermitSingle),
@@ -121,9 +126,9 @@ function createHarness(options = {}) {
       if (requestUrl.endsWith("/quote")) {
         state.quoteBodies.push(body);
         if (
-          options.noQuoteWhenUniswapXRequested &&
+          (options.noQuoteAvailable || options.noQuoteWhenUniswapXRequested) &&
           Array.isArray(body.protocols) &&
-          body.protocols.some((protocol) => String(protocol).startsWith("UNISWAPX_"))
+          (options.noQuoteAvailable || body.protocols.some((protocol) => String(protocol).startsWith("UNISWAPX_")))
         ) {
           return { ok: false, status: 400, json: async () => ({ message: "No quotes available" }) };
         }
@@ -182,6 +187,9 @@ function createHarness(options = {}) {
       if (data === DECIMALS_SELECTOR) return ok(`0x${(6).toString(16).padStart(64, "0")}`);
       if (data.startsWith(ALLOWANCE_SELECTOR)) {
         return ok(`0x${state.allowance.toString(16).padStart(64, "0")}`);
+      }
+      if (options.directV3Quote !== undefined) {
+        return ok(encodeAbiUintWords([options.directV3Quote, 0, 0, 95375]));
       }
       return ok("0x"); // simulation eth_call
     }
@@ -595,6 +603,36 @@ test("quote: native ETH -> ERC-20 on robinhood uses chain id 4663 and CLASSIC ro
     assert.equal(body.tokenInChainId, 4663);
     assert.equal(body.tokenOutChainId, 4663);
     assert.deepEqual(body.protocols, ["V3", "UNISWAPX_V3"]);
+  } finally {
+    h.restore();
+  }
+});
+
+test("quote: robinhood falls back to a locally quoted V3 direct route when Trading API has no quote", async () => {
+  const h = createHarness({
+    network: "robinhood",
+    chainId: 4663,
+    router: ROBINHOOD_ROUTER,
+    erc20Token: ROBINHOOD_TOKEN,
+    noQuoteAvailable: true,
+    directV3Quote: 123456,
+  });
+  try {
+    const result = await h.service.quoteUniswapSwap({
+      seedPhrase: VALID_MNEMONIC,
+      tokenIn: "native",
+      tokenOut: ROBINHOOD_TOKEN,
+      tokenInAmount: "100000000000000",
+      network: "robinhood",
+    });
+    assert.equal(result.source, "uniswap-v3-direct-fallback");
+    assert.equal(result.executionKind, "v3-direct");
+    assert.equal(result.router, ROBINHOOD_SWAP_ROUTER02);
+    assert.equal(result.minimumOutputAmountRaw, "122839");
+    assert.equal(result.allowance.approvalRequired, false);
+    assert.equal(h.state.quoteBodies.length, 2);
+    assert.deepEqual(h.state.quoteBodies[0].protocols, ["V3", "UNISWAPX_V3"]);
+    assert.deepEqual(h.state.quoteBodies[1].protocols, ["V3"]);
   } finally {
     h.restore();
   }
