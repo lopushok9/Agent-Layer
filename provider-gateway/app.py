@@ -810,16 +810,22 @@ def _uniswap_configured() -> bool:
     return bool(_trim(os.getenv("UNISWAP_API_KEY")))
 
 
-def _uniswap_headers() -> dict[str, str]:
+def _uniswap_headers(*, erc20eth_enabled: bool = False) -> dict[str, str]:
     api_key = _trim(os.getenv("UNISWAP_API_KEY"))
     if not api_key:
         raise RuntimeError("UNISWAP_API_KEY is not configured")
-    return {
+    headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
         "x-api-key": api_key,
         "x-universal-router-version": _trim(os.getenv("UNISWAP_ROUTER_VERSION")) or "2.0",
     }
+    if erc20eth_enabled:
+        # This opt-in is required by Uniswap for native ETH input on an UniswapX
+        # route. It is a fixed, validated header rather than a caller-controlled
+        # header passthrough.
+        headers["x-erc20eth-enabled"] = "true"
+    return headers
 
 
 def _provider_url_from_env(name: str, default: str = "") -> str:
@@ -1858,11 +1864,52 @@ async def uniswap_quote(request: Request) -> JSONResponse:
     try:
         status_code, payload = await _http_post(
             f"{_uniswap_base_url()}/quote",
-            headers=_uniswap_headers(),
+            headers=_uniswap_headers(
+                erc20eth_enabled=request.headers.get("x-erc20eth-enabled", "").strip().lower()
+                == "true"
+            ),
             json_body=body,
         )
     except (RuntimeError, httpx.HTTPError) as exc:
         return _json_error(f"Uniswap quote error: {exc}", 502)
+
+    return JSONResponse(payload, status_code=status_code)
+
+
+async def uniswap_order(request: Request) -> JSONResponse:
+    """Submit a signed UniswapX order through the shared Trading API key."""
+    auth_error = _require_machine_token(request)
+    if auth_error:
+        return _json_error(auth_error, 401)
+
+    if not _uniswap_configured():
+        return _json_error("Uniswap is not configured", 503)
+
+    try:
+        body = _require_body_dict(await request.json())
+        _require_string_field(body, "signature")
+        routing = _require_string_field(body, "routing").upper()
+        if routing not in {"DUTCH_V2", "DUTCH_V3", "PRIORITY"}:
+            return _json_error("Uniswap order routing must be DUTCH_V2, DUTCH_V3, or PRIORITY", 400)
+        body["routing"] = routing
+        if not isinstance(body.get("quote"), dict):
+            return _json_error("Field 'quote' is required and must be an object", 400)
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except Exception:
+        return _json_error("Invalid JSON body", 400)
+
+    try:
+        status_code, payload = await _http_post(
+            f"{_uniswap_base_url()}/order",
+            headers=_uniswap_headers(
+                erc20eth_enabled=request.headers.get("x-erc20eth-enabled", "").strip().lower()
+                == "true"
+            ),
+            json_body=body,
+        )
+    except (RuntimeError, httpx.HTTPError) as exc:
+        return _json_error(f"Uniswap order error: {exc}", 502)
 
     return JSONResponse(payload, status_code=status_code)
 
@@ -2176,6 +2223,7 @@ routes = [
     Route("/v1/jupiter/swap/quote", jupiter_swap_quote, methods=["GET"]),
     Route("/v1/jupiter/swap/swap", jupiter_swap_swap, methods=["POST"]),
     Route("/v1/evm/uniswap/quote", uniswap_quote, methods=["POST"]),
+    Route("/v1/evm/uniswap/order", uniswap_order, methods=["POST"]),
     Route("/v1/evm/uniswap/swap", uniswap_swap, methods=["POST"]),
     Route("/v1/houdini/tokens", houdini_tokens, methods=["GET"]),
     Route("/v1/houdini/quotes/private", houdini_private_quotes, methods=["GET"]),

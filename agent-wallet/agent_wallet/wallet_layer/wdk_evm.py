@@ -1938,6 +1938,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             body["minimumTokenOutAmount"] = minimum_output_amount_raw.strip()
         data = await self.client.post("/v1/evm/uniswap/swap/send", body)
         result = dict(data.get("result") or {})
+        order_id = str(result.get("orderId") or "").strip() or None
         return {
             "chain": self.chain,
             "network": self.network,
@@ -1967,11 +1968,14 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "token_in_metadata": _normalize_token_metadata(data.get("tokenInMetadata"), token_in),
             "token_out_metadata": _normalize_token_metadata(data.get("tokenOutMetadata"), token_out),
             "hash": result.get("hash"),
+            "order_id": order_id,
+            "order_status": str(result.get("orderStatus") or "").strip() or None,
             "approve_hash": result.get("approveHash"),
             "reset_allowance_hash": result.get("resetAllowanceHash"),
             "result": result,
             "chain_id": int(data.get("chainId") or 0),
-            "broadcasted": True,
+            "broadcasted": bool(result.get("hash")),
+            "order_submitted": order_id is not None,
             "confirmed": False,
             "source": "wdk-evm-wallet",
         }

@@ -69,6 +69,7 @@ function createHarness(options = {}) {
     allowance: BigInt(options.initialAllowance ?? 0n),
     quoteBodies: [],
     swapBodies: [],
+    orderBodies: [],
     signCalls: 0,
     sendCalls: [],
     approveCalls: [],
@@ -119,9 +120,6 @@ function createHarness(options = {}) {
       if (requestUrl.endsWith("/quote")) {
         state.quoteBodies.push(body);
         const routing = options.routing || "CLASSIC";
-        if (routing !== "CLASSIC") {
-          return ok({ routing, quote: {} });
-        }
         const erc20In = body.tokenIn !== ZERO;
         // Successive /quote calls can return drifting output amounts (preview vs
         // execute re-quote) to exercise quote-drift handling, mirroring the live
@@ -132,7 +130,7 @@ function createHarness(options = {}) {
             ]
           : options.outputAmount || "990000";
         return ok({
-          routing: "CLASSIC",
+          routing,
           quote: {
             input: { token: body.tokenIn, amount: body.amount },
             output: {
@@ -155,6 +153,13 @@ function createHarness(options = {}) {
             data: options.swapData || "0xabcdef",
             value: options.swapValue || "0x0",
           },
+        });
+      }
+      if (requestUrl.endsWith("/order")) {
+        state.orderBodies.push(body);
+        return ok({
+          orderId: options.orderId || `0x${"e".repeat(64)}`,
+          orderStatus: "open",
         });
       }
       throw new Error(`unexpected uniswap path: ${requestUrl}`);
@@ -219,11 +224,12 @@ test("quote: native ETH -> USDC has no permit and CLASSIC routing", async () => 
     // request body assertions
     const body = h.state.quoteBodies.at(-1);
     assert.equal(body.routingPreference, undefined); // live API rejects routingPreference:"CLASSIC"
-    assert.deepEqual(body.protocols, ["V2", "V3", "V4"]);
+    assert.deepEqual(body.protocols, ["V2", "V3", "V4", "UNISWAPX_V3"]);
     assert.equal(body.type, "EXACT_INPUT");
     assert.equal(body.tokenInChainId, 8453);
     assert.equal(body.slippageTolerance, 0.5);
     assert.equal(body.tokenIn, ZERO);
+    assert.equal(h.state.lastHeaders["x-erc20eth-enabled"], "true");
   } finally {
     h.restore();
   }
@@ -249,19 +255,19 @@ test("quote: USDC -> ETH requires permit and reports allowance", async () => {
   }
 });
 
-test("quote: non-CLASSIC routing is rejected", async () => {
-  const h = createHarness({ routing: "DUTCH_V2" });
+test("quote: UniswapX routing is returned as an executable order plan", async () => {
+  const h = createHarness({ routing: "DUTCH_V3" });
   try {
-    await assert.rejects(
-      h.service.quoteUniswapSwap({
-        seedPhrase: VALID_MNEMONIC,
-        tokenIn: "native",
-        tokenOut: BASE_USDC,
-        tokenInAmount: "1000000000000000000",
-        network: "base",
-      }),
-      (err) => err.errorCode === "uniswap_unsupported_route"
-    );
+    const result = await h.service.quoteUniswapSwap({
+      seedPhrase: VALID_MNEMONIC,
+      tokenIn: BASE_USDC,
+      tokenOut: "native",
+      tokenInAmount: "1000000",
+      network: "base",
+    });
+    assert.equal(result.routing, "DUTCH_V3");
+    assert.equal(result.router, null);
+    assert.equal(result.permitRequired, true);
   } finally {
     h.restore();
   }
@@ -339,6 +345,33 @@ test("send: USDC -> ETH signs the permit and submits signature to /swap", async 
     assert.ok(swapBody.signature, "signature must be attached for CLASSIC permit");
     assert.ok(swapBody.permitData, "permitData must be re-attached for CLASSIC");
     assert.equal(result.result.hash, `0x${"d".repeat(64)}`);
+  } finally {
+    h.restore();
+  }
+});
+
+test("send: UniswapX submits a signed order without broadcasting local calldata", async () => {
+  const h = createHarness({ routing: "DUTCH_V3", initialAllowance: 10n ** 18n });
+  try {
+    const result = await h.service.sendUniswapSwap({
+      seedPhrase: VALID_MNEMONIC,
+      tokenIn: BASE_USDC,
+      tokenOut: "native",
+      tokenInAmount: "1000000",
+      network: "base",
+    });
+    assert.equal(result.routing, "DUTCH_V3");
+    assert.equal(result.result.orderId, `0x${"e".repeat(64)}`);
+    assert.equal(result.result.orderStatus, "open");
+    assert.equal(h.state.signCalls, 1);
+    assert.equal(h.state.sendCalls.length, 0);
+    assert.equal(h.state.swapBodies.length, 0);
+    const orderBody = h.state.orderBodies.at(-1);
+    assert.equal(orderBody.signature, `0x${"b".repeat(130)}`);
+    assert.equal(orderBody.routing, "DUTCH_V3");
+    assert.equal(orderBody.quote.output.amount, "990000");
+    assert.equal(result.simulation.skipped, true);
+    assert.equal(result.simulation.reason, "uniswapx-order");
   } finally {
     h.restore();
   }

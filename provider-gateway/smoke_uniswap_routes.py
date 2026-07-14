@@ -27,6 +27,8 @@ def main() -> None:
             return 200, {"routing": "CLASSIC", "quote": {"output": {"amount": "990000"}}}
         if url.endswith("/swap"):
             return 200, {"swap": {"to": "0xrouter", "data": "0xabc", "value": "0x0"}}
+        if url.endswith("/order"):
+            return 200, {"orderId": "0xorder", "orderStatus": "open"}
         raise AssertionError(f"Unexpected POST request: {url}")
 
     try:
@@ -57,6 +59,29 @@ def main() -> None:
         assert seen["post"]["headers"]["x-api-key"] == "uniswap-test-key"
         assert seen["post"]["headers"]["x-universal-router-version"] == "2.0"
         assert seen["post"]["json_body"]["amount"] == "100000"
+
+        # Native-ETH UniswapX mode is forwarded only as a fixed allow-listed header.
+        quote_native = client.post(
+            "/v1/evm/uniswap/quote",
+            headers={**headers, "x-erc20eth-enabled": "true"},
+            json={"tokenIn": "0xa", "tokenOut": "0xb", "amount": "100000"},
+        )
+        assert quote_native.status_code == 200, quote_native.text
+        assert seen["post"]["headers"]["x-erc20eth-enabled"] == "true"
+
+        # A signed UniswapX order is routed only to the fixed /order upstream path.
+        order = client.post(
+            "/v1/evm/uniswap/order",
+            headers=headers,
+            json={"quote": {"output": {"amount": "990000"}}, "routing": "DUTCH_V3", "signature": "0xsig"},
+        )
+        assert order.status_code == 200, order.text
+        assert order.json()["orderId"] == "0xorder"
+        assert seen["post"]["url"] == "https://uniswap.example/v1/order"
+
+        assert client.post(
+            "/v1/evm/uniswap/order", headers=headers, json={"quote": {}}
+        ).status_code == 400
 
         # Swap: routed to /swap, body passed through.
         swap = client.post(

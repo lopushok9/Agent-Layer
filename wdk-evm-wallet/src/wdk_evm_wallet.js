@@ -29,6 +29,8 @@ const UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK = {
   base: "0x6ff5693b99212da76ad316178a184ab56d299b43",
   robinhood: "0x8876789976decbfcbbbe364623c63652db8c0904",
 };
+const UNISWAP_CLASSIC_ROUTINGS = new Set(["CLASSIC", "WRAP", "UNWRAP", "BRIDGE"]);
+const UNISWAPX_ROUTINGS = new Set(["DUTCH_V2", "DUTCH_V3", "PRIORITY"]);
 const AAVE_RAY = 10n ** 27n;
 const LIDO_STETH_DECIMALS = 18;
 const LIDO_MIN_STETH_WITHDRAWAL_AMOUNT = 100n;
@@ -3757,36 +3759,69 @@ export class WdkEvmWalletService {
           );
         }
 
-        const signature =
-          finalPlan.isNativeTokenIn || !finalPlan.permitData
-            ? null
-            : await this.#signUniswapPermit(account, finalPlan.permitData, runtimeConfig);
+        const signature = finalPlan.permitData
+          ? await this.#signUniswapPermit(account, finalPlan.permitData, runtimeConfig)
+          : null;
 
-        const swapTx = await this.#fetchUniswapSwapCalldata({
-          runtimeConfig,
-          quoteResponse: finalPlan.quoteResponse,
-          permitData: finalPlan.permitData,
-          signature,
-        });
+        let simulation;
+        let swapTransaction = null;
+        let result;
+        if (finalPlan.isUniswapX) {
+          const order = await this.#submitUniswapOrder({
+            quoteResponse: finalPlan.quoteResponse,
+            signature,
+            nativeTokenIn: finalPlan.isNativeTokenIn,
+            routing: finalPlan.routing,
+          });
+          simulation = {
+            ok: true,
+            skipped: true,
+            reason: "uniswapx-order",
+            message: "UniswapX validates and submits the signed order to its filler network.",
+            details: null,
+          };
+          result = {
+            orderId: order.orderId,
+            orderStatus: order.orderStatus,
+            approvalFee: approvalExecution.totalFee.toString(),
+            tokenInAmount: finalPlan.tokenInAmount.toString(),
+            tokenOutAmount: finalPlan.tokenOutAmount.toString(),
+            ...(approvalExecution.approveHash ? { approveHash: approvalExecution.approveHash } : {}),
+            ...(approvalExecution.resetAllowanceHash
+              ? { resetAllowanceHash: approvalExecution.resetAllowanceHash }
+              : {}),
+          };
+        } else {
+          const swapTx = await this.#fetchUniswapSwapCalldata({
+            runtimeConfig,
+            quoteResponse: finalPlan.quoteResponse,
+            permitData: finalPlan.permitData,
+            signature,
+          });
+          simulation = await this.#simulatePreparedTransaction({
+            runtimeConfig,
+            from: address,
+            tx: swapTx,
+          });
+          this.#assertSimulationSucceeded(simulation);
 
-        const simulation = await this.#simulatePreparedTransaction({
-          runtimeConfig,
-          from: address,
-          tx: swapTx,
-        });
-        this.#assertSimulationSucceeded(simulation);
-
-        const { hash } = await account.sendTransaction(swapTx);
-        const result = {
-          hash,
-          approvalFee: approvalExecution.totalFee.toString(),
-          tokenInAmount: finalPlan.tokenInAmount.toString(),
-          tokenOutAmount: finalPlan.tokenOutAmount.toString(),
-          ...(approvalExecution.approveHash ? { approveHash: approvalExecution.approveHash } : {}),
-          ...(approvalExecution.resetAllowanceHash
-            ? { resetAllowanceHash: approvalExecution.resetAllowanceHash }
-            : {}),
-        };
+          const { hash } = await account.sendTransaction(swapTx);
+          swapTransaction = {
+            to: swapTx.to,
+            value: swapTx.value.toString(),
+            dataHash: sha256Hex(swapTx.data),
+          };
+          result = {
+            hash,
+            approvalFee: approvalExecution.totalFee.toString(),
+            tokenInAmount: finalPlan.tokenInAmount.toString(),
+            tokenOutAmount: finalPlan.tokenOutAmount.toString(),
+            ...(approvalExecution.approveHash ? { approveHash: approvalExecution.approveHash } : {}),
+            ...(approvalExecution.resetAllowanceHash
+              ? { resetAllowanceHash: approvalExecution.resetAllowanceHash }
+              : {}),
+          };
+        }
         return {
           ...(await this.#formatUniswapSwapResponse({
             runtimeConfig,
@@ -3802,7 +3837,7 @@ export class WdkEvmWalletService {
             },
           })),
           simulation,
-          swapTransaction: { to: swapTx.to, value: swapTx.value.toString(), dataHash: sha256Hex(swapTx.data) },
+          swapTransaction,
           result,
         };
       } catch (error) {
@@ -3845,7 +3880,7 @@ export class WdkEvmWalletService {
       address,
       protocol: "uniswap",
       executionSupported: true,
-      routing: "CLASSIC",
+      routing: plan.routing,
       swapRequest: {
         tokenIn: swapRequest.tokenIn,
         tokenOut: swapRequest.tokenOut,
@@ -5179,12 +5214,15 @@ export class WdkEvmWalletService {
     };
   }
 
-  async #uniswapTradingApiRequest(pathname, body) {
+  async #uniswapTradingApiRequest(pathname, body, { erc20EthEnabled = false } = {}) {
     const headers = {
       "Content-Type": "application/json",
       Accept: "application/json",
       "x-universal-router-version": this.config.uniswapRouterVersion,
     };
+    if (erc20EthEnabled) {
+      headers["x-erc20eth-enabled"] = "true";
+    }
     if (this.config.uniswapViaGateway) {
       // The provider gateway holds the Uniswap key and injects x-api-key upstream;
       // we authenticate to it with the shared gateway bearer (same token used for
@@ -5257,21 +5295,27 @@ export class WdkEvmWalletService {
       amount: swapRequest.tokenInAmount.toString(),
       type: "EXACT_INPUT",
       slippageTolerance: swapRequest.slippagePercent,
-      // The live Trading API rejects routingPreference:"CLASSIC"; restricting
-      // protocols to V2/V3/V4 is what excludes UniswapX and yields routing=CLASSIC.
-      protocols: ["V2", "V3", "V4"],
+      // Keep an AMM fallback while allowing the chain's supported UniswapX route.
+      protocols: [
+        "V2",
+        "V3",
+        "V4",
+        runtimeConfig.network === "ethereum" ? "UNISWAPX_V2" : "UNISWAPX_V3",
+      ],
+    }, {
+      erc20EthEnabled: isZeroAddress(swapRequest.tokenIn),
     });
     const routing = String(payload.routing || "").toUpperCase();
-    if (routing !== "CLASSIC") {
+    if (!UNISWAP_CLASSIC_ROUTINGS.has(routing) && !UNISWAPX_ROUTINGS.has(routing)) {
       throw createTaggedError(
-        `Uniswap returned unsupported routing '${routing}'. Only CLASSIC is enabled in this runtime.`,
+        `Uniswap returned unsupported routing '${routing}'.`,
         "uniswap_unsupported_route",
         { provider: "uniswap", routing }
       );
     }
     if (!payload.quote || typeof payload.quote !== "object" || !payload.quote.output) {
       throw createTaggedError(
-        "Uniswap quote response is missing CLASSIC quote/output fields.",
+        "Uniswap quote response is missing quote/output fields.",
         "network_unavailable",
         { provider: "uniswap" }
       );
@@ -5302,16 +5346,18 @@ export class WdkEvmWalletService {
           requiredAmount: swapRequest.tokenInAmount,
           currentAllowance,
         });
-    const tokenOutAmount = BigInt(String(quoteResponse.quote.output.amount || "0"));
+    const quoteOutput = quoteResponse.quote.output;
+    const tokenOutAmount = BigInt(String(quoteOutput.amount || "0"));
     const slippageBps = Math.round(swapRequest.slippagePercent * 100);
     // The Trading API returns the post-slippage floor directly; fall back to a
     // local computation only if the field is absent.
     const minimumTokenOutAmount =
-      quoteResponse.quote.output.minimumAmount !== undefined &&
-      quoteResponse.quote.output.minimumAmount !== null
-        ? BigInt(String(quoteResponse.quote.output.minimumAmount))
+      quoteOutput.minimumAmount !== undefined && quoteOutput.minimumAmount !== null
+        ? BigInt(String(quoteOutput.minimumAmount))
         : tokenOutAmount - (tokenOutAmount * BigInt(slippageBps)) / 10000n;
-    const router = UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK[runtimeConfig.network];
+    const routing = String(quoteResponse.routing || "").toUpperCase();
+    const isUniswapX = UNISWAPX_ROUTINGS.has(routing);
+    const router = isUniswapX ? null : UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK[runtimeConfig.network];
     // Bind only the stable swap *intent* (who/what/how-much/slippage/route), never
     // the live quoted output: the Trading API re-prices every block, so including
     // tokenOutAmount here made execute's re-quote fingerprint differ from preview's
@@ -5323,13 +5369,13 @@ export class WdkEvmWalletService {
         chainId: runtimeConfig.chainId,
         network: runtimeConfig.network,
         from: address.toLowerCase(),
-        router: router.toLowerCase(),
+        router: router ? router.toLowerCase() : null,
         spender: spender ? spender.toLowerCase() : null,
         tokenIn: swapRequest.tokenIn.toLowerCase(),
         tokenOut: swapRequest.tokenOut.toLowerCase(),
         tokenInAmount: swapRequest.tokenInAmount.toString(),
         slippageBps,
-        routing: "CLASSIC",
+        routing,
       })
     );
     return {
@@ -5344,6 +5390,8 @@ export class WdkEvmWalletService {
       tokenOutAmount,
       minimumTokenOutAmount,
       slippageBps,
+      routing,
+      isUniswapX,
       quoteFingerprint,
       gasFee: quoteResponse.quote.gasFee ?? null,
       gasFeeUSD: quoteResponse.quote.gasFeeUSD ?? null,
@@ -5393,6 +5441,33 @@ export class WdkEvmWalletService {
       to,
       data,
       value: parseHexOrDecimalBigInt(swap.value || "0", "swap.value"),
+    };
+  }
+
+  async #submitUniswapOrder({ quoteResponse, signature, nativeTokenIn, routing }) {
+    if (!signature) {
+      throw createTaggedError(
+        "UniswapX order quote is missing required signature data.",
+        "uniswap_order_signature_missing",
+        { provider: "uniswap" }
+      );
+    }
+    const payload = await this.#uniswapTradingApiRequest(
+      "/order",
+      { quote: quoteResponse.quote, routing, signature },
+      { erc20EthEnabled: nativeTokenIn }
+    );
+    const orderId = String(payload.orderId || payload.order?.orderId || "").trim();
+    if (!orderId) {
+      throw createTaggedError(
+        "Uniswap /order response is missing orderId.",
+        "network_unavailable",
+        { provider: "uniswap" }
+      );
+    }
+    return {
+      orderId,
+      orderStatus: String(payload.orderStatus || payload.order?.orderStatus || "open"),
     };
   }
 
