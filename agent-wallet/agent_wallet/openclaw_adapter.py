@@ -2174,8 +2174,9 @@ class OpenClawWalletAdapter:
                     AgentToolSpec(
                         name="get_uniswap_swap_quote",
                         description=(
-                            "Get a read-only Uniswap Trading API quote (CLASSIC routing) for an ERC-20 or native ETH swap "
-                            "on ethereum, base, or robinhood. Supports full EIP-712 Permit2 path for ERC-20 inputs. "
+                            "Get a read-only Uniswap execution preview for an ERC-20 or native ETH swap "
+                            "on ethereum, base, or robinhood. Supported paths are CLASSIC, UniswapX orders, "
+                            "and canonical ETH↔WETH wrap/unwrap. Supports Permit2 where required. "
                             "This does not approve, sign, or execute a swap."
                         ),
                         input_schema={
@@ -2215,8 +2216,9 @@ class OpenClawWalletAdapter:
                     AgentToolSpec(
                         name="swap_evm_uniswap_tokens",
                         description=(
-                            "Preview, prepare, or execute an ERC-20 or native ETH swap through the Uniswap Trading API "
-                            "(CLASSIC routing) on ethereum, base, or robinhood. ERC-20 inputs use Permit2 EIP-712 signing automatically. "
+                            "Preview, prepare, or execute a supported Uniswap path on ethereum, base, or robinhood: "
+                            "CLASSIC, UniswapX orders, or canonical ETH↔WETH wrap/unwrap. ERC-20 paths may use Permit2 "
+                            "EIP-712 or an UniswapX order signature. "
                             "Prepare returns an execution plan only. Execute requires a host-issued approval token bound to the previewed operation "
                             "unless the high-trust autonomous permission group is enabled."
                         ),

@@ -810,7 +810,40 @@ def _uniswap_configured() -> bool:
     return bool(_trim(os.getenv("UNISWAP_API_KEY")))
 
 
-def _uniswap_headers(*, erc20eth_enabled: bool = False) -> dict[str, str]:
+_UNISWAP_SUPPORTED_CHAIN_IDS = frozenset({"1", "8453", "4663"})
+
+
+def _uniswap_router_version_for_request(request: Request) -> str:
+    """Select the configured router version; never proxy a caller's selection."""
+    requested_chain_id = _trim(request.headers.get("x-agentlayer-chain-id"))
+    if requested_chain_id and requested_chain_id not in _UNISWAP_SUPPORTED_CHAIN_IDS:
+        raise ValueError("x-agentlayer-chain-id must be one of: 1, 8453, 4663")
+
+    configured_by_chain_raw = _trim(os.getenv("UNISWAP_ROUTER_VERSION_BY_CHAIN"))
+    configured_by_chain: dict[str, str] = {}
+    if configured_by_chain_raw:
+        try:
+            parsed = json.loads(configured_by_chain_raw)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("UNISWAP_ROUTER_VERSION_BY_CHAIN must be a JSON object") from exc
+        if not isinstance(parsed, dict):
+            raise RuntimeError("UNISWAP_ROUTER_VERSION_BY_CHAIN must be a JSON object")
+        for chain_id, version in parsed.items():
+            normalized_chain_id = _trim(str(chain_id))
+            normalized_version = _trim(str(version))
+            if normalized_chain_id not in _UNISWAP_SUPPORTED_CHAIN_IDS or not normalized_version:
+                raise RuntimeError("UNISWAP_ROUTER_VERSION_BY_CHAIN contains an invalid chain or version")
+            configured_by_chain[normalized_chain_id] = normalized_version
+
+    fallback = _trim(os.getenv("UNISWAP_ROUTER_VERSION")) or "2.0"
+    effective = configured_by_chain.get(requested_chain_id, fallback)
+    requested_version = _trim(request.headers.get("x-agentlayer-uniswap-router-version"))
+    if requested_version and requested_version != effective:
+        raise ValueError("Requested Uniswap router version does not match gateway configuration")
+    return effective
+
+
+def _uniswap_headers(*, router_version: str, erc20eth_enabled: bool = False) -> dict[str, str]:
     api_key = _trim(os.getenv("UNISWAP_API_KEY"))
     if not api_key:
         raise RuntimeError("UNISWAP_API_KEY is not configured")
@@ -818,7 +851,7 @@ def _uniswap_headers(*, erc20eth_enabled: bool = False) -> dict[str, str]:
         "Content-Type": "application/json",
         "Accept": "application/json",
         "x-api-key": api_key,
-        "x-universal-router-version": _trim(os.getenv("UNISWAP_ROUTER_VERSION")) or "2.0",
+        "x-universal-router-version": router_version,
     }
     if erc20eth_enabled:
         # This opt-in is required by Uniswap for native ETH input on an UniswapX
@@ -1862,9 +1895,17 @@ async def uniswap_quote(request: Request) -> JSONResponse:
         return _json_error("Invalid JSON body", 400)
 
     try:
+        router_version = _uniswap_router_version_for_request(request)
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except RuntimeError as exc:
+        return _json_error(f"Uniswap gateway configuration error: {exc}", 503)
+
+    try:
         status_code, payload = await _http_post(
             f"{_uniswap_base_url()}/quote",
             headers=_uniswap_headers(
+                router_version=router_version,
                 erc20eth_enabled=request.headers.get("x-erc20eth-enabled", "").strip().lower()
                 == "true"
             ),
@@ -1889,8 +1930,10 @@ async def uniswap_order(request: Request) -> JSONResponse:
         body = _require_body_dict(await request.json())
         _require_string_field(body, "signature")
         routing = _require_string_field(body, "routing").upper()
-        if routing not in {"DUTCH_V2", "DUTCH_V3", "PRIORITY"}:
-            return _json_error("Uniswap order routing must be DUTCH_V2, DUTCH_V3, or PRIORITY", 400)
+        if routing not in {"DUTCH_V2", "DUTCH_V3", "LIMIT_ORDER", "PRIORITY"}:
+            return _json_error(
+                "Uniswap order routing must be DUTCH_V2, DUTCH_V3, LIMIT_ORDER, or PRIORITY", 400
+            )
         body["routing"] = routing
         if not isinstance(body.get("quote"), dict):
             return _json_error("Field 'quote' is required and must be an object", 400)
@@ -1900,9 +1943,17 @@ async def uniswap_order(request: Request) -> JSONResponse:
         return _json_error("Invalid JSON body", 400)
 
     try:
+        router_version = _uniswap_router_version_for_request(request)
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except RuntimeError as exc:
+        return _json_error(f"Uniswap gateway configuration error: {exc}", 503)
+
+    try:
         status_code, payload = await _http_post(
             f"{_uniswap_base_url()}/order",
             headers=_uniswap_headers(
+                router_version=router_version,
                 erc20eth_enabled=request.headers.get("x-erc20eth-enabled", "").strip().lower()
                 == "true"
             ),
@@ -1931,9 +1982,16 @@ async def uniswap_swap(request: Request) -> JSONResponse:
         return _json_error("Invalid JSON body", 400)
 
     try:
+        router_version = _uniswap_router_version_for_request(request)
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except RuntimeError as exc:
+        return _json_error(f"Uniswap gateway configuration error: {exc}", 503)
+
+    try:
         status_code, payload = await _http_post(
             f"{_uniswap_base_url()}/swap",
-            headers=_uniswap_headers(),
+            headers=_uniswap_headers(router_version=router_version),
             json_body=body,
         )
     except (RuntimeError, httpx.HTTPError) as exc:

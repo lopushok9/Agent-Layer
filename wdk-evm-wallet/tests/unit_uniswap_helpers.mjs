@@ -6,7 +6,9 @@ import { __testables } from "../src/wdk_evm_wallet.js";
 const {
   PERMIT2_ADDRESS,
   UNISWAP_SUPPORTED_CHAIN_IDS,
+  UNISWAP_EXECUTION_PROFILES,
   UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK,
+  resolveUniswapRouterExecutionProfile,
   normalizeUniswapTokenAddress,
   assertUniswapSupportedNetwork,
   uniswapSlippagePercentFromBps,
@@ -56,6 +58,18 @@ test("universal router allow-list has the expected addresses per network", () =>
     base: "0x6ff5693b99212da76ad316178a184ab56d299b43",
     robinhood: "0x8876789976decbfcbbbe364623c63652db8c0904",
   });
+});
+
+test("router execution profiles fail closed for an unapproved network/version pair", () => {
+  assert.equal(UNISWAP_EXECUTION_PROFILES.robinhood.wrappedNative, "0x0bd7d308f8e1639fab988df18a8011f41eacad73");
+  assert.equal(
+    resolveUniswapRouterExecutionProfile("robinhood", "2.0").router,
+    "0x8876789976decbfcbbbe364623c63652db8c0904"
+  );
+  assert.throws(
+    () => resolveUniswapRouterExecutionProfile("robinhood", "2.1.1"),
+    (err) => err.errorCode === "uniswap_router_version_unsupported"
+  );
 });
 
 test("permitData strips EIP712Domain and maps values to message", () => {

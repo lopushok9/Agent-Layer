@@ -1963,7 +1963,7 @@ const evmToolDefinitions = [
   },
   {
     name: "get_uniswap_swap_quote",
-    description: "Get a read-only Uniswap Trading API quote (CLASSIC routing) for an ERC-20 or native ETH swap on ethereum, base, or robinhood. This does not approve, sign, or execute a swap.",
+    description: "Get a read-only Uniswap execution preview for an ERC-20 or native ETH swap on ethereum, base, or robinhood. Supported paths are CLASSIC, UniswapX orders, and canonical ETH↔WETH wrap/unwrap. This does not approve, sign, or execute a swap.",
     parameters: {
       type: "object",
       properties: {
@@ -1979,7 +1979,7 @@ const evmToolDefinitions = [
   },
   {
     name: "swap_evm_uniswap_tokens",
-    description: "Preview, prepare, or execute an ERC-20 or native ETH swap through the Uniswap Trading API (CLASSIC routing) on ethereum, base, or robinhood. ERC-20 inputs use Permit2 EIP-712 signing automatically. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
+    description: "Preview, prepare, or execute a supported Uniswap path on ethereum, base, or robinhood: CLASSIC, UniswapX orders, or canonical ETH↔WETH wrap/unwrap. ERC-20 paths may use Permit2 EIP-712 or an UniswapX order signature. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
     optional: true,
     parameters: {
       type: "object",

@@ -16,6 +16,7 @@ def main() -> None:
         "UNISWAP_API_KEY": os.environ.get("UNISWAP_API_KEY"),
         "UNISWAP_TRADING_API_BASE_URL": os.environ.get("UNISWAP_TRADING_API_BASE_URL"),
         "UNISWAP_ROUTER_VERSION": os.environ.get("UNISWAP_ROUTER_VERSION"),
+        "UNISWAP_ROUTER_VERSION_BY_CHAIN": os.environ.get("UNISWAP_ROUTER_VERSION_BY_CHAIN"),
     }
     original_http_post = gateway_app._http_post
 
@@ -37,11 +38,16 @@ def main() -> None:
         os.environ["UNISWAP_API_KEY"] = "uniswap-test-key"
         os.environ["UNISWAP_TRADING_API_BASE_URL"] = "https://uniswap.example/v1"
         os.environ["UNISWAP_ROUTER_VERSION"] = "2.0"
+        os.environ["UNISWAP_ROUTER_VERSION_BY_CHAIN"] = '{"1":"2.0","8453":"2.0","4663":"2.0"}'
 
         gateway_app._http_post = fake_http_post
 
         client = TestClient(gateway_app.app)
-        headers = {"Authorization": "Bearer test-token"}
+        headers = {
+            "Authorization": "Bearer test-token",
+            "x-agentlayer-chain-id": "4663",
+            "x-agentlayer-uniswap-router-version": "2.0",
+        }
 
         # Unauthorized without a token.
         assert client.post("/v1/evm/uniswap/quote", json={"x": 1}).status_code == 401
@@ -69,6 +75,16 @@ def main() -> None:
         assert quote_native.status_code == 200, quote_native.text
         assert seen["post"]["headers"]["x-erc20eth-enabled"] == "true"
 
+        # The gateway uses its own configured version and rejects a client whose
+        # reviewed wallet profile is out of sync; it never forwards a caller's
+        # raw x-universal-router-version header.
+        mismatch = client.post(
+            "/v1/evm/uniswap/quote",
+            headers={**headers, "x-agentlayer-uniswap-router-version": "2.1.1"},
+            json={"tokenIn": "0xa", "tokenOut": "0xb", "amount": "100000"},
+        )
+        assert mismatch.status_code == 400, mismatch.text
+
         # A signed UniswapX order is routed only to the fixed /order upstream path.
         order = client.post(
             "/v1/evm/uniswap/order",
@@ -78,6 +94,14 @@ def main() -> None:
         assert order.status_code == 200, order.text
         assert order.json()["orderId"] == "0xorder"
         assert seen["post"]["url"] == "https://uniswap.example/v1/order"
+
+        limit_order = client.post(
+            "/v1/evm/uniswap/order",
+            headers=headers,
+            json={"quote": {"output": {"amount": "990000"}}, "routing": "LIMIT_ORDER", "signature": "0xsig"},
+        )
+        assert limit_order.status_code == 200, limit_order.text
+        assert seen["post"]["json_body"]["routing"] == "LIMIT_ORDER"
 
         assert client.post(
             "/v1/evm/uniswap/order", headers=headers, json={"quote": {}}

@@ -189,6 +189,35 @@ function normalizeNetworkKey(value) {
   return aliases[normalized] || normalized;
 }
 
+function parseUniswapRouterVersionsByNetwork(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) {
+    return {};
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("UNISWAP_ROUTER_VERSION_BY_NETWORK must be a JSON object.");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("UNISWAP_ROUTER_VERSION_BY_NETWORK must be a JSON object.");
+  }
+  const normalized = {};
+  for (const [network, version] of Object.entries(parsed)) {
+    const networkKey = normalizeNetworkKey(network);
+    if (!Object.hasOwn(DEFAULT_NETWORK_PROFILES, networkKey)) {
+      throw new Error(`UNISWAP_ROUTER_VERSION_BY_NETWORK contains unsupported network '${network}'.`);
+    }
+    const normalizedVersion = String(version ?? "").trim();
+    if (!normalizedVersion) {
+      throw new Error(`UNISWAP_ROUTER_VERSION_BY_NETWORK.${network} must be a non-empty string.`);
+    }
+    normalized[networkKey] = normalizedVersion;
+  }
+  return normalized;
+}
+
 function joinUrl(base, pathname) {
   const normalizedBase = String(base || "").trim();
   if (!normalizedBase) {
@@ -360,6 +389,9 @@ export function loadConfig(env = process.env) {
     providerGatewayToken,
     uniswapApiKey: String(env.UNISWAP_API_KEY ?? "").trim(),
     uniswapRouterVersion: String(env.UNISWAP_ROUTER_VERSION ?? "").trim() || "2.0",
+    uniswapRouterVersionsByNetwork: parseUniswapRouterVersionsByNetwork(
+      env.UNISWAP_ROUTER_VERSION_BY_NETWORK
+    ),
     // 300 bps (3%) default mirrors the Solana swap-intent floor. Active markets
     // (Base re-prices every block) drift during the multi-step preview -> approval
     // -> execute window; a 0.5% floor rejected ordinary drift. The quote

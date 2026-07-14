@@ -99,7 +99,7 @@ Use this skill before calling OpenClaw wallet tools. It is the routing guide for
   - Current intended path is ERC-20 to ERC-20 on `ethereum` or `base`.
 - EVM same-chain Uniswap swap: `swap_evm_uniswap_tokens`
   - Params: `token_in`, `token_out`, `amount_in_raw` base-unit string, `mode`, `purpose`, optional `network`.
-  - Current intended path supports `ethereum`, `base`, and `robinhood` with CLASSIC routing.
+  - Supported paths on `ethereum`, `base`, and `robinhood` are CLASSIC, UniswapX orders, and canonical ETH↔WETH wrap/unwrap; other routes fail closed before signing.
 - EVM swap quote only: `get_evm_swap_quote`
   - Params: `token_in`, `token_out`, `amount_in_raw`, optional `network`.
 

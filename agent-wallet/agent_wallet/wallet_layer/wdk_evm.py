@@ -1835,6 +1835,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "slippage_bps": int(data.get("slippageBps")) if data.get("slippageBps") is not None else None,
             "protocol": str(data.get("protocol") or "uniswap"),
             "routing": str(data.get("routing") or "CLASSIC"),
+            "execution_kind": str(data.get("executionKind") or "classic"),
             "permit_required": bool(data.get("permitRequired")),
             "allowance": _normalize_swap_allowance(data.get("allowance")),
             "router": str(data.get("router") or "").strip() or None,
@@ -1845,7 +1846,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "token_in_metadata": _normalize_token_metadata(data.get("tokenInMetadata"), token_in),
             "token_out_metadata": _normalize_token_metadata(data.get("tokenOutMetadata"), token_out),
             "chain_id": int(data.get("chainId") or 0),
-            "source": "wdk-evm-wallet",
+            "source": str(data.get("source") or "wdk-evm-wallet"),
         }
 
     async def get_uniswap_swap_quote(
@@ -1893,6 +1894,19 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             body["slippageBps"] = slippage_bps
         data = await self.client.post("/v1/evm/uniswap/swap/quote", body)
         payload = self._normalize_uniswap_quote_payload(data, token_in, token_out, amount_in_raw)
+        prepared_transaction = data.get("swapTransaction")
+        if isinstance(prepared_transaction, dict):
+            swap_transaction = {
+                "to": str(prepared_transaction.get("to") or "").strip() or payload["router"],
+                "value": str(prepared_transaction.get("value") or "0"),
+                "data_hash": str(prepared_transaction.get("dataHash") or "").strip() or None,
+            }
+        else:
+            swap_transaction = {
+                "to": payload["router"],
+                "value": "0",
+                "data_hash": None,
+            }
         return {
             **payload,
             "asset_type": "evm-uniswap-swap",
@@ -1903,11 +1917,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "input_amount_ui": payload["amount_in_ui"],
             "swap_provider": payload["protocol"],
             "route_plan": None,
-            "swap_transaction": {
-                "to": payload["router"],
-                "value": "0",
-                "data_hash": None,
-            },
+            "swap_transaction": swap_transaction,
         }
 
     async def send_uniswap_swap(
@@ -1956,6 +1966,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "minimum_output_amount_raw": str(data.get("minimumOutputAmountRaw")) if data.get("minimumOutputAmountRaw") is not None else None,
             "swap_provider": str(data.get("protocol") or "uniswap"),
             "routing": str(data.get("routing") or "CLASSIC"),
+            "execution_kind": str(data.get("executionKind") or "classic"),
             "quote_fingerprint": str(data.get("quoteFingerprint") or "").strip() or None,
             "router": str(data.get("router") or "").strip() or None,
             "allowance": _normalize_swap_allowance(data.get("allowance")),
@@ -1977,7 +1988,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "broadcasted": bool(result.get("hash")),
             "order_submitted": order_id is not None,
             "confirmed": False,
-            "source": "wdk-evm-wallet",
+            "source": str(data.get("source") or "wdk-evm-wallet"),
         }
 
     async def preview_evm_lifi_cross_chain_swap(

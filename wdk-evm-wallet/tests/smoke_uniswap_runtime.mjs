@@ -96,7 +96,7 @@ function createHarness(options = {}) {
       return `0x${"b".repeat(130)}`;
     },
     async sendTransaction(tx) {
-      state.sendCalls.push({ to: String(tx.to), value: String(tx.value) });
+      state.sendCalls.push({ to: String(tx.to), value: String(tx.value), data: String(tx.data || "") });
       return { hash: `0x${"d".repeat(64)}`, fee: "3" };
     },
   };
@@ -274,6 +274,45 @@ test("quote: UniswapX routing is returned as an executable order plan", async ()
   }
 });
 
+test("send: LIMIT_ORDER follows the signed UniswapX /order path", async () => {
+  const h = createHarness({ routing: "LIMIT_ORDER", initialAllowance: 10n ** 18n });
+  try {
+    const result = await h.service.sendUniswapSwap({
+      seedPhrase: VALID_MNEMONIC,
+      tokenIn: BASE_USDC,
+      tokenOut: "native",
+      tokenInAmount: "1000000",
+      network: "base",
+    });
+    assert.equal(result.executionKind, "uniswapx");
+    assert.equal(result.result.orderStatus, "open");
+    assert.equal(h.state.orderBodies.at(-1).routing, "LIMIT_ORDER");
+    assert.equal(h.state.sendCalls.length, 0);
+  } finally {
+    h.restore();
+  }
+});
+
+test("quote: non-executable bridge routing is rejected before signing", async () => {
+  const h = createHarness({ routing: "BRIDGE" });
+  try {
+    await assert.rejects(
+      h.service.quoteUniswapSwap({
+        seedPhrase: VALID_MNEMONIC,
+        tokenIn: "native",
+        tokenOut: BASE_USDC,
+        tokenInAmount: "1000000000000000000",
+        network: "base",
+      }),
+      (err) => err.errorCode === "uniswap_unsupported_route"
+    );
+    assert.equal(h.state.signCalls, 0);
+    assert.equal(h.state.sendCalls.length, 0);
+  } finally {
+    h.restore();
+  }
+});
+
 test("quote: missing API key is rejected", async () => {
   const h = createHarness({ apiKey: "" });
   try {
@@ -400,6 +439,8 @@ test("send: gateway mode authenticates with bearer and omits the local api key",
     assert.equal(headers.Authorization, "Bearer gw-token");
     assert.equal(headers["x-api-key"], undefined);
     assert.equal(headers["x-universal-router-version"], "2.0");
+    assert.equal(headers["x-agentlayer-chain-id"], "8453");
+    assert.equal(headers["x-agentlayer-uniswap-router-version"], "2.0");
   } finally {
     h.restore();
   }
@@ -556,17 +597,15 @@ test("send: native ETH -> ERC-20 on robinhood broadcasts to the robinhood Univer
   }
 });
 
-test("send: native ETH -> WETH on robinhood permits only the canonical direct-wrap call", async () => {
+test("send: native ETH -> WETH on robinhood is a local canonical direct-wrap call", async () => {
   const amount = "1000000000000000000";
   const h = createHarness({
     network: "robinhood",
     chainId: 4663,
     router: ROBINHOOD_ROUTER,
     erc20Token: ROBINHOOD_WETH,
-    routing: "WRAP",
-    swapRouter: ROBINHOOD_WETH,
-    swapData: "0xd0e30db0",
-    swapValue: "0xde0b6b3a7640000",
+    // A local wrap must not require an API key or consume a quote/swap response.
+    apiKey: "",
   });
   try {
     const result = await h.service.sendUniswapSwap({
@@ -577,36 +616,44 @@ test("send: native ETH -> WETH on robinhood permits only the canonical direct-wr
       network: "robinhood",
     });
     assert.equal(result.result.hash, `0x${"d".repeat(64)}`);
+    assert.equal(result.executionKind, "wrap");
+    assert.equal(result.source, "canonical-wrapped-native");
     assert.equal(h.state.sendCalls.length, 1);
     assert.equal(h.state.sendCalls[0].to.toLowerCase(), ROBINHOOD_WETH);
+    assert.equal(h.state.sendCalls[0].value, amount);
+    assert.equal(h.state.sendCalls[0].data, "0xd0e30db0");
+    assert.equal(h.state.quoteBodies.length, 0);
+    assert.equal(h.state.swapBodies.length, 0);
   } finally {
     h.restore();
   }
 });
 
-test("send: robinhood direct-wrap rejects a mismatched ETH value", async () => {
+test("send: WETH -> ETH on robinhood is a local canonical unwrap call", async () => {
+  const amount = "1000000000000000000";
   const h = createHarness({
     network: "robinhood",
     chainId: 4663,
     router: ROBINHOOD_ROUTER,
     erc20Token: ROBINHOOD_WETH,
-    routing: "WRAP",
-    swapRouter: ROBINHOOD_WETH,
-    swapData: "0xd0e30db0",
-    swapValue: "0x1",
+    apiKey: "",
   });
   try {
-    await assert.rejects(
-      h.service.sendUniswapSwap({
-        seedPhrase: VALID_MNEMONIC,
-        tokenIn: "native",
-        tokenOut: ROBINHOOD_WETH,
-        tokenInAmount: "1000000000000000000",
-        network: "robinhood",
-      }),
-      (err) => err.errorCode === "uniswap_unexpected_router"
-    );
-    assert.equal(h.state.sendCalls.length, 0);
+    const result = await h.service.sendUniswapSwap({
+      seedPhrase: VALID_MNEMONIC,
+      tokenIn: ROBINHOOD_WETH,
+      tokenOut: "native",
+      tokenInAmount: amount,
+      network: "robinhood",
+    });
+    assert.equal(result.executionKind, "unwrap");
+    assert.equal(h.state.signCalls, 0);
+    assert.equal(h.state.sendCalls.length, 1);
+    assert.equal(h.state.sendCalls[0].to.toLowerCase(), ROBINHOOD_WETH);
+    assert.equal(h.state.sendCalls[0].value, "0");
+    assert.equal(h.state.sendCalls[0].data, `0x2e1a7d4d${BigInt(amount).toString(16).padStart(64, "0")}`);
+    assert.equal(h.state.quoteBodies.length, 0);
+    assert.equal(h.state.swapBodies.length, 0);
   } finally {
     h.restore();
   }

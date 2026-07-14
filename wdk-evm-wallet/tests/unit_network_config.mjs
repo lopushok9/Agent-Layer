@@ -45,6 +45,19 @@ test("robinhood-mainnet alias normalizes to robinhood", () => {
   }
 });
 
+test("per-network Uniswap router versions are parsed and normalized", () => {
+  const home = tempHome();
+  try {
+    const config = loadConfig({
+      OPENCLAW_HOME: home,
+      UNISWAP_ROUTER_VERSION_BY_NETWORK: '{"base-mainnet":"2.0","robinhood":"2.0"}',
+    });
+    assert.deepEqual(config.uniswapRouterVersionsByNetwork, { base: "2.0", robinhood: "2.0" });
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("invalid WDK_EVM_NETWORK error message lists robinhood", () => {
   const home = tempHome();
   try {

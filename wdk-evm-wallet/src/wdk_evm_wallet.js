@@ -23,22 +23,44 @@ const DEFAULT_LIFI_SLIPPAGE = 0.005;
 const ALWAYS_DENIED_LIFI_BRIDGES = ["mayan"];
 const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 const UNISWAP_SUPPORTED_CHAIN_IDS = { ethereum: 1, base: 8453, robinhood: 4663 };
-// Universal Router v2.0 allow-list (defense-in-depth: /swap response `to` must match).
-const UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK = {
-  ethereum: "0x66a9893cc07d91d95644aedd05d03f95e1dba8af",
-  base: "0x6ff5693b99212da76ad316178a184ab56d299b43",
-  robinhood: "0x8876789976decbfcbbbe364623c63652db8c0904",
+// Every executable path is declared here rather than inferred from a Trading
+// API response. A new chain/router version therefore requires an explicit,
+// reviewed allow-list entry before it can receive a signed transaction.
+const UNISWAP_EXECUTION_PROFILES = {
+  ethereum: {
+    chainId: 1,
+    universalRouters: { "2.0": "0x66a9893cc07d91d95644aedd05d03f95e1dba8af" },
+    wrappedNative: "0xc02aaA39b223fe8d0a0e5c4f27ead9083c756cc2".toLowerCase(),
+  },
+  base: {
+    chainId: 8453,
+    universalRouters: { "2.0": "0x6ff5693b99212da76ad316178a184ab56d299b43" },
+    wrappedNative: "0x4200000000000000000000000000000000000006",
+  },
+  robinhood: {
+    chainId: 4663,
+    universalRouters: { "2.0": "0x8876789976decbfcbbbe364623c63652db8c0904" },
+    wrappedNative: "0x0bd7d308f8e1639fab988df18a8011f41eacad73",
+  },
 };
-// The Trading API may optimize a native-token WRAP route into a direct WETH
-// deposit rather than a Universal Router call. Keep this allow-list deliberately
-// separate from the router list: a direct target is valid only for the exact
-// native ETH -> canonical WETH wrapping operation on that network.
-const UNISWAP_WRAPPED_NATIVE_BY_NETWORK = {
-  robinhood: "0x0bd7d308f8e1639fab988df18a8011f41eacad73",
-};
+// Compatibility export for callers/tests. New execution code resolves a router
+// from UNISWAP_EXECUTION_PROFILES and its explicitly selected version.
+const UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK = Object.fromEntries(
+  Object.entries(UNISWAP_EXECUTION_PROFILES).map(([network, profile]) => [
+    network,
+    profile.universalRouters["2.0"],
+  ])
+);
+const UNISWAP_WRAPPED_NATIVE_BY_NETWORK = Object.fromEntries(
+  Object.entries(UNISWAP_EXECUTION_PROFILES).map(([network, profile]) => [
+    network,
+    profile.wrappedNative,
+  ])
+);
 const WETH_DEPOSIT_SELECTOR = "0xd0e30db0";
-const UNISWAP_CLASSIC_ROUTINGS = new Set(["CLASSIC", "WRAP", "UNWRAP", "BRIDGE"]);
-const UNISWAPX_ROUTINGS = new Set(["DUTCH_V2", "DUTCH_V3", "PRIORITY"]);
+const WETH_WITHDRAW_SELECTOR = "0x2e1a7d4d";
+const UNISWAP_CLASSIC_ROUTINGS = new Set(["CLASSIC"]);
+const UNISWAPX_ROUTINGS = new Set(["DUTCH_V2", "DUTCH_V3", "LIMIT_ORDER", "PRIORITY"]);
 const AAVE_RAY = 10n ** 27n;
 const LIDO_STETH_DECIMALS = 18;
 const LIDO_MIN_STETH_WITHDRAWAL_AMOUNT = 100n;
@@ -865,6 +887,60 @@ function assertUniswapSupportedNetwork(network) {
     );
   }
   return chainId;
+}
+
+function getUniswapNetworkExecutionProfile(network) {
+  const profile = UNISWAP_EXECUTION_PROFILES[network];
+  if (!profile) {
+    assertUniswapSupportedNetwork(network);
+  }
+  return profile;
+}
+
+function resolveUniswapRouterExecutionProfile(network, routerVersion) {
+  const networkProfile = getUniswapNetworkExecutionProfile(network);
+  const version = String(routerVersion || "2.0").trim() || "2.0";
+  const router = networkProfile.universalRouters[version];
+  if (!router) {
+    throw createTaggedError(
+      `Uniswap Universal Router version ${version} is not approved for ${network}.`,
+      "uniswap_router_version_unsupported",
+      {
+        network,
+        chainId: networkProfile.chainId,
+        requestedVersion: version,
+        supportedVersions: Object.keys(networkProfile.universalRouters),
+      }
+    );
+  }
+  return { ...networkProfile, routerVersion: version, router };
+}
+
+function encodeUint256(value) {
+  return BigInt(value).toString(16).padStart(64, "0");
+}
+
+function buildDirectWrappedNativeOperation(networkProfile, swapRequest) {
+  const wrappedNative = networkProfile.wrappedNative;
+  if (isZeroAddress(swapRequest.tokenIn) && swapRequest.tokenOut === wrappedNative) {
+    return {
+      executionKind: "wrap",
+      routing: "WRAP",
+      transaction: { to: wrappedNative, data: WETH_DEPOSIT_SELECTOR, value: swapRequest.tokenInAmount },
+    };
+  }
+  if (swapRequest.tokenIn === wrappedNative && isZeroAddress(swapRequest.tokenOut)) {
+    return {
+      executionKind: "unwrap",
+      routing: "UNWRAP",
+      transaction: {
+        to: wrappedNative,
+        data: `${WETH_WITHDRAW_SELECTOR}${encodeUint256(swapRequest.tokenInAmount)}`,
+        value: 0n,
+      },
+    };
+  }
+  return null;
 }
 
 function uniswapSlippagePercentFromBps(bps) {
@@ -3780,6 +3856,7 @@ export class WdkEvmWalletService {
             signature,
             nativeTokenIn: finalPlan.isNativeTokenIn,
             routing: finalPlan.routing,
+            routerProfile: finalPlan.routerProfile,
           });
           simulation = {
             ok: true,
@@ -3800,13 +3877,15 @@ export class WdkEvmWalletService {
               : {}),
           };
         } else {
-          const swapTx = await this.#fetchUniswapSwapCalldata({
-            runtimeConfig,
-            quoteResponse: finalPlan.quoteResponse,
-            permitData: finalPlan.permitData,
-            signature,
-            swapRequest,
-          });
+          const swapTx =
+            finalPlan.preparedTransaction ||
+            (await this.#fetchUniswapSwapCalldata({
+              runtimeConfig,
+              routerProfile: finalPlan.routerProfile,
+              quoteResponse: finalPlan.quoteResponse,
+              permitData: finalPlan.permitData,
+              signature,
+            }));
           simulation = await this.#simulatePreparedTransaction({
             runtimeConfig,
             from: address,
@@ -3889,6 +3968,7 @@ export class WdkEvmWalletService {
       address,
       protocol: "uniswap",
       executionSupported: true,
+      executionKind: plan.executionKind,
       routing: plan.routing,
       swapRequest: {
         tokenIn: swapRequest.tokenIn,
@@ -3915,7 +3995,17 @@ export class WdkEvmWalletService {
         readError: plan.allowanceReadError,
       },
       router: plan.router,
-      source: "uniswap-trading-api",
+      swapTransaction: plan.preparedTransaction
+        ? {
+            to: plan.preparedTransaction.to,
+            value: plan.preparedTransaction.value.toString(),
+            dataHash: sha256Hex(plan.preparedTransaction.data),
+          }
+        : null,
+      source:
+        plan.executionKind === "wrap" || plan.executionKind === "unwrap"
+          ? "canonical-wrapped-native"
+          : "uniswap-trading-api",
     };
   }
 
@@ -5223,11 +5313,15 @@ export class WdkEvmWalletService {
     };
   }
 
-  async #uniswapTradingApiRequest(pathname, body, { erc20EthEnabled = false } = {}) {
+  async #uniswapTradingApiRequest(
+    pathname,
+    body,
+    { erc20EthEnabled = false, routerVersion = this.config.uniswapRouterVersion, chainId = null } = {}
+  ) {
     const headers = {
       "Content-Type": "application/json",
       Accept: "application/json",
-      "x-universal-router-version": this.config.uniswapRouterVersion,
+      "x-universal-router-version": routerVersion,
     };
     if (erc20EthEnabled) {
       headers["x-erc20eth-enabled"] = "true";
@@ -5239,6 +5333,13 @@ export class WdkEvmWalletService {
       const token = String(this.config.providerGatewayToken || "").trim();
       if (token) {
         headers.Authorization = `Bearer ${token}`;
+      }
+      // The gateway selects its own configured version and checks this value for
+      // equality. The chain id is an allow-listed routing hint, never an upstream
+      // header passthrough.
+      if (chainId !== null) {
+        headers["x-agentlayer-chain-id"] = String(chainId);
+        headers["x-agentlayer-uniswap-router-version"] = routerVersion;
       }
     } else {
       if (!this.config.uniswapApiKey) {
@@ -5293,7 +5394,7 @@ export class WdkEvmWalletService {
     return payload;
   }
 
-  async #fetchUniswapQuote({ runtimeConfig, address, swapRequest }) {
+  async #fetchUniswapQuote({ runtimeConfig, routerProfile, address, swapRequest }) {
     const chainId = UNISWAP_SUPPORTED_CHAIN_IDS[runtimeConfig.network];
     const payload = await this.#uniswapTradingApiRequest("/quote", {
       swapper: address,
@@ -5313,6 +5414,8 @@ export class WdkEvmWalletService {
       ],
     }, {
       erc20EthEnabled: isZeroAddress(swapRequest.tokenIn),
+      routerVersion: routerProfile.routerVersion,
+      chainId,
     });
     const routing = String(payload.routing || "").toUpperCase();
     if (!UNISWAP_CLASSIC_ROUTINGS.has(routing) && !UNISWAPX_ROUTINGS.has(routing)) {
@@ -5333,7 +5436,53 @@ export class WdkEvmWalletService {
   }
 
   async #buildUniswapSwapPlan({ account, runtimeConfig, address, swapRequest }) {
-    const quoteResponse = await this.#fetchUniswapQuote({ runtimeConfig, address, swapRequest });
+    const networkProfile = getUniswapNetworkExecutionProfile(runtimeConfig.network);
+    const directOperation = buildDirectWrappedNativeOperation(networkProfile, swapRequest);
+    const slippageBps = Math.round(swapRequest.slippagePercent * 100);
+    if (directOperation) {
+      const quoteFingerprint = sha256Hex(
+        JSON.stringify({
+          chainId: runtimeConfig.chainId,
+          network: runtimeConfig.network,
+          from: address.toLowerCase(),
+          executionKind: directOperation.executionKind,
+          wrappedNative: networkProfile.wrappedNative,
+          tokenIn: swapRequest.tokenIn,
+          tokenOut: swapRequest.tokenOut,
+          tokenInAmount: swapRequest.tokenInAmount.toString(),
+        })
+      );
+      return {
+        quoteResponse: null,
+        permitData: null,
+        isNativeTokenIn: isZeroAddress(swapRequest.tokenIn),
+        spender: null,
+        currentAllowance: 0n,
+        allowanceReadError: null,
+        approval: { required: false, estimatedFee: 0n, steps: [] },
+        tokenInAmount: swapRequest.tokenInAmount,
+        tokenOutAmount: swapRequest.tokenInAmount,
+        minimumTokenOutAmount: swapRequest.tokenInAmount,
+        slippageBps,
+        routing: directOperation.routing,
+        executionKind: directOperation.executionKind,
+        isUniswapX: false,
+        quoteFingerprint,
+        gasFee: null,
+        gasFeeUSD: null,
+        router: networkProfile.wrappedNative,
+        routerProfile: null,
+        preparedTransaction: directOperation.transaction,
+      };
+    }
+
+    const routerProfile = this.#resolveUniswapRouterProfile(runtimeConfig);
+    const quoteResponse = await this.#fetchUniswapQuote({
+      runtimeConfig,
+      routerProfile,
+      address,
+      swapRequest,
+    });
     const permitData = quoteResponse.permitData ?? null;
     const isNativeTokenIn = isZeroAddress(swapRequest.tokenIn);
     const spender = isNativeTokenIn ? null : PERMIT2_ADDRESS;
@@ -5357,7 +5506,6 @@ export class WdkEvmWalletService {
         });
     const quoteOutput = quoteResponse.quote.output;
     const tokenOutAmount = BigInt(String(quoteOutput.amount || "0"));
-    const slippageBps = Math.round(swapRequest.slippagePercent * 100);
     // The Trading API returns the post-slippage floor directly; fall back to a
     // local computation only if the field is absent.
     const minimumTokenOutAmount =
@@ -5366,7 +5514,7 @@ export class WdkEvmWalletService {
         : tokenOutAmount - (tokenOutAmount * BigInt(slippageBps)) / 10000n;
     const routing = String(quoteResponse.routing || "").toUpperCase();
     const isUniswapX = UNISWAPX_ROUTINGS.has(routing);
-    const router = isUniswapX ? null : UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK[runtimeConfig.network];
+    const router = isUniswapX ? null : routerProfile.router;
     // Bind only the stable swap *intent* (who/what/how-much/slippage/route), never
     // the live quoted output: the Trading API re-prices every block, so including
     // tokenOutAmount here made execute's re-quote fingerprint differ from preview's
@@ -5385,6 +5533,8 @@ export class WdkEvmWalletService {
         tokenInAmount: swapRequest.tokenInAmount.toString(),
         slippageBps,
         routing,
+        executionKind: isUniswapX ? "uniswapx" : "classic",
+        routerVersion: routerProfile.routerVersion,
       })
     );
     return {
@@ -5400,12 +5550,22 @@ export class WdkEvmWalletService {
       minimumTokenOutAmount,
       slippageBps,
       routing,
+      executionKind: isUniswapX ? "uniswapx" : "classic",
       isUniswapX,
       quoteFingerprint,
       gasFee: quoteResponse.quote.gasFee ?? null,
       gasFeeUSD: quoteResponse.quote.gasFeeUSD ?? null,
       router,
+      routerProfile,
+      preparedTransaction: null,
     };
+  }
+
+  #resolveUniswapRouterProfile(runtimeConfig) {
+    const configuredVersion =
+      this.config.uniswapRouterVersionsByNetwork?.[runtimeConfig.network] ||
+      this.config.uniswapRouterVersion;
+    return resolveUniswapRouterExecutionProfile(runtimeConfig.network, configuredVersion);
   }
 
   async #signUniswapPermit(account, permitData, runtimeConfig) {
@@ -5419,10 +5579,10 @@ export class WdkEvmWalletService {
 
   async #fetchUniswapSwapCalldata({
     runtimeConfig,
+    routerProfile,
     quoteResponse,
     permitData,
     signature,
-    swapRequest,
   }) {
     const { permitData: _permitData, permitTransaction: _permitTransaction, ...cleanQuote } =
       quoteResponse;
@@ -5433,18 +5593,14 @@ export class WdkEvmWalletService {
       body.signature = signature;
       body.permitData = permitData;
     }
-    const payload = await this.#uniswapTradingApiRequest("/swap", body);
+    const payload = await this.#uniswapTradingApiRequest("/swap", body, {
+      routerVersion: routerProfile.routerVersion,
+      chainId: runtimeConfig.chainId,
+    });
     const swap = payload.swap || {};
     const to = normalizeAddress(String(swap.to || ""), "swap.to");
-    const expectedRouter = UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK[runtimeConfig.network];
-    const expectedWrappedNative = UNISWAP_WRAPPED_NATIVE_BY_NETWORK[runtimeConfig.network] || null;
-    const isDirectNativeWrap =
-      String(quoteResponse.routing || "").toUpperCase() === "WRAP" &&
-      isZeroAddress(swapRequest.tokenIn) &&
-      expectedWrappedNative !== null &&
-      swapRequest.tokenOut.toLowerCase() === expectedWrappedNative &&
-      to.toLowerCase() === expectedWrappedNative;
-    if (to.toLowerCase() !== expectedRouter && !isDirectNativeWrap) {
+    const expectedRouter = routerProfile.router;
+    if (to.toLowerCase() !== expectedRouter) {
       throw createTaggedError(
         "Uniswap /swap returned an unexpected target contract.",
         "uniswap_unexpected_router",
@@ -5453,25 +5609,7 @@ export class WdkEvmWalletService {
     }
     const data = assertNonEmptyString(String(swap.data || ""), "swap.data");
     const value = parseHexOrDecimalBigInt(swap.value || "0", "swap.value");
-    if (isDirectNativeWrap) {
-      // WETH9 supports both explicit deposit() and its payable receive() path.
-      // Bind the direct call to the previewed ETH amount so an API response cannot
-      // turn a wrap into an arbitrary call or alter its value.
-      if (data.toLowerCase() !== WETH_DEPOSIT_SELECTOR && data !== "0x") {
-        throw createTaggedError(
-          "Uniswap /swap returned unexpected direct-wrap calldata.",
-          "uniswap_unexpected_router",
-          { provider: "uniswap", to: to.toLowerCase(), expected: expectedWrappedNative }
-        );
-      }
-      if (value !== swapRequest.tokenInAmount) {
-        throw createTaggedError(
-          "Uniswap /swap returned an unexpected direct-wrap value.",
-          "uniswap_unexpected_router",
-          { provider: "uniswap", to: to.toLowerCase(), expected: expectedWrappedNative }
-        );
-      }
-    } else if (data === "0x") {
+    if (data === "0x") {
       throw createTaggedError(
         "Uniswap /swap returned empty calldata. The quote likely expired; generate a new preview.",
         "swap_quote_changed",
@@ -5485,7 +5623,7 @@ export class WdkEvmWalletService {
     };
   }
 
-  async #submitUniswapOrder({ quoteResponse, signature, nativeTokenIn, routing }) {
+  async #submitUniswapOrder({ quoteResponse, signature, nativeTokenIn, routing, routerProfile }) {
     if (!signature) {
       throw createTaggedError(
         "UniswapX order quote is missing required signature data.",
@@ -5496,7 +5634,11 @@ export class WdkEvmWalletService {
     const payload = await this.#uniswapTradingApiRequest(
       "/order",
       { quote: quoteResponse.quote, routing, signature },
-      { erc20EthEnabled: nativeTokenIn }
+      {
+        erc20EthEnabled: nativeTokenIn,
+        routerVersion: routerProfile.routerVersion,
+        chainId: routerProfile.chainId,
+      }
     );
     const orderId = String(payload.orderId || payload.order?.orderId || "").trim();
     if (!orderId) {
@@ -7678,9 +7820,13 @@ export class WdkEvmWalletService {
 export const __testables = {
   PERMIT2_ADDRESS,
   UNISWAP_SUPPORTED_CHAIN_IDS,
+  UNISWAP_EXECUTION_PROFILES,
   UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK,
+  UNISWAP_WRAPPED_NATIVE_BY_NETWORK,
   normalizeUniswapTokenAddress,
   assertUniswapSupportedNetwork,
+  resolveUniswapRouterExecutionProfile,
+  buildDirectWrappedNativeOperation,
   assertValidNetwork,
   uniswapSlippagePercentFromBps,
   normalizeUniswapPermitData,
