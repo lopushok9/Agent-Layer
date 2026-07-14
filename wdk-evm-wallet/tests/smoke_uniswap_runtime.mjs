@@ -15,6 +15,7 @@ const BASE_ROUTER = "0x6ff5693b99212da76ad316178a184ab56d299b43";
 const BASE_USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 // Universal Router v2.0 on robinhood (must match UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK).
 const ROBINHOOD_ROUTER = "0x8876789976decbfcbbbe364623c63652db8c0904";
+const ROBINHOOD_WETH = "0x0bd7d308f8e1639fab988df18a8011f41eacad73";
 // Placeholder ERC-20 test double on robinhood — the mocked RPC below returns
 // canned metadata for any token address, so this does not need to be a real
 // deployed contract.
@@ -550,6 +551,62 @@ test("send: native ETH -> ERC-20 on robinhood broadcasts to the robinhood Univer
     assert.equal(result.result.hash, `0x${"d".repeat(64)}`);
     assert.equal(h.state.sendCalls.length, 1);
     assert.equal(h.state.sendCalls[0].to.toLowerCase(), ROBINHOOD_ROUTER.toLowerCase());
+  } finally {
+    h.restore();
+  }
+});
+
+test("send: native ETH -> WETH on robinhood permits only the canonical direct-wrap call", async () => {
+  const amount = "1000000000000000000";
+  const h = createHarness({
+    network: "robinhood",
+    chainId: 4663,
+    router: ROBINHOOD_ROUTER,
+    erc20Token: ROBINHOOD_WETH,
+    routing: "WRAP",
+    swapRouter: ROBINHOOD_WETH,
+    swapData: "0xd0e30db0",
+    swapValue: "0xde0b6b3a7640000",
+  });
+  try {
+    const result = await h.service.sendUniswapSwap({
+      seedPhrase: VALID_MNEMONIC,
+      tokenIn: "native",
+      tokenOut: ROBINHOOD_WETH,
+      tokenInAmount: amount,
+      network: "robinhood",
+    });
+    assert.equal(result.result.hash, `0x${"d".repeat(64)}`);
+    assert.equal(h.state.sendCalls.length, 1);
+    assert.equal(h.state.sendCalls[0].to.toLowerCase(), ROBINHOOD_WETH);
+  } finally {
+    h.restore();
+  }
+});
+
+test("send: robinhood direct-wrap rejects a mismatched ETH value", async () => {
+  const h = createHarness({
+    network: "robinhood",
+    chainId: 4663,
+    router: ROBINHOOD_ROUTER,
+    erc20Token: ROBINHOOD_WETH,
+    routing: "WRAP",
+    swapRouter: ROBINHOOD_WETH,
+    swapData: "0xd0e30db0",
+    swapValue: "0x1",
+  });
+  try {
+    await assert.rejects(
+      h.service.sendUniswapSwap({
+        seedPhrase: VALID_MNEMONIC,
+        tokenIn: "native",
+        tokenOut: ROBINHOOD_WETH,
+        tokenInAmount: "1000000000000000000",
+        network: "robinhood",
+      }),
+      (err) => err.errorCode === "uniswap_unexpected_router"
+    );
+    assert.equal(h.state.sendCalls.length, 0);
   } finally {
     h.restore();
   }

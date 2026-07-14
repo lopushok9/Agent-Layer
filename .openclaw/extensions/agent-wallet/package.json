@@ -1,6 +1,6 @@
 {
   "name": "@agentlayertech/agent-wallet-plugin",
-  "version": "0.1.78",
+  "version": "0.1.79",
   "description": "OpenClaw plugin bridge for the AgentLayer wallet runtime.",
   "type": "module",
   "license": "SEE LICENSE IN ../../../LICENSE",

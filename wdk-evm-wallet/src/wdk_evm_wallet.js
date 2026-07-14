@@ -29,6 +29,14 @@ const UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK = {
   base: "0x6ff5693b99212da76ad316178a184ab56d299b43",
   robinhood: "0x8876789976decbfcbbbe364623c63652db8c0904",
 };
+// The Trading API may optimize a native-token WRAP route into a direct WETH
+// deposit rather than a Universal Router call. Keep this allow-list deliberately
+// separate from the router list: a direct target is valid only for the exact
+// native ETH -> canonical WETH wrapping operation on that network.
+const UNISWAP_WRAPPED_NATIVE_BY_NETWORK = {
+  robinhood: "0x0bd7d308f8e1639fab988df18a8011f41eacad73",
+};
+const WETH_DEPOSIT_SELECTOR = "0xd0e30db0";
 const UNISWAP_CLASSIC_ROUTINGS = new Set(["CLASSIC", "WRAP", "UNWRAP", "BRIDGE"]);
 const UNISWAPX_ROUTINGS = new Set(["DUTCH_V2", "DUTCH_V3", "PRIORITY"]);
 const AAVE_RAY = 10n ** 27n;
@@ -3797,6 +3805,7 @@ export class WdkEvmWalletService {
             quoteResponse: finalPlan.quoteResponse,
             permitData: finalPlan.permitData,
             signature,
+            swapRequest,
           });
           simulation = await this.#simulatePreparedTransaction({
             runtimeConfig,
@@ -5408,7 +5417,13 @@ export class WdkEvmWalletService {
     });
   }
 
-  async #fetchUniswapSwapCalldata({ runtimeConfig, quoteResponse, permitData, signature }) {
+  async #fetchUniswapSwapCalldata({
+    runtimeConfig,
+    quoteResponse,
+    permitData,
+    signature,
+    swapRequest,
+  }) {
     const { permitData: _permitData, permitTransaction: _permitTransaction, ...cleanQuote } =
       quoteResponse;
     const body = { ...cleanQuote };
@@ -5422,7 +5437,14 @@ export class WdkEvmWalletService {
     const swap = payload.swap || {};
     const to = normalizeAddress(String(swap.to || ""), "swap.to");
     const expectedRouter = UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK[runtimeConfig.network];
-    if (to.toLowerCase() !== expectedRouter) {
+    const expectedWrappedNative = UNISWAP_WRAPPED_NATIVE_BY_NETWORK[runtimeConfig.network] || null;
+    const isDirectNativeWrap =
+      String(quoteResponse.routing || "").toUpperCase() === "WRAP" &&
+      isZeroAddress(swapRequest.tokenIn) &&
+      expectedWrappedNative !== null &&
+      swapRequest.tokenOut.toLowerCase() === expectedWrappedNative &&
+      to.toLowerCase() === expectedWrappedNative;
+    if (to.toLowerCase() !== expectedRouter && !isDirectNativeWrap) {
       throw createTaggedError(
         "Uniswap /swap returned an unexpected target contract.",
         "uniswap_unexpected_router",
@@ -5430,7 +5452,26 @@ export class WdkEvmWalletService {
       );
     }
     const data = assertNonEmptyString(String(swap.data || ""), "swap.data");
-    if (data === "0x") {
+    const value = parseHexOrDecimalBigInt(swap.value || "0", "swap.value");
+    if (isDirectNativeWrap) {
+      // WETH9 supports both explicit deposit() and its payable receive() path.
+      // Bind the direct call to the previewed ETH amount so an API response cannot
+      // turn a wrap into an arbitrary call or alter its value.
+      if (data.toLowerCase() !== WETH_DEPOSIT_SELECTOR && data !== "0x") {
+        throw createTaggedError(
+          "Uniswap /swap returned unexpected direct-wrap calldata.",
+          "uniswap_unexpected_router",
+          { provider: "uniswap", to: to.toLowerCase(), expected: expectedWrappedNative }
+        );
+      }
+      if (value !== swapRequest.tokenInAmount) {
+        throw createTaggedError(
+          "Uniswap /swap returned an unexpected direct-wrap value.",
+          "uniswap_unexpected_router",
+          { provider: "uniswap", to: to.toLowerCase(), expected: expectedWrappedNative }
+        );
+      }
+    } else if (data === "0x") {
       throw createTaggedError(
         "Uniswap /swap returned empty calldata. The quote likely expired; generate a new preview.",
         "swap_quote_changed",
@@ -5440,7 +5481,7 @@ export class WdkEvmWalletService {
     return {
       to,
       data,
-      value: parseHexOrDecimalBigInt(swap.value || "0", "swap.value"),
+      value,
     };
   }
 
