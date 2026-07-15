@@ -184,6 +184,7 @@ function createRuntimeHarness(options = {}) {
       state.sendCalls.push({
         to: String(tx?.to || ""),
         value: String(tx?.value || "0"),
+        gasLimit: BigInt(tx?.gasLimit || 0).toString(),
       });
       if (config.failSwapSend) {
         throw new Error("swap send failed");
@@ -601,6 +602,27 @@ test("swap succeeds without approval when allowance is already sufficient", asyn
     assert.equal(state.approveCalls.length, 0);
     assert.equal(state.sendCalls.length, 1);
     assert.equal(result.simulation.ok, true);
+    assert.equal(state.sendCalls[0].gasLimit, "27300");
+    assert.equal(result.confirmed, true);
+  });
+});
+
+test("LI.FI source transaction uses a padded final gas limit and waits for receipt", async () => {
+  await withHarness({ initialAllowance: 1000000n }, async ({ service, state, config }) => {
+    const result = await service.sendLifiSwap({
+      seedPhrase: VALID_MNEMONIC,
+      tokenIn: config.tokenIn,
+      destinationChain: "base",
+      outputToken: DEFAULT_TOKEN_OUT,
+      destinationAddress: DEFAULT_ADDRESS,
+      tokenInAmount: config.amountIn,
+      network: config.network,
+    });
+    assert.equal(result.result.hash, `0x${"d".repeat(64)}`);
+    assert.equal(result.confirmed, true);
+    assert.equal(state.sendCalls.length, 1);
+    assert.equal(state.sendCalls[0].gasLimit, "27300");
+    assert.ok(state.receiptPolls >= 1);
   });
 });
 

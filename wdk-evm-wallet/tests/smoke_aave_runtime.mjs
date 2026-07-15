@@ -19,6 +19,7 @@ const DEFAULT_A_TOKEN = "0x7777777777777777777777777777777777777777";
 const DEFAULT_VARIABLE_DEBT_TOKEN = "0x8888888888888888888888888888888888888888";
 const DEFAULT_STRATEGY = "0x9999999999999999999999999999999999999999";
 const AAVE_PROTOCOL_DATA_PROVIDER = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const AAVE_OPERATION_DATA = "0xabcdef01";
 const APPROVE_SELECTOR = "0x095ea7b3";
 const GET_USER_RESERVE_DATA_SELECTOR = id("getUserReserveData(address,address)").slice(0, 10);
 
@@ -28,6 +29,7 @@ function createHarness(options = {}) {
     approveCalls: [],
     quoteCalls: [],
     protocolCalls: [],
+    sentTransactions: [],
   };
   const config = {
     network: options.network ?? "ethereum",
@@ -114,6 +116,10 @@ function createHarness(options = {}) {
         hash: `0x${String(state.approveCalls.length).padStart(64, "a")}`,
         fee: config.approvalFee,
       };
+    },
+    async sendTransaction(tx) {
+      state.sentTransactions.push(tx);
+      return { hash: `0x${"d".repeat(64)}`, fee: config.operationFee };
     },
   };
 
@@ -226,10 +232,11 @@ function createHarness(options = {}) {
       if (config.failOperation) {
         throw new Error(`${name} failed`);
       }
-      return {
-        hash: `0x${"d".repeat(64)}`,
-        fee: config.operationFee,
-      };
+      return this._account.sendTransaction({
+        to: AAVE_POOL,
+        value: 0n,
+        data: AAVE_OPERATION_DATA,
+      });
     };
   }
   AaveProtocolEvm.prototype.getAccountData = async function getAccountData() {
@@ -243,14 +250,20 @@ function createHarness(options = {}) {
     };
   };
 
-  globalThis.fetch = async () => {
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(String(init?.body || "{}"));
+    let result = "0x";
+    if (body.method === "eth_estimateGas") result = "0x64";
+    if (body.method === "eth_gasPrice" || body.method === "eth_maxPriorityFeePerGas") result = "0x1";
+    if (body.method === "eth_feeHistory") result = { baseFeePerGas: ["0x1"] };
+    if (body.method === "eth_getTransactionReceipt") result = { status: "0x1" };
     return {
       ok: true,
       async json() {
         return {
           jsonrpc: "2.0",
           id: 1,
-          result: "0x",
+          result,
         };
       },
     };
@@ -389,7 +402,7 @@ test("Aave supply send approves the pool and then supplies", async () => {
     });
     assert.equal(result.result.hash, `0x${"d".repeat(64)}`);
     assert.equal(result.result.approvalFee, "3");
-    assert.equal(result.result.totalFee, "10");
+    assert.equal(result.result.totalFee, "263");
     assert.deepEqual(state.approveCalls, [
       { token: DEFAULT_TOKEN, spender: AAVE_POOL, amount: "100" },
     ]);
@@ -397,6 +410,9 @@ test("Aave supply send approves the pool and then supplies", async () => {
       state.protocolCalls.map((call) => call.name),
       ["quoteSupply", "supply"]
     );
+    assert.equal(state.sentTransactions.length, 1);
+    assert.equal(state.sentTransactions[0].gasLimit, 130n);
+    assert.equal(result.confirmed, true);
   });
 });
 

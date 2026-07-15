@@ -16,6 +16,7 @@ const MORPHO_CORE = "0x4444444444444444444444444444444444444444";
 const GENERAL_ADAPTER = "0x5555555555555555555555555555555555555555";
 const APPROVAL_DATA = "0xaaaaaaaa";
 const AUTHORIZATION_DATA = "0xbbbbbbbb";
+const MORPHO_OPERATION_DATA = "0xcccccccc";
 
 function createService() {
   return new WdkEvmWalletService({
@@ -54,6 +55,7 @@ function createMorphoHarness(options = {}) {
     quoteCalls: [],
     protocolCalls: [],
     sentTransactions: [],
+    operationHash: null,
   };
 
   const fakeAccount = {
@@ -92,8 +94,12 @@ function createMorphoHarness(options = {}) {
       if (String(tx?.data || "") === AUTHORIZATION_DATA) {
         state.authorizationSatisfied = true;
       }
+      const hash = `0x${String(state.sentTransactions.length).padStart(64, "a")}`;
+      if (String(tx?.data || "") === MORPHO_OPERATION_DATA) {
+        state.operationHash = hash;
+      }
       return {
-        hash: `0x${String(state.sentTransactions.length).padStart(64, "a")}`,
+        hash,
         fee:
           String(tx?.data || "") === AUTHORIZATION_DATA
             ? BigInt(options.authorizationFee ?? 5n)
@@ -153,10 +159,11 @@ function createMorphoHarness(options = {}) {
   };
   MorphoProtocolEvm.prototype.supply = async function supply(params) {
     state.protocolCalls.push({ name: "supply", params });
-    return {
-      hash: `0x${"d".repeat(64)}`,
-      fee: BigInt(options.operationFee ?? 7n),
-    };
+    return this._evmAccount.sendTransaction({
+      to: GENERAL_ADAPTER,
+      value: 0n,
+      data: MORPHO_OPERATION_DATA,
+    });
   };
   MorphoProtocolEvm.prototype.getBorrowRequirements = async function getBorrowRequirements() {
     state.protocolCalls.push({ name: "getBorrowRequirements" });
@@ -184,10 +191,11 @@ function createMorphoHarness(options = {}) {
   };
   MorphoProtocolEvm.prototype.borrow = async function borrow(params) {
     state.protocolCalls.push({ name: "borrow", params });
-    return {
-      hash: `0x${"e".repeat(64)}`,
-      fee: BigInt(options.operationFee ?? 9n),
-    };
+    return this._evmAccount.sendTransaction({
+      to: GENERAL_ADAPTER,
+      value: 0n,
+      data: MORPHO_OPERATION_DATA,
+    });
   };
   globalThis.fetch = async (url, request) => {
     if (String(url).startsWith("http://fake-rpc.local")) {
@@ -199,10 +207,16 @@ function createMorphoHarness(options = {}) {
           if (body.method === "eth_getTransactionReceipt") {
             return {
               result: {
-                status: "0x1",
+                status:
+                  body.params?.[0] === state.operationHash
+                    ? options.operationReceiptStatus || "0x1"
+                    : "0x1",
                 transactionHash: body.params?.[0] || `0x${"f".repeat(64)}`,
               },
             };
+          }
+          if (body.method === "eth_estimateGas") {
+            return { result: "0x64" };
           }
           return { result: "0x1" };
         },
@@ -493,7 +507,7 @@ test("morpho api graphql errors are shaped", async () => {
     },
   }), async () => {
     await assert.rejects(
-      () => service.getMorphoVaults({ network: "base" }),
+      () => service.getMorphoVaults({ network: "base", orderBy: "apy" }),
       (error) => error?.errorCode === "morpho_api_failed" && /bad query/.test(error.message)
     );
   });
@@ -523,7 +537,7 @@ test("morpho vault supply quote reports approval requirements and send executes 
     assert.equal(quote.requirements.approvalRequired, true);
     assert.equal(quote.requirements.requirementCount, 1);
     assert.equal(quote.estimatedRequirementsFeeWei, "3");
-    assert.equal(quote.estimatedOperationFeeWei, "7");
+    assert.equal(quote.estimatedOperationFeeWei, "10");
 
     const sent = await service.sendMorphoVaultOperation({
       seedPhrase:
@@ -538,9 +552,14 @@ test("morpho vault supply quote reports approval requirements and send executes 
     assert.equal(sent.result.requirements.length, 1);
     assert.equal(sent.result.requirements[0].type, "approval");
     assert.equal(sent.result.requirementsFee, "3");
-    assert.equal(sent.result.totalFee, "10");
-    assert.equal(harness.state.sentTransactions.length, 1);
+    assert.equal(sent.result.totalFee, "133");
+    assert.equal(sent.result.gasEstimate, "100");
+    assert.equal(sent.result.gasLimit, "130");
+    assert.equal(sent.result.gasBufferBps, "13000");
+    assert.equal(harness.state.sentTransactions.length, 2);
     assert.equal(harness.state.sentTransactions[0].data, APPROVAL_DATA);
+    assert.equal(harness.state.sentTransactions[1].data, MORPHO_OPERATION_DATA);
+    assert.equal(harness.state.sentTransactions[1].gasLimit, 130n);
     assert.ok(harness.state.protocolCalls.some((entry) => entry.name === "supply"));
   } finally {
     harness.restore();
@@ -582,11 +601,42 @@ test("morpho market borrow quote reports authorization requirements and send exe
     });
     assert.equal(sent.result.requirements.length, 1);
     assert.equal(sent.result.requirements[0].type, "authorization");
-    assert.equal(sent.result.requirementsFee, "5");
-    assert.equal(sent.result.totalFee, "14");
-    assert.equal(harness.state.sentTransactions.length, 1);
+    assert.equal(sent.result.requirementsFee, "130");
+    assert.equal(sent.result.totalFee, "260");
+    assert.equal(harness.state.sentTransactions.length, 2);
     assert.equal(harness.state.sentTransactions[0].data, AUTHORIZATION_DATA);
+    assert.equal(harness.state.sentTransactions[0].gasLimit, 130n);
+    assert.equal(harness.state.sentTransactions[1].data, MORPHO_OPERATION_DATA);
+    assert.equal(harness.state.sentTransactions[1].gasLimit, 130n);
     assert.ok(harness.state.protocolCalls.some((entry) => entry.name === "borrow"));
+  } finally {
+    harness.restore();
+  }
+});
+
+test("morpho send waits for the final receipt and reports an onchain revert", async () => {
+  const service = createService();
+  const harness = createMorphoHarness({
+    initialApprovalSatisfied: true,
+    operationReceiptStatus: "0x0",
+  });
+
+  try {
+    await assert.rejects(
+      () =>
+        service.sendMorphoVaultOperation({
+          seedPhrase:
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+          network: "base",
+          vaultAddress: DEFAULT_VAULT_ADDRESS,
+          token: DEFAULT_TOKEN,
+          amount: "1000",
+          operation: "supply",
+        }),
+      (error) => error?.errorCode === "morpho_operation_reverted"
+    );
+    assert.equal(harness.state.sentTransactions.length, 1);
+    assert.equal(harness.state.sentTransactions[0].gasLimit, 130n);
   } finally {
     harness.restore();
   }

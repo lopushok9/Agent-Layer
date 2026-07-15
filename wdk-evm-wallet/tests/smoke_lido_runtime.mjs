@@ -61,6 +61,15 @@ function createHarness(options = {}) {
       if (method === "eth_getTransactionReceipt") {
         return { status: "0x1" };
       }
+      if (method === "eth_estimateGas") {
+        return "0x64";
+      }
+      if (method === "eth_gasPrice" || method === "eth_maxPriorityFeePerGas") {
+        return "0x1";
+      }
+      if (method === "eth_feeHistory") {
+        return { baseFeePerGas: ["0x1"] };
+      }
       if (method === "eth_call") {
         const tx = params?.[0] || {};
         const to = String(tx.to || "").toLowerCase();
@@ -175,6 +184,7 @@ function createHarness(options = {}) {
         to: String(tx?.to || "").toLowerCase(),
         value: BigInt(tx?.value || 0).toString(),
         data: String(tx?.data || ""),
+        gasLimit: BigInt(tx?.gasLimit || 0).toString(),
       });
       return {
         hash: `0x${String(state.sendCalls.length).padStart(64, "b")}`,
@@ -350,6 +360,8 @@ test("lido wrap send performs approval and sends transaction", async () => {
     assert.equal(harness.state.sendCalls.length, 1);
     assert.equal(result.result.approveHash.startsWith("0x"), true);
     assert.equal(result.result.hash.startsWith("0x"), true);
+    assert.equal(harness.state.sendCalls[0].gasLimit, "130");
+    assert.equal(result.confirmed, true);
   } finally {
     harness.restore();
   }

@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Hardened Morpho EVM operations with a 30% gas-limit buffer calculated from
+  the exact final calldata immediately before sending. Morpho vault and market
+  writes now wait for their final on-chain receipt and report reverts instead
+  of returning an unconfirmed broadcast as a successful operation.
+
+- Extended the same exact-calldata 30% gas-limit buffer and receipt validation
+  to Aave, Lido, Velora, LI.FI, and locally broadcast Uniswap swaps. This
+  includes Robinhood Chain's Universal Router, direct V3 fallback, and native
+  wrap/unwrap paths; UniswapX orders remain order submissions, not local
+  on-chain confirmations.
+
+- Fixed the Robinhood Chain Uniswap default to Universal Router `2.1.1`.
+  `UNISWAP_ROUTER_VERSION_BY_NETWORK` can still explicitly override it per
+  network; the legacy global `2.0` default continues to serve Ethereum and Base.
+
 ## v0.1.77 - 2026-07-13
 
 - Added Robinhood Chain mainnet (`chainId` 4663) to the local EVM wallet,

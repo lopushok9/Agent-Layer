@@ -160,7 +160,19 @@ const MORPHO_MAX_LIST_LIMIT = 500;
 // two minutes is below the indexer's own aggregation noise.
 const MORPHO_DISCOVERY_CACHE_TTL_MS = 120_000;
 const MORPHO_DISCOVERY_CACHE_MAX_ENTRIES = 64;
+// DeFi routes can take a different on-chain branch between estimate time and
+// inclusion. Estimate exact final calldata immediately before signing and use
+// an explicit headroom rather than relying on the provider/WDK default.
+const DEFI_GAS_BUFFER_BPS = 13_000n;
+const MORPHO_GAS_BUFFER_BPS = DEFI_GAS_BUFFER_BPS;
+const BPS_DENOMINATOR = 10_000n;
 const morphoDiscoveryCache = new Map();
+
+function applyGasBuffer(value, bufferBps = MORPHO_GAS_BUFFER_BPS) {
+  const normalizedValue = BigInt(value);
+  const normalizedBufferBps = BigInt(bufferBps);
+  return (normalizedValue * normalizedBufferBps + BPS_DENOMINATOR - 1n) / BPS_DENOMINATOR;
+}
 
 function morphoDiscoveryCacheGet(key) {
   const entry = morphoDiscoveryCache.get(key);
@@ -2517,12 +2529,20 @@ export class WdkEvmWalletService {
         const protocol = this.#createMorphoProtocol(account, runtimeConfig, request);
         let result;
         try {
-          result = await protocol[this.#getMorphoOperationMethods(request).sendMethod](
-            this.#buildMorphoOperationOptions(request)
-          );
+          result = await this.#sendMorphoProtocolOperation({
+            account,
+            runtimeConfig,
+            protocol,
+            request,
+          });
         } finally {
           await maybeDispose(protocol);
         }
+        await this.#waitForTransactionReceipt(runtimeConfig, result.hash, {
+          operationLabel: "Morpho operation",
+          failureCode: "morpho_operation_reverted",
+          timeoutCode: "morpho_operation_confirmation_timeout",
+        });
         const resultFee = BigInt(result?.fee || finalPlan.operationFee || 0);
         const totalFee = requirementExecution.totalFee + resultFee;
         return {
@@ -2548,6 +2568,7 @@ export class WdkEvmWalletService {
             requirementsFee: requirementExecution.totalFee.toString(),
             requirements: requirementExecution.transactions,
           },
+          confirmed: true,
         };
       } catch (error) {
         const cleanup = await this.#restoreMorphoRequirementsAfterFailedOperation({
@@ -2694,12 +2715,20 @@ export class WdkEvmWalletService {
         const protocol = this.#createMorphoProtocol(account, runtimeConfig, request);
         let result;
         try {
-          result = await protocol[this.#getMorphoOperationMethods(request).sendMethod](
-            this.#buildMorphoOperationOptions(request)
-          );
+          result = await this.#sendMorphoProtocolOperation({
+            account,
+            runtimeConfig,
+            protocol,
+            request,
+          });
         } finally {
           await maybeDispose(protocol);
         }
+        await this.#waitForTransactionReceipt(runtimeConfig, result.hash, {
+          operationLabel: "Morpho operation",
+          failureCode: "morpho_operation_reverted",
+          timeoutCode: "morpho_operation_confirmation_timeout",
+        });
         const resultFee = BigInt(result?.fee || finalPlan.operationFee || 0);
         const totalFee = requirementExecution.totalFee + resultFee;
         return {
@@ -2725,6 +2754,7 @@ export class WdkEvmWalletService {
             requirementsFee: requirementExecution.totalFee.toString(),
             requirements: requirementExecution.transactions,
           },
+          confirmed: true,
         };
       } catch (error) {
         const cleanup = await this.#restoreMorphoRequirementsAfterFailedOperation({
@@ -2861,13 +2891,25 @@ export class WdkEvmWalletService {
         const protocol = new AaveProtocolEvm(account);
         let result;
         try {
-          result = await protocol[request.operation]({
-            token: request.token,
-            amount: request.amount,
+          result = await this.#sendBufferedDefiProtocolOperation({
+            account,
+            runtimeConfig,
+            operationLabel: `Aave ${request.operation}`,
+            operation: request.operation,
+            invoke: () =>
+              protocol[request.operation]({
+                token: request.token,
+                amount: request.amount,
+              }),
           });
         } finally {
           await maybeDispose(protocol);
         }
+        await this.#waitForTransactionReceipt(runtimeConfig, result.hash, {
+          operationLabel: "Aave operation",
+          failureCode: "aave_operation_reverted",
+          timeoutCode: "aave_operation_confirmation_timeout",
+        });
         const resultFee = BigInt(result?.fee || 0);
         const totalFee = approvalExecution.totalFee + resultFee;
         return {
@@ -2896,6 +2938,7 @@ export class WdkEvmWalletService {
               ? { resetAllowanceHash: approvalExecution.resetAllowanceHash }
               : {}),
           },
+          confirmed: true,
         };
       } catch (error) {
         const cleanup = await this.#restoreAllowanceAfterFailedAaveOperation({
@@ -3177,7 +3220,19 @@ export class WdkEvmWalletService {
           );
         }
 
-        const result = await account.sendTransaction(finalPlan.operationTx);
+        const result = await this.#sendBufferedDefiTransaction({
+          account,
+          runtimeConfig,
+          from: address,
+          tx: finalPlan.operationTx,
+          operationLabel: `Lido ${request.operation}`,
+          operation: request.operation,
+        });
+        await this.#waitForTransactionReceipt(runtimeConfig, result.hash, {
+          operationLabel: "Lido operation",
+          failureCode: "lido_operation_reverted",
+          timeoutCode: "lido_operation_confirmation_timeout",
+        });
         const resultFee = BigInt(result?.fee || finalPlan.operationFee || 0);
         const totalFee = approvalExecution.totalFee + resultFee;
         return {
@@ -3206,6 +3261,7 @@ export class WdkEvmWalletService {
               ? { resetAllowanceHash: approvalExecution.resetAllowanceHash }
               : {}),
           },
+          confirmed: true,
         };
       } catch (error) {
         const cleanup = await this.#restoreAllowanceAfterFailedLidoOperation({
@@ -3328,7 +3384,19 @@ export class WdkEvmWalletService {
           );
         }
 
-        const result = await account.sendTransaction(finalPlan.operationTx);
+        const result = await this.#sendBufferedDefiTransaction({
+          account,
+          runtimeConfig,
+          from: address,
+          tx: finalPlan.operationTx,
+          operationLabel: `Lido ${request.operation}`,
+          operation: request.operation,
+        });
+        await this.#waitForTransactionReceipt(runtimeConfig, result.hash, {
+          operationLabel: "Lido withdrawal",
+          failureCode: "lido_withdrawal_reverted",
+          timeoutCode: "lido_withdrawal_confirmation_timeout",
+        });
         const resultFee = BigInt(result?.fee || finalPlan.operationFee || 0);
         const totalFee = approvalExecution.totalFee + resultFee;
         return {
@@ -3357,6 +3425,7 @@ export class WdkEvmWalletService {
               ? { resetAllowanceHash: approvalExecution.resetAllowanceHash }
               : {}),
           },
+          confirmed: true,
         };
       } catch (error) {
         const cleanup = await this.#restoreAllowanceAfterFailedLidoWithdrawal({
@@ -3589,12 +3658,23 @@ export class WdkEvmWalletService {
             })
           : finalPlan.simulation;
         this.#assertSimulationSucceeded(effectiveSimulation);
-        const { hash } = await account.sendTransaction(finalPlan.swapTx);
-        const totalFee = approvalExecution.totalFee + finalPlan.swapFee;
+        const swapResult = await this.#sendBufferedDefiTransaction({
+          account,
+          runtimeConfig,
+          from: address,
+          tx: finalPlan.swapTx,
+          operationLabel: "Velora swap",
+        });
+        await this.#waitForTransactionReceipt(runtimeConfig, swapResult.hash, {
+          operationLabel: "Velora swap",
+          failureCode: "swap_reverted",
+          timeoutCode: "swap_confirmation_timeout",
+        });
+        const totalFee = approvalExecution.totalFee + BigInt(swapResult.fee);
         const result = {
-          hash,
+          ...swapResult,
           fee: totalFee.toString(),
-          swapFee: finalPlan.swapFee.toString(),
+          swapFee: swapResult.fee,
           approvalFee: approvalExecution.totalFee.toString(),
           tokenInAmount: finalPlan.tokenInAmount.toString(),
           tokenOutAmount: finalPlan.tokenOutAmount.toString(),
@@ -3635,6 +3715,7 @@ export class WdkEvmWalletService {
           simulation: effectiveSimulation,
           swapTransaction: finalPlan.swapTransaction,
           result,
+          confirmed: true,
           source: "wdk-protocol-swap-velora-evm",
         };
       } catch (error) {
@@ -3745,12 +3826,23 @@ export class WdkEvmWalletService {
           : finalPlan.simulation;
         this.#assertSimulationSucceeded(effectiveSimulation);
 
-        const { hash } = await account.sendTransaction(finalPlan.swapTx);
-        const totalFee = approvalExecution.totalFee + finalPlan.swapFee;
+        const swapResult = await this.#sendBufferedDefiTransaction({
+          account,
+          runtimeConfig,
+          from: sourceAddress,
+          tx: finalPlan.swapTx,
+          operationLabel: "LI.FI swap",
+        });
+        await this.#waitForTransactionReceipt(runtimeConfig, swapResult.hash, {
+          operationLabel: "LI.FI swap",
+          failureCode: "swap_reverted",
+          timeoutCode: "swap_confirmation_timeout",
+        });
+        const totalFee = approvalExecution.totalFee + BigInt(swapResult.fee);
         const result = {
-          hash,
+          ...swapResult,
           fee: totalFee.toString(),
-          swapFee: finalPlan.swapFee.toString(),
+          swapFee: swapResult.fee,
           approvalFee: approvalExecution.totalFee.toString(),
           tokenInAmount: finalPlan.tokenInAmount.toString(),
           tokenOutAmount: finalPlan.tokenOutAmount.toString(),
@@ -3777,6 +3869,7 @@ export class WdkEvmWalletService {
             },
           }),
           result,
+          confirmed: true,
         };
       } catch (error) {
         const cleanup = await this.#restoreAllowanceAfterFailedSwap({
@@ -3972,14 +4065,25 @@ export class WdkEvmWalletService {
           });
           this.#assertSimulationSucceeded(simulation);
 
-          const { hash } = await account.sendTransaction(swapTx);
+          const swapResult = await this.#sendBufferedDefiTransaction({
+            account,
+            runtimeConfig,
+            from: address,
+            tx: swapTx,
+            operationLabel: "Uniswap swap",
+          });
+          await this.#waitForTransactionReceipt(runtimeConfig, swapResult.hash, {
+            operationLabel: "Uniswap swap",
+            failureCode: "swap_reverted",
+            timeoutCode: "swap_confirmation_timeout",
+          });
           swapTransaction = {
             to: swapTx.to,
             value: swapTx.value.toString(),
             dataHash: sha256Hex(swapTx.data),
           };
           result = {
-            hash,
+            ...swapResult,
             approvalFee: approvalExecution.totalFee.toString(),
             tokenInAmount: finalPlan.tokenInAmount.toString(),
             tokenOutAmount: finalPlan.tokenOutAmount.toString(),
@@ -4006,6 +4110,7 @@ export class WdkEvmWalletService {
           simulation,
           swapTransaction,
           result,
+          confirmed: Boolean(result.hash),
         };
       } catch (error) {
         const cleanup = await this.#restoreAllowanceAfterFailedSwap({
@@ -4541,6 +4646,150 @@ export class WdkEvmWalletService {
     return options;
   }
 
+  async #sendMorphoProtocolOperation({ account, runtimeConfig, protocol, request }) {
+    const methods = this.#getMorphoOperationMethods(request);
+    const originalSendTransaction = account.sendTransaction;
+    if (typeof originalSendTransaction !== "function") {
+      throw new Error("Morpho operation requires an EVM account with sendTransaction().");
+    }
+    const hadOwnSendTransaction = Object.prototype.hasOwnProperty.call(account, "sendTransaction");
+
+    // The protocol constructs the final calldata immediately before sending it.
+    // Intercept that one protocol-scoped send so the estimate and padded limit
+    // are based on the exact transaction, rather than a stale preview.
+    account.sendTransaction = async (tx) => {
+      const gas = await this.#prepareMorphoGasLimit({
+        runtimeConfig,
+        from: await account.getAddress(),
+        tx,
+        operation: request.operation,
+      });
+      const result = await originalSendTransaction.call(account, {
+        ...tx,
+        gasLimit: gas.gasLimit,
+      });
+      return {
+        ...result,
+        fee: gas.maximumFee,
+        gasEstimate: gas.gasEstimate.toString(),
+        gasLimit: gas.gasLimit.toString(),
+        gasBufferBps: MORPHO_GAS_BUFFER_BPS.toString(),
+      };
+    };
+
+    try {
+      return await protocol[methods.sendMethod](this.#buildMorphoOperationOptions(request));
+    } finally {
+      if (hadOwnSendTransaction) {
+        account.sendTransaction = originalSendTransaction;
+      } else {
+        delete account.sendTransaction;
+      }
+    }
+  }
+
+  async #prepareMorphoGasLimit({ runtimeConfig, from, tx, operation }) {
+    return this.#prepareBufferedDefiGasLimit({
+      runtimeConfig,
+      from,
+      tx,
+      operationLabel: `morpho ${operation}`,
+      unavailableCode: "morpho_gas_estimate_unavailable",
+      unavailableMessage: "Morpho gas estimate was empty. Generate a new quote before sending.",
+    });
+  }
+
+  async #prepareBufferedDefiGasLimit({
+    runtimeConfig,
+    from,
+    tx,
+    operationLabel,
+    unavailableCode = "defi_gas_estimate_unavailable",
+    unavailableMessage = "DeFi gas estimate was empty. Generate a new quote before sending.",
+  }) {
+    const gasEstimateHex = await rpcRequest(runtimeConfig.providerUrl, "eth_estimateGas", [
+      {
+        from: normalizeAddress(from, "from"),
+        to: normalizeAddress(String(tx.to || ""), "to"),
+        data: assertNonEmptyString(String(tx.data || ""), "data"),
+        value: toRpcHex(tx.value || 0),
+      },
+    ]);
+    const gasEstimate = BigInt(gasEstimateHex || "0x0");
+    if (gasEstimate <= 0n) {
+      throw createTaggedError(unavailableMessage, unavailableCode, { operation: operationLabel });
+    }
+    const gasLimit = applyGasBuffer(gasEstimate, DEFI_GAS_BUFFER_BPS);
+    const effectiveFeePerGas = await this.#getEffectiveGasPrice(runtimeConfig);
+    const maximumFee = gasLimit * effectiveFeePerGas;
+    this.#assertMaxFee(runtimeConfig, maximumFee, operationLabel);
+    return { gasEstimate, gasLimit, maximumFee };
+  }
+
+  async #sendBufferedDefiTransaction({ account, runtimeConfig, from, tx, operationLabel }) {
+    return this.#sendBufferedDefiTransactionWithSender({
+      sendTransaction: (preparedTx) => account.sendTransaction(preparedTx),
+      runtimeConfig,
+      from,
+      tx,
+      operationLabel,
+    });
+  }
+
+  async #sendBufferedDefiTransactionWithSender({
+    sendTransaction,
+    runtimeConfig,
+    from,
+    tx,
+    operationLabel,
+  }) {
+    const gas = await this.#prepareBufferedDefiGasLimit({
+      runtimeConfig,
+      from,
+      tx,
+      operationLabel,
+    });
+    const result = await sendTransaction({ ...tx, gasLimit: gas.gasLimit });
+    return {
+      ...result,
+      fee: gas.maximumFee.toString(),
+      gasEstimate: gas.gasEstimate.toString(),
+      gasLimit: gas.gasLimit.toString(),
+      gasBufferBps: DEFI_GAS_BUFFER_BPS.toString(),
+    };
+  }
+
+  async #sendBufferedDefiProtocolOperation({
+    account,
+    runtimeConfig,
+    operationLabel,
+    operation,
+    invoke,
+  }) {
+    const originalSendTransaction = account.sendTransaction;
+    if (typeof originalSendTransaction !== "function") {
+      throw new Error(`${operationLabel} requires an EVM account with sendTransaction().`);
+    }
+    const hadOwnSendTransaction = Object.prototype.hasOwnProperty.call(account, "sendTransaction");
+    account.sendTransaction = async (tx) =>
+      this.#sendBufferedDefiTransactionWithSender({
+        sendTransaction: (preparedTx) => originalSendTransaction.call(account, preparedTx),
+        runtimeConfig,
+        from: await account.getAddress(),
+        tx,
+        operationLabel: `${operationLabel} ${operation}`,
+      });
+    try {
+      return await invoke();
+    } finally {
+      if (hadOwnSendTransaction) {
+        account.sendTransaction = originalSendTransaction;
+      } else {
+        delete account.sendTransaction;
+      }
+    }
+  }
+
   async #buildMorphoOperationPlan({
     account,
     runtimeConfig,
@@ -4741,7 +4990,7 @@ export class WdkEvmWalletService {
     try {
       const quote = await protocol[methods.quoteMethod](operationOptions);
       return {
-        fee: BigInt(quote?.fee || 0),
+        fee: applyGasBuffer(BigInt(quote?.fee || 0), MORPHO_GAS_BUFFER_BPS),
         error: null,
       };
     } catch (error) {
@@ -4838,11 +5087,23 @@ export class WdkEvmWalletService {
     for (let index = 0; index < plan.requirements.transactions.length; index += 1) {
       const requirementTx = plan.requirements.transactions[index];
       const step = plan.requirements.steps[index];
-      const result = await account.sendTransaction({
+      const tx = {
         to: requirementTx.to,
         value: requirementTx.value ?? 0n,
         data: requirementTx.data,
-      });
+      };
+      // ERC-20 approval writes intentionally retain the narrow WDK path. A
+      // Morpho authorization is a protocol write, so give it the same buffer
+      // as the potentially stateful final operation.
+      const result = step?.type === "authorization"
+        ? await this.#sendBufferedDefiTransaction({
+            account,
+            runtimeConfig,
+            from: await account.getAddress(),
+            tx,
+            operationLabel: "Morpho authorization",
+          })
+        : await account.sendTransaction(tx);
       const fee = BigInt(result?.fee || 0);
       totalFee += fee;
       transactions.push({
@@ -4918,13 +5179,19 @@ export class WdkEvmWalletService {
       }
 
       for (const context of requirementExecution.authorizationContexts || []) {
-        const result = await account.sendTransaction({
+        const result = await this.#sendBufferedDefiTransaction({
+          account,
+          runtimeConfig,
+          from: await account.getAddress(),
+          operationLabel: "Morpho authorization cleanup",
+          tx: {
           to: context.contractAddress,
           value: 0n,
           data: MORPHO_AUTHORIZATION_INTERFACE.encodeFunctionData("setAuthorization", [
             context.authorized,
             false,
           ]),
+          },
         });
         cleanup.authorizations.push({
           contractAddress: context.contractAddress,
@@ -8035,13 +8302,21 @@ export class WdkEvmWalletService {
     }
   }
 
-  async #waitForTransactionReceipt(runtimeConfig, txHash) {
+  async #waitForTransactionReceipt(
+    runtimeConfig,
+    txHash,
+    {
+      operationLabel = "Approval transaction",
+      failureCode = "swap_approval_failed",
+      timeoutCode = "swap_approval_timeout",
+    } = {}
+  ) {
     for (let attempt = 0; attempt < 30; attempt += 1) {
       const receipt = await rpcRequest(runtimeConfig.providerUrl, "eth_getTransactionReceipt", [txHash]);
       if (receipt) {
         const status = String(receipt.status || "").toLowerCase();
         if (status === "0x0") {
-          throw createTaggedError("Approval transaction reverted onchain.", "swap_approval_failed", {
+          throw createTaggedError(`${operationLabel} reverted onchain.`, failureCode, {
             txHash,
             network: runtimeConfig.network,
           });
@@ -8051,8 +8326,8 @@ export class WdkEvmWalletService {
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
     throw createTaggedError(
-      "Timed out waiting for approval transaction confirmation.",
-      "swap_approval_timeout",
+      `Timed out waiting for ${operationLabel.toLowerCase()} confirmation.`,
+      timeoutCode,
       {
         txHash,
         network: runtimeConfig.network,
@@ -8062,6 +8337,8 @@ export class WdkEvmWalletService {
 }
 
 export const __testables = {
+  applyGasBuffer,
+  MORPHO_GAS_BUFFER_BPS,
   PERMIT2_ADDRESS,
   UNISWAP_SUPPORTED_CHAIN_IDS,
   UNISWAP_EXECUTION_PROFILES,

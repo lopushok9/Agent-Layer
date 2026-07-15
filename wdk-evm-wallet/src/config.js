@@ -57,6 +57,12 @@ const DEFAULT_NETWORK_PROFILES = {
   },
 };
 
+// Robinhood Chain uses the Universal Router 2.1.1 deployment. Keep this
+// network-specific default separate from the legacy global 2.0 setting so
+// Ethereum and Base retain their existing routers while Robinhood can quote
+// and execute without a local environment override.
+const DEFAULT_UNISWAP_ROUTER_VERSIONS_BY_NETWORK = { robinhood: "2.1.1" };
+
 const SUPPORTED_GATEWAY_PROVIDERS = new Set(["auto", "shared", "alchemy"]);
 
 function parseProviderMode(value, fallback = "public") {
@@ -192,7 +198,7 @@ function normalizeNetworkKey(value) {
 function parseUniswapRouterVersionsByNetwork(value) {
   const raw = String(value ?? "").trim();
   if (!raw) {
-    return {};
+    return { ...DEFAULT_UNISWAP_ROUTER_VERSIONS_BY_NETWORK };
   }
   let parsed;
   try {
@@ -215,7 +221,7 @@ function parseUniswapRouterVersionsByNetwork(value) {
     }
     normalized[networkKey] = normalizedVersion;
   }
-  return normalized;
+  return { ...DEFAULT_UNISWAP_ROUTER_VERSIONS_BY_NETWORK, ...normalized };
 }
 
 function joinUrl(base, pathname) {

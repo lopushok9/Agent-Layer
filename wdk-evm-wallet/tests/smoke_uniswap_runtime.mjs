@@ -13,7 +13,7 @@ const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 // Universal Router v2.0 on base (must match UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK).
 const BASE_ROUTER = "0x6ff5693b99212da76ad316178a184ab56d299b43";
 const BASE_USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
-// Universal Router v2.0 on robinhood (must match UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK).
+// Universal Router v2.1.1 on Robinhood Chain.
 const ROBINHOOD_ROUTER = "0x8876789976decbfcbbbe364623c63652db8c0904";
 const ROBINHOOD_SWAP_ROUTER02 = "0xcaf681a66d020601342297493863e78c959e5cb2";
 const ROBINHOOD_WETH = "0x0bd7d308f8e1639fab988df18a8011f41eacad73";
@@ -101,7 +101,12 @@ function createHarness(options = {}) {
       return `0x${"b".repeat(130)}`;
     },
     async sendTransaction(tx) {
-      state.sendCalls.push({ to: String(tx.to), value: String(tx.value), data: String(tx.data || "") });
+      state.sendCalls.push({
+        to: String(tx.to),
+        value: String(tx.value),
+        data: String(tx.data || ""),
+        gasLimit: BigInt(tx.gasLimit || 0).toString(),
+      });
       return { hash: `0x${"d".repeat(64)}`, fee: "3" };
     },
   };
@@ -193,6 +198,10 @@ function createHarness(options = {}) {
       }
       return ok("0x"); // simulation eth_call
     }
+    if (body.method === "eth_estimateGas") return ok("0x64");
+    if (body.method === "eth_gasPrice" || body.method === "eth_maxPriorityFeePerGas") return ok("0x1");
+    if (body.method === "eth_feeHistory") return ok({ baseFeePerGas: ["0x1"] });
+    if (body.method === "eth_getTransactionReceipt") return ok({ status: "0x1" });
     throw new Error(`unexpected rpc method: ${body.method}`);
   };
 
@@ -204,6 +213,7 @@ function createHarness(options = {}) {
     uniswapViaGateway: Boolean(options.viaGateway),
     providerGatewayToken: options.gatewayToken,
     uniswapRouterVersion: "2.0",
+    uniswapRouterVersionsByNetwork: network === "robinhood" ? { robinhood: "2.1.1" } : {},
     uniswapDefaultSlippageBps: 50,
     networkProfiles: {
       [network]: { chainId, providerUrl, nativeSymbol: "ETH" },
@@ -602,7 +612,7 @@ test("quote: native ETH -> ERC-20 on robinhood uses chain id 4663 and CLASSIC ro
     const body = h.state.quoteBodies.at(-1);
     assert.equal(body.tokenInChainId, 4663);
     assert.equal(body.tokenOutChainId, 4663);
-    assert.deepEqual(body.protocols, ["V3", "UNISWAPX_V3"]);
+    assert.deepEqual(body.protocols, ["V2", "V3", "V4", "UNISWAPX_V3"]);
   } finally {
     h.restore();
   }
@@ -632,8 +642,35 @@ test("quote: robinhood falls back to a locally quoted V3 direct route when Tradi
     assert.equal(result.minimumOutputAmountRaw, "122839");
     assert.equal(result.allowance.approvalRequired, false);
     assert.equal(h.state.quoteBodies.length, 2);
-    assert.deepEqual(h.state.quoteBodies[0].protocols, ["V3", "UNISWAPX_V3"]);
-    assert.deepEqual(h.state.quoteBodies[1].protocols, ["V3"]);
+    assert.deepEqual(h.state.quoteBodies[0].protocols, ["V2", "V3", "V4", "UNISWAPX_V3"]);
+    assert.deepEqual(h.state.quoteBodies[1].protocols, ["V2", "V3", "V4"]);
+  } finally {
+    h.restore();
+  }
+});
+
+test("send: robinhood V3 direct fallback uses a padded final gas limit", async () => {
+  const h = createHarness({
+    network: "robinhood",
+    chainId: 4663,
+    router: ROBINHOOD_ROUTER,
+    erc20Token: ROBINHOOD_TOKEN,
+    noQuoteAvailable: true,
+    directV3Quote: 123456,
+  });
+  try {
+    const result = await h.service.sendUniswapSwap({
+      seedPhrase: VALID_MNEMONIC,
+      tokenIn: "native",
+      tokenOut: ROBINHOOD_TOKEN,
+      tokenInAmount: "100000000000000",
+      network: "robinhood",
+    });
+    assert.equal(result.executionKind, "v3-direct");
+    assert.equal(result.confirmed, true);
+    assert.equal(h.state.sendCalls.length, 1);
+    assert.equal(h.state.sendCalls[0].to.toLowerCase(), ROBINHOOD_SWAP_ROUTER02);
+    assert.equal(h.state.sendCalls[0].gasLimit, "130");
   } finally {
     h.restore();
   }
@@ -658,6 +695,8 @@ test("send: native ETH -> ERC-20 on robinhood broadcasts to the robinhood Univer
     assert.equal(result.result.hash, `0x${"d".repeat(64)}`);
     assert.equal(h.state.sendCalls.length, 1);
     assert.equal(h.state.sendCalls[0].to.toLowerCase(), ROBINHOOD_ROUTER.toLowerCase());
+    assert.equal(h.state.sendCalls[0].gasLimit, "130");
+    assert.equal(result.confirmed, true);
   } finally {
     h.restore();
   }

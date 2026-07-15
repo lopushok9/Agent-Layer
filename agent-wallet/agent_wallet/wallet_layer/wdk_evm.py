@@ -1240,7 +1240,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
                 sign_only=self.sign_only,
             ),
             "broadcasted": True,
-            "confirmed": False,
+            "confirmed": bool(data.get("confirmed")),
         }
 
     async def preview_evm_lido_operation(
@@ -1308,7 +1308,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
                 sign_only=self.sign_only,
             ),
             "broadcasted": True,
-            "confirmed": False,
+            "confirmed": bool(data.get("confirmed")),
         }
 
     async def preview_evm_lido_withdrawal(
@@ -1385,7 +1385,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
                 sign_only=self.sign_only,
             ),
             "broadcasted": True,
-            "confirmed": False,
+            "confirmed": bool(data.get("confirmed")),
         }
 
     async def preview_evm_morpho_vault_operation(
@@ -1480,7 +1480,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
                 sign_only=self.sign_only,
             ),
             "broadcasted": True,
-            "confirmed": False,
+            "confirmed": bool(data.get("confirmed")),
         }
 
     async def preview_evm_morpho_market_operation(
@@ -1575,7 +1575,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
                 sign_only=self.sign_only,
             ),
             "broadcasted": True,
-            "confirmed": False,
+            "confirmed": bool(data.get("confirmed")),
         }
 
     async def get_evm_swap_quote(
@@ -1816,7 +1816,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "result": result,
             "chain_id": int(data.get("chainId") or 0),
             "broadcasted": True,
-            "confirmed": False,
+            "confirmed": bool(data.get("confirmed")),
             "source": "wdk-evm-wallet",
         }
 
@@ -1987,7 +1987,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "chain_id": int(data.get("chainId") or 0),
             "broadcasted": bool(result.get("hash")),
             "order_submitted": order_id is not None,
-            "confirmed": False,
+            "confirmed": bool(data.get("confirmed")),
             "source": str(data.get("source") or "wdk-evm-wallet"),
         }
 
@@ -2102,7 +2102,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "reset_allowance_hash": result.get("resetAllowanceHash"),
             "result": result,
             "broadcasted": True,
-            "confirmed": False,
+            "confirmed": bool(data.get("confirmed")),
         }
 
     async def preview_evm_native_transfer(

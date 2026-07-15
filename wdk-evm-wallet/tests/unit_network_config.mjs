@@ -20,6 +20,7 @@ test("robinhood mainnet profile has the expected defaults", () => {
       providerUrl:
         "https://agent-layer-production.up.railway.app/v1/evm/rpc/robinhood?provider=alchemy",
     });
+    assert.deepEqual(config.uniswapRouterVersionsByNetwork, { robinhood: "2.1.1" });
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }
