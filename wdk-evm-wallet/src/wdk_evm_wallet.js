@@ -41,12 +41,17 @@ const UNISWAP_EXECUTION_PROFILES = {
   },
   robinhood: {
     chainId: 4663,
-    universalRouters: { "2.0": "0x8876789976decbfcbbbe364623c63652db8c0904" },
+    // Robinhood Chain has no Universal Router 2.0 deployment - Uniswap
+    // defaults it (like Ink) to 2.1.1, and requesting "2.0" makes the Trading
+    // API return a blanket "No quotes available" for every pair on this
+    // chain. See https://blog.uniswap.org/robinhood-chain-is-live. Same
+    // contract address as before; only the version label changes.
+    universalRouters: { "2.1.1": "0x8876789976decbfcbbbe364623c63652db8c0904" },
     wrappedNative: "0x0bd7d308f8e1639fab988df18a8011f41eacad73",
-    // Robinhood's official deployment exposes the V3 stack. Asking the Trading
-    // API for undeployed V2/V4 routes can make an otherwise valid V3-only pair
-    // appear unavailable, so keep the protocol set chain-specific.
-    ammProtocols: ["V3"],
+    // Full protocol stack like ethereum/base - the earlier V3-only filter
+    // wasn't the actual blocker (see router version note above) but there's
+    // no reason to hide V2/V4 routes from the Trading API either.
+    ammProtocols: ["V2", "V3", "V4"],
     v3DirectFallback: {
       quoterV2: "0x33e885ed0ec9bf04ecfb19341582aadcb4c8a9e7",
       swapRouter02: "0xcaf681a66d020601342297493863e78c959e5cb2",
