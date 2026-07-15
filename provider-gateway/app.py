@@ -811,6 +811,13 @@ def _uniswap_configured() -> bool:
 
 
 _UNISWAP_SUPPORTED_CHAIN_IDS = frozenset({"1", "8453", "4663"})
+# Robinhood Chain (4663) has no Universal Router 2.0 deployment - Uniswap
+# defaults it (like Ink) to 2.1.1, and requesting 2.0 makes the Trading API
+# 404 "No quotes available" for every pair on that chain regardless of
+# liquidity. See https://blog.uniswap.org/robinhood-chain-is-live. This is
+# the built-in fallback when UNISWAP_ROUTER_VERSION_BY_CHAIN doesn't set an
+# explicit override for the chain.
+_UNISWAP_ROUTER_VERSION_CHAIN_DEFAULTS = {"4663": "2.1.1"}
 
 
 def _uniswap_router_version_for_request(request: Request) -> str:
@@ -836,7 +843,8 @@ def _uniswap_router_version_for_request(request: Request) -> str:
             configured_by_chain[normalized_chain_id] = normalized_version
 
     fallback = _trim(os.getenv("UNISWAP_ROUTER_VERSION")) or "2.0"
-    effective = configured_by_chain.get(requested_chain_id, fallback)
+    chain_default = _UNISWAP_ROUTER_VERSION_CHAIN_DEFAULTS.get(requested_chain_id, fallback)
+    effective = configured_by_chain.get(requested_chain_id, chain_default)
     requested_version = _trim(request.headers.get("x-agentlayer-uniswap-router-version"))
     if requested_version and requested_version != effective:
         raise ValueError("Requested Uniswap router version does not match gateway configuration")
