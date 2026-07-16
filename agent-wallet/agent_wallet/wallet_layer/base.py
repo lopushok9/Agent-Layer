@@ -325,6 +325,18 @@ class AgentWalletBackend(ABC):
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Uniswap swap previews.")
 
+    async def search_uniswap_pairs(
+        self,
+        *,
+        query: str | None = None,
+        token_address: str | None = None,
+        chain: str | None = None,
+        dex_id: str | None = None,
+        all_chains: bool = False,
+        limit: int = 10,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Uniswap pair search.")
+
     async def send_uniswap_swap(
         self,
         *,

@@ -7,7 +7,7 @@ from typing import Any
 
 from agent_wallet.config import normalize_evm_network
 from agent_wallet.providers.evm_portfolio import build_portfolio_snapshot
-from agent_wallet.providers import lifi
+from agent_wallet.providers import dexscreener, lifi
 from agent_wallet.providers.wdk_evm_local import WdkEvmLocalClient
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendError, WalletCapabilities
 
@@ -1918,6 +1918,43 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "swap_provider": payload["protocol"],
             "route_plan": None,
             "swap_transaction": swap_transaction,
+        }
+
+    async def search_uniswap_pairs(
+        self,
+        *,
+        query: str | None = None,
+        token_address: str | None = None,
+        chain: str | None = None,
+        dex_id: str | None = None,
+        all_chains: bool = False,
+        limit: int = 10,
+    ) -> dict[str, Any]:
+        query = query.strip() if isinstance(query, str) else None
+        token_address = token_address.strip() if isinstance(token_address, str) else None
+        if not query and not token_address:
+            raise WalletBackendError("Either query or token_address is required.")
+        resolved_chain = (chain or self.network).strip().lower()
+        if token_address:
+            pairs = await dexscreener.get_pairs_for_token(chain=resolved_chain, token_address=token_address)
+        else:
+            pairs = await dexscreener.search_pairs(query)
+            if not all_chains:
+                pairs = [p for p in pairs if str(p.get("chainId") or "").lower() == resolved_chain]
+        if dex_id:
+            wanted_dex = dex_id.strip().lower()
+            pairs = [p for p in pairs if str(p.get("dexId") or "").lower() == wanted_dex]
+        bounded_limit = max(1, min(int(limit or 10), 30))
+        normalized = [dexscreener.normalize_pair(pair) for pair in pairs[:bounded_limit]]
+        return {
+            "chain": None if all_chains else resolved_chain,
+            "all_chains": all_chains,
+            "query": query,
+            "token_address": token_address,
+            "dex_id": dex_id,
+            "count": len(normalized),
+            "pairs": normalized,
+            "source": "dexscreener",
         }
 
     async def send_uniswap_swap(
