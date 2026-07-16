@@ -61,6 +61,7 @@
       "manage_evm_morpho_vault_position",
       "manage_evm_lido_position",
       "manage_evm_lido_withdrawal",
+      "search_uniswap_pairs",
       "set_evm_network",
       "set_wallet_backend",
       "sign_wallet_message",

@@ -2211,6 +2211,57 @@ class OpenClawWalletAdapter:
                         risk_level="low",
                     ),
                 )
+                tools.append(
+                    AgentToolSpec(
+                        name="search_uniswap_pairs",
+                        description=(
+                            "Search for onchain Uniswap-tradeable token pairs by ticker/name or by exact "
+                            "ERC-20 address, with live price, 5m/1h/6h/24h volume, liquidity, FDV, market "
+                            "cap, and buy/sell counts. Backed by DexScreener's public index (covers "
+                            "Uniswap v2/v3/v4 pools and other DEXes on the same chain), since the Uniswap "
+                            "Trading API itself only quotes a pair you already know the addresses for, not "
+                            "search-by-name. Defaults to the currently active EVM network (e.g. robinhood); "
+                            "set all_chains to search across every chain DexScreener indexes. Read-only "
+                            "market data, not a swap quote. Free-text search can surface impersonator "
+                            "tokens reusing a legitimate ticker with fabricated liquidity/FDV — before "
+                            "quoting or swapping, verify the token_address independently (e.g. via "
+                            "get_evm_token_metadata) rather than trusting the top result by symbol match."
+                        ),
+                        input_schema={
+                            "type": "object",
+                            "properties": {
+                                "query": {
+                                    "type": "string",
+                                    "description": "Free-text search, e.g. a ticker or name (\"AAPL\", \"Apple Robinhood\"). Required unless token_address is given.",
+                                },
+                                "token_address": {
+                                    "type": "string",
+                                    "description": "Exact ERC-20 contract address to look up instead of a free-text query.",
+                                },
+                                "chain": {
+                                    "type": "string",
+                                    "description": "DexScreener chain slug to filter to (e.g. \"robinhood\", \"ethereum\", \"base\"). Defaults to the active EVM network.",
+                                },
+                                "dex_id": {
+                                    "type": "string",
+                                    "description": "Optional exact DEX filter, e.g. \"uniswap\".",
+                                },
+                                "all_chains": {
+                                    "type": "boolean",
+                                    "description": "If true, do not filter query results to a single chain. Ignored when token_address is set.",
+                                },
+                                "limit": {
+                                    "type": "integer",
+                                    "description": "Max number of pairs to return (1-30). Defaults to 10.",
+                                },
+                            },
+                            "required": [],
+                            "additionalProperties": False,
+                        },
+                        read_only=True,
+                        risk_level="low",
+                    ),
+                )
                 tools.insert(
                     12,
                     AgentToolSpec(
@@ -5457,6 +5508,37 @@ class OpenClawWalletAdapter:
                     token_out=token_out.strip(),
                     amount_in_raw=amount_in_raw.strip(),
                     slippage_bps=slippage_bps,
+                )
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "search_uniswap_pairs":
+                query = args.get("query")
+                token_address = args.get("token_address")
+                chain = args.get("chain")
+                dex_id = args.get("dex_id")
+                all_chains = bool(args.get("all_chains", False))
+                limit = args.get("limit", 10)
+                if query is not None and not isinstance(query, str):
+                    raise WalletBackendError("query must be a string.")
+                if token_address is not None and not isinstance(token_address, str):
+                    raise WalletBackendError("token_address must be a string.")
+                if not (isinstance(query, str) and query.strip()) and not (
+                    isinstance(token_address, str) and token_address.strip()
+                ):
+                    raise WalletBackendError("Either query or token_address is required.")
+                if chain is not None and not isinstance(chain, str):
+                    raise WalletBackendError("chain must be a string.")
+                if dex_id is not None and not isinstance(dex_id, str):
+                    raise WalletBackendError("dex_id must be a string.")
+                if not isinstance(limit, int) or limit < 1 or limit > 30:
+                    raise WalletBackendError("limit must be an integer between 1 and 30.")
+                data = await active_backend.search_uniswap_pairs(
+                    query=query,
+                    token_address=token_address,
+                    chain=chain,
+                    dex_id=dex_id,
+                    all_chains=all_chains,
+                    limit=limit,
                 )
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
 
