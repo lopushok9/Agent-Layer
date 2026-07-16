@@ -2225,7 +2225,17 @@ class OpenClawWalletAdapter:
                             "market data, not a swap quote. Free-text search can surface impersonator "
                             "tokens reusing a legitimate ticker with fabricated liquidity/FDV — before "
                             "quoting or swapping, verify the token_address independently (e.g. via "
-                            "get_evm_token_metadata) rather than trusting the top result by symbol match."
+                            "get_evm_token_metadata) rather than trusting the top result by symbol match. "
+                            "Do not use liquidity/FDV size to pick a winner: observed impersonators on "
+                            "robinhood fabricate liquidity/FDV an order of magnitude above the genuine "
+                            "pool specifically to look most trustworthy, and a Uniswap quote succeeding "
+                            "for a token proves nothing either (Trading API routes any pool with reserves, "
+                            "impersonators included). This only matters for tickers claiming to represent "
+                            "a real-world asset (stocks/ETFs) - unrelated meme/community tokens on the "
+                            "same chain aren't impersonators just for lacking a canonical issuer. When the "
+                            "query is a real-world-asset ticker, cross-check the returned token_address "
+                            "against Robinhood's own canonical list at docs.robinhood.com/chain/contracts "
+                            "(or the equivalent official source for other chains) before relying on the result."
                         ),
                         input_schema={
                             "type": "object",
