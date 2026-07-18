@@ -552,3 +552,15 @@ If you are an individual developer, researcher, student, security reviewer, or h
 - open issues and send pull requests
 
 If you are using the project for a company, the license allows use for small businesses covered by the PolyForm thresholds. If you need rights beyond that, reach out for a separate commercial license.
+
+---
+
+## x402 Ecosystem
+
+The Agent Layer wallet settles payments via x402. Other services on the same payment spine:
+
+- **[GenTech Labs](https://gentechlabs.net)** — 15 x402-protected API endpoints for market data, DeFi intelligence, wallet analytics, and token security. Settle in USDC on Base. [`api.gentechlabs.net`](https://api.gentechlabs.net) · [`gentech-kit`](https://github.com/ProtoJay4789/genTech-agent-kit)
+
+The wallet's x402 client can call any x402-gated endpoint — set `allowedRecipients` to pin the treasury and spend caps to bound per-call cost.
+
+To list your project here, open a PR.
