@@ -54,7 +54,9 @@ no-op once the backend is healthy.
 - `/wallet-sol` — print the current Solana wallet overview directly in chat.
 - `/wallet-evm` — print the wallet overview for the current/default EVM network
   directly in chat.
-- `/wallet-base` — print the Base EVM wallet overview directly in chat.
+- `/wallet-base` — print the Base EVM wallet overview directly in chat and
+  switch the session's active wallet backend to Base so follow-up wallet
+  requests default to it.
 - `/wallet-ethereum` — print the Ethereum EVM wallet overview directly in chat.
 - `/agentlayer-autonomous-approve` — enable high-trust autonomous Base swaps
   (`swap_evm_tokens` / `swap_evm_uniswap_tokens` on Base only) without
