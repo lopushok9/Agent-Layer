@@ -22,7 +22,8 @@ Primary design rules:
 - EVM network selection with `set_evm_network`
 - auto-managed approval binding for `preview -> execute` write flows
 - bundled Codex skills, including `wallet-sol` for showing the Solana wallet
-  portfolio directly in chat
+  portfolio directly in chat and `wallet-base` for showing the Base EVM
+  wallet portfolio and switching the session's active backend to Base
 
 ## Runtime requirements
 
@@ -30,12 +31,16 @@ Primary design rules:
 - keep the local wallet files and `~/.openclaw/sealed_keys.json` in place
 - use `wallet codex install --yes` to install this plugin into Codex
 
-## Bundled skill
+## Bundled skills
 
-After `wallet codex install --yes` and a Codex restart, the plugin ships a
-bundled `wallet-sol` skill. In Codex you can invoke it from the slash menu or
-explicitly as `$wallet-sol` to render the connected Solana wallet portfolio as a
-compact chat table.
+After `wallet codex install --yes` and a Codex restart, the plugin ships
+bundled skills:
+
+- `wallet-sol` — invoke from the slash menu or explicitly as `$wallet-sol`
+  to render the connected Solana wallet portfolio as a compact chat table.
+- `wallet-base` — invoke from the slash menu or explicitly as `$wallet-base`
+  to render the connected Base EVM wallet portfolio as a compact chat table
+  and switch the session's active wallet backend to Base.
 
 ## Path resolution
 
