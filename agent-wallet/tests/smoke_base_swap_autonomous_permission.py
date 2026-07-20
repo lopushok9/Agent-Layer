@@ -201,16 +201,21 @@ async def main() -> None:
     assert uniswap.data["hash"].startswith("0x")
     assert backend.uniswap_sends == 1
 
+    # agentlayer_autonomous_approve now covers every write tool that funnels
+    # through _require_execute_approval (the shared choke point), not just
+    # the Base-swap/EVM-DeFi tools that have their own dedicated
+    # pre-authorization step ahead of it.
     transfer = await adapter.invoke(
         "transfer_evm_native",
         {
             "recipient": "0x9999999999999999999999999999999999999999",
             "amount_wei": "1000000000000000",
             "mode": "execute",
-            "purpose": "must still require approval",
+            "purpose": "covered by the combined autonomous permission group",
         },
     )
-    assert transfer.ok is False
+    assert transfer.ok is True
+    assert transfer.data["recipient"] == "0x9999999999999999999999999999999999999999"
 
     ethereum_adapter = OpenClawWalletAdapter(FakeBaseSwapBackend("ethereum"))
     wrong_network = await ethereum_adapter.invoke("swap_evm_tokens", _velora_args())
@@ -224,6 +229,17 @@ async def main() -> None:
     assert revoked.data["scopes"]["defi_tools"]["enabled"] is False
     after_revoke = await adapter.invoke("swap_evm_tokens", _velora_args())
     assert after_revoke.ok is False
+
+    transfer_after_revoke = await adapter.invoke(
+        "transfer_evm_native",
+        {
+            "recipient": "0x9999999999999999999999999999999999999999",
+            "amount_wei": "1000000000000000",
+            "mode": "execute",
+            "purpose": "must require approval again after revoke",
+        },
+    )
+    assert transfer_after_revoke.ok is False
 
     print("smoke_base_swap_autonomous_permission: ok")
 

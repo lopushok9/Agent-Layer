@@ -156,12 +156,18 @@ Current scope:
 - `base_swaps` and `defi_tools` are compatibility scope labels for one
   combined autonomous permission group; approving either enables both, and
   revoking either disables both
-- the combined group covers `swap_evm_tokens` (Velora) and
-  `swap_evm_uniswap_tokens` only when the active EVM network is `base`
-- the combined group also covers supported EVM DeFi management tools on `base`
-  and `ethereum`: Aave, Morpho vault/market, and Lido staking/withdrawal tools
-- it does not apply to transfers, bridges, Solana swaps, or generic contract
-  calls
+- `swap_evm_tokens` (Velora) and `swap_evm_uniswap_tokens` (Base only) and the
+  supported EVM DeFi management tools (Aave, Morpho vault/market, Lido
+  staking/withdrawal on `base`/`ethereum`/`robinhood`) have their own
+  dedicated pre-authorization step (`_authorize_base_swap_permission` /
+  `_authorize_defi_permission`) that fetches a fresh preview/quote before
+  minting the approval token, ahead of reaching `_require_execute_approval`
+- every other write tool that funnels through the shared choke point,
+  `_require_execute_approval` (transfers, bridges, Solana swaps, staking,
+  x402 payments, generic contract calls, and the tools above once they reach
+  it) is covered by the same combined group as a fallback, alongside the
+  `autonomous_session` fallback -- enabling the group therefore covers every
+  wallet write tool, not just Base swaps and EVM DeFi
 
 When enabled, a covered execute call with no `approval_token` fetches a fresh
 preview/quote, builds the exact confirmation summary, issues the same signed
@@ -169,7 +175,9 @@ approval token internally (`issued_by="autonomous-permission:*"`), then runs
 the existing verification and send path. This preserves exact operation binding
 while removing the host confirmation step for the combined permission group.
 
-This mode is high-trust by design. It is appropriate only when the user wants
-the agent to have the same practical authority as the covered wallet surfaces
-already expose, while still excluding direct fund transfers and generic
-contract calls.
+This mode is high-trust by design, and unbounded by design: there is no
+dollar cap, allow-list, or TTL anywhere in this path. It is appropriate only
+when the user wants the agent to have full practical authority over every
+wallet write tool until explicitly revoked. Users who want a bounded grant
+(spend caps, tool/network/recipient allow-lists, a session TTL) should use
+`start_autonomous_session` instead.

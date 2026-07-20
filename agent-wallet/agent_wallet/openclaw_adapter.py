@@ -281,6 +281,10 @@ class OpenClawWalletAdapter:
                         "json_body": {},
                         "text_body": {"type": "string"},
                         "purpose": {"type": "string"},
+                        "approval_token": {
+                            "type": "string",
+                            "description": "Host-issued approval token required for execute mode when the payment is mainnet/real-value and no autonomous session or permission grant covers it.",
+                        },
                     },
                     "required": ["url", "purpose"],
                     "additionalProperties": False,
@@ -493,10 +497,25 @@ class OpenClawWalletAdapter:
                     )
                 )
             else:
-                raise WalletBackendError(
-                    f"{action_label} execution requires a host-issued approval_token "
-                    "(or an active autonomous session authorized by the host)."
-                )
+                # No budgeted session either: fall back to the standing
+                # high-trust permission toggle (agentlayer_autonomous_approve).
+                # This is the single choke point every execute tool funnels
+                # through, so enabling that toggle covers every tool here --
+                # not just the Base-swap/EVM-DeFi tools that also have their
+                # own dedicated pre-authorization step before reaching here.
+                from agent_wallet import autonomous_permissions
+
+                if autonomous_permissions.is_autonomous_approved():
+                    approval_token = autonomous_permissions.authorize_operation(
+                        tool_name=tool_name,
+                        network=network,
+                        summary=summary,
+                    )
+                else:
+                    raise WalletBackendError(
+                        f"{action_label} execution requires a host-issued approval_token "
+                        "(or an active autonomous session/permission grant authorized by the host)."
+                    )
         verify_approval_token(
             approval_token.strip(),
             tool_name=tool_name,
@@ -1147,12 +1166,10 @@ class OpenClawWalletAdapter:
             annotated["payment_summary"] = summary
         requirements = dict(annotated.get("confirmation_requirements") or {})
         requirements["prepare_requires_user_intent"] = False
-        requirements["execute_requires_approval_token"] = False
-        requirements["execute_requires_mainnet_confirmed_in_token"] = False
         annotated.pop("approval_hint", None)
         if mode == "preview":
             annotated.pop("confirmation_summary", None)
-            annotated.pop("confirmation_requirements", None)
+            annotated["confirmation_requirements"] = requirements
             if annotated.get("is_mainnet"):
                 annotated["preview_note"] = (
                     "This is a paid mainnet endpoint preview only. Review the service URL, network, asset, amount, and payment destination before calling x402_pay_request."
@@ -3867,7 +3884,9 @@ class OpenClawWalletAdapter:
                 name="agentlayer_autonomous_status",
                 description=(
                     "Return AgentLayer high-trust autonomous permission status. "
-                    "The autonomous permission group contains base_swaps and defi_tools."
+                    "The autonomous permission group covers every wallet write tool (transfers, "
+                    "bridges, Solana swaps, staking, x402 payments, generic contract calls, Base "
+                    "swaps, and EVM DeFi management), not just base_swaps/defi_tools."
                 ),
                 input_schema={
                     "type": "object",
@@ -3883,9 +3902,10 @@ class OpenClawWalletAdapter:
                 name="agentlayer_autonomous_approve",
                 description=(
                     "Enable the high-trust autonomous permission group. The scope parameter is kept "
-                    "for compatibility; choosing base_swaps or defi_tools enables both Base swaps and "
-                    "supported EVM DeFi management tools until revoked. This does not cover transfers, "
-                    "bridges, Solana swaps, or generic contract calls."
+                    "for compatibility; choosing base_swaps or defi_tools enables the full group, "
+                    "which covers every wallet write tool -- transfers, bridges, Solana swaps, "
+                    "staking, x402 payments, generic contract calls, Base swaps, and supported EVM "
+                    "DeFi management tools -- until revoked."
                 ),
                 input_schema={
                     "type": "object",
@@ -3949,7 +3969,9 @@ class OpenClawWalletAdapter:
                 name="agentlayer_autonomous_status",
                 description=(
                     "Return AgentLayer high-trust autonomous permission status. "
-                    "The autonomous permission group contains base_swaps and defi_tools."
+                    "The autonomous permission group covers every wallet write tool (transfers, "
+                    "bridges, Solana swaps, staking, x402 payments, generic contract calls, Base "
+                    "swaps, and EVM DeFi management), not just base_swaps/defi_tools."
                 ),
                 input_schema={
                     "type": "object",
@@ -3963,9 +3985,10 @@ class OpenClawWalletAdapter:
                 name="agentlayer_autonomous_approve",
                 description=(
                     "Enable the high-trust autonomous permission group. The scope parameter is kept "
-                    "for compatibility; choosing base_swaps or defi_tools enables both Base swaps and "
-                    "supported EVM DeFi management tools until revoked. This does not cover transfers, "
-                    "bridges, Solana swaps, or generic contract calls."
+                    "for compatibility; choosing base_swaps or defi_tools enables the full group, "
+                    "which covers every wallet write tool -- transfers, bridges, Solana swaps, "
+                    "staking, x402 payments, generic contract calls, Base swaps, and supported EVM "
+                    "DeFi management tools -- until revoked."
                 ),
                 input_schema={
                     "type": "object",
@@ -4206,7 +4229,14 @@ class OpenClawWalletAdapter:
                 approved_preview = args.get("_approved_preview")
                 if approved_preview is not None and not isinstance(approved_preview, dict):
                     raise WalletBackendError("_approved_preview must be an object when provided.")
-                data = await x402.pay_and_fetch(
+                approval_token = args.get("approval_token")
+
+                # Resolve the exact payment about to be made -- reusing
+                # _approved_preview when it still matches this request (same
+                # fingerprint check pay_and_fetch applies internally), or a
+                # fresh probe otherwise -- so the summary bound into the
+                # approval token below is never stale or re-priced.
+                preview_payload = await x402.resolve_payment_preview(
                     backend=active_backend,
                     url=url.strip(),
                     method=method,
@@ -4215,6 +4245,29 @@ class OpenClawWalletAdapter:
                     json_body=json_body,
                     text_body=text_body,
                     approved_preview=approved_preview,
+                )
+                if preview_payload.get("payment_required"):
+                    summary = self._build_confirmation_summary(
+                        action_label="x402 paid request",
+                        payload=preview_payload,
+                    )
+                    self._require_execute_approval(
+                        approval_token=approval_token,
+                        tool_name=tool_name,
+                        summary=summary,
+                        action_label="x402 paid request",
+                        backend=active_backend,
+                    )
+
+                data = await x402.pay_and_fetch(
+                    backend=active_backend,
+                    url=url.strip(),
+                    method=method,
+                    headers=headers,
+                    query=query,
+                    json_body=json_body,
+                    text_body=text_body,
+                    approved_preview=preview_payload,
                 )
                 data["purpose"] = purpose.strip()
                 data = self._annotate_x402_payload(data, mode="execute")

@@ -1600,6 +1600,47 @@ def _reusable_approved_preview(
     return dict(approved_preview)
 
 
+async def resolve_payment_preview(
+    *,
+    backend: AgentWalletBackend,
+    url: str,
+    method: str = "GET",
+    headers: dict[str, Any] | None = None,
+    query: dict[str, Any] | None = None,
+    json_body: Any | None = None,
+    text_body: str | None = None,
+    approved_preview: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return the payment preview for this exact request.
+
+    Reuses *approved_preview* when it still matches (same fingerprint check
+    ``pay_and_fetch`` applies before deciding whether to skip a fresh probe),
+    otherwise makes a fresh unpaid probe. Callers that need a summary to bind
+    an approval token to -- before paying -- can call this instead of
+    duplicating the reuse-or-probe logic ``pay_and_fetch`` already has.
+    """
+    request = _build_request_metadata(
+        url=url,
+        method=method,
+        headers=headers,
+        query=query,
+        json_body=json_body,
+        text_body=text_body,
+    )
+    reused = _reusable_approved_preview(approved_preview, request=request)
+    if reused is not None:
+        return reused
+    return await preview_request(
+        backend=backend,
+        url=url,
+        method=method,
+        headers=headers,
+        query=query,
+        json_body=json_body,
+        text_body=text_body,
+    )
+
+
 async def pay_and_fetch(
     *,
     backend: AgentWalletBackend,

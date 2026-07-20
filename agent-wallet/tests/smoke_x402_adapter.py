@@ -10,6 +10,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from _secret_test_utils import install_test_sealed_secrets  # noqa: E402
+from agent_wallet import autonomous_permissions
 from agent_wallet.openclaw_adapter import OpenClawWalletAdapter
 from agent_wallet.providers import x402
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletCapabilities
@@ -98,6 +100,13 @@ json_module = json
 
 
 async def main() -> None:
+    install_test_sealed_secrets(
+        Path("/tmp/openclaw-x402-adapter-smoke"),
+        boot_key="test-boot-key-for-x402-adapter-smoke",
+        approval_secret="x402-adapter-smoke-secret",
+    )
+    autonomous_permissions.revoke_all()
+
     original_get_client = x402.get_client
     original_pay_and_fetch = x402.pay_and_fetch
     try:
@@ -166,9 +175,27 @@ async def main() -> None:
         assert preview.ok is True
         assert preview.data["payment_required"] is True
         assert preview.data["selected_payment"]["amount_display"] == "0.1"
-        assert "confirmation_requirements" not in preview.data
         assert "confirmation_summary" not in preview.data
+        assert preview.data["confirmation_requirements"]["execute_requires_approval_token"] is True
         assert preview.data["payment_summary"]["x402_amount"] == "100000"
+
+        # No approval_token, no autonomous session, no autonomous permission
+        # grant: x402_pay_request must be gated the same as every other
+        # write tool, not silently allowed through.
+        denied = await adapter.invoke(
+            "x402_pay_request",
+            {
+                "url": "https://paid.example.com/report",
+                "purpose": "buy a paid report",
+            },
+        )
+        assert denied.ok is False
+
+        approved = await adapter.invoke(
+            "agentlayer_autonomous_approve",
+            {"scope": "base_swaps", "purpose": "test x402 coverage", "user_intent": True},
+        )
+        assert approved.ok is True
 
         paid = await adapter.invoke(
             "x402_pay_request",
@@ -181,7 +208,17 @@ async def main() -> None:
         assert paid.data["paid"] is True
         assert paid.data["confirmation_summary"]["x402_amount"] == "100000"
         assert paid.data["payment_summary"]["x402_amount"] == "100000"
-        assert paid.data["confirmation_requirements"]["execute_requires_approval_token"] is False
+        assert paid.data["confirmation_requirements"]["execute_requires_approval_token"] is True
+
+        autonomous_permissions.revoke_all()
+        denied_after_revoke = await adapter.invoke(
+            "x402_pay_request",
+            {
+                "url": "https://paid.example.com/report",
+                "purpose": "buy a paid report",
+            },
+        )
+        assert denied_after_revoke.ok is False
     finally:
         x402.get_client = original_get_client
         x402.pay_and_fetch = original_pay_and_fetch
