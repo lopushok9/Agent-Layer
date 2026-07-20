@@ -22,7 +22,7 @@ Only if the user selects `Enable`, call `agentlayer_autonomous_approve` with:
 
 ```json
 {
-  "scope": "base_swaps",
+  "scope": "all",
   "purpose": "User requested autonomous wallet execution from Claude Code.",
   "user_intent": true
 }
@@ -35,5 +35,5 @@ If the user selects `Cancel`, do not call any write tool. State that autonomous 
 Be explicit in the response:
 
 - This removes per-transaction approvals for every wallet write tool: transfers, bridges, Solana swaps, staking, x402 payments, generic contract calls, Base Velora/Uniswap swap execute calls, and supported EVM DeFi management tools.
-- The `scope=base_swaps` argument is a compatibility value; this command enables the combined autonomous permission group, which has no per-tool allow-list, spend cap, or session TTL -- it is unbounded by amount within its scope.
+- This command enables the combined autonomous permission group, which has no per-tool allow-list, spend cap, or session TTL -- it is unbounded by amount within its scope.
 - The user can run `/agentlayer-autonomous-revoke` to disable it.

@@ -3912,8 +3912,8 @@ class OpenClawWalletAdapter:
                     "properties": {
                         "scope": {
                             "type": "string",
-                            "enum": ["base_swaps", "defi_tools"],
-                            "description": "Compatibility scope; either value enables the full autonomous permission group.",
+                            "enum": ["all", "base_swaps", "defi_tools"],
+                            "description": "Scope to enable. Use \"all\" (recommended) -- base_swaps and defi_tools are deprecated aliases that enable the exact same full autonomous permission group, covering every wallet write tool.",
                         },
                         "purpose": {
                             "type": "string",
@@ -3943,8 +3943,8 @@ class OpenClawWalletAdapter:
                     "properties": {
                         "scope": {
                             "type": "string",
-                            "enum": ["base_swaps", "defi_tools"],
-                            "description": "Compatibility scope; either value revokes the full autonomous permission group.",
+                            "enum": ["all", "base_swaps", "defi_tools"],
+                            "description": "Scope to revoke. Use \"all\" (recommended) -- base_swaps and defi_tools are deprecated aliases that revoke the exact same full autonomous permission group.",
                         }
                     },
                     "required": ["scope"],
@@ -3995,8 +3995,8 @@ class OpenClawWalletAdapter:
                     "properties": {
                         "scope": {
                             "type": "string",
-                            "enum": ["base_swaps", "defi_tools"],
-                            "description": "Compatibility scope; either value enables the full autonomous permission group.",
+                            "enum": ["all", "base_swaps", "defi_tools"],
+                            "description": "Scope to enable. Use \"all\" (recommended) -- base_swaps and defi_tools are deprecated aliases that enable the exact same full autonomous permission group, covering every wallet write tool.",
                         },
                         "purpose": {
                             "type": "string",
@@ -4024,8 +4024,8 @@ class OpenClawWalletAdapter:
                     "properties": {
                         "scope": {
                             "type": "string",
-                            "enum": ["base_swaps", "defi_tools"],
-                            "description": "Compatibility scope; either value revokes the full autonomous permission group.",
+                            "enum": ["all", "base_swaps", "defi_tools"],
+                            "description": "Scope to revoke. Use \"all\" (recommended) -- base_swaps and defi_tools are deprecated aliases that revoke the exact same full autonomous permission group.",
                         }
                     },
                     "required": ["scope"],
@@ -4063,7 +4063,7 @@ class OpenClawWalletAdapter:
                 scope = str(args.get("scope") or "").strip()
                 purpose = args.get("purpose")
                 if scope not in autonomous_permissions.SUPPORTED_SCOPES:
-                    raise WalletBackendError("scope must be one of: base_swaps, defi_tools.")
+                    raise WalletBackendError("scope must be one of: all, base_swaps, defi_tools.")
                 if not isinstance(purpose, str) or not purpose.strip():
                     raise WalletBackendError("purpose is required.")
                 if args.get("user_intent") is not True:
@@ -4084,7 +4084,7 @@ class OpenClawWalletAdapter:
 
                 scope = str(args.get("scope") or "").strip()
                 if scope not in autonomous_permissions.SUPPORTED_SCOPES:
-                    raise WalletBackendError("scope must be one of: base_swaps, defi_tools.")
+                    raise WalletBackendError("scope must be one of: all, base_swaps, defi_tools.")
                 return AgentToolResult(
                     tool=tool_name,
                     ok=True,

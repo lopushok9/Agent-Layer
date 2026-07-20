@@ -35,7 +35,12 @@ DEFI_TOOLS = frozenset(
 )
 DEFI_TOOLS_ISSUER = "autonomous-permission:defi-tools"
 ALL_TOOLS_ISSUER = "autonomous-permission:all-tools"
-SUPPORTED_SCOPES = frozenset({BASE_SWAP_SCOPE, DEFI_TOOLS_SCOPE})
+#: Canonical scope name -- the group covers every wallet write tool (see
+#: authorize_operation), not just Base swaps or EVM DeFi. base_swaps/
+#: defi_tools remain accepted as deprecated aliases with identical effect,
+#: for backward compatibility with existing callers.
+ALL_SCOPE = "all"
+SUPPORTED_SCOPES = frozenset({ALL_SCOPE, BASE_SWAP_SCOPE, DEFI_TOOLS_SCOPE})
 _PERMISSIONS_FILENAME = "autonomous_permissions.json"
 
 

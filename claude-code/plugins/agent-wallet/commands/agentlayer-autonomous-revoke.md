@@ -10,7 +10,7 @@ Call `agentlayer_autonomous_revoke` with:
 
 ```json
 {
-  "scope": "base_swaps"
+  "scope": "all"
 }
 ```
 
