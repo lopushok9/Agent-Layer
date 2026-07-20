@@ -1600,6 +1600,49 @@ def _reusable_approved_preview(
     return dict(approved_preview)
 
 
+#: USD amount below which an x402 payment never requires host/session/
+#: permission approval, regardless of network (including mainnet) -- the
+#: same rationale as in-person card payments skipping a signature/PIN below
+#: a floor limit. Only ever applies when the payment asset is confidently
+#: identified as USDC (see _looks_like_usdc); any other asset always
+#: requires approval, since its USD value can't be determined here.
+DE_MINIMIS_USD_THRESHOLD = 2.0
+
+
+def de_minimis_usd_amount(preview: dict[str, Any]) -> float | None:
+    """Return *preview*'s payment amount in USD, or None if it isn't confidently USDC.
+
+    ``x402_amount_display`` is only populated by normalize_payment_requirement
+    when the asset is recognized as USDC (see _looks_like_usdc) -- for any
+    other asset it's None, since its USD value is unknown here.
+    """
+    amount_display = preview.get("x402_amount_display")
+    if not isinstance(amount_display, str) or not amount_display.strip():
+        return None
+    try:
+        return float(amount_display)
+    except ValueError:
+        return None
+
+
+def is_de_minimis_payment(
+    preview: dict[str, Any],
+    *,
+    threshold_usd: float | None = None,
+) -> bool:
+    """Whether *preview*'s payment is small enough to skip approval entirely.
+
+    threshold_usd defaults to the current DE_MINIMIS_USD_THRESHOLD, read at
+    call time (not bound at import time) so tests can monkeypatch the module
+    attribute directly.
+    """
+    usd_amount = de_minimis_usd_amount(preview)
+    if usd_amount is None:
+        return False
+    effective_threshold = DE_MINIMIS_USD_THRESHOLD if threshold_usd is None else threshold_usd
+    return usd_amount < effective_threshold
+
+
 async def resolve_payment_preview(
     *,
     backend: AgentWalletBackend,

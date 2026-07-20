@@ -148,14 +148,13 @@ allow-list, router allow-list, or session TTL.
 
 Current scope:
 
-- `agentlayer_autonomous_approve { "scope": "base_swaps", ... }`
-- `agentlayer_autonomous_revoke { "scope": "base_swaps" }`
-- `agentlayer_autonomous_approve { "scope": "defi_tools", ... }`
-- `agentlayer_autonomous_revoke { "scope": "defi_tools" }`
+- `agentlayer_autonomous_approve { "scope": "all", ... }`
+- `agentlayer_autonomous_revoke { "scope": "all" }`
 - `agentlayer_autonomous_status`
-- `base_swaps` and `defi_tools` are compatibility scope labels for one
-  combined autonomous permission group; approving either enables both, and
-  revoking either disables both
+- `scope` accepts `"all"` (canonical); `base_swaps` and `defi_tools` remain
+  accepted as deprecated aliases with identical effect (both enable/revoke
+  the same single combined group) -- kept for backward compatibility with
+  existing callers, not because the grant is actually narrower
 - `swap_evm_tokens` (Velora) and `swap_evm_uniswap_tokens` (Base only) and the
   supported EVM DeFi management tools (Aave, Morpho vault/market, Lido
   staking/withdrawal on `base`/`ethereum`/`robinhood`) have their own
@@ -181,3 +180,25 @@ when the user wants the agent to have full practical authority over every
 wallet write tool until explicitly revoked. Users who want a bounded grant
 (spend caps, tool/network/recipient allow-lists, a session TTL) should use
 `start_autonomous_session` instead.
+
+## x402 de-minimis exemption
+
+`x402_pay_request` has one narrow, unconditional exemption from every path
+above: a payment below `x402.DE_MINIMIS_USD_THRESHOLD` (currently $2) never
+requires an `approval_token` -- not from a host, not from an active
+`autonomous_session`, not from `agentlayer_autonomous_approve` -- and this
+applies **regardless of network, including mainnet**. The rationale mirrors
+in-person card payments skipping a signature/PIN below a floor limit.
+
+This only ever applies when the payment asset is confidently identified as
+USDC (`agent_wallet.providers.x402._looks_like_usdc`, matched against known
+USDC contract/mint addresses on Base, Ethereum, and Solana, or an explicit
+`"USDC"`/`"USD Coin"` asset name). For any other asset the USD value is
+unknown here, so the exemption never applies and normal approval is
+required, same as everything else in this document.
+
+Both `x402_preview_request` and `x402_pay_request` responses report whether
+the exemption applied via `confirmation_requirements.execute_requires_approval_token`
+and a `de_minimis_payment` block (`applied`, `threshold_usd`, `amount_usd`),
+so this is never a silent behavior difference from the rest of the wallet's
+execute contract.

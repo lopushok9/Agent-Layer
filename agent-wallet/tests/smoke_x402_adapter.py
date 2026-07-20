@@ -107,6 +107,13 @@ async def main() -> None:
     )
     autonomous_permissions.revoke_all()
 
+    # This file exercises the general approval-gate wiring, not the
+    # de-minimis exemption (covered by smoke_x402_de_minimis.py). The mocked
+    # payment here (0.1 USDC) is below DE_MINIMIS_USD_THRESHOLD, so disable
+    # it here to keep the approval-required assertions below meaningful.
+    original_de_minimis_threshold = x402.DE_MINIMIS_USD_THRESHOLD
+    x402.DE_MINIMIS_USD_THRESHOLD = 0.0
+
     original_get_client = x402.get_client
     original_pay_and_fetch = x402.pay_and_fetch
     try:
@@ -222,6 +229,7 @@ async def main() -> None:
     finally:
         x402.get_client = original_get_client
         x402.pay_and_fetch = original_pay_and_fetch
+        x402.DE_MINIMIS_USD_THRESHOLD = original_de_minimis_threshold
 
     print("smoke_x402_adapter: ok")
 

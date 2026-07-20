@@ -2020,6 +2020,12 @@ async def main() -> None:
     )
     original_pay_and_fetch = x402.pay_and_fetch
     original_preview_request = x402.preview_request
+    # This file's mocked x402 payments (0.1-0.25 USDC) are below
+    # DE_MINIMIS_USD_THRESHOLD; disable the exemption here so the
+    # approval-required assertions below stay meaningful (the exemption
+    # itself is covered by smoke_x402_de_minimis.py).
+    original_de_minimis_threshold = x402.DE_MINIMIS_USD_THRESHOLD
+    x402.DE_MINIMIS_USD_THRESHOLD = 0.0
     async def fake_x402_prepare_request(*, backend, url, method="GET", headers=None, query=None, json_body=None, text_body=None):
         is_evm = str(getattr(backend, "chain", "")).strip().lower() == "evm"
         backend_network = str(getattr(backend, "network", "")).strip().lower()
@@ -3710,6 +3716,7 @@ async def main() -> None:
 
     x402.pay_and_fetch = original_pay_and_fetch
     x402.preview_request = original_preview_request
+    x402.DE_MINIMIS_USD_THRESHOLD = original_de_minimis_threshold
 
 
 if __name__ == "__main__":

@@ -1166,17 +1166,29 @@ class OpenClawWalletAdapter:
             annotated["payment_summary"] = summary
         requirements = dict(annotated.get("confirmation_requirements") or {})
         requirements["prepare_requires_user_intent"] = False
+        de_minimis = x402.is_de_minimis_payment(payload)
+        if de_minimis:
+            # Below x402.DE_MINIMIS_USD_THRESHOLD, this payment never needs
+            # approval -- not even on mainnet -- so keep the advertised
+            # requirement honest in both preview and execute responses.
+            requirements["execute_requires_approval_token"] = False
+            requirements["execute_requires_mainnet_confirmed_in_token"] = False
+            annotated["de_minimis_payment"] = {
+                "applied": True,
+                "threshold_usd": x402.DE_MINIMIS_USD_THRESHOLD,
+                "amount_usd": x402.de_minimis_usd_amount(payload),
+            }
         annotated.pop("approval_hint", None)
         if mode == "preview":
             annotated.pop("confirmation_summary", None)
             annotated["confirmation_requirements"] = requirements
-            if annotated.get("is_mainnet"):
+            if annotated.get("is_mainnet") and not de_minimis:
                 annotated["preview_note"] = (
                     "This is a paid mainnet endpoint preview only. Review the service URL, network, asset, amount, and payment destination before calling x402_pay_request."
                 )
             return annotated
         annotated["confirmation_requirements"] = requirements
-        if annotated.get("is_mainnet"):
+        if annotated.get("is_mainnet") and not de_minimis:
             annotated["mainnet_warning"] = (
                 "Mainnet x402 payment. Confirm the service URL, network, asset, amount, and payment destination before paying."
             )
@@ -4246,18 +4258,21 @@ class OpenClawWalletAdapter:
                     text_body=text_body,
                     approved_preview=approved_preview,
                 )
+                de_minimis = False
                 if preview_payload.get("payment_required"):
-                    summary = self._build_confirmation_summary(
-                        action_label="x402 paid request",
-                        payload=preview_payload,
-                    )
-                    self._require_execute_approval(
-                        approval_token=approval_token,
-                        tool_name=tool_name,
-                        summary=summary,
-                        action_label="x402 paid request",
-                        backend=active_backend,
-                    )
+                    de_minimis = x402.is_de_minimis_payment(preview_payload)
+                    if not de_minimis:
+                        summary = self._build_confirmation_summary(
+                            action_label="x402 paid request",
+                            payload=preview_payload,
+                        )
+                        self._require_execute_approval(
+                            approval_token=approval_token,
+                            tool_name=tool_name,
+                            summary=summary,
+                            action_label="x402 paid request",
+                            backend=active_backend,
+                        )
 
                 data = await x402.pay_and_fetch(
                     backend=active_backend,
