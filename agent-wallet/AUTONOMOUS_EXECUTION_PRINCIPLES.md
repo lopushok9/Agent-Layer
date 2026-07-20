@@ -168,6 +168,20 @@ Current scope:
   `autonomous_session` fallback -- enabling the group therefore covers every
   wallet write tool, not just Base swaps and EVM DeFi
 
+This genuinely covers every write tool now, including the intent-based
+family (`swap_solana_tokens`, `swap_evm_lifi_cross_chain_tokens`,
+`swap_solana_lifi_cross_chain_tokens`, `flash_trade_open_position`,
+`flash_trade_close_position`, and all 6 Kamino tools). Those previously
+called `inspect_approval_token` unconditionally at the top of their
+execute/intent_execute branches -- before ever reaching
+`_require_execute_approval` -- which hard-required a real host-issued token
+and made both fallbacks unreachable dead code for them, regardless of scope.
+They now check for a supplied `approval_token` first and, if absent, build
+the same fresh (intent-)preview a human would have seen and hand it to
+`_require_execute_approval` exactly like every other tool. See
+`smoke_autonomous_intent_tools.py` for end-to-end coverage of this fallback
+across all of them.
+
 When enabled, a covered execute call with no `approval_token` fetches a fresh
 preview/quote, builds the exact confirmation summary, issues the same signed
 approval token internally (`issued_by="autonomous-permission:*"`), then runs
