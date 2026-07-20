@@ -281,6 +281,10 @@ class OpenClawWalletAdapter:
                         "json_body": {},
                         "text_body": {"type": "string"},
                         "purpose": {"type": "string"},
+                        "approval_token": {
+                            "type": "string",
+                            "description": "Host-issued approval token required for execute mode when the payment is mainnet/real-value and no autonomous session or permission grant covers it.",
+                        },
                     },
                     "required": ["url", "purpose"],
                     "additionalProperties": False,
@@ -493,10 +497,25 @@ class OpenClawWalletAdapter:
                     )
                 )
             else:
-                raise WalletBackendError(
-                    f"{action_label} execution requires a host-issued approval_token "
-                    "(or an active autonomous session authorized by the host)."
-                )
+                # No budgeted session either: fall back to the standing
+                # high-trust permission toggle (agentlayer_autonomous_approve).
+                # This is the single choke point every execute tool funnels
+                # through, so enabling that toggle covers every tool here --
+                # not just the Base-swap/EVM-DeFi tools that also have their
+                # own dedicated pre-authorization step before reaching here.
+                from agent_wallet import autonomous_permissions
+
+                if autonomous_permissions.is_autonomous_approved():
+                    approval_token = autonomous_permissions.authorize_operation(
+                        tool_name=tool_name,
+                        network=network,
+                        summary=summary,
+                    )
+                else:
+                    raise WalletBackendError(
+                        f"{action_label} execution requires a host-issued approval_token "
+                        "(or an active autonomous session/permission grant authorized by the host)."
+                    )
         verify_approval_token(
             approval_token.strip(),
             tool_name=tool_name,
@@ -1147,19 +1166,29 @@ class OpenClawWalletAdapter:
             annotated["payment_summary"] = summary
         requirements = dict(annotated.get("confirmation_requirements") or {})
         requirements["prepare_requires_user_intent"] = False
-        requirements["execute_requires_approval_token"] = False
-        requirements["execute_requires_mainnet_confirmed_in_token"] = False
+        de_minimis = x402.is_de_minimis_payment(payload)
+        if de_minimis:
+            # Below x402.DE_MINIMIS_USD_THRESHOLD, this payment never needs
+            # approval -- not even on mainnet -- so keep the advertised
+            # requirement honest in both preview and execute responses.
+            requirements["execute_requires_approval_token"] = False
+            requirements["execute_requires_mainnet_confirmed_in_token"] = False
+            annotated["de_minimis_payment"] = {
+                "applied": True,
+                "threshold_usd": x402.DE_MINIMIS_USD_THRESHOLD,
+                "amount_usd": x402.de_minimis_usd_amount(payload),
+            }
         annotated.pop("approval_hint", None)
         if mode == "preview":
             annotated.pop("confirmation_summary", None)
-            annotated.pop("confirmation_requirements", None)
-            if annotated.get("is_mainnet"):
+            annotated["confirmation_requirements"] = requirements
+            if annotated.get("is_mainnet") and not de_minimis:
                 annotated["preview_note"] = (
                     "This is a paid mainnet endpoint preview only. Review the service URL, network, asset, amount, and payment destination before calling x402_pay_request."
                 )
             return annotated
         annotated["confirmation_requirements"] = requirements
-        if annotated.get("is_mainnet"):
+        if annotated.get("is_mainnet") and not de_minimis:
             annotated["mainnet_warning"] = (
                 "Mainnet x402 payment. Confirm the service URL, network, asset, amount, and payment destination before paying."
             )
@@ -3867,7 +3896,9 @@ class OpenClawWalletAdapter:
                 name="agentlayer_autonomous_status",
                 description=(
                     "Return AgentLayer high-trust autonomous permission status. "
-                    "The autonomous permission group contains base_swaps and defi_tools."
+                    "The autonomous permission group covers every wallet write tool (transfers, "
+                    "bridges, Solana swaps, staking, x402 payments, generic contract calls, Base "
+                    "swaps, and EVM DeFi management), not just base_swaps/defi_tools."
                 ),
                 input_schema={
                     "type": "object",
@@ -3883,17 +3914,18 @@ class OpenClawWalletAdapter:
                 name="agentlayer_autonomous_approve",
                 description=(
                     "Enable the high-trust autonomous permission group. The scope parameter is kept "
-                    "for compatibility; choosing base_swaps or defi_tools enables both Base swaps and "
-                    "supported EVM DeFi management tools until revoked. This does not cover transfers, "
-                    "bridges, Solana swaps, or generic contract calls."
+                    "for compatibility; choosing base_swaps or defi_tools enables the full group, "
+                    "which covers every wallet write tool -- transfers, bridges, Solana swaps, "
+                    "staking, x402 payments, generic contract calls, Base swaps, and supported EVM "
+                    "DeFi management tools -- until revoked."
                 ),
                 input_schema={
                     "type": "object",
                     "properties": {
                         "scope": {
                             "type": "string",
-                            "enum": ["base_swaps", "defi_tools"],
-                            "description": "Compatibility scope; either value enables the full autonomous permission group.",
+                            "enum": ["all", "base_swaps", "defi_tools"],
+                            "description": "Scope to enable. Use \"all\" (recommended) -- base_swaps and defi_tools are deprecated aliases that enable the exact same full autonomous permission group, covering every wallet write tool.",
                         },
                         "purpose": {
                             "type": "string",
@@ -3923,8 +3955,8 @@ class OpenClawWalletAdapter:
                     "properties": {
                         "scope": {
                             "type": "string",
-                            "enum": ["base_swaps", "defi_tools"],
-                            "description": "Compatibility scope; either value revokes the full autonomous permission group.",
+                            "enum": ["all", "base_swaps", "defi_tools"],
+                            "description": "Scope to revoke. Use \"all\" (recommended) -- base_swaps and defi_tools are deprecated aliases that revoke the exact same full autonomous permission group.",
                         }
                     },
                     "required": ["scope"],
@@ -3949,7 +3981,9 @@ class OpenClawWalletAdapter:
                 name="agentlayer_autonomous_status",
                 description=(
                     "Return AgentLayer high-trust autonomous permission status. "
-                    "The autonomous permission group contains base_swaps and defi_tools."
+                    "The autonomous permission group covers every wallet write tool (transfers, "
+                    "bridges, Solana swaps, staking, x402 payments, generic contract calls, Base "
+                    "swaps, and EVM DeFi management), not just base_swaps/defi_tools."
                 ),
                 input_schema={
                     "type": "object",
@@ -3963,17 +3997,18 @@ class OpenClawWalletAdapter:
                 name="agentlayer_autonomous_approve",
                 description=(
                     "Enable the high-trust autonomous permission group. The scope parameter is kept "
-                    "for compatibility; choosing base_swaps or defi_tools enables both Base swaps and "
-                    "supported EVM DeFi management tools until revoked. This does not cover transfers, "
-                    "bridges, Solana swaps, or generic contract calls."
+                    "for compatibility; choosing base_swaps or defi_tools enables the full group, "
+                    "which covers every wallet write tool -- transfers, bridges, Solana swaps, "
+                    "staking, x402 payments, generic contract calls, Base swaps, and supported EVM "
+                    "DeFi management tools -- until revoked."
                 ),
                 input_schema={
                     "type": "object",
                     "properties": {
                         "scope": {
                             "type": "string",
-                            "enum": ["base_swaps", "defi_tools"],
-                            "description": "Compatibility scope; either value enables the full autonomous permission group.",
+                            "enum": ["all", "base_swaps", "defi_tools"],
+                            "description": "Scope to enable. Use \"all\" (recommended) -- base_swaps and defi_tools are deprecated aliases that enable the exact same full autonomous permission group, covering every wallet write tool.",
                         },
                         "purpose": {
                             "type": "string",
@@ -4001,8 +4036,8 @@ class OpenClawWalletAdapter:
                     "properties": {
                         "scope": {
                             "type": "string",
-                            "enum": ["base_swaps", "defi_tools"],
-                            "description": "Compatibility scope; either value revokes the full autonomous permission group.",
+                            "enum": ["all", "base_swaps", "defi_tools"],
+                            "description": "Scope to revoke. Use \"all\" (recommended) -- base_swaps and defi_tools are deprecated aliases that revoke the exact same full autonomous permission group.",
                         }
                     },
                     "required": ["scope"],
@@ -4040,7 +4075,7 @@ class OpenClawWalletAdapter:
                 scope = str(args.get("scope") or "").strip()
                 purpose = args.get("purpose")
                 if scope not in autonomous_permissions.SUPPORTED_SCOPES:
-                    raise WalletBackendError("scope must be one of: base_swaps, defi_tools.")
+                    raise WalletBackendError("scope must be one of: all, base_swaps, defi_tools.")
                 if not isinstance(purpose, str) or not purpose.strip():
                     raise WalletBackendError("purpose is required.")
                 if args.get("user_intent") is not True:
@@ -4061,7 +4096,7 @@ class OpenClawWalletAdapter:
 
                 scope = str(args.get("scope") or "").strip()
                 if scope not in autonomous_permissions.SUPPORTED_SCOPES:
-                    raise WalletBackendError("scope must be one of: base_swaps, defi_tools.")
+                    raise WalletBackendError("scope must be one of: all, base_swaps, defi_tools.")
                 return AgentToolResult(
                     tool=tool_name,
                     ok=True,
@@ -4206,7 +4241,14 @@ class OpenClawWalletAdapter:
                 approved_preview = args.get("_approved_preview")
                 if approved_preview is not None and not isinstance(approved_preview, dict):
                     raise WalletBackendError("_approved_preview must be an object when provided.")
-                data = await x402.pay_and_fetch(
+                approval_token = args.get("approval_token")
+
+                # Resolve the exact payment about to be made -- reusing
+                # _approved_preview when it still matches this request (same
+                # fingerprint check pay_and_fetch applies internally), or a
+                # fresh probe otherwise -- so the summary bound into the
+                # approval token below is never stale or re-priced.
+                preview_payload = await x402.resolve_payment_preview(
                     backend=active_backend,
                     url=url.strip(),
                     method=method,
@@ -4215,6 +4257,32 @@ class OpenClawWalletAdapter:
                     json_body=json_body,
                     text_body=text_body,
                     approved_preview=approved_preview,
+                )
+                de_minimis = False
+                if preview_payload.get("payment_required"):
+                    de_minimis = x402.is_de_minimis_payment(preview_payload)
+                    if not de_minimis:
+                        summary = self._build_confirmation_summary(
+                            action_label="x402 paid request",
+                            payload=preview_payload,
+                        )
+                        self._require_execute_approval(
+                            approval_token=approval_token,
+                            tool_name=tool_name,
+                            summary=summary,
+                            action_label="x402 paid request",
+                            backend=active_backend,
+                        )
+
+                data = await x402.pay_and_fetch(
+                    backend=active_backend,
+                    url=url.strip(),
+                    method=method,
+                    headers=headers,
+                    query=query,
+                    json_body=json_body,
+                    text_body=text_body,
+                    approved_preview=preview_payload,
                 )
                 data["purpose"] = purpose.strip()
                 data = self._annotate_x402_payload(data, mode="execute")
@@ -5410,57 +5478,68 @@ class OpenClawWalletAdapter:
                         ),
                     )
 
-                approval_payload = inspect_approval_token(
-                    approval_token,
-                    tool_name=tool_name,
-                    network=str(getattr(active_backend, "network", "unknown")),
-                    require_mainnet_confirmation=self._is_mainnet_for_backend(active_backend),
-                )
-                approval_summary = approval_payload.get("binding", {}).get("summary")
-                if not isinstance(approval_summary, dict):
-                    raise WalletBackendError(
-                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                if isinstance(approval_token, str) and approval_token.strip():
+                    approval_payload = inspect_approval_token(
+                        approval_token,
+                        tool_name=tool_name,
+                        network=str(getattr(active_backend, "network", "unknown")),
+                        require_mainnet_confirmation=self._is_mainnet_for_backend(active_backend),
                     )
-                source_chain_id = self._canonicalize_lifi_chain_identifier(
-                    getattr(active_backend, "network", "unknown")
-                )
-                destination_chain_id = self._canonicalize_lifi_chain_identifier(destination_chain)
-                expected_summary = {
-                    "operation": "EVM LI.FI cross-chain swap",
-                    "network": str(getattr(active_backend, "network", "unknown")),
-                    "source_chain": source_chain_id,
-                    "destination_chain": destination_chain_id,
-                    "token_in": self._canonicalize_lifi_token_identifier(
-                        token_in,
-                        chain_id=source_chain_id,
-                    ),
-                    "output_token": self._canonicalize_lifi_token_identifier(
-                        output_token,
-                        chain_id=destination_chain_id,
-                    ),
-                    "destination_address": destination_address.strip(),
-                    "input_amount_raw": amount_in_raw.strip(),
-                }
-                for key, expected_value in expected_summary.items():
-                    actual_value = approval_summary.get(key)
-                    if key in {"source_chain", "destination_chain"}:
-                        actual_value = self._canonicalize_lifi_chain_identifier(actual_value)
-                    if key == "token_in":
-                        actual_value = self._canonicalize_lifi_token_identifier(
-                            actual_value,
-                            chain_id=source_chain_id,
-                        )
-                    if key == "output_token":
-                        actual_value = self._canonicalize_lifi_token_identifier(
-                            actual_value,
-                            chain_id=destination_chain_id,
-                        )
-                    if actual_value != expected_value:
+                    approval_summary = approval_payload.get("binding", {}).get("summary")
+                    if not isinstance(approval_summary, dict):
                         raise WalletBackendError(
                             "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
                         )
+                    source_chain_id = self._canonicalize_lifi_chain_identifier(
+                        getattr(active_backend, "network", "unknown")
+                    )
+                    destination_chain_id = self._canonicalize_lifi_chain_identifier(destination_chain)
+                    expected_summary = {
+                        "operation": "EVM LI.FI cross-chain swap",
+                        "network": str(getattr(active_backend, "network", "unknown")),
+                        "source_chain": source_chain_id,
+                        "destination_chain": destination_chain_id,
+                        "token_in": self._canonicalize_lifi_token_identifier(
+                            token_in,
+                            chain_id=source_chain_id,
+                        ),
+                        "output_token": self._canonicalize_lifi_token_identifier(
+                            output_token,
+                            chain_id=destination_chain_id,
+                        ),
+                        "destination_address": destination_address.strip(),
+                        "input_amount_raw": amount_in_raw.strip(),
+                    }
+                    for key, expected_value in expected_summary.items():
+                        actual_value = approval_summary.get(key)
+                        if key in {"source_chain", "destination_chain"}:
+                            actual_value = self._canonicalize_lifi_chain_identifier(actual_value)
+                        if key == "token_in":
+                            actual_value = self._canonicalize_lifi_token_identifier(
+                                actual_value,
+                                chain_id=source_chain_id,
+                            )
+                        if key == "output_token":
+                            actual_value = self._canonicalize_lifi_token_identifier(
+                                actual_value,
+                                chain_id=destination_chain_id,
+                            )
+                        if actual_value != expected_value:
+                            raise WalletBackendError(
+                                "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                            )
 
-                approval_summary_copy = dict(approval_summary)
+                    approval_summary_copy = dict(approval_summary)
+                else:
+                    # No host token: build the exact preview a human would
+                    # have seen and let _require_execute_approval's
+                    # autonomous_session / agentlayer_autonomous_approve
+                    # fallback authorize it.
+                    fresh_preview = await active_backend.preview_evm_lifi_cross_chain_swap(**preview_kwargs)
+                    approval_summary_copy = self._build_confirmation_summary(
+                        action_label="EVM LI.FI cross-chain swap",
+                        payload=fresh_preview,
+                    )
                 self._require_execute_approval(
                     approval_token=approval_token,
                     tool_name=tool_name,
@@ -5842,46 +5921,69 @@ class OpenClawWalletAdapter:
                         ),
                     )
 
-                approval_payload = inspect_approval_token(
-                    approval_token,
-                    tool_name=tool_name,
-                    network=str(getattr(active_backend, "network", "unknown")),
-                    require_mainnet_confirmation=self._is_mainnet_for_backend(active_backend),
-                )
-                approval_summary = approval_payload.get("binding", {}).get("summary")
-                if not isinstance(approval_summary, dict):
-                    raise WalletBackendError(
-                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                execute_preview = None
+                if isinstance(approval_token, str) and approval_token.strip():
+                    approval_payload = inspect_approval_token(
+                        approval_token,
+                        tool_name=tool_name,
+                        network=str(getattr(active_backend, "network", "unknown")),
+                        require_mainnet_confirmation=self._is_mainnet_for_backend(active_backend),
                     )
-                expected_summary = {
-                    "operation": "Flash Trade open position",
-                    "pool_name": pool_name.strip(),
-                    "market_symbol": market_symbol.strip(),
-                    "collateral_symbol": collateral_symbol.strip(),
-                    "collateral_amount_raw": collateral_amount_raw.strip(),
-                    "leverage": leverage.strip(),
-                    "side": side,
-                }
-                for key, expected_value in expected_summary.items():
-                    if approval_summary.get(key) != expected_value:
+                    approval_summary = approval_payload.get("binding", {}).get("summary")
+                    if not isinstance(approval_summary, dict):
                         raise WalletBackendError(
                             "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
                         )
+                    expected_summary = {
+                        "operation": "Flash Trade open position",
+                        "pool_name": pool_name.strip(),
+                        "market_symbol": market_symbol.strip(),
+                        "collateral_symbol": collateral_symbol.strip(),
+                        "collateral_amount_raw": collateral_amount_raw.strip(),
+                        "leverage": leverage.strip(),
+                        "side": side,
+                    }
+                    for key, expected_value in expected_summary.items():
+                        if approval_summary.get(key) != expected_value:
+                            raise WalletBackendError(
+                                "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                            )
 
-                approval_summary_copy = dict(approval_summary)
-                approved_preview = args.get("_approved_preview")
-                execute_preview = None
-                if isinstance(approval_summary_copy.get("_preview_digest"), str):
-                    if not isinstance(approved_preview, dict):
-                        raise WalletBackendError(
-                            "Approved Flash Trade preview payload is required for execute mode. Generate a new preview and approval before execute."
+                    approval_summary_copy = dict(approval_summary)
+                    approved_preview = args.get("_approved_preview")
+                    if isinstance(approval_summary_copy.get("_preview_digest"), str):
+                        if not isinstance(approved_preview, dict):
+                            raise WalletBackendError(
+                                "Approved Flash Trade preview payload is required for execute mode. Generate a new preview and approval before execute."
+                            )
+                        if preview_payload_digest(approved_preview) != approval_summary_copy["_preview_digest"]:
+                            raise WalletBackendError(
+                                "approved preview payload does not match the approval token. Generate a new preview and approval before execute."
+                            )
+                        execute_preview = dict(approved_preview)
+                    else:
+                        execute_preview = await active_backend.preview_flash_trade_open_position(
+                            pool_name=pool_name.strip(),
+                            market_symbol=market_symbol.strip(),
+                            collateral_symbol=collateral_symbol.strip(),
+                            collateral_amount_raw=collateral_amount_raw.strip(),
+                            leverage=leverage.strip(),
+                            side=side,
                         )
-                    if preview_payload_digest(approved_preview) != approval_summary_copy["_preview_digest"]:
-                        raise WalletBackendError(
-                            "approved preview payload does not match the approval token. Generate a new preview and approval before execute."
-                        )
-                    execute_preview = dict(approved_preview)
                 else:
+                    # No host token: build the same identity summary the
+                    # human path validates, and let _require_execute_approval's
+                    # autonomous_session / agentlayer_autonomous_approve
+                    # fallback authorize it.
+                    approval_summary_copy = {
+                        "operation": "Flash Trade open position",
+                        "pool_name": pool_name.strip(),
+                        "market_symbol": market_symbol.strip(),
+                        "collateral_symbol": collateral_symbol.strip(),
+                        "collateral_amount_raw": collateral_amount_raw.strip(),
+                        "leverage": leverage.strip(),
+                        "side": side,
+                    }
                     execute_preview = await active_backend.preview_flash_trade_open_position(
                         pool_name=pool_name.strip(),
                         market_symbol=market_symbol.strip(),
@@ -5971,43 +6073,60 @@ class OpenClawWalletAdapter:
                         ),
                     )
 
-                approval_payload = inspect_approval_token(
-                    approval_token,
-                    tool_name=tool_name,
-                    network=str(getattr(active_backend, "network", "unknown")),
-                    require_mainnet_confirmation=self._is_mainnet_for_backend(active_backend),
-                )
-                approval_summary = approval_payload.get("binding", {}).get("summary")
-                if not isinstance(approval_summary, dict):
-                    raise WalletBackendError(
-                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                execute_preview = None
+                if isinstance(approval_token, str) and approval_token.strip():
+                    approval_payload = inspect_approval_token(
+                        approval_token,
+                        tool_name=tool_name,
+                        network=str(getattr(active_backend, "network", "unknown")),
+                        require_mainnet_confirmation=self._is_mainnet_for_backend(active_backend),
                     )
-                expected_summary = {
-                    "operation": "Flash Trade close position",
-                    "pool_name": pool_name.strip(),
-                    "market_symbol": market_symbol.strip(),
-                    "side": side,
-                }
-                for key, expected_value in expected_summary.items():
-                    if approval_summary.get(key) != expected_value:
+                    approval_summary = approval_payload.get("binding", {}).get("summary")
+                    if not isinstance(approval_summary, dict):
                         raise WalletBackendError(
                             "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
                         )
+                    expected_summary = {
+                        "operation": "Flash Trade close position",
+                        "pool_name": pool_name.strip(),
+                        "market_symbol": market_symbol.strip(),
+                        "side": side,
+                    }
+                    for key, expected_value in expected_summary.items():
+                        if approval_summary.get(key) != expected_value:
+                            raise WalletBackendError(
+                                "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                            )
 
-                approval_summary_copy = dict(approval_summary)
-                approved_preview = args.get("_approved_preview")
-                execute_preview = None
-                if isinstance(approval_summary_copy.get("_preview_digest"), str):
-                    if not isinstance(approved_preview, dict):
-                        raise WalletBackendError(
-                            "Approved Flash Trade preview payload is required for execute mode. Generate a new preview and approval before execute."
+                    approval_summary_copy = dict(approval_summary)
+                    approved_preview = args.get("_approved_preview")
+                    if isinstance(approval_summary_copy.get("_preview_digest"), str):
+                        if not isinstance(approved_preview, dict):
+                            raise WalletBackendError(
+                                "Approved Flash Trade preview payload is required for execute mode. Generate a new preview and approval before execute."
+                            )
+                        if preview_payload_digest(approved_preview) != approval_summary_copy["_preview_digest"]:
+                            raise WalletBackendError(
+                                "approved preview payload does not match the approval token. Generate a new preview and approval before execute."
+                            )
+                        execute_preview = dict(approved_preview)
+                    else:
+                        execute_preview = await active_backend.preview_flash_trade_close_position(
+                            pool_name=pool_name.strip(),
+                            market_symbol=market_symbol.strip(),
+                            side=side,
                         )
-                    if preview_payload_digest(approved_preview) != approval_summary_copy["_preview_digest"]:
-                        raise WalletBackendError(
-                            "approved preview payload does not match the approval token. Generate a new preview and approval before execute."
-                        )
-                    execute_preview = dict(approved_preview)
                 else:
+                    # No host token: build the same identity summary the
+                    # human path validates, and let _require_execute_approval's
+                    # autonomous_session / agentlayer_autonomous_approve
+                    # fallback authorize it.
+                    approval_summary_copy = {
+                        "operation": "Flash Trade close position",
+                        "pool_name": pool_name.strip(),
+                        "market_symbol": market_symbol.strip(),
+                        "side": side,
+                    }
                     execute_preview = await active_backend.preview_flash_trade_close_position(
                         pool_name=pool_name.strip(),
                         market_symbol=market_symbol.strip(),
@@ -6524,44 +6643,60 @@ class OpenClawWalletAdapter:
                     )
 
                 if mode == "intent_execute":
-                    approval_payload = inspect_approval_token(
-                        approval_token,
-                        tool_name=tool_name,
-                        network=str(getattr(self.backend, "network", "unknown")),
-                        require_mainnet_confirmation=self._is_mainnet_for_backend(self.backend),
-                    )
-                    approval_summary = approval_payload.get("binding", {}).get("summary")
-                    if not isinstance(approval_summary, dict):
-                        raise WalletBackendError(
-                            "approval_token does not match the requested operation. Generate a new intent preview and approval before execute."
+                    if isinstance(approval_token, str) and approval_token.strip():
+                        approval_payload = inspect_approval_token(
+                            approval_token,
+                            tool_name=tool_name,
+                            network=str(getattr(self.backend, "network", "unknown")),
+                            require_mainnet_confirmation=self._is_mainnet_for_backend(self.backend),
                         )
-                    expected_summary = {
-                        "operation": intent_action_label,
-                        "network": str(getattr(self.backend, "network", "unknown")),
-                        "kvault": kvault.strip(),
-                        "amount_ui": amount_ui.strip(),
-                    }
-                    for key, expected_value in expected_summary.items():
-                        if approval_summary.get(key) != expected_value:
+                        approval_summary = approval_payload.get("binding", {}).get("summary")
+                        if not isinstance(approval_summary, dict):
                             raise WalletBackendError(
-                                f"approval_token does not match the requested {action_label} intent. Generate a fresh intent preview and approval before execute."
+                                "approval_token does not match the requested operation. Generate a new intent preview and approval before execute."
                             )
-                    if approval_summary.get("recipient_policy") != "owner-only":
-                        raise WalletBackendError("approved Kamino intent recipient policy is invalid.")
-                    if approval_summary.get("spend_policy") != "exact-amount":
-                        raise WalletBackendError("approved Kamino intent spend policy is invalid.")
-                    current_owner = await self.backend.get_address()
-                    approved_owner = approval_summary.get("owner")
-                    if approved_owner and current_owner and str(approved_owner) != str(current_owner):
-                        raise WalletBackendError(
-                            "approval_token does not match the active wallet owner. Generate a fresh intent preview and approval before execute."
+                        expected_summary = {
+                            "operation": intent_action_label,
+                            "network": str(getattr(self.backend, "network", "unknown")),
+                            "kvault": kvault.strip(),
+                            "amount_ui": amount_ui.strip(),
+                        }
+                        for key, expected_value in expected_summary.items():
+                            if approval_summary.get(key) != expected_value:
+                                raise WalletBackendError(
+                                    f"approval_token does not match the requested {action_label} intent. Generate a fresh intent preview and approval before execute."
+                                )
+                        if approval_summary.get("recipient_policy") != "owner-only":
+                            raise WalletBackendError("approved Kamino intent recipient policy is invalid.")
+                        if approval_summary.get("spend_policy") != "exact-amount":
+                            raise WalletBackendError("approved Kamino intent spend policy is invalid.")
+                        current_owner = await self.backend.get_address()
+                        approved_owner = approval_summary.get("owner")
+                        if approved_owner and current_owner and str(approved_owner) != str(current_owner):
+                            raise WalletBackendError(
+                                "approval_token does not match the active wallet owner. Generate a fresh intent preview and approval before execute."
+                            )
+                        valid_until = approval_summary.get("valid_until_epoch_seconds")
+                        if valid_until is not None and int(time.time()) > int(valid_until):
+                            raise WalletBackendError(
+                                "Approved Kamino intent has expired. Create a fresh intent preview."
+                            )
+                        approval_summary_copy = dict(approval_summary)
+                    else:
+                        # No host token: build the exact intent preview a
+                        # human would have seen (same call as
+                        # mode=intent_preview), and let
+                        # _require_execute_approval's autonomous_session /
+                        # agentlayer_autonomous_approve fallback authorize it.
+                        intent_preview = await intent_preview_method(
+                            kvault=kvault.strip(),
+                            amount_ui=amount_ui.strip(),
+                            valid_for_seconds=valid_for_seconds,
                         )
-                    valid_until = approval_summary.get("valid_until_epoch_seconds")
-                    if valid_until is not None and int(time.time()) > int(valid_until):
-                        raise WalletBackendError(
-                            "Approved Kamino intent has expired. Create a fresh intent preview."
+                        approval_summary_copy = self._build_confirmation_summary(
+                            action_label=intent_action_label,
+                            payload=intent_preview,
                         )
-                    approval_summary_copy = dict(approval_summary)
                     self._require_execute_approval(
                         approval_token=approval_token,
                         tool_name=tool_name,
@@ -6617,34 +6752,45 @@ class OpenClawWalletAdapter:
                         ),
                     )
 
-                approved_preview = args.get("_approved_preview")
                 execute_preview = None
-                approval_payload = inspect_approval_token(
-                    approval_token,
-                    tool_name=tool_name,
-                    network=str(getattr(self.backend, "network", "unknown")),
-                    require_mainnet_confirmation=self._is_mainnet_for_backend(self.backend),
-                )
-                approval_summary = approval_payload.get("binding", {}).get("summary")
-                if not isinstance(approval_summary, dict):
-                    raise WalletBackendError(
-                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                if isinstance(approval_token, str) and approval_token.strip():
+                    approved_preview = args.get("_approved_preview")
+                    approval_payload = inspect_approval_token(
+                        approval_token,
+                        tool_name=tool_name,
+                        network=str(getattr(self.backend, "network", "unknown")),
+                        require_mainnet_confirmation=self._is_mainnet_for_backend(self.backend),
                     )
-                approval_summary_copy = dict(approval_summary)
-                if isinstance(approval_summary_copy.get("_preview_digest"), str):
-                    if not isinstance(approved_preview, dict):
+                    approval_summary = approval_payload.get("binding", {}).get("summary")
+                    if not isinstance(approval_summary, dict):
                         raise WalletBackendError(
-                            f"Approved {action_label} preview payload is required for execute mode. Generate a new preview and approval before execute."
+                            "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
                         )
-                    if preview_payload_digest(approved_preview) != approval_summary_copy["_preview_digest"]:
-                        raise WalletBackendError(
-                            "approved preview payload does not match the approval token. Generate a new preview and approval before execute."
+                    approval_summary_copy = dict(approval_summary)
+                    if isinstance(approval_summary_copy.get("_preview_digest"), str):
+                        if not isinstance(approved_preview, dict):
+                            raise WalletBackendError(
+                                f"Approved {action_label} preview payload is required for execute mode. Generate a new preview and approval before execute."
+                            )
+                        if preview_payload_digest(approved_preview) != approval_summary_copy["_preview_digest"]:
+                            raise WalletBackendError(
+                                "approved preview payload does not match the approval token. Generate a new preview and approval before execute."
+                            )
+                        execute_preview = dict(approved_preview)
+                    else:
+                        execute_preview = await preview_method(
+                            kvault=kvault.strip(),
+                            amount_ui=amount_ui.strip(),
                         )
-                    execute_preview = dict(approved_preview)
                 else:
+                    # No host token: same fallback as intent_execute above.
                     execute_preview = await preview_method(
                         kvault=kvault.strip(),
                         amount_ui=amount_ui.strip(),
+                    )
+                    approval_summary_copy = self._build_confirmation_summary(
+                        action_label=action_label,
+                        payload=execute_preview,
                     )
                 self._require_execute_approval(
                     approval_token=approval_token,
@@ -6768,60 +6914,83 @@ class OpenClawWalletAdapter:
                     )
 
                 if mode == "intent_execute":
-                    approval_payload = inspect_approval_token(
-                        approval_token,
-                        tool_name=tool_name,
-                        network=str(getattr(self.backend, "network", "unknown")),
-                        require_mainnet_confirmation=self._is_mainnet_for_backend(self.backend),
-                    )
-                    approval_summary = approval_payload.get("binding", {}).get("summary")
-                    if not isinstance(approval_summary, dict):
-                        raise WalletBackendError(
-                            "approval_token does not match the requested operation. Generate a new intent preview and approval before execute."
+                    if isinstance(approval_token, str) and approval_token.strip():
+                        approval_payload = inspect_approval_token(
+                            approval_token,
+                            tool_name=tool_name,
+                            network=str(getattr(self.backend, "network", "unknown")),
+                            require_mainnet_confirmation=self._is_mainnet_for_backend(self.backend),
                         )
-                    expected_summary = {
-                        "operation": intent_action_label,
-                        "network": str(getattr(self.backend, "network", "unknown")),
-                        "market": market.strip(),
-                        "reserve": reserve.strip(),
-                        "amount_ui": amount_ui.strip(),
-                    }
-                    for key, expected_value in expected_summary.items():
-                        if approval_summary.get(key) != expected_value:
+                        approval_summary = approval_payload.get("binding", {}).get("summary")
+                        if not isinstance(approval_summary, dict):
                             raise WalletBackendError(
-                                f"approval_token does not match the requested {action_label} intent. Generate a fresh intent preview and approval before execute."
+                                "approval_token does not match the requested operation. Generate a new intent preview and approval before execute."
                             )
-                    if approval_summary.get("recipient_policy") != "owner-only":
-                        raise WalletBackendError("approved Kamino intent recipient policy is invalid.")
-                    if approval_summary.get("spend_policy") != "exact-amount":
-                        raise WalletBackendError("approved Kamino intent spend policy is invalid.")
-                    current_owner = await self.backend.get_address()
-                    approved_owner = approval_summary.get("owner")
-                    if approved_owner and current_owner and str(approved_owner) != str(current_owner):
-                        raise WalletBackendError(
-                            "approval_token does not match the active wallet owner. Generate a fresh intent preview and approval before execute."
+                        expected_summary = {
+                            "operation": intent_action_label,
+                            "network": str(getattr(self.backend, "network", "unknown")),
+                            "market": market.strip(),
+                            "reserve": reserve.strip(),
+                            "amount_ui": amount_ui.strip(),
+                        }
+                        for key, expected_value in expected_summary.items():
+                            if approval_summary.get(key) != expected_value:
+                                raise WalletBackendError(
+                                    f"approval_token does not match the requested {action_label} intent. Generate a fresh intent preview and approval before execute."
+                                )
+                        if approval_summary.get("recipient_policy") != "owner-only":
+                            raise WalletBackendError("approved Kamino intent recipient policy is invalid.")
+                        if approval_summary.get("spend_policy") != "exact-amount":
+                            raise WalletBackendError("approved Kamino intent spend policy is invalid.")
+                        current_owner = await self.backend.get_address()
+                        approved_owner = approval_summary.get("owner")
+                        if approved_owner and current_owner and str(approved_owner) != str(current_owner):
+                            raise WalletBackendError(
+                                "approval_token does not match the active wallet owner. Generate a fresh intent preview and approval before execute."
+                            )
+                        approved_obligation = approval_summary.get("obligation_address")
+                        if (
+                            normalized_obligation_address is not None
+                            and approved_obligation is not None
+                            and str(approved_obligation) != normalized_obligation_address
+                        ):
+                            raise WalletBackendError(
+                                "approval_token does not match the requested obligation. Generate a fresh intent preview and approval before execute."
+                            )
+                        valid_until = approval_summary.get("valid_until_epoch_seconds")
+                        if valid_until is not None and int(time.time()) > int(valid_until):
+                            raise WalletBackendError(
+                                "Approved Kamino intent has expired. Create a fresh intent preview."
+                            )
+                        approval_summary_copy = dict(approval_summary)
+                    else:
+                        # No host token: build the exact intent preview a
+                        # human would have seen (same call as
+                        # mode=intent_preview), and let
+                        # _require_execute_approval's autonomous_session /
+                        # agentlayer_autonomous_approve fallback authorize it.
+                        intent_preview = await intent_preview_method(
+                            market=market.strip(),
+                            reserve=reserve.strip(),
+                            amount_ui=amount_ui.strip(),
+                            obligation_address=normalized_obligation_address,
+                            valid_for_seconds=valid_for_seconds,
                         )
-                    approved_obligation = approval_summary.get("obligation_address")
-                    if (
-                        normalized_obligation_address is not None
-                        and approved_obligation is not None
-                        and str(approved_obligation) != normalized_obligation_address
-                    ):
-                        raise WalletBackendError(
-                            "approval_token does not match the requested obligation. Generate a fresh intent preview and approval before execute."
+                        if bool(intent_preview.get("requires_obligation_address")):
+                            raise WalletBackendError(
+                                f"{action_label} requires obligation_address when multiple Kamino obligations match the selected position."
+                            )
+                        approval_summary_copy = self._build_confirmation_summary(
+                            action_label=intent_action_label,
+                            payload=intent_preview,
                         )
-                    valid_until = approval_summary.get("valid_until_epoch_seconds")
-                    if valid_until is not None and int(time.time()) > int(valid_until):
-                        raise WalletBackendError(
-                            "Approved Kamino intent has expired. Create a fresh intent preview."
-                        )
-                    approval_summary_copy = dict(approval_summary)
                     self._require_execute_approval(
                         approval_token=approval_token,
                         tool_name=tool_name,
                         summary=approval_summary_copy,
                         action_label=intent_action_label,
                     )
+                    approved_obligation = approval_summary_copy.get("obligation_address")
                     result = await execute_method(
                         market=market.strip(),
                         reserve=reserve.strip(),
@@ -6885,36 +7054,49 @@ class OpenClawWalletAdapter:
                         ),
                     )
 
-                approved_preview = args.get("_approved_preview")
                 execute_preview = None
-                approval_payload = inspect_approval_token(
-                    approval_token,
-                    tool_name=tool_name,
-                    network=str(getattr(self.backend, "network", "unknown")),
-                    require_mainnet_confirmation=self._is_mainnet_for_backend(self.backend),
-                )
-                approval_summary = approval_payload.get("binding", {}).get("summary")
-                if not isinstance(approval_summary, dict):
-                    raise WalletBackendError(
-                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                if isinstance(approval_token, str) and approval_token.strip():
+                    approved_preview = args.get("_approved_preview")
+                    approval_payload = inspect_approval_token(
+                        approval_token,
+                        tool_name=tool_name,
+                        network=str(getattr(self.backend, "network", "unknown")),
+                        require_mainnet_confirmation=self._is_mainnet_for_backend(self.backend),
                     )
-                approval_summary_copy = dict(approval_summary)
-                if isinstance(approval_summary_copy.get("_preview_digest"), str):
-                    if not isinstance(approved_preview, dict):
+                    approval_summary = approval_payload.get("binding", {}).get("summary")
+                    if not isinstance(approval_summary, dict):
                         raise WalletBackendError(
-                            f"Approved {action_label} preview payload is required for execute mode. Generate a new preview and approval before execute."
+                            "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
                         )
-                    if preview_payload_digest(approved_preview) != approval_summary_copy["_preview_digest"]:
-                        raise WalletBackendError(
-                            "approved preview payload does not match the approval token. Generate a new preview and approval before execute."
+                    approval_summary_copy = dict(approval_summary)
+                    if isinstance(approval_summary_copy.get("_preview_digest"), str):
+                        if not isinstance(approved_preview, dict):
+                            raise WalletBackendError(
+                                f"Approved {action_label} preview payload is required for execute mode. Generate a new preview and approval before execute."
+                            )
+                        if preview_payload_digest(approved_preview) != approval_summary_copy["_preview_digest"]:
+                            raise WalletBackendError(
+                                "approved preview payload does not match the approval token. Generate a new preview and approval before execute."
+                            )
+                        execute_preview = dict(approved_preview)
+                    else:
+                        execute_preview = await preview_method(
+                            market=market.strip(),
+                            reserve=reserve.strip(),
+                            amount_ui=amount_ui.strip(),
+                            obligation_address=obligation_address.strip() if isinstance(obligation_address, str) and obligation_address.strip() else None,
                         )
-                    execute_preview = dict(approved_preview)
                 else:
+                    # No host token: same fallback as intent_execute above.
                     execute_preview = await preview_method(
                         market=market.strip(),
                         reserve=reserve.strip(),
                         amount_ui=amount_ui.strip(),
                         obligation_address=obligation_address.strip() if isinstance(obligation_address, str) and obligation_address.strip() else None,
+                    )
+                    approval_summary_copy = self._build_confirmation_summary(
+                        action_label=action_label,
+                        payload=execute_preview,
                     )
                 self._require_execute_approval(
                     approval_token=approval_token,
@@ -7215,55 +7397,75 @@ class OpenClawWalletAdapter:
                     )
 
                 if mode == "intent_execute":
-                    approval_payload = inspect_approval_token(
-                        approval_token,
-                        tool_name=tool_name,
-                        network=str(getattr(self.backend, "network", "unknown")),
-                        require_mainnet_confirmation=self._is_mainnet_for_backend(self.backend),
-                    )
-                    approval_summary = approval_payload.get("binding", {}).get("summary")
-                    if not isinstance(approval_summary, dict):
-                        raise WalletBackendError(
-                            "approval_token does not match the requested operation. Generate a new intent preview and approval before execute."
+                    if isinstance(approval_token, str) and approval_token.strip():
+                        approval_payload = inspect_approval_token(
+                            approval_token,
+                            tool_name=tool_name,
+                            network=str(getattr(self.backend, "network", "unknown")),
+                            require_mainnet_confirmation=self._is_mainnet_for_backend(self.backend),
                         )
-                    expected_summary = {
-                        "operation": "Swap intent",
-                        "network": str(getattr(self.backend, "network", "unknown")),
-                        "input_mint": input_mint.strip(),
-                        "output_mint": output_mint.strip(),
-                    }
-                    for key, expected_value in expected_summary.items():
-                        if approval_summary.get(key) != expected_value:
+                        approval_summary = approval_payload.get("binding", {}).get("summary")
+                        if not isinstance(approval_summary, dict):
+                            raise WalletBackendError(
+                                "approval_token does not match the requested operation. Generate a new intent preview and approval before execute."
+                            )
+                        expected_summary = {
+                            "operation": "Swap intent",
+                            "network": str(getattr(self.backend, "network", "unknown")),
+                            "input_mint": input_mint.strip(),
+                            "output_mint": output_mint.strip(),
+                        }
+                        for key, expected_value in expected_summary.items():
+                            if approval_summary.get(key) != expected_value:
+                                raise WalletBackendError(
+                                    "approval_token does not match the requested swap intent. Generate a fresh intent preview and approval before execute."
+                                )
+                        current_owner = await self.backend.get_address()
+                        approved_owner = approval_summary.get("owner")
+                        if approved_owner and current_owner and str(approved_owner) != str(current_owner):
+                            raise WalletBackendError(
+                                "approval_token does not match the active wallet owner. Generate a fresh intent preview and approval before execute."
+                            )
+                        try:
+                            approved_amount = float(approval_summary.get("input_amount_ui"))
+                            approved_slippage = int(
+                                approval_summary.get("max_slippage_bps")
+                                if approval_summary.get("max_slippage_bps") is not None
+                                else approval_summary.get("slippage_bps")
+                            )
+                        except (TypeError, ValueError):
                             raise WalletBackendError(
                                 "approval_token does not match the requested swap intent. Generate a fresh intent preview and approval before execute."
                             )
-                    current_owner = await self.backend.get_address()
-                    approved_owner = approval_summary.get("owner")
-                    if approved_owner and current_owner and str(approved_owner) != str(current_owner):
-                        raise WalletBackendError(
-                            "approval_token does not match the active wallet owner. Generate a fresh intent preview and approval before execute."
-                        )
-                    try:
-                        approved_amount = float(approval_summary.get("input_amount_ui"))
-                        approved_slippage = int(
-                            approval_summary.get("max_slippage_bps")
-                            if approval_summary.get("max_slippage_bps") is not None
-                            else approval_summary.get("slippage_bps")
-                        )
-                    except (TypeError, ValueError):
-                        raise WalletBackendError(
-                            "approval_token does not match the requested swap intent. Generate a fresh intent preview and approval before execute."
-                        )
-                    if approved_amount != float(amount) or approved_slippage != slippage_bps:
-                        raise WalletBackendError(
-                            "approval_token does not match the requested swap intent. Generate a fresh intent preview and approval before execute."
-                        )
-                    if approval_summary.get("recipient_policy") != "owner-only":
-                        raise WalletBackendError("approved swap intent recipient policy is invalid.")
-                    if approval_summary.get("spend_policy") != "exact-input":
-                        raise WalletBackendError("approved swap intent spend policy is invalid.")
+                        if approved_amount != float(amount) or approved_slippage != slippage_bps:
+                            raise WalletBackendError(
+                                "approval_token does not match the requested swap intent. Generate a fresh intent preview and approval before execute."
+                            )
+                        if approval_summary.get("recipient_policy") != "owner-only":
+                            raise WalletBackendError("approved swap intent recipient policy is invalid.")
+                        if approval_summary.get("spend_policy") != "exact-input":
+                            raise WalletBackendError("approved swap intent spend policy is invalid.")
 
-                    approval_summary_copy = dict(approval_summary)
+                        approval_summary_copy = dict(approval_summary)
+                    else:
+                        # No host token: build the exact intent preview a human
+                        # would have seen (same call as mode=intent_preview),
+                        # and let _require_execute_approval's autonomous_session /
+                        # agentlayer_autonomous_approve fallback authorize it.
+                        intent_preview = await self.backend.preview_swap_intent(
+                            input_mint=input_mint.strip(),
+                            output_mint=output_mint.strip(),
+                            amount_ui=float(amount),
+                            slippage_bps=slippage_bps,
+                            minimum_output_amount_raw=minimum_output_amount_raw,
+                            max_fee_lamports=max_fee_lamports,
+                            valid_for_seconds=valid_for_seconds,
+                            max_attempts=max_attempts,
+                        )
+                        approval_summary_copy = self._build_confirmation_summary(
+                            action_label="Swap intent",
+                            payload=intent_preview,
+                        )
                     self._require_execute_approval(
                         approval_token=approval_token,
                         tool_name=tool_name,
@@ -7311,58 +7513,74 @@ class OpenClawWalletAdapter:
                         ),
                     )
 
-                approval_payload = inspect_approval_token(
-                    approval_token,
-                    tool_name=tool_name,
-                    network=str(getattr(self.backend, "network", "unknown")),
-                    require_mainnet_confirmation=self._is_mainnet_for_backend(self.backend),
-                )
-                approval_summary = approval_payload.get("binding", {}).get("summary")
-                if not isinstance(approval_summary, dict):
-                    raise WalletBackendError(
-                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                if isinstance(approval_token, str) and approval_token.strip():
+                    approval_payload = inspect_approval_token(
+                        approval_token,
+                        tool_name=tool_name,
+                        network=str(getattr(self.backend, "network", "unknown")),
+                        require_mainnet_confirmation=self._is_mainnet_for_backend(self.backend),
                     )
-                expected_summary = {
-                    "operation": "Swap",
-                    "network": str(getattr(self.backend, "network", "unknown")),
-                    "input_mint": input_mint.strip(),
-                    "output_mint": output_mint.strip(),
-                    "slippage_bps": slippage_bps,
-                }
-                for key, expected_value in expected_summary.items():
-                    if approval_summary.get(key) != expected_value:
+                    approval_summary = approval_payload.get("binding", {}).get("summary")
+                    if not isinstance(approval_summary, dict):
                         raise WalletBackendError(
                             "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
                         )
-                try:
-                    approved_amount = float(approval_summary.get("input_amount_ui"))
-                except (TypeError, ValueError):
-                    raise WalletBackendError(
-                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
-                    )
-                if approved_amount != float(amount):
-                    raise WalletBackendError(
-                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
-                    )
+                    expected_summary = {
+                        "operation": "Swap",
+                        "network": str(getattr(self.backend, "network", "unknown")),
+                        "input_mint": input_mint.strip(),
+                        "output_mint": output_mint.strip(),
+                        "slippage_bps": slippage_bps,
+                    }
+                    for key, expected_value in expected_summary.items():
+                        if approval_summary.get(key) != expected_value:
+                            raise WalletBackendError(
+                                "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                            )
+                    try:
+                        approved_amount = float(approval_summary.get("input_amount_ui"))
+                    except (TypeError, ValueError):
+                        raise WalletBackendError(
+                            "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                        )
+                    if approved_amount != float(amount):
+                        raise WalletBackendError(
+                            "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                        )
 
-                approval_summary_copy = dict(approval_summary)
-                approved_preview = args.get("_approved_preview")
-                if isinstance(approval_summary_copy.get("_preview_digest"), str):
-                    if not isinstance(approved_preview, dict):
-                        raise WalletBackendError(
-                            "Approved swap preview payload is required for execute mode. Generate a new preview and approval before execute."
+                    approval_summary_copy = dict(approval_summary)
+                    approved_preview = args.get("_approved_preview")
+                    if isinstance(approval_summary_copy.get("_preview_digest"), str):
+                        if not isinstance(approved_preview, dict):
+                            raise WalletBackendError(
+                                "Approved swap preview payload is required for execute mode. Generate a new preview and approval before execute."
+                            )
+                        if preview_payload_digest(approved_preview) != approval_summary_copy["_preview_digest"]:
+                            raise WalletBackendError(
+                                "approved preview payload does not match the approval token. Generate a new preview and approval before execute."
+                            )
+                        execute_preview = dict(approved_preview)
+                    else:
+                        execute_preview = await self.backend.preview_swap(
+                            input_mint=input_mint.strip(),
+                            output_mint=output_mint.strip(),
+                            amount_ui=float(amount),
+                            slippage_bps=slippage_bps,
                         )
-                    if preview_payload_digest(approved_preview) != approval_summary_copy["_preview_digest"]:
-                        raise WalletBackendError(
-                            "approved preview payload does not match the approval token. Generate a new preview and approval before execute."
-                        )
-                    execute_preview = dict(approved_preview)
                 else:
+                    # No host token: same fallback as intent_execute above --
+                    # build a fresh preview and let _require_execute_approval's
+                    # autonomous_session / agentlayer_autonomous_approve
+                    # fallback authorize it.
                     execute_preview = await self.backend.preview_swap(
                         input_mint=input_mint.strip(),
                         output_mint=output_mint.strip(),
                         amount_ui=float(amount),
                         slippage_bps=slippage_bps,
+                    )
+                    approval_summary_copy = self._build_confirmation_summary(
+                        action_label="Swap",
+                        payload=execute_preview,
                     )
                 self._require_execute_approval(
                     approval_token=approval_token,
@@ -7454,54 +7672,65 @@ class OpenClawWalletAdapter:
                         ),
                     )
 
-                approval_payload = inspect_approval_token(
-                    approval_token,
-                    tool_name=tool_name,
-                    network=str(getattr(self.backend, "network", "unknown")),
-                    require_mainnet_confirmation=self._is_mainnet(),
-                )
-                approval_summary = approval_payload.get("binding", {}).get("summary")
-                if not isinstance(approval_summary, dict):
-                    raise WalletBackendError(
-                        "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                if isinstance(approval_token, str) and approval_token.strip():
+                    approval_payload = inspect_approval_token(
+                        approval_token,
+                        tool_name=tool_name,
+                        network=str(getattr(self.backend, "network", "unknown")),
+                        require_mainnet_confirmation=self._is_mainnet(),
                     )
-                destination_chain_id = self._canonicalize_lifi_chain_identifier(destination_chain)
-                expected_summary = {
-                    "operation": "Solana LI.FI cross-chain swap",
-                    "network": str(getattr(self.backend, "network", "unknown")),
-                    "source_chain": "solana",
-                    "destination_chain": destination_chain_id,
-                    "input_token": self._canonicalize_lifi_token_identifier(
-                        input_token,
-                        chain_id="1151111081099710",
-                    ),
-                    "output_token": self._canonicalize_lifi_token_identifier(
-                        output_token,
-                        chain_id=destination_chain_id,
-                    ),
-                    "destination_address": destination_address.strip(),
-                    "input_amount_raw": amount_in_raw.strip(),
-                }
-                for key, expected_value in expected_summary.items():
-                    actual_value = approval_summary.get(key)
-                    if key == "destination_chain":
-                        actual_value = self._canonicalize_lifi_chain_identifier(actual_value)
-                    if key == "input_token":
-                        actual_value = self._canonicalize_lifi_token_identifier(
-                            actual_value,
-                            chain_id="1151111081099710",
-                        )
-                    if key == "output_token":
-                        actual_value = self._canonicalize_lifi_token_identifier(
-                            actual_value,
-                            chain_id=destination_chain_id,
-                        )
-                    if actual_value != expected_value:
+                    approval_summary = approval_payload.get("binding", {}).get("summary")
+                    if not isinstance(approval_summary, dict):
                         raise WalletBackendError(
                             "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
                         )
+                    destination_chain_id = self._canonicalize_lifi_chain_identifier(destination_chain)
+                    expected_summary = {
+                        "operation": "Solana LI.FI cross-chain swap",
+                        "network": str(getattr(self.backend, "network", "unknown")),
+                        "source_chain": "solana",
+                        "destination_chain": destination_chain_id,
+                        "input_token": self._canonicalize_lifi_token_identifier(
+                            input_token,
+                            chain_id="1151111081099710",
+                        ),
+                        "output_token": self._canonicalize_lifi_token_identifier(
+                            output_token,
+                            chain_id=destination_chain_id,
+                        ),
+                        "destination_address": destination_address.strip(),
+                        "input_amount_raw": amount_in_raw.strip(),
+                    }
+                    for key, expected_value in expected_summary.items():
+                        actual_value = approval_summary.get(key)
+                        if key == "destination_chain":
+                            actual_value = self._canonicalize_lifi_chain_identifier(actual_value)
+                        if key == "input_token":
+                            actual_value = self._canonicalize_lifi_token_identifier(
+                                actual_value,
+                                chain_id="1151111081099710",
+                            )
+                        if key == "output_token":
+                            actual_value = self._canonicalize_lifi_token_identifier(
+                                actual_value,
+                                chain_id=destination_chain_id,
+                            )
+                        if actual_value != expected_value:
+                            raise WalletBackendError(
+                                "approval_token does not match the requested operation. Generate a new approval after previewing the exact action."
+                            )
 
-                approval_summary_copy = dict(approval_summary)
+                    approval_summary_copy = dict(approval_summary)
+                else:
+                    # No host token: build the exact preview a human would
+                    # have seen and let _require_execute_approval's
+                    # autonomous_session / agentlayer_autonomous_approve
+                    # fallback authorize it.
+                    fresh_preview = await self.backend.preview_solana_lifi_cross_chain_swap(**preview_kwargs)
+                    approval_summary_copy = self._build_confirmation_summary(
+                        action_label="Solana LI.FI cross-chain swap",
+                        payload=fresh_preview,
+                    )
                 self._require_execute_approval(
                     approval_token=approval_token,
                     tool_name=tool_name,

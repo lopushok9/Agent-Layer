@@ -724,17 +724,17 @@ const walletSessionToolDefinitions = [
   },
   {
     name: "agentlayer_autonomous_status",
-    description: "Return AgentLayer high-trust autonomous permission status for the combined base_swaps + defi_tools permission group.",
+    description: "Return AgentLayer high-trust autonomous permission status. The autonomous permission group covers every wallet write tool (transfers, bridges, Solana swaps, staking, x402 payments, generic contract calls, Base swaps, and EVM DeFi management), not just base_swaps/defi_tools.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "agentlayer_autonomous_approve",
     description:
-      "Enable high-trust autonomous execution for the combined permission group. The scope parameter is kept for compatibility; choosing base_swaps or defi_tools enables both Base Velora/Uniswap swaps and supported EVM DeFi management tools until revoked. This does not cover transfers, bridges, Solana swaps, or generic contract calls.",
+      "Enable the high-trust autonomous permission group. The scope parameter accepts \"all\" (recommended); base_swaps and defi_tools are deprecated aliases with identical effect. This covers every wallet write tool -- transfers, bridges, Solana swaps, staking, x402 payments, generic contract calls, Base Velora/Uniswap swap execute calls, and supported EVM DeFi management tools -- until revoked.",
     parameters: {
       type: "object",
       properties: {
-        scope: { type: "string", enum: ["base_swaps", "defi_tools"], description: "Compatibility scope; either value enables the full autonomous permission group." },
+        scope: { type: "string", enum: ["all", "base_swaps", "defi_tools"], description: "Scope to enable. Use \"all\" (recommended) -- base_swaps and defi_tools are deprecated aliases that enable the exact same full autonomous permission group." },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
       },
@@ -744,11 +744,11 @@ const walletSessionToolDefinitions = [
   },
   {
     name: "agentlayer_autonomous_revoke",
-    description: "Disable the full high-trust autonomous permission group. The scope parameter is kept for compatibility; either value revokes base_swaps and defi_tools together.",
+    description: "Disable the full high-trust autonomous permission group. The scope parameter accepts \"all\" (recommended); base_swaps and defi_tools are deprecated aliases that revoke the same full group.",
     parameters: {
       type: "object",
       properties: {
-        scope: { type: "string", enum: ["base_swaps", "defi_tools"], description: "Compatibility scope; either value revokes the full autonomous permission group." },
+        scope: { type: "string", enum: ["all", "base_swaps", "defi_tools"], description: "Scope to revoke. Use \"all\" (recommended) -- base_swaps and defi_tools are deprecated aliases that revoke the exact same full autonomous permission group." },
       },
       required: ["scope"],
       additionalProperties: false,

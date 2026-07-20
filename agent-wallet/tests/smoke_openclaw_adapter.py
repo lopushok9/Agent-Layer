@@ -1988,6 +1988,30 @@ def _issue_execute_approval(
     )
 
 
+def _issue_x402_execute_approval(
+    *,
+    preview: dict,
+    network: str,
+    mainnet_confirmed: bool | None = None,
+) -> str:
+    # x402 previews carry the bindable summary under payment_summary rather
+    # than confirmation_summary (the shape it's later approved/verified
+    # against is identical; only the key differs, since x402 previews don't
+    # expose confirmation_summary directly -- see _annotate_x402_payload).
+    summary = dict(preview["payment_summary"])
+    effective_mainnet_confirmed = (
+        network == "mainnet" if mainnet_confirmed is None else mainnet_confirmed
+    )
+    return issue_approval_token(
+        tool_name="x402_pay_request",
+        network=network,
+        summary=summary,
+        mainnet_confirmed=effective_mainnet_confirmed,
+        ttl_seconds=300,
+        issued_by="smoke-test",
+    )
+
+
 async def main() -> None:
     install_test_sealed_secrets(
         Path("/tmp/openclaw-adapter-smoke"),
@@ -1995,6 +2019,13 @@ async def main() -> None:
         approval_secret="smoke-approval-secret",
     )
     original_pay_and_fetch = x402.pay_and_fetch
+    original_preview_request = x402.preview_request
+    # This file's mocked x402 payments (0.1-0.25 USDC) are below
+    # DE_MINIMIS_USD_THRESHOLD; disable the exemption here so the
+    # approval-required assertions below stay meaningful (the exemption
+    # itself is covered by smoke_x402_de_minimis.py).
+    original_de_minimis_threshold = x402.DE_MINIMIS_USD_THRESHOLD
+    x402.DE_MINIMIS_USD_THRESHOLD = 0.0
     async def fake_x402_prepare_request(*, backend, url, method="GET", headers=None, query=None, json_body=None, text_body=None):
         is_evm = str(getattr(backend, "chain", "")).strip().lower() == "evm"
         backend_network = str(getattr(backend, "network", "")).strip().lower()
@@ -2106,6 +2137,18 @@ async def main() -> None:
         )
         return prepared
 
+    async def fake_x402_preview_request(*, backend, url, method="GET", headers=None, query=None, json_body=None, text_body=None):
+        return await fake_x402_prepare_request(
+            backend=backend,
+            url=url,
+            method=method,
+            headers=headers,
+            query=query,
+            json_body=json_body,
+            text_body=text_body,
+        )
+
+    x402.preview_request = fake_x402_preview_request
     x402.pay_and_fetch = fake_x402_pay_and_fetch
     adapter = OpenClawWalletAdapter(FakeBackend())
     mainnet_adapter = OpenClawWalletAdapter(MainnetFakeBackend())
@@ -3470,16 +3513,34 @@ async def main() -> None:
     allowed_mainnet_balance = await mainnet_adapter.invoke("get_wallet_balance")
     assert allowed_mainnet_balance.ok is True
 
-    x402_paid = await adapter.invoke(
+    # x402_pay_request is gated through the same _require_execute_approval
+    # choke point as every other write tool: no approval_token, no active
+    # autonomous session/permission -> denied.
+    x402_preview = await adapter.invoke(
+        "x402_preview_request",
+        {"url": "https://paid.example.com/report"},
+    )
+    assert x402_preview.ok is True
+    denied_x402 = await adapter.invoke(
         "x402_pay_request",
         {
             "url": "https://paid.example.com/report",
             "purpose": "buy paid report",
         },
     )
+    assert denied_x402.ok is False
+
+    x402_paid = await adapter.invoke(
+        "x402_pay_request",
+        {
+            "url": "https://paid.example.com/report",
+            "purpose": "buy paid report",
+            "approval_token": _issue_x402_execute_approval(preview=x402_preview.data, network="mainnet"),
+        },
+    )
     assert x402_paid.ok is True
     assert x402_paid.data["paid"] is True
-    assert x402_paid.data["confirmation_requirements"]["execute_requires_approval_token"] is False
+    assert x402_paid.data["confirmation_requirements"]["execute_requires_approval_token"] is True
 
     async def failing_x402_pay_and_fetch(*, backend, url, method="GET", headers=None, query=None, json_body=None, text_body=None, approved_preview=None):
         raise ProviderError(
@@ -3494,6 +3555,7 @@ async def main() -> None:
         {
             "url": "https://paid.example.com/report",
             "purpose": "buy paid report",
+            "approval_token": _issue_x402_execute_approval(preview=x402_preview.data, network="mainnet"),
         },
     )
     assert provider_failure.ok is False
@@ -3506,17 +3568,24 @@ async def main() -> None:
         {
             "url": "https://paid.example.com/report",
             "purpose": "buy paid report",
+            "approval_token": _issue_x402_execute_approval(preview=x402_preview.data, network="mainnet"),
         },
     )
     assert x402_executed.ok is True
     assert x402_executed.data["paid"] is True
     assert x402_executed.data["payment_settlement"]["transaction"] == "solana-payment-tx"
 
+    mainnet_x402_preview = await mainnet_adapter.invoke(
+        "x402_preview_request",
+        {"url": "https://paid.example.com/report"},
+    )
+    assert mainnet_x402_preview.ok is True
     mainnet_x402_paid = await mainnet_adapter.invoke(
         "x402_pay_request",
         {
             "url": "https://paid.example.com/report",
             "purpose": "buy paid report on mainnet",
+            "approval_token": _issue_x402_execute_approval(preview=mainnet_x402_preview.data, network="mainnet"),
         },
     )
     assert mainnet_x402_paid.ok is True
@@ -3525,7 +3594,7 @@ async def main() -> None:
     assert mainnet_x402_paid.data["confirmation_summary"]["network"] == "mainnet"
     assert (
         mainnet_x402_paid.data["confirmation_requirements"]["execute_requires_mainnet_confirmed_in_token"]
-        is False
+        is True
     )
 
     original_fetch_swap_v2_order = jupiter.fetch_swap_v2_order
@@ -3646,6 +3715,8 @@ async def main() -> None:
         jupiter._gateway_post = original_gateway_post
 
     x402.pay_and_fetch = original_pay_and_fetch
+    x402.preview_request = original_preview_request
+    x402.DE_MINIMIS_USD_THRESHOLD = original_de_minimis_threshold
 
 
 if __name__ == "__main__":

@@ -148,20 +148,39 @@ allow-list, router allow-list, or session TTL.
 
 Current scope:
 
-- `agentlayer_autonomous_approve { "scope": "base_swaps", ... }`
-- `agentlayer_autonomous_revoke { "scope": "base_swaps" }`
-- `agentlayer_autonomous_approve { "scope": "defi_tools", ... }`
-- `agentlayer_autonomous_revoke { "scope": "defi_tools" }`
+- `agentlayer_autonomous_approve { "scope": "all", ... }`
+- `agentlayer_autonomous_revoke { "scope": "all" }`
 - `agentlayer_autonomous_status`
-- `base_swaps` and `defi_tools` are compatibility scope labels for one
-  combined autonomous permission group; approving either enables both, and
-  revoking either disables both
-- the combined group covers `swap_evm_tokens` (Velora) and
-  `swap_evm_uniswap_tokens` only when the active EVM network is `base`
-- the combined group also covers supported EVM DeFi management tools on `base`
-  and `ethereum`: Aave, Morpho vault/market, and Lido staking/withdrawal tools
-- it does not apply to transfers, bridges, Solana swaps, or generic contract
-  calls
+- `scope` accepts `"all"` (canonical); `base_swaps` and `defi_tools` remain
+  accepted as deprecated aliases with identical effect (both enable/revoke
+  the same single combined group) -- kept for backward compatibility with
+  existing callers, not because the grant is actually narrower
+- `swap_evm_tokens` (Velora) and `swap_evm_uniswap_tokens` (Base only) and the
+  supported EVM DeFi management tools (Aave, Morpho vault/market, Lido
+  staking/withdrawal on `base`/`ethereum`/`robinhood`) have their own
+  dedicated pre-authorization step (`_authorize_base_swap_permission` /
+  `_authorize_defi_permission`) that fetches a fresh preview/quote before
+  minting the approval token, ahead of reaching `_require_execute_approval`
+- every other write tool that funnels through the shared choke point,
+  `_require_execute_approval` (transfers, bridges, Solana swaps, staking,
+  x402 payments, generic contract calls, and the tools above once they reach
+  it) is covered by the same combined group as a fallback, alongside the
+  `autonomous_session` fallback -- enabling the group therefore covers every
+  wallet write tool, not just Base swaps and EVM DeFi
+
+This genuinely covers every write tool now, including the intent-based
+family (`swap_solana_tokens`, `swap_evm_lifi_cross_chain_tokens`,
+`swap_solana_lifi_cross_chain_tokens`, `flash_trade_open_position`,
+`flash_trade_close_position`, and all 6 Kamino tools). Those previously
+called `inspect_approval_token` unconditionally at the top of their
+execute/intent_execute branches -- before ever reaching
+`_require_execute_approval` -- which hard-required a real host-issued token
+and made both fallbacks unreachable dead code for them, regardless of scope.
+They now check for a supplied `approval_token` first and, if absent, build
+the same fresh (intent-)preview a human would have seen and hand it to
+`_require_execute_approval` exactly like every other tool. See
+`smoke_autonomous_intent_tools.py` for end-to-end coverage of this fallback
+across all of them.
 
 When enabled, a covered execute call with no `approval_token` fetches a fresh
 preview/quote, builds the exact confirmation summary, issues the same signed
@@ -169,7 +188,31 @@ approval token internally (`issued_by="autonomous-permission:*"`), then runs
 the existing verification and send path. This preserves exact operation binding
 while removing the host confirmation step for the combined permission group.
 
-This mode is high-trust by design. It is appropriate only when the user wants
-the agent to have the same practical authority as the covered wallet surfaces
-already expose, while still excluding direct fund transfers and generic
-contract calls.
+This mode is high-trust by design, and unbounded by design: there is no
+dollar cap, allow-list, or TTL anywhere in this path. It is appropriate only
+when the user wants the agent to have full practical authority over every
+wallet write tool until explicitly revoked. Users who want a bounded grant
+(spend caps, tool/network/recipient allow-lists, a session TTL) should use
+`start_autonomous_session` instead.
+
+## x402 de-minimis exemption
+
+`x402_pay_request` has one narrow, unconditional exemption from every path
+above: a payment below `x402.DE_MINIMIS_USD_THRESHOLD` (currently $2) never
+requires an `approval_token` -- not from a host, not from an active
+`autonomous_session`, not from `agentlayer_autonomous_approve` -- and this
+applies **regardless of network, including mainnet**. The rationale mirrors
+in-person card payments skipping a signature/PIN below a floor limit.
+
+This only ever applies when the payment asset is confidently identified as
+USDC (`agent_wallet.providers.x402._looks_like_usdc`, matched against known
+USDC contract/mint addresses on Base, Ethereum, and Solana, or an explicit
+`"USDC"`/`"USD Coin"` asset name). For any other asset the USD value is
+unknown here, so the exemption never applies and normal approval is
+required, same as everything else in this document.
+
+Both `x402_preview_request` and `x402_pay_request` responses report whether
+the exemption applied via `confirmation_requirements.execute_requires_approval_token`
+and a `de_minimis_payment` block (`applied`, `threshold_usd`, `amount_usd`),
+so this is never a silent behavior difference from the rest of the wallet's
+execute contract.

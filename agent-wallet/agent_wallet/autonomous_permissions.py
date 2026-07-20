@@ -34,7 +34,13 @@ DEFI_TOOLS = frozenset(
     }
 )
 DEFI_TOOLS_ISSUER = "autonomous-permission:defi-tools"
-SUPPORTED_SCOPES = frozenset({BASE_SWAP_SCOPE, DEFI_TOOLS_SCOPE})
+ALL_TOOLS_ISSUER = "autonomous-permission:all-tools"
+#: Canonical scope name -- the group covers every wallet write tool (see
+#: authorize_operation), not just Base swaps or EVM DeFi. base_swaps/
+#: defi_tools remain accepted as deprecated aliases with identical effect,
+#: for backward compatibility with existing callers.
+ALL_SCOPE = "all"
+SUPPORTED_SCOPES = frozenset({ALL_SCOPE, BASE_SWAP_SCOPE, DEFI_TOOLS_SCOPE})
 _PERMISSIONS_FILENAME = "autonomous_permissions.json"
 
 
@@ -210,6 +216,42 @@ def authorize_base_swap(*, tool_name: str, network: str, summary: dict[str, Any]
         mainnet_confirmed=True,
         ttl_seconds=120,
         issued_by=BASE_SWAP_ISSUER,
+    )
+
+
+def is_autonomous_approved() -> bool:
+    """Whether the combined high-trust autonomous permission group is active.
+
+    Same underlying flag as :func:`is_base_swap_approved` /
+    :func:`is_defi_tools_approved`; exposed under a name that doesn't imply a
+    narrower scope, for callers that gate every wallet tool rather than just
+    Base swaps or EVM DeFi tools.
+    """
+    return bool(status()["active"])
+
+
+def authorize_operation(*, tool_name: str, network: str, summary: dict[str, Any]) -> str:
+    """Issue an internal approval token for any wallet tool/network once the
+    combined high-trust autonomous permission group is enabled.
+
+    Unlike :func:`authorize_base_swap` / :func:`authorize_defi_tool`, this has
+    no per-tool or per-network allow-list -- the group toggle enabled by
+    ``agentlayer_autonomous_approve`` is the only gate. Callers are expected to
+    have already built ``summary`` from a live preview/quote, matching every
+    other execute path's binding contract.
+    """
+    if not is_autonomous_approved():
+        raise WalletBackendError(
+            "Autonomous execution is not enabled. Ask the user to run "
+            "agentlayer_autonomous_approve first."
+        )
+    return issue_approval_token(
+        tool_name=str(tool_name),
+        network=str(network or "").strip().lower(),
+        summary=summary,
+        mainnet_confirmed=True,
+        ttl_seconds=120,
+        issued_by=ALL_TOOLS_ISSUER,
     )
 
 

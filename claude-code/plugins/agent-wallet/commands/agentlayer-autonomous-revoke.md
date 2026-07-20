@@ -1,5 +1,5 @@
 ---
-description: Disable AgentLayer autonomous Base swaps and EVM DeFi tools.
+description: Disable AgentLayer autonomous wallet execution (every write tool).
 allowed-tools: mcp__agent_wallet__agentlayer_autonomous_revoke, mcp__agent_wallet__agentlayer_autonomous_status
 disable-model-invocation: true
 ---
@@ -10,7 +10,7 @@ Call `agentlayer_autonomous_revoke` with:
 
 ```json
 {
-  "scope": "base_swaps"
+  "scope": "all"
 }
 ```
 
