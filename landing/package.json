@@ -9,17 +9,23 @@
     "build:client": "vite build",
     "build:ssr": "vite build --ssr src/entry-server.js --outDir .ssr",
     "lint": "eslint . --ignore-pattern .ssr",
+    "db:migrate": "node scripts/migrate-onboarding.mjs",
     "prerender": "node scripts/prerender.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:onboarding": "node --test tests/onboarding/*.test.js"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.5.0",
     "@types/three": "^0.182.0",
+    "@vercel/functions": "^3.7.5",
+    "better-auth": "^1.6.24",
     "framer-motion": "^12.34.0",
+    "pg": "^8.22.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "three": "^0.182.0"
+    "three": "^0.182.0",
+    "viem": "^2.55.8"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
