@@ -11,6 +11,21 @@ export function sendJson(res, status, payload) {
   return res.status(status).json(payload)
 }
 
+export function requestJson(req, maxBytes = 4_096) {
+  const contentLength = Number.parseInt(String(req.headers?.['content-length'] || '0'), 10)
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    throw new OnboardingError('request_too_large', 413, 'Request body is too large.')
+  }
+
+  if (req.body === undefined || req.body === null || req.body === '') return {}
+  if (typeof req.body === 'object' && !Buffer.isBuffer(req.body)) return req.body
+  try {
+    return JSON.parse(Buffer.from(req.body).toString('utf8'))
+  } catch {
+    throw new OnboardingError('invalid_json', 400, 'Request body must be valid JSON.')
+  }
+}
+
 export function methodNotAllowed(res, allowed = ['POST']) {
   res.setHeader('Allow', allowed.join(', '))
   return sendJson(res, 405, { ok: false, error: 'method_not_allowed' })

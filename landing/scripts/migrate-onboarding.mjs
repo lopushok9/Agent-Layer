@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -6,7 +6,7 @@ import pg from 'pg'
 
 const { Client } = pg
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url))
-const migrationPath = path.resolve(scriptDirectory, '../migrations/001_welcome_onboarding.sql')
+const migrationsDirectory = path.resolve(scriptDirectory, '../migrations')
 const databaseUrl = String(process.env.DATABASE_URL || '').trim()
 
 if (!databaseUrl) {
@@ -19,10 +19,16 @@ const client = new Client({
 })
 
 try {
-  const sql = await readFile(migrationPath, 'utf8')
   await client.connect()
-  await client.query(sql)
-  console.log(`Applied ${path.basename(migrationPath)}`)
+  const migrationNames = (await readdir(migrationsDirectory))
+    .filter((name) => name.endsWith('.sql'))
+    .sort()
+  for (const migrationName of migrationNames) {
+    const migrationPath = path.join(migrationsDirectory, migrationName)
+    const sql = await readFile(migrationPath, 'utf8')
+    await client.query(sql)
+    console.log(`Applied ${migrationName}`)
+  }
 } finally {
   await client.end()
 }
