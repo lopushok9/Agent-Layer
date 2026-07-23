@@ -13,6 +13,7 @@
     { "source": "/terms", "destination": "/terms/" },
     { "source": "/onboard", "destination": "/onboard/" },
     { "source": "/product", "destination": "/mcp/" },
-    { "source": "/about-agent-layer", "destination": "/about/" }
+    { "source": "/about-agent-layer", "destination": "/about/" },
+    { "source": "/api/auth/:path*", "destination": "/api/auth/[...all]" }
   ]
 }
