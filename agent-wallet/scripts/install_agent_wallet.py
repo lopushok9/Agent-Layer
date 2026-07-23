@@ -7,12 +7,19 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.error
+import urllib.request
 import venv
 from pathlib import Path
+
+WELCOME_INVITE_PATTERN = re.compile(r"^alw_[A-Za-z0-9_-]{43}$")
+DEFAULT_ONBOARDING_BIND_URL = "https://www.agent-layer.tech/api/onboarding/bind-wallet"
+ONBOARDING_HTTP_TIMEOUT_SECONDS = 5.0
 
 INCLUDED_RUNTIME_ROOT_FILES = [
     ".env.example",
@@ -192,6 +199,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--network", default="mainnet")
     parser.add_argument("--rpc-url", default="")
     parser.add_argument("--rpc-urls", default="")
+    parser.add_argument("--invite", default="")
     parser.add_argument("--sign-only", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--sync-runtime", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--install-from-runtime", action=argparse.BooleanOptionalAction, default=False)
@@ -856,6 +864,131 @@ def _bootstrap_evm_wallet(
     }
 
 
+def _onboarding_bind_url() -> str:
+    return (
+        os.getenv("AGENTLAYER_ONBOARDING_BIND_URL", "").strip()
+        or DEFAULT_ONBOARDING_BIND_URL
+    )
+
+
+def _onboarding_error_code(payload: object, fallback: str) -> str:
+    if not isinstance(payload, dict):
+        return fallback
+    code = str(payload.get("error") or "").strip().lower()
+    allowed = {
+        "address_already_used",
+        "internal_error",
+        "invalid_base_address",
+        "invalid_invite",
+        "invite_already_bound",
+        "invite_expired",
+        "invite_revoked",
+        "request_too_large",
+    }
+    return code if code in allowed else fallback
+
+
+def _decode_onboarding_response(raw: bytes) -> object:
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+
+
+def _bind_welcome_invite(
+    invite: str,
+    address: str,
+    *,
+    api_url: str | None = None,
+    timeout_seconds: float = ONBOARDING_HTTP_TIMEOUT_SECONDS,
+    opener: object = urllib.request.urlopen,
+    attempts: int = 2,
+) -> dict[str, object]:
+    normalized_invite = invite.strip()
+    normalized_address = address.strip()
+    if not WELCOME_INVITE_PATTERN.fullmatch(normalized_invite):
+        return {"ok": False, "status": "invalid_invite", "retryable": False}
+    if not re.fullmatch(r"0x[0-9a-fA-F]{40}", normalized_address):
+        return {"ok": False, "status": "invalid_base_address", "retryable": False}
+
+    body = json.dumps({"address": normalized_address}).encode("utf-8")
+    request = urllib.request.Request(
+        api_url or _onboarding_bind_url(),
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {normalized_invite}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "AgentLayer-Wallet-Installer",
+        },
+    )
+    max_attempts = max(1, min(int(attempts), 3))
+    for attempt in range(max_attempts):
+        try:
+            with opener(request, timeout=timeout_seconds) as response:  # type: ignore[operator]
+                status_code = int(getattr(response, "status", 200))
+                payload = _decode_onboarding_response(response.read(65_536))
+            if status_code < 200 or status_code >= 300 or not isinstance(payload, dict):
+                if status_code >= 500 and attempt + 1 < max_attempts:
+                    continue
+                return {
+                    "ok": False,
+                    "status": _onboarding_error_code(payload, "service_error"),
+                    "retryable": status_code >= 500,
+                }
+            binding_status = str(payload.get("status") or "")
+            response_address = str(payload.get("address") or "")
+            if (
+                payload.get("ok") is not True
+                or binding_status not in {"bound", "already_bound"}
+                or response_address.lower() != normalized_address.lower()
+            ):
+                return {"ok": False, "status": "invalid_response", "retryable": True}
+            return {
+                "ok": True,
+                "status": binding_status,
+                "network": "base",
+                "address": response_address,
+            }
+        except urllib.error.HTTPError as exc:
+            payload = _decode_onboarding_response(exc.read(65_536))
+            if exc.code >= 500 and attempt + 1 < max_attempts:
+                continue
+            return {
+                "ok": False,
+                "status": _onboarding_error_code(payload, "service_error"),
+                "retryable": exc.code >= 500,
+            }
+        except (urllib.error.URLError, TimeoutError, OSError):
+            if attempt + 1 < max_attempts:
+                continue
+            return {"ok": False, "status": "network_error", "retryable": True}
+    return {"ok": False, "status": "network_error", "retryable": True}
+
+
+def _bind_invite_after_evm_onboard(
+    invite: str,
+    evm_onboard_result: dict[str, object] | None,
+    *,
+    api_url: str | None = None,
+    opener: object = urllib.request.urlopen,
+) -> dict[str, object] | None:
+    if not invite.strip():
+        return None
+    if not isinstance(evm_onboard_result, dict) or not evm_onboard_result.get("ok"):
+        return {"ok": False, "status": "pending_evm_wallet", "retryable": True}
+    address = str(evm_onboard_result.get("address") or "").strip()
+    if not address:
+        return {"ok": False, "status": "pending_evm_wallet", "retryable": True}
+    return _bind_welcome_invite(
+        invite,
+        address,
+        api_url=api_url,
+        opener=opener,
+    )
+
+
 def main() -> None:
     args = build_parser().parse_args()
     source_package_root = Path(args.package_root).expanduser().resolve()
@@ -990,6 +1123,7 @@ def main() -> None:
     configure_stdout = ""
     solana_onboard_result: dict[str, object] | None = None
     evm_onboard_result: dict[str, object] | None = None
+    invite_binding_result: dict[str, object] | None = None
     if backend_enabled and not pending_env and not args.dry_run:
         result = subprocess.run(
             _build_next_steps(
@@ -1027,6 +1161,26 @@ def main() -> None:
                 file=sys.stderr,
             )
 
+    if args.invite.strip():
+        if args.dry_run:
+            invite_binding_result = {
+                "ok": False,
+                "status": "skipped_dry_run",
+                "retryable": True,
+            }
+        else:
+            invite_binding_result = _bind_invite_after_evm_onboard(
+                args.invite,
+                evm_onboard_result,
+            )
+        if invite_binding_result and not invite_binding_result.get("ok"):
+            print(
+                "warning: the welcome invite was not bound; the invite remains "
+                "available for a safe retry. Status: "
+                + str(invite_binding_result.get("status") or "unknown"),
+                file=sys.stderr,
+            )
+
     print(
         json.dumps(
             {
@@ -1053,6 +1207,7 @@ def main() -> None:
                 "pending_env": pending_env,
                 "solana_wallet": solana_onboard_result,
                 "evm_wallet": evm_onboard_result,
+                "invite_binding": invite_binding_result,
                 "next_configure_command": _build_next_steps(
                     python_bin,
                     install_config_script,

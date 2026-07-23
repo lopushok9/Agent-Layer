@@ -113,6 +113,8 @@ def main() -> None:
             "--skip-python-setup",
             "--skip-node-setup",
             "--dry-run",
+            "--invite",
+            "alw_" + ("B" * 43),
         ],
         capture_output=True,
         text=True,
@@ -121,6 +123,13 @@ def main() -> None:
     )
     dry_payload = json.loads(dry_run.stdout)
     assert dry_payload["configured"] is False
+    assert dry_payload["invite_binding"] == {
+        "ok": False,
+        "status": "skipped_dry_run",
+        "retryable": True,
+    }
+    assert "alw_" + ("B" * 43) not in dry_run.stdout
+    assert "alw_" + ("B" * 43) not in dry_run.stderr
     assert dry_payload["pending_env"] == [
         "AGENT_WALLET_BOOT_KEY",
         "AGENT_WALLET_MASTER_KEY",

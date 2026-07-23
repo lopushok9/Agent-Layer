@@ -23,6 +23,7 @@ def main() -> None:
     runtime_base = temp_root / "agent-wallet-runtime"
     runtime_root = runtime_base / "releases" / package_version
     cli = repo_root / "bin" / "openclaw-agent-wallet.mjs"
+    invite = "alw_" + ("C" * 43)
 
     env = dict(os.environ)
     env["OPENCLAW_HOME"] = str(temp_root)
@@ -52,6 +53,8 @@ def main() -> None:
             str(env_path),
             "--backend",
             "none",
+            "--invite",
+            invite,
             "--skip-python-setup",
             "--skip-node-setup",
         ],
@@ -64,6 +67,13 @@ def main() -> None:
     assert payload["ok"] is True
     assert payload["configured"] is False
     assert payload["node_runtime"]["skipped"] is True
+    assert payload["invite_binding"] == {
+        "ok": False,
+        "status": "pending_evm_wallet",
+        "retryable": True,
+    }
+    assert invite not in result.stdout
+    assert invite not in result.stderr
     assert Path(payload["runtime_root"]).resolve() == runtime_root.resolve()
     assert payload["staging_root"]
     assert not Path(payload["staging_root"]).exists()

@@ -47,9 +47,11 @@ Common install options:
   --no-auto-secrets     Do not generate runtime secrets automatically.
   --backend <backend>   solana_local, wdk_btc_local, wdk_evm_local, or none.
   --network <network>   devnet, mainnet, base, ethereum, bitcoin, etc.
+  --invite <code>       Bind a welcome invite to the local Base address.
 
 Examples:
   npx @agentlayer.tech/wallet install --yes
+  npx @agentlayer.tech/wallet install --yes --invite alw_...
   npx @agentlayer.tech/wallet hermes install --yes
   npx @agentlayer.tech/wallet codex install --yes
   npx @agentlayer.tech/wallet claude-code install --yes

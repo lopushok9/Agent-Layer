@@ -562,6 +562,18 @@ That native plugin package is additive. Keep the existing runtime installer for 
 npx @agentlayer.tech/wallet install --yes
 ```
 
+To bind a welcome invite from `https://www.agent-layer.tech/onboard` to the
+local Base address during installation:
+
+```bash
+npx @agentlayer.tech/wallet install --yes --invite alw_...
+```
+
+The installer sends only the one-time invite and the public EVM address to the
+AgentLayer onboarding API. It never sends a private key, seed, wallet password,
+local user ID, or telemetry install ID. A network or EVM provisioning failure
+does not consume the invite and does not roll back the wallet installation.
+
 The ClawHub plugin package auto-checks `~/.openclaw/agent-wallet-runtime/current/agent-wallet` before it falls back to a local workspace checkout.
 
 Public-safe helper scripts are available in `agent-wallet/scripts/`:
