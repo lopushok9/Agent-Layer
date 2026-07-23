@@ -9,6 +9,7 @@ import { HowToUsePage } from './components/HowToUsePage'
 import { AboutAgentLayerPage } from './components/AboutAgentLayerPage'
 import { ForInvestorsPage } from './components/ForInvestorsPage'
 import { TermsPage } from './components/TermsPage'
+import { OnboardingPage } from './components/OnboardingPage'
 import { getMetadataForPage, resolveRoute } from './routes'
 import './index.css'
 
@@ -130,6 +131,7 @@ function App({ initialPage, initialPath, suppressNavigation = false }) {
       {page === 'for-investors' && <ForInvestorsPage onInstallClick={() => setInstallModalOpen(true)} />}
       {page === 'about' && <AboutAgentLayerPage onInstallClick={() => setInstallModalOpen(true)} />}
       {page === 'terms' && <TermsPage onInstallClick={() => setInstallModalOpen(true)} />}
+      {page === 'onboard' && <OnboardingPage />}
       {page === 'home' && <Interface onInstallClick={() => setInstallModalOpen(true)} />}
       {installModalOpen && (
         <InstallModal isOpen={installModalOpen} onClose={() => setInstallModalOpen(false)} />

@@ -11,6 +11,7 @@
     { "source": "/for-investors", "destination": "/for-investors/" },
     { "source": "/about", "destination": "/about/" },
     { "source": "/terms", "destination": "/terms/" },
+    { "source": "/onboard", "destination": "/onboard/" },
     { "source": "/product", "destination": "/mcp/" },
     { "source": "/about-agent-layer", "destination": "/about/" }
   ]

@@ -43,6 +43,11 @@ export const ROUTES = {
     title: 'AgentLayer Terms | Risk Disclosure',
     description: 'Review AgentLayer beta terms, risk disclosures, financial disclaimer language, and data availability caveats.',
   },
+  onboard: {
+    path: '/onboard',
+    title: 'AgentLayer Welcome Bonus | Connect GitHub or X',
+    description: 'Connect GitHub or X, receive a one-time invite code, and bind it to your local AgentLayer wallet on Base.',
+  },
 }
 
 export const PATH_TO_PAGE = Object.fromEntries(

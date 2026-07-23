@@ -1,0 +1,355 @@
+.ob-page {
+  position: absolute;
+  inset: 0;
+  min-height: 100vh;
+  color: #111213;
+  background: #fff;
+  font-family: 'Inter', sans-serif;
+}
+
+.ob-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 72px;
+  padding: 0 32px;
+  box-sizing: border-box;
+  border-bottom: 1px solid rgba(17, 18, 19, 0.1);
+}
+
+.ob-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #111213;
+  text-decoration: none;
+}
+
+.ob-brand-mark {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  object-fit: cover;
+}
+
+.ob-brand-text,
+.ob-back-link {
+  color: #111213;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.ob-back-link {
+  text-underline-offset: 3px;
+}
+
+.ob-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(480px, 0.82fr);
+  min-height: calc(100vh - 73px);
+}
+
+.ob-intro {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: clamp(48px, 8vw, 120px);
+  border-right: 1px solid rgba(17, 18, 19, 0.1);
+  box-sizing: border-box;
+}
+
+.ob-kicker {
+  margin-bottom: 28px;
+  color: #6a7078;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.ob-intro h1 {
+  margin: 0;
+  font-size: clamp(64px, 8vw, 128px);
+  font-weight: 800;
+  letter-spacing: -0.065em;
+  line-height: 0.84;
+}
+
+.ob-intro > p {
+  max-width: 570px;
+  margin: 40px 0 0;
+  color: #5f6368;
+  font-size: 17px;
+  line-height: 1.65;
+}
+
+.ob-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 36px;
+}
+
+.ob-facts span {
+  padding: 6px 11px;
+  border: 1px solid rgba(17, 18, 19, 0.14);
+  border-radius: 999px;
+  color: #565b62;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 11px;
+}
+
+.ob-panel {
+  align-self: center;
+  padding: clamp(40px, 6vw, 88px);
+  box-sizing: border-box;
+}
+
+.ob-step {
+  display: grid;
+  grid-template-columns: 38px 1fr;
+  gap: 12px;
+}
+
+.ob-step-number {
+  padding-top: 7px;
+  color: #8b9097;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 11px;
+}
+
+.ob-step h2 {
+  margin: 0;
+  font-size: clamp(28px, 3vw, 42px);
+  font-weight: 750;
+  letter-spacing: -0.045em;
+}
+
+.ob-step p {
+  margin: 9px 0 0;
+  color: #6a7078;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.ob-provider-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.ob-provider-button {
+  min-height: 112px;
+  padding: 20px;
+  border: 1px solid #111213;
+  border-radius: 2px;
+  color: #111213;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.ob-provider-button:not(:disabled):hover {
+  color: #fff;
+  background: #111213;
+}
+
+.ob-provider-button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.ob-provider-connected {
+  color: #fff;
+  background: #111213;
+  opacity: 1 !important;
+}
+
+.ob-provider-button span,
+.ob-provider-button strong,
+.ob-provider-button small {
+  display: block;
+}
+
+.ob-provider-button span,
+.ob-provider-button small {
+  font-size: 11px;
+}
+
+.ob-provider-button strong {
+  margin-top: 8px;
+  font-size: 23px;
+  letter-spacing: -0.035em;
+}
+
+.ob-provider-button small {
+  margin-top: 8px;
+  color: #8b9097;
+}
+
+.ob-loading {
+  margin-top: 28px;
+  color: #6a7078;
+  font-size: 13px;
+}
+
+.ob-session-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 16px;
+  color: #5f6368;
+  font-size: 12px;
+}
+
+.ob-session-row button {
+  padding: 0;
+  border: 0;
+  color: #111213;
+  background: transparent;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.ob-divider {
+  height: 1px;
+  margin: 44px 0;
+  background: rgba(17, 18, 19, 0.1);
+}
+
+.ob-claim-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 28px;
+}
+
+.ob-primary-button,
+.ob-secondary-button {
+  min-height: 46px;
+  padding: 0 18px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.ob-primary-button {
+  border: 1px solid #111213;
+  color: #fff;
+  background: #111213;
+}
+
+.ob-secondary-button {
+  border: 1px solid rgba(17, 18, 19, 0.2);
+  color: #111213;
+  background: #fff;
+}
+
+.ob-primary-button:disabled,
+.ob-secondary-button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.ob-invite-result {
+  margin-top: 28px;
+}
+
+.ob-command-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 9px;
+  color: #6a7078;
+  font-size: 11px;
+}
+
+.ob-invite-result code {
+  display: block;
+  overflow-x: auto;
+  padding: 18px;
+  border: 1px solid rgba(17, 18, 19, 0.16);
+  background: #f6f6f4;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: nowrap;
+}
+
+.ob-invite-result .ob-primary-button {
+  margin-top: 14px;
+}
+
+.ob-security-note {
+  margin: 16px 0 0;
+  color: #7b8087;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.ob-error {
+  margin-top: 18px;
+  padding: 12px 14px;
+  border-left: 2px solid #9f2d24;
+  color: #7a211b;
+  background: #fff5f3;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 980px) {
+  .ob-main {
+    grid-template-columns: 1fr;
+  }
+
+  .ob-intro {
+    min-height: 58vh;
+    border-right: 0;
+    border-bottom: 1px solid rgba(17, 18, 19, 0.1);
+  }
+
+  .ob-panel {
+    width: 100%;
+    max-width: 760px;
+    margin: 0 auto;
+  }
+}
+
+@media (max-width: 560px) {
+  .ob-header {
+    height: 64px;
+    padding: 0 18px;
+  }
+
+  .ob-brand-mark {
+    width: 44px;
+    height: 44px;
+  }
+
+  .ob-main {
+    min-height: calc(100vh - 65px);
+  }
+
+  .ob-intro,
+  .ob-panel {
+    padding: 44px 20px;
+  }
+
+  .ob-intro h1 {
+    font-size: clamp(56px, 19vw, 84px);
+  }
+
+  .ob-provider-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ob-command-label {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
