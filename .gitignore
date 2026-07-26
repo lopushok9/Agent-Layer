@@ -90,3 +90,5 @@ npm-cache/
 
 # Local benchmark drafts (agentic finance evals — WIP, not for release)
 benchmarks/
+.vercel
+.env*
