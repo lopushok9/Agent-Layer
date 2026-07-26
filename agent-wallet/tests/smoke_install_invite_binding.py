@@ -122,6 +122,20 @@ def main() -> None:
     }
     assert INVITE not in json.dumps(pending)
 
+    assert installer._invite_binding_warning(pending) == (
+        "warning: the welcome invite was not bound; the invite remains "
+        "available for a safe retry. Status: pending_evm_wallet"
+    )
+    assert installer._invite_binding_warning(
+        {"ok": False, "status": "invite_already_bound", "retryable": False}
+    ) == (
+        "warning: the welcome invite is already bound to a different Base "
+        "wallet and cannot be used with this wallet. Status: invite_already_bound"
+    )
+    assert installer._invite_binding_warning(
+        {"ok": False, "status": "invite_expired", "retryable": False}
+    ) == "warning: the welcome invite was not bound and cannot be retried. Status: invite_expired"
+
     print("smoke_install_invite_binding: ok")
 
 

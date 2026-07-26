@@ -989,6 +989,24 @@ def _bind_invite_after_evm_onboard(
     )
 
 
+def _invite_binding_warning(binding_result: dict[str, object]) -> str:
+    """Describe a failed invite bind without claiming it can always be retried."""
+    status = str(binding_result.get("status") or "unknown")
+    if status == "invite_already_bound":
+        return (
+            "warning: the welcome invite is already bound to a different Base "
+            "wallet and cannot be used with this wallet. Status: "
+            + status
+        )
+    if binding_result.get("retryable") is True:
+        return (
+            "warning: the welcome invite was not bound; the invite remains "
+            "available for a safe retry. Status: "
+            + status
+        )
+    return "warning: the welcome invite was not bound and cannot be retried. Status: " + status
+
+
 def main() -> None:
     args = build_parser().parse_args()
     source_package_root = Path(args.package_root).expanduser().resolve()
@@ -1174,12 +1192,7 @@ def main() -> None:
                 evm_onboard_result,
             )
         if invite_binding_result and not invite_binding_result.get("ok"):
-            print(
-                "warning: the welcome invite was not bound; the invite remains "
-                "available for a safe retry. Status: "
-                + str(invite_binding_result.get("status") or "unknown"),
-                file=sys.stderr,
-            )
+            print(_invite_binding_warning(invite_binding_result), file=sys.stderr)
 
     print(
         json.dumps(
