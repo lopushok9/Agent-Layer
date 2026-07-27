@@ -19,37 +19,21 @@ Local-first wallet and finance stack for AI agents. Agents get constrained walle
 
 ---
 
-## Install by agent type
-
-### OpenClaw
+## Universal install
 
 ```bash
 npx @agentlayer.tech/wallet install --yes
 ```
 
+The installer detects OpenClaw, Codex, Claude Code, and Hermes and connects
+every detected host to one shared runtime.
 
----
-
-### Claude Code
-
-```bash
-npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet claude-code install --yes
-```
-
----
-
-### Codex
+Choose hosts explicitly when requested:
 
 ```bash
-npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet codex install --yes
-```
-
----
-
-### Hermes
-
-```bash
-npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet hermes install --yes
+npx @agentlayer.tech/wallet install --yes --hosts codex,claude-code
+npx @agentlayer.tech/wallet detect --json
+npx @agentlayer.tech/wallet install --yes --runtime-only
 ```
 
 ---
@@ -60,8 +44,11 @@ npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet hermes 
 - Creates a Python backend venv
 - Installs Node deps for BTC/EVM wallet services
 - Generates secrets sealed into `~/.openclaw/sealed_keys.json`
+- Stores the boot key in the native OS keystore by default (`auto`), with a
+  local `0600` file only as a fallback
 - Provisions the first local Solana mainnet wallet
-- Patches `~/.openclaw/openclaw.json` to load the plugin
+- Connects only the selected host bridges
+- Patches `~/.openclaw/openclaw.json` only when OpenClaw is selected
 
 Default after install: `backend=solana_local`, `network=mainnet`.
 
@@ -88,6 +75,9 @@ wallet status
 wallet doctor
 ```
 
+Updates repair only already-managed host integrations. They do not enroll a
+newly detected framework and do not replace wallet files or sealed secrets.
+
 ---
 
 ## Optional: BTC and EVM wallets
@@ -104,3 +94,7 @@ sh agent-wallet/scripts/setup_evm_wallet.sh
 ## Security model
 
 The agent gets wallet tools, not wallet keys. Secret material stays local. Signing stays in the wallet layer. Risky writes require approval.
+
+On macOS, the default native keystore is the login Keychain. macOS may show a
+Keychain access or password confirmation during install or update; approve it
+only when you initiated the AgentLayer command.

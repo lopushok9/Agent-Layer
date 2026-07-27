@@ -9,7 +9,9 @@ spawning the runtime Python:
 
 This drives those exact subprocess calls (not in-process) so OS-specific issues
 — Windows stdin encoding, DPAPI, CLI arg parsing — are actually exercised.
-Uses a throwaway keystore service so no real boot key is touched.
+Set AGENT_WALLET_ALLOW_NATIVE_KEYSTORE_TEST=1 to explicitly permit OS-keystore
+access. The throwaway service protects the production boot-key item, but on
+macOS the test still accesses the user's actual login Keychain outside CI.
 """
 
 from __future__ import annotations
@@ -26,6 +28,11 @@ PKG_DIR = str(Path(__file__).resolve().parents[1])  # the agent-wallet dir (hold
 
 
 def main() -> None:
+    if os.environ.get("AGENT_WALLET_ALLOW_NATIVE_KEYSTORE_TEST") != "1":
+        raise SystemExit(
+            "Refusing native keystore access without "
+            "AGENT_WALLET_ALLOW_NATIVE_KEYSTORE_TEST=1"
+        )
     temp_home = Path(tempfile.mkdtemp(prefix="openclaw-install-bridge-"))
     env = dict(os.environ)
     env["OPENCLAW_HOME"] = str(temp_home)

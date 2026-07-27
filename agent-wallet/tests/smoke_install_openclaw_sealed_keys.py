@@ -60,6 +60,13 @@ def main() -> None:
     assert sealed["approval_secret"] == "approval-from-installer"
     assert sealed["private_key"] == "private-from-installer"
 
+    sealed_path = resolve_sealed_keys_path()
+    sealed_bytes = sealed_path.read_bytes()
+    unchanged = _run_script(env)
+    assert unchanged["changed"] is False
+    assert unchanged["updated_keys"] == []
+    assert sealed_path.read_bytes() == sealed_bytes
+
     env["AGENT_WALLET_MASTER_KEY"] = "replacement-master"
     env.pop("AGENT_WALLET_APPROVAL_SECRET", None)
     env.pop("SOLANA_AGENT_PRIVATE_KEY", None)

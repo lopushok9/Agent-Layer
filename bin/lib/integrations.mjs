@@ -81,6 +81,24 @@ export function createIntegrationManager({ runtimeBase, packageVersion, activeVe
     return registry.integrations[name];
   }
 
+  function recoverCorruptRegistry() {
+    const registry = readRegistry();
+    if (!registry.registry_error) {
+      return { recovered: false, backup: null };
+    }
+    const corruptBackup = quarantineCorruptRegistry(registry);
+    const recovered = emptyRegistry();
+    if (corruptBackup) {
+      recovered.recovered_corrupt_registry = path.basename(corruptBackup);
+    }
+    recovered.updated_at = new Date().toISOString();
+    writeJsonAtomic(registryPath, recovered);
+    return {
+      recovered: true,
+      backup: corruptBackup,
+    };
+  }
+
   function managed(name) {
     const entry = readRegistry().integrations[name];
     return entry?.managed === true ? entry : null;
@@ -140,7 +158,16 @@ export function createIntegrationManager({ runtimeBase, packageVersion, activeVe
       .filter(Boolean);
   }
 
-  return { registryPath, readRegistry, record, managed, status, safelyRefresh, refreshAll };
+  return {
+    registryPath,
+    readRegistry,
+    record,
+    recoverCorruptRegistry,
+    managed,
+    status,
+    safelyRefresh,
+    refreshAll,
+  };
 }
 
 export function createHostIntegrationManager({
@@ -188,6 +215,37 @@ export function createHostIntegrationManager({
     } catch {
       return false;
     }
+  }
+
+  function adoptOpenclaw() {
+    const configPath = path.join(openclawHome, "openclaw.json");
+    let config;
+    try {
+      config = readJson(configPath);
+    } catch {
+      return null;
+    }
+    const walletEntry = config?.plugins?.entries?.["agent-wallet"];
+    const packageRoot = walletEntry?.config?.packageRoot;
+    const loadPaths = Array.isArray(config?.plugins?.load?.paths)
+      ? config.plugins.load.paths
+      : [];
+    const ownedPackage =
+      typeof packageRoot === "string" &&
+      packageRoot.trim() &&
+      runtimeOwnedTarget(packageRoot);
+    const ownedExtension = loadPaths.some(
+      (item) =>
+        String(item || "").replaceAll("\\", "/").endsWith("/.openclaw/extensions/agent-wallet") &&
+        runtimeOwnedTarget(String(item)),
+    );
+    if (!walletEntry || (!ownedPackage && !ownedExtension)) return null;
+    return registry.record("openclaw", {
+      config_path: configPath,
+      extension_path: path.join(currentRuntimePath, ".openclaw", "extensions", "agent-wallet"),
+      package_root: path.join(currentRuntimePath, "agent-wallet"),
+      adopted_legacy_install: true,
+    });
   }
 
   function adoptHermes() {
@@ -268,7 +326,7 @@ export function createHostIntegrationManager({
   }
 
   function refreshOpenclaw() {
-    const entry = registry.managed("openclaw");
+    const entry = registry.managed("openclaw") || adoptOpenclaw();
     if (!entry) {
       return { name: "openclaw", attempted: false, ok: true, repaired: false, reason: "not managed" };
     }
@@ -411,13 +469,19 @@ export function createHostIntegrationManager({
     };
   }
 
-  function refreshAll() {
-    return registry.refreshAll({
+  function refreshAll(names = null) {
+    const selected = names ? new Set(names) : null;
+    const refreshers = {
       openclaw: refreshOpenclaw,
       hermes: refreshHermes,
       codex: refreshCodex,
       "claude-code": refreshClaudeCode,
-    });
+    };
+    return registry.refreshAll(
+      Object.fromEntries(
+        Object.entries(refreshers).filter(([name]) => !selected || selected.has(name)),
+      ),
+    );
   }
 
   return { refreshAll };

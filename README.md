@@ -6,23 +6,32 @@
 [![Node 24.x](https://img.shields.io/badge/node-24.x-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![docs](https://img.shields.io/badge/docs-agent--layer.tech-blue)](https://docs.agent-layer.tech/)
 
-For Openclaw:
+Install AgentLayer for the agent frameworks already present on the machine:
 
 ```bash
 npx @agentlayer.tech/wallet install --yes
 ```
 
-For Codex:
+The installer detects OpenClaw, Codex, Claude Code, and Hermes, installs the
+shared local runtime once, and connects every detected host. Without `--yes`,
+an interactive terminal asks about each detected host.
+
+To choose hosts explicitly:
 
 ```bash
-npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet codex install --yes
+npx @agentlayer.tech/wallet install --yes --hosts codex,claude-code
+npx @agentlayer.tech/wallet install --yes --hosts detected --exclude hermes
+npx @agentlayer.tech/wallet install --yes --runtime-only
+npx @agentlayer.tech/wallet detect --json
 ```
 
-For Claude Code:
+The legacy `wallet codex install`, `wallet claude-code install`, and
+`wallet hermes install` commands remain supported as explicit repair/install
+commands.
 
-```bash
-npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet claude-code install --yes
-```
+On a machine with an existing AgentLayer runtime, a plain `wallet install`
+touches only already-managed hosts. To enroll a framework installed later, run
+`wallet install --yes --hosts detected` or name it explicitly.
 
 Or install entirely from inside the Claude Code CLI, via the plugin marketplace
 (no terminal/npx needed) — two commands, then restart:
@@ -31,13 +40,6 @@ Or install entirely from inside the Claude Code CLI, via the plugin marketplace
 /plugin marketplace add lopushok9/Agent-Layer
 /plugin install agent-wallet@agentlayer
 ```
-
-For Hermes:
-
-```bash
-npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet hermes install --yes
-```
-
 
 AgentLayer is a beta local-first wallet and finance stack for agents.
 
@@ -72,7 +74,7 @@ System prerequisites:
 - `node` `24.x`
 - `npm`
 
-Install the local runtime:
+Install the local runtime and connect detected agent frameworks:
 
 ```bash
 npx @agentlayer.tech/wallet install --yes
@@ -102,13 +104,26 @@ The CLI uses a versioned runtime layout:
 ~/.openclaw/agent-wallet-runtime/current              # symlink → active release
 ```
 
-On first install, `--yes` generates local runtime secrets. The installer stores `master_key` and `approval_secret` in `~/.openclaw/sealed_keys.json`; the boot key needed to unlock that sealed bundle stays in the prompt-free local fallback by default. macOS Keychain is opt-in (`AGENT_WALLET_KEYSTORE_BACKEND=macos-keychain`) because probing it can open a system password dialog during install or startup.
+`~/.openclaw` remains the shared AgentLayer runtime root even when OpenClaw is
+not installed. A Codex-only or Claude-only install creates the runtime there
+but does not create or patch `openclaw.json`.
+
+On first install, `--yes` generates local runtime secrets. The installer stores
+`master_key` and `approval_secret` in `~/.openclaw/sealed_keys.json`. The boot
+key needed to unlock that sealed bundle uses `AGENT_WALLET_KEYSTORE_BACKEND=auto`
+by default: it prefers the native OS keystore and falls back to a local `0600`
+file only when the native backend is unavailable. On macOS this means the login
+Keychain (`service=ai.agentlayer.wallet`, `account=boot_key`). macOS may show a
+Keychain access or password confirmation depending on the current Keychain
+state; approve it only when you initiated the AgentLayer install or update.
+Existing installs keep the same boot-key value during upgrades.
 
 Useful CLI commands (require the global install above):
 
 ```bash
 wallet status                    # show active runtime version and health
 wallet doctor                    # diagnose common config problems
+wallet detect --json             # show detected and already-managed hosts
 wallet update --yes              # upgrade to the latest published version
 wallet update --yes --dry-run    # preview the upgrade without applying it
 wallet rollback                  # revert to the previous release
@@ -116,7 +131,14 @@ wallet hermes install --yes      # (re)connect Hermes to the current runtime
 wallet codex install --yes       # (re)connect Codex to the current runtime
 ```
 
-`wallet update --yes` fetches the latest npm package, installs it under `releases/<version>`, and flips the `current` symlink. Python and Node dependency snapshots are reused when the dependency fingerprint has not changed, so subsequent updates are fast. All frameworks that read from `current/` (Claude Code, Codex, Hermes) pick up the new code automatically on their next session start; OpenClaw requires a gateway restart to reload its TypeScript extension.
+`wallet update --yes` fetches the latest npm package, installs it under
+`releases/<version>`, and flips the `current` symlink. Updates repair only hosts
+already recorded as AgentLayer-managed; a newly detected framework is never
+silently enrolled during update. Python and Node dependency snapshots are
+reused when the dependency fingerprint has not changed, so subsequent updates
+are fast. All frameworks that read from `current/` (Claude Code, Codex, Hermes)
+pick up the new code automatically on their next session start; OpenClaw
+requires a gateway restart to reload its TypeScript extension.
 
 ## Native OpenClaw plugin installs
 
@@ -280,10 +302,10 @@ For the default Solana flow, run the installer directly:
 npx @agentlayer.tech/wallet install --yes
 ```
 
-That installs the runtime, patches the OpenClaw plugin config, generates local
+That installs the runtime, connects each detected framework, generates local
 runtime secrets when missing, and creates the first encrypted per-user Solana
-mainnet wallet. The agent receives the public address and guarded wallet tools,
-not the private key.
+mainnet wallet. `openclaw.json` is patched only when OpenClaw is selected. The
+agent receives the public address and guarded wallet tools, not the private key.
 
 BTC and EVM are separate host-side setup flows.
 
@@ -377,10 +399,11 @@ The installer then:
 - creates `agent-wallet/.env` from `agent-wallet/.env.example` if it does not exist
 - creates `agent-wallet/.runtime-venv` and installs the Python backend
 - installs Node dependencies for `wdk-btc-wallet`, `wdk-evm-wallet`, and `flash-sdk-bridge`
-- creates a minimal `~/.openclaw/openclaw.json` if one does not exist
 - if the required secrets are already present, writes or updates `~/.openclaw/sealed_keys.json`
-- if the required secrets are already present, patches `~/.openclaw/openclaw.json` to load the `agent-wallet` extension and point it at the installed runtime
-- `wallet hermes install --yes` additionally connects Hermes Agent to the same runtime without copying wallet tools or policy
+- detects OpenClaw, Codex, Claude Code, and Hermes before changing host config
+- connects the selected hosts to `agent-wallet-runtime/current`
+- creates or patches `~/.openclaw/openclaw.json` only when OpenClaw is selected
+- records non-secret ownership metadata so later updates repair only managed hosts
 
 When the installer reaches the final config step, the default plugin config is:
 

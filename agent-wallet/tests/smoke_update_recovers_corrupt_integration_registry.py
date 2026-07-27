@@ -77,7 +77,7 @@ def main() -> None:
         assert len(backups) == 1, backups
         assert backups[0].read_text(encoding="utf-8") == corrupt_contents
         recovered = json.loads(registry_path.read_text(encoding="utf-8"))
-        assert set(recovered["integrations"]) == {"openclaw"}, recovered
+        assert recovered["integrations"] == {}, recovered
         assert recovered["recovered_corrupt_registry"] == backups[0].name, recovered
 
         after = subprocess.run(

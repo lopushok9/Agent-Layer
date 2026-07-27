@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Added a universal npm installer for OpenClaw, Codex, Claude Code, and Hermes.
+  `wallet install` now detects installed agent frameworks, supports explicit
+  `--hosts`, `--exclude`, and `--runtime-only` selection, and exposes
+  `wallet detect --json`. Runtime updates remain managed-only, so discovering a
+  new framework later does not silently enroll it. OpenClaw config creation is
+  now a host-specific step; wallet files and sealed secrets remain in their
+  existing `~/.openclaw` locations and are not replaced during updates.
+
+- Confirmed the native OS keystore as the default boot-key backend. `auto`
+  prefers macOS Keychain, Windows DPAPI, or Linux Secret Service and uses the
+  local `0600` file only as a fallback. The npm installer now warns macOS users
+  that the system may request Keychain confirmation; this does not rotate or
+  migrate the boot key during ordinary updates.
+
 - Hardened Morpho EVM operations with a 30% gas-limit buffer calculated from
   the exact final calldata immediately before sending. Morpho vault and market
   writes now wait for their final on-chain receipt and report reverts instead
