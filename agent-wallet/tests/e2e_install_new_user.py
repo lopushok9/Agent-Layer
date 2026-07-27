@@ -17,8 +17,10 @@ per-push smoke loops. Node project setup is skipped: the wdk node runtimes have
 their own coverage and are irrelevant to the boot-key contract.
 
 Keystore isolation: AGENT_WALLET_KEYSTORE_SERVICE points at a throwaway service
-so a local run never touches the machine's real boot-key slot. The driver is
-stdlib-only; every agent_wallet call goes through the installed release's venv.
+so the production boot-key item is never touched. On macOS this still accesses
+the user's actual login Keychain, so the test requires the explicit
+AGENT_WALLET_ALLOW_NATIVE_KEYSTORE_TEST=1 opt-in. The driver is stdlib-only;
+every agent_wallet call goes through the installed release's venv.
 """
 
 from __future__ import annotations
@@ -97,6 +99,11 @@ def resolve_venv_python(runtime_root: Path) -> Path:
 
 
 def main() -> None:
+    if os.environ.get("AGENT_WALLET_ALLOW_NATIVE_KEYSTORE_TEST") != "1":
+        raise SystemExit(
+            "Refusing native keystore E2E without "
+            "AGENT_WALLET_ALLOW_NATIVE_KEYSTORE_TEST=1"
+        )
     temp_home = Path(tempfile.mkdtemp(prefix="openclaw-e2e-new-user-"))
     env = dict(os.environ)
     env["OPENCLAW_HOME"] = str(temp_home)

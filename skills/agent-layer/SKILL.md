@@ -26,31 +26,37 @@ AgentLayer is a crypto wallet for agents (opensource). Make payments via x402, u
 
 ## Install flow
 
-When the user asks you to install AgentLayer wallet, use these commands:
-
-### OpenClaw
+When the user asks you to install AgentLayer wallet, use the universal installer:
 
 ```bash
 npx @agentlayer.tech/wallet install --yes
 ```
 
-### Claude Code
+It detects OpenClaw, Codex, Claude Code, and Hermes, then connects every
+detected host to one shared local runtime.
+
+Use an explicit host list only when the user asks for one:
 
 ```bash
-npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet claude-code install --yes
+npx @agentlayer.tech/wallet install --yes --hosts codex,claude-code
 ```
 
-### Codex
+Detection and runtime-only examples:
 
 ```bash
-npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet codex install --yes
+npx @agentlayer.tech/wallet detect --json
+npx @agentlayer.tech/wallet install --yes --runtime-only
 ```
 
-### Hermes
+On an existing installation, `wallet update --yes` updates the runtime and
+repairs only already-managed hosts. It must not enroll newly detected hosts or
+replace wallet files/sealed secrets.
 
-```bash
-npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet hermes install --yes
-```
+The boot key uses the native OS keystore by default (`auto`) and falls back to
+a local `0600` file only when the native backend is unavailable. On macOS this
+means the login Keychain, so macOS may show an access or password confirmation
+during install or update. Tell the user to approve it only when they initiated
+the AgentLayer command.
 
 ## Capabilities
 

@@ -69,6 +69,11 @@ def resolve_venv_python(runtime_root: Path) -> Path:
 
 
 def main() -> None:
+    if os.environ.get("AGENT_WALLET_ALLOW_NATIVE_KEYSTORE_TEST") != "1":
+        raise SystemExit(
+            "Refusing native keystore E2E without "
+            "AGENT_WALLET_ALLOW_NATIVE_KEYSTORE_TEST=1"
+        )
     temp_home = Path(tempfile.mkdtemp(prefix="openclaw-e2e-upgrade-"))
     env = dict(os.environ)
     env["OPENCLAW_HOME"] = str(temp_home)

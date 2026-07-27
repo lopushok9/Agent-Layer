@@ -94,15 +94,19 @@ def main() -> None:
             "and/or SOLANA_AGENT_PRIVATE_KEY in the environment."
         )
 
-    path = seal_keys(boot_key, secrets)
+    changed = not sealed_path.exists() or secrets != existing
+    path = seal_keys(boot_key, secrets) if changed else sealed_path
     print(
         json.dumps(
             {
                 "ok": True,
                 "path": str(path),
                 "stored_keys": sorted(secrets.keys()),
-                "updated_keys": sorted(set(updates.keys()) | set(generated_keys)),
+                "updated_keys": (
+                    sorted(set(updates.keys()) | set(generated_keys)) if changed else []
+                ),
                 "replaced": bool(args.replace),
+                "changed": changed,
             },
             indent=2,
         )

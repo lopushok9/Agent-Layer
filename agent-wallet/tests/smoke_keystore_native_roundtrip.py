@@ -8,8 +8,10 @@ backend resolve_keystore() selects on the host it runs on:
                plaintext-file fallback.
 
 Intended for the CI matrix (.github/workflows/keystore-matrix.yml). Set
-AGENT_WALLET_EXPECT_BACKEND to assert the exact backend for a given runner.
-Uses a throwaway keystore service so it never touches a real boot key.
+AGENT_WALLET_ALLOW_NATIVE_KEYSTORE_TEST=1 to explicitly permit OS-keystore
+access and AGENT_WALLET_EXPECT_BACKEND to assert the exact backend for a given
+runner. Uses a throwaway service, but on macOS it still accesses the user's
+actual login Keychain when run outside isolated CI.
 """
 
 from __future__ import annotations
@@ -24,6 +26,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
 def main() -> None:
+    if os.environ.get("AGENT_WALLET_ALLOW_NATIVE_KEYSTORE_TEST") != "1":
+        raise SystemExit(
+            "Refusing native keystore access without "
+            "AGENT_WALLET_ALLOW_NATIVE_KEYSTORE_TEST=1"
+        )
     temp_home = Path(tempfile.mkdtemp(prefix="openclaw-ks-native-"))
     os.environ["OPENCLAW_HOME"] = str(temp_home)
     os.environ["AGENT_WALLET_KEYSTORE_SERVICE"] = "ai.agentlayer.wallet.citest"

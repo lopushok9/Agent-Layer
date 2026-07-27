@@ -203,6 +203,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sign-only", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--sync-runtime", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--install-from-runtime", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument(
+        "--configure-openclaw",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Patch openclaw.json during install (disabled by the universal host orchestrator).",
+    )
     parser.add_argument("--skip-python-setup", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--skip-node-setup", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--dry-run", action=argparse.BooleanOptionalAction, default=False)
@@ -1060,6 +1066,7 @@ def main() -> None:
         wdk_evm_root = source_wdk_evm_root
 
     install_config_script = package_root / "scripts" / "install_openclaw_local_config.py"
+    install_sealed_keys_script = package_root / "scripts" / "install_openclaw_sealed_keys.py"
     if args.install_from_runtime:
         default_source_env_path = source_package_root / ".env"
         default_source_venv_path = source_package_root / ".venv"
@@ -1074,7 +1081,7 @@ def main() -> None:
     env_created = _ensure_env_file(env_path, env_example_path)
     boot_key_file_env_updated = _ensure_runtime_boot_key_file_env(env_path)
     flash_bridge_env = _ensure_flash_bridge_env(env_path, package_root)
-    config_created = _ensure_openclaw_config(config_path)
+    config_created = _ensure_openclaw_config(config_path) if args.configure_openclaw else False
 
     python_bin = Path(sys.executable)
     venv_created = False
@@ -1139,24 +1146,33 @@ def main() -> None:
     pending_env = _pending_env_names() if backend_enabled else []
     configured = False
     configure_stdout = ""
+    sealed_keys_result: dict[str, object] | None = None
     solana_onboard_result: dict[str, object] | None = None
     evm_onboard_result: dict[str, object] | None = None
     invite_binding_result: dict[str, object] | None = None
     if backend_enabled and not pending_env and not args.dry_run:
-        result = subprocess.run(
-            _build_next_steps(
-                python_bin,
-                install_config_script,
-                args,
-                package_root=package_root,
-                extension_path=extension_path,
-            ),
+        sealed_result = subprocess.run(
+            [str(python_bin), str(install_sealed_keys_script)],
             capture_output=True,
             text=True,
             check=True,
         )
-        configured = True
-        configure_stdout = result.stdout
+        sealed_keys_result = json.loads(sealed_result.stdout)
+        if args.configure_openclaw:
+            result = subprocess.run(
+                _build_next_steps(
+                    python_bin,
+                    install_config_script,
+                    args,
+                    package_root=package_root,
+                    extension_path=extension_path,
+                ),
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            configured = True
+            configure_stdout = result.stdout
         solana_onboard_result = _bootstrap_solana_wallet(
             python_bin,
             package_root,
@@ -1204,6 +1220,7 @@ def main() -> None:
                 "flash_bridge_env": flash_bridge_env,
                 "config_path": str(config_path),
                 "config_created": config_created,
+                "configure_openclaw": bool(args.configure_openclaw),
                 "package_root": str(package_root),
                 "extension_path": str(extension_path),
                 "wdk_btc_root": str(wdk_btc_root),
@@ -1218,6 +1235,7 @@ def main() -> None:
                 "runtime_sync": runtime_sync,
                 "configured": configured,
                 "pending_env": pending_env,
+                "sealed_keys": sealed_keys_result,
                 "solana_wallet": solana_onboard_result,
                 "evm_wallet": evm_onboard_result,
                 "invite_binding": invite_binding_result,

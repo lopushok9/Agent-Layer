@@ -107,8 +107,10 @@ def main() -> None:
         assert codex_target.resolve() == codex_source.resolve()
         assert claude_target.resolve() == claude_source.resolve()
 
-        registry = json.loads((runtime_base / "integrations.json").read_text(encoding="utf-8"))
-        assert set(registry["integrations"]) == {"openclaw"}, registry
+        registry_path = runtime_base / "integrations.json"
+        if registry_path.exists():
+            registry = json.loads(registry_path.read_text(encoding="utf-8"))
+            assert registry["integrations"] == {}, registry
 
         print("smoke_update_preserves_cross_home_integrations: ok")
     finally:

@@ -42,7 +42,10 @@ jobs:
       - name: Smoke npm installer wrapper
         run: python agent-wallet/tests/smoke_npm_installer.py
 
-      - name: Smoke universal installer
+      - name: Test universal installer
+        run: npm run test:universal-installer
+
+      - name: Smoke shared runtime installer
         run: python agent-wallet/tests/smoke_install_agent_wallet.py
 
       - name: Smoke GitHub bootstrap installer

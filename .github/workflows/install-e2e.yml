@@ -17,8 +17,13 @@ on:
   pull_request:
     paths:
       - "bin/openclaw-agent-wallet.mjs"
+      - "bin/lib/boot-key.mjs"
+      - "bin/lib/host-detection.mjs"
+      - "bin/lib/integrations.mjs"
       - "setup.sh"
       - "agent-wallet/scripts/install_agent_wallet.py"
+      - "agent-wallet/scripts/install_openclaw_local_config.py"
+      - "agent-wallet/scripts/install_openclaw_sealed_keys.py"
       - "agent-wallet/agent_wallet/keystore.py"
       - "agent-wallet/agent_wallet/config.py"
       - "agent-wallet/agent_wallet/boot_key_migration.py"
@@ -30,8 +35,13 @@ on:
       - main
     paths:
       - "bin/openclaw-agent-wallet.mjs"
+      - "bin/lib/boot-key.mjs"
+      - "bin/lib/host-detection.mjs"
+      - "bin/lib/integrations.mjs"
       - "setup.sh"
       - "agent-wallet/scripts/install_agent_wallet.py"
+      - "agent-wallet/scripts/install_openclaw_local_config.py"
+      - "agent-wallet/scripts/install_openclaw_sealed_keys.py"
       - "agent-wallet/agent_wallet/keystore.py"
       - "agent-wallet/agent_wallet/config.py"
       - "agent-wallet/agent_wallet/boot_key_migration.py"
@@ -85,10 +95,30 @@ jobs:
 
       - name: "E2E: new user install (generate key -> keystore -> seal/unseal)"
         env:
+          AGENT_WALLET_ALLOW_NATIVE_KEYSTORE_TEST: "1"
           AGENT_WALLET_E2E_EXPECT_BACKEND: ${{ matrix.expect }}
         run: python agent-wallet/tests/e2e_install_new_user.py
 
       - name: "E2E: upgrade over legacy plaintext .env (key identity + sweep)"
         env:
+          AGENT_WALLET_ALLOW_NATIVE_KEYSTORE_TEST: "1"
           AGENT_WALLET_E2E_EXPECT_BACKEND: ${{ matrix.expect }}
         run: python agent-wallet/tests/e2e_install_upgrade.py
+
+  published-floor-upgrade:
+    name: published 0.1.53 upgrade
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Upgrade published compatibility floor to packed candidate
+        run: python agent-wallet/tests/e2e_install_upgrade_from_published_npm.py

@@ -138,7 +138,20 @@ If you want a simpler local setup flow, use the installer:
 sh ../setup.sh
 ```
 
-If you already use a local coding agent on the same machine, it can run this installer for you. You can simply ask the agent to install the wallet, and it can perform the file setup, Python setup, and OpenClaw config patching steps automatically.
+The public npm entrypoint is a universal host orchestrator:
+
+```bash
+npx @agentlayer.tech/wallet install --yes
+npx @agentlayer.tech/wallet install --yes --hosts codex,claude-code
+npx @agentlayer.tech/wallet detect --json
+```
+
+It detects OpenClaw, Codex, Claude Code, and Hermes before installation. The
+direct `setup.sh`/Python path retains its OpenClaw-oriented default for
+backward compatibility; the npm CLI passes `--no-configure-openclaw` and lets
+the selected OpenClaw host adapter own `openclaw.json`.
+
+If you already use a local coding agent on the same machine, it can run this installer for you. You can simply ask the agent to install the wallet, and it can perform the file setup, Python setup, and selected host-bridge setup automatically.
 
 By default it will:
 

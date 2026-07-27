@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // One-shot local release: bump the canonical version, stamp every manifest,
 // verify consistency, and reinstall the runtime into all local agent frameworks
-// (OpenClaw, Codex, Claude Code) so they all run the new version from the
+// (OpenClaw, Codex, Claude Code, Hermes) so they all run the new version from the
 // working tree — the same files that get published to npm/ClawHub.
 //
 //   node scripts/release_local.mjs 0.1.34          # bump + stamp + install all
@@ -29,9 +29,11 @@ const cli = "bin/openclaw-agent-wallet.mjs";
 const steps = [
   { name: "sync_version", command: `node scripts/sync_version.mjs ${version}`, argv: ["node", "scripts/sync_version.mjs", version] },
   { name: "check_version", command: "node scripts/check_release_version.mjs", argv: ["node", "scripts/check_release_version.mjs"] },
-  { name: "install_openclaw", command: `node ${cli} install ${passThrough.join(" ")}`, argv: ["node", cli, "install", ...passThrough] },
-  { name: "install_codex", command: `node ${cli} codex install ${passThrough.join(" ")}`, argv: ["node", cli, "codex", "install", ...passThrough] },
-  { name: "install_claude_code", command: `node ${cli} claude-code install ${passThrough.join(" ")}`, argv: ["node", cli, "claude-code", "install", ...passThrough] },
+  {
+    name: "install_detected_hosts",
+    command: `node ${cli} install ${passThrough.join(" ")} --hosts detected --force`,
+    argv: ["node", cli, "install", ...passThrough, "--hosts", "detected", "--force"],
+  },
 ];
 
 if (dryRun) {

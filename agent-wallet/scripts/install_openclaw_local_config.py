@@ -271,7 +271,10 @@ def _maybe_install_sealed_keys() -> str | None:
         updates["wdk_evm_wallet_password"] = secrets.token_urlsafe(24)
     if not updates:
         return None
-    return str(seal_keys(boot_key, {**existing, **updates}))
+    merged = {**existing, **updates}
+    if merged == existing:
+        return str(sealed_path)
+    return str(seal_keys(boot_key, merged))
 
 
 def _require_hardened_runtime_secrets(backend: str) -> str | None:

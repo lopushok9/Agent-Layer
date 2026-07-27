@@ -5,8 +5,14 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import readline from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { createBootKeyManager } from "./lib/boot-key.mjs";
+import {
+  buildInstallPlan,
+  detectHosts,
+  stripUniversalInstallerArgs,
+} from "./lib/host-detection.mjs";
 import { createHostIntegrationManager, createIntegrationManager } from "./lib/integrations.mjs";
 import { createUpdateTransactionManager } from "./lib/update-transaction.mjs";
 
@@ -33,6 +39,7 @@ function printHelp() {
 
 Usage:
   openclaw-agent-wallet install [options]
+  openclaw-agent-wallet detect [--json]
   openclaw-agent-wallet hermes install [options]
   openclaw-agent-wallet codex install [options]
   openclaw-agent-wallet claude-code install [options]
@@ -44,6 +51,10 @@ Usage:
 
 Common install options:
   --yes                 Generate local runtime secrets when missing.
+  --hosts <list>        Hosts to install: detected, all, none, or comma-separated names.
+  --exclude <list>      Detected/managed hosts to leave untouched.
+  --runtime-only        Install/update the shared runtime without adding host plugins.
+  --no-prompt           Accept the automatic host selection in interactive terminals.
   --no-auto-secrets     Do not generate runtime secrets automatically.
   --backend <backend>   solana_local, wdk_btc_local, wdk_evm_local, or none.
   --network <network>   devnet, mainnet, base, ethereum, bitcoin, etc.
@@ -51,6 +62,8 @@ Common install options:
 
 Examples:
   npx @agentlayer.tech/wallet install --yes
+  npx @agentlayer.tech/wallet install --yes --hosts codex,claude-code
+  npx @agentlayer.tech/wallet detect --json
   npx @agentlayer.tech/wallet install --yes --invite alw_...
   npx @agentlayer.tech/wallet hermes install --yes
   npx @agentlayer.tech/wallet codex install --yes
@@ -324,6 +337,32 @@ function runWithCliTelemetry(fn, { startEvent, successEvent, failedEvent, comman
   return code;
 }
 
+async function runWithCliTelemetryAsync(
+  fn,
+  { startEvent, successEvent, failedEvent, commandName, host = "", args = [] },
+) {
+  recordCliTelemetry(startEvent, { commandName, host, ok: true, args, flush: false });
+  let code;
+  try {
+    code = await fn();
+  } catch (error) {
+    recordCliTelemetry(failedEvent, {
+      commandName,
+      host,
+      ok: false,
+      args,
+    });
+    throw error;
+  }
+  recordCliTelemetry(code === 0 ? successEvent : failedEvent, {
+    commandName,
+    host,
+    ok: code === 0,
+    args,
+  });
+  return code;
+}
+
 // Shared with the Python runtime (agent_wallet/update_check.py): the cache lives
 // under OPENCLAW_HOME/agent-wallet-runtime regardless of OPENCLAW_INSTALL_ROOT.
 function updateCheckCachePath(env = process.env) {
@@ -458,6 +497,134 @@ function hostIntegrations(env = process.env) {
     ensureClaudeCodeMarketplace,
     pinClaudeCacheCopies,
   });
+}
+
+function managedHostNames(env = process.env) {
+  const registry = integrations(env).readRegistry();
+  return Object.entries(registry.integrations || {})
+    .filter(([, entry]) => entry?.managed === true)
+    .map(([name]) => name);
+}
+
+function runtimeInstalled(env = process.env) {
+  try {
+    const stat = fs.lstatSync(currentRuntimePath(env));
+    return stat.isSymbolicLink() || stat.isDirectory();
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+function universalInstallPlan(args, env = process.env) {
+  const detections = detectHosts({
+    env,
+    commandPath,
+  });
+  const managedHosts = managedHostNames(env);
+  const plan = buildInstallPlan({
+    args,
+    detections: detections.map((entry) => ({
+      ...entry,
+      managed: managedHosts.includes(entry.name),
+    })),
+    managedHosts,
+    runtimeInstalled: runtimeInstalled(env),
+  });
+  const universalSelectionExplicit =
+    hasFlag(args, "--hosts") ||
+    hasFlag(args, "--exclude") ||
+    hasFlag(args, "--runtime-only") ||
+    hasFlag(args, "--managed-only");
+  if (
+    !plan.runtime_installed_before &&
+    !universalSelectionExplicit &&
+    hasFlag(args, "--config-path")
+  ) {
+    plan.selected_hosts = ["openclaw"];
+    plan.selection_reason = "explicit_openclaw_config";
+  }
+  return plan;
+}
+
+function runDetect(args = [], env = process.env) {
+  let plan;
+  try {
+    plan = universalInstallPlan(args, env);
+  } catch (error) {
+    console.error(error.message);
+    return 2;
+  }
+  console.log(
+    JSON.stringify(
+      {
+        schema_version: 1,
+        ok: true,
+        runtime_base: resolveRuntimeBase(env),
+        runtime_installed: plan.runtime_installed_before,
+        detected_hosts: plan.detected_hosts,
+        managed_hosts: plan.managed_hosts,
+        default_selected_hosts: plan.selected_hosts,
+        selection_reason: plan.selection_reason,
+        hosts: plan.detections,
+      },
+      null,
+      2,
+    ),
+  );
+  return 0;
+}
+
+async function promptForInstallPlan(plan, args) {
+  const shouldPrompt =
+    !plan.runtime_installed_before &&
+    plan.selection_reason === "fresh_install_detected" &&
+    !hasFlag(args, "--yes") &&
+    !hasFlag(args, "--no-prompt") &&
+    process.stdin.isTTY &&
+    process.stdout.isTTY;
+  if (!shouldPrompt) return plan;
+
+  const excluded = new Set(plan.excluded_hosts);
+  const selected = new Set(plan.selected_hosts);
+  const terminal = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  try {
+    console.log("AgentLayer detected these agent frameworks:");
+    for (const host of plan.detections.filter((entry) => entry.detected && !excluded.has(entry.name))) {
+      const answer = (
+        await terminal.question(
+          `  Install AgentLayer for ${host.display_name}? ${selected.has(host.name) ? "[Y/n]" : "[y/N]"} `,
+        )
+      ).trim().toLowerCase();
+      if (answer) {
+        if (["y", "yes"].includes(answer)) selected.add(host.name);
+        if (["n", "no"].includes(answer)) selected.delete(host.name);
+      }
+    }
+  } finally {
+    terminal.close();
+  }
+  return {
+    ...plan,
+    selection_reason: "interactive",
+    selected_hosts: plan.detections
+      .map((entry) => entry.name)
+      .filter((name) => selected.has(name)),
+  };
+}
+
+async function runUniversalInstall(args, options = {}) {
+  try {
+    const initialPlan = universalInstallPlan(args);
+    const installPlan = await promptForInstallPlan(initialPlan, args);
+    return runInstall(args, { ...options, installPlan });
+  } catch (error) {
+    console.error(error.message);
+    return 2;
+  }
 }
 
 function writeUpdateJournal(state, details = {}, env = process.env) {
@@ -857,7 +1024,13 @@ function withoutCliOnlyArgs(args) {
   const output = [];
   for (let index = 0; index < args.length; index += 1) {
     const value = args[index];
-    if (value === "--yes" || value === "--auto-secrets" || value === "--no-auto-secrets") {
+    if (
+      value === "--yes" ||
+      value === "--auto-secrets" ||
+      value === "--no-auto-secrets" ||
+      value === "--force" ||
+      value === "--skip-enable"
+    ) {
       continue;
     }
     if (value === "--to") {
@@ -869,7 +1042,7 @@ function withoutCliOnlyArgs(args) {
     }
     output.push(value);
   }
-  return output;
+  return stripUniversalInstallerArgs(output);
 }
 
 function extractTrailingJson(text) {
@@ -1060,6 +1233,15 @@ function resolveLegacyInstallerBootKey(env = process.env) {
 
 function provisionBootKeyToKeystore(releaseRoot, env, bootKey) {
   return bootKeys(env).provision(releaseRoot, bootKey);
+}
+
+function printMacOSKeychainNotice(env = process.env) {
+  if (process.platform !== "darwin") return;
+  const preference = String(env.AGENT_WALLET_KEYSTORE_BACKEND || "auto").trim().toLowerCase();
+  if (["plain", "plaintext", "plaintext-file", "file"].includes(preference)) return;
+  console.error(
+    "Security notice: AgentLayer uses your macOS login Keychain for the wallet boot key by default. macOS may ask for Keychain access; approve it only if you initiated this install or update.",
+  );
 }
 
 function resolveVenvPython(releaseRoot) {
@@ -1397,7 +1579,158 @@ function buildInstallerEnv(args) {
   return { env, generated, bootKeySource };
 }
 
-function runInstallUnlocked(args, { commandName = "install" } = {}) {
+function openclawHostCommandArgs(args, env = process.env) {
+  const runtimeRoot = currentRuntimePath(env);
+  const walletRoot = path.join(runtimeRoot, "agent-wallet");
+  const pythonBin = resolveVenvPython(runtimeRoot) || resolveAgentWalletPython(walletRoot);
+  const commandArgs = [
+    path.join(walletRoot, "scripts", "install_openclaw_local_config.py"),
+    "--config-path",
+    path.resolve(
+      expandHome(parseFlagValue(args, "--config-path") || path.join(resolveOpenclawHome(env), "openclaw.json")),
+    ),
+    "--plugin-id",
+    parseFlagValue(args, "--plugin-id") || "agent-wallet",
+    "--user-id",
+    parseFlagValue(args, "--user-id") || "",
+    "--backend",
+    parseFlagValue(args, "--backend") || "solana_local",
+    "--network",
+    parseFlagValue(args, "--network") || "mainnet",
+    hasFlag(args, "--sign-only") ? "--sign-only" : "--no-sign-only",
+    "--extension-path",
+    path.join(runtimeRoot, ".openclaw", "extensions", "agent-wallet"),
+    "--package-root",
+    walletRoot,
+    "--python-bin",
+    pythonBin,
+  ];
+  for (const [flag, targetFlag] of [
+    ["--rpc-url", "--rpc-url"],
+    ["--rpc-urls", "--rpc-urls"],
+    ["--wdk-evm-service-url", "--wdk-evm-service-url"],
+  ]) {
+    const value = parseFlagValue(args, flag);
+    if (value) commandArgs.push(targetFlag, value);
+  }
+  return { pythonBin, commandArgs, configPath: commandArgs[2] };
+}
+
+function runOpenclawHostInstall(args, env = process.env) {
+  const { pythonBin, commandArgs, configPath } = openclawHostCommandArgs(args, env);
+  const previousConfig = fs.existsSync(configPath) ? fs.readFileSync(configPath) : null;
+  if (previousConfig === null) {
+    writeJsonFileAtomic(configPath, {
+      plugins: { entries: {} },
+      tools: { alsoAllow: [] },
+    });
+  }
+  const result = spawnSync(pythonBin, commandArgs, {
+    cwd: packageRoot,
+    encoding: "utf8",
+    env,
+  });
+  if (result.error || (result.status ?? 1) !== 0) {
+    if (previousConfig === null) {
+      fs.rmSync(configPath, { force: true });
+    } else {
+      fs.writeFileSync(configPath, previousConfig, { mode: 0o600 });
+    }
+    return {
+      name: "openclaw",
+      attempted: true,
+      ok: false,
+      error: result.error?.message || (result.stderr || result.stdout || "").trim(),
+      rolled_back: true,
+      restart_required: false,
+    };
+  }
+  let details = {};
+  try {
+    details = extractTrailingJson(result.stdout);
+  } catch {
+    details = { config_path: configPath };
+  }
+  recordManagedIntegration(
+    "openclaw",
+    {
+      config_path: configPath,
+      extension_path: path.join(currentRuntimePath(env), ".openclaw", "extensions", "agent-wallet"),
+      package_root: path.join(currentRuntimePath(env), "agent-wallet"),
+      restart_required: true,
+    },
+    env,
+  );
+  return {
+    name: "openclaw",
+    attempted: true,
+    ok: true,
+    ...details,
+    restart_required: true,
+  };
+}
+
+function runEditorHostInstall(name, args, env = process.env) {
+  const binaryName = name === "claude-code" ? "claude" : name;
+  const hostArgs = [
+    name,
+    "install",
+    ...(hasFlag(args, "--force") ? ["--force"] : []),
+    ...(!commandPath(binaryName) || hasFlag(args, "--skip-enable") ? ["--skip-enable"] : []),
+  ];
+  const result = spawnSync(process.execPath, [cliPath, ...hostArgs], {
+    cwd: packageRoot,
+    encoding: "utf8",
+    env,
+  });
+  let details = {};
+  try {
+    details = extractTrailingJson(result.stdout);
+  } catch {
+    // Preserve the host adapter's error below when it did not emit JSON.
+  }
+  return {
+    name,
+    attempted: true,
+    ok: !result.error && (result.status ?? 1) === 0,
+    ...details,
+    error:
+      result.error?.message ||
+      ((result.status ?? 1) === 0 ? "" : (result.stderr || result.stdout || "").trim()),
+  };
+}
+
+function applyHostInstallPlan(plan, args, env = process.env) {
+  const selected = new Set(plan.selected_hosts);
+  const managed = new Set(plan.managed_hosts);
+  const managedSelected = plan.selected_hosts.filter((name) => managed.has(name));
+  const adoptLegacy =
+    plan.runtime_installed_before &&
+    ["managed_only", "existing_runtime_managed_only"].includes(plan.selection_reason);
+  const refreshed = repairInstalledEditorIntegrations(
+    env,
+    adoptLegacy ? null : managedSelected,
+  );
+  const installed = [];
+
+  for (const name of plan.selected_hosts) {
+    if (managed.has(name)) continue;
+    installed.push(
+      name === "openclaw"
+        ? runOpenclawHostInstall(args, env)
+        : runEditorHostInstall(name, args, env),
+    );
+  }
+
+  return {
+    ok: [...refreshed, ...installed].every((entry) => entry?.ok !== false),
+    selected_hosts: [...selected],
+    refreshed,
+    installed,
+  };
+}
+
+function runInstallUnlocked(args, { commandName = "install", installPlan = null } = {}) {
   if (!fs.existsSync(setupPath)) {
     console.error(`Missing bundled setup.sh at ${setupPath}`);
     return 1;
@@ -1409,8 +1742,10 @@ function runInstallUnlocked(args, { commandName = "install" } = {}) {
     : releaseRootFor(packageVersion);
   const currentPath = currentRuntimePath();
   const previousPath = previousRuntimePath();
+  const hostPlan = installPlan || universalInstallPlan(args);
   const installerArgs = withoutCliOnlyArgs(args);
   const dryRun = hasFlag(args, "--dry-run");
+  if (!dryRun) printMacOSKeychainNotice(process.env);
   const recovery = dryRun
     ? { attempted: false, ok: true, reason: "dry run" }
     : recoverInterruptedUpdate(process.env);
@@ -1426,6 +1761,9 @@ function runInstallUnlocked(args, { commandName = "install" } = {}) {
   }
   if (!hasFlag(installerArgs, "--install-from-runtime")) {
     installerArgs.push("--install-from-runtime");
+  }
+  if (!hasFlag(installerArgs, "--configure-openclaw") && !hasFlag(installerArgs, "--no-configure-openclaw")) {
+    installerArgs.push("--no-configure-openclaw");
   }
 
   let installerEnv;
@@ -1452,7 +1790,8 @@ function runInstallUnlocked(args, { commandName = "install" } = {}) {
   }
   const result = spawnSync("sh", [setupPath, ...installerArgs], {
     cwd: packageRoot,
-    stdio: "inherit",
+    stdio: dryRun ? "pipe" : "inherit",
+    encoding: dryRun ? "utf8" : undefined,
     env,
   });
 
@@ -1465,6 +1804,10 @@ function runInstallUnlocked(args, { commandName = "install" } = {}) {
     return 1;
   }
   if ((result.status ?? 1) !== 0) {
+    if (dryRun) {
+      if (result.stderr) process.stderr.write(result.stderr);
+      if (result.stdout) process.stderr.write(result.stdout);
+    }
     const failedRoot = failStagingRuntime(stagingRoot, `installer exited with ${result.status ?? 1}`);
     if (!dryRun) {
       writeUpdateJournal(
@@ -1477,6 +1820,27 @@ function runInstallUnlocked(args, { commandName = "install" } = {}) {
   }
 
   if (dryRun) {
+    if (result.stderr) process.stderr.write(result.stderr);
+    let installerPlan;
+    try {
+      installerPlan = extractTrailingJson(result.stdout);
+    } catch (error) {
+      if (result.stdout) process.stderr.write(result.stdout);
+      console.error(error.message);
+      return 1;
+    }
+    console.log(
+      JSON.stringify(
+        {
+          ...installerPlan,
+          command: commandName,
+          dry_run: true,
+          host_plan: hostPlan,
+        },
+        null,
+        2,
+      ),
+    );
     return 0;
   }
 
@@ -1634,19 +1998,9 @@ function runInstallUnlocked(args, { commandName = "install" } = {}) {
     env,
   );
 
-  recordManagedIntegration(
-    "openclaw",
-    {
-      config_path: path.resolve(
-        expandHome(parseFlagValue(args, "--config-path") || path.join(resolveOpenclawHome(env), "openclaw.json")),
-      ),
-      extension_path: path.join(currentPath, ".openclaw", "extensions", "agent-wallet"),
-      package_root: path.join(currentPath, "agent-wallet"),
-    },
-    env,
-  );
-
-  const integrationRefresh = repairInstalledEditorIntegrations(env);
+  const integrationRegistryRecovery = integrations(env).recoverCorruptRegistry();
+  const hostInstallation = applyHostInstallPlan(hostPlan, args, env);
+  const hostInstallFailed = hostInstallation.installed.some((entry) => entry?.ok === false);
   const globalCliRefresh = safelyRefreshIntegration(
     "global-cli",
     () => refreshGlobalCliIfNeeded(env),
@@ -1663,7 +2017,7 @@ function runInstallUnlocked(args, { commandName = "install" } = {}) {
   console.error(
     JSON.stringify(
       {
-        ok: true,
+        ok: !hostInstallFailed,
         command: commandName,
         version: packageVersion,
         runtime_root: releaseRoot,
@@ -1674,14 +2028,23 @@ function runInstallUnlocked(args, { commandName = "install" } = {}) {
         staged: Boolean(stagingRoot),
         release_state: "verified",
         recovery,
-        integration_refresh: integrationRefresh,
+        host_plan: hostPlan,
+        host_installation: hostInstallation,
+        integration_registry_recovery: integrationRegistryRecovery,
+        integration_refresh: hostInstallation.refreshed,
         global_cli_refresh: globalCliRefresh,
+        ...(hostInstallFailed
+          ? {
+              category: "host_install_failed",
+              message: "The shared runtime is active, but one or more selected host plugins failed to install.",
+            }
+          : {}),
       },
       null,
       2,
     ),
   );
-  return 0;
+  return hostInstallFailed ? 1 : 0;
 }
 
 function runInstall(args, options = {}) {
@@ -1719,10 +2082,11 @@ function resolveUpdatePackageSpec(env = process.env) {
 }
 
 function runDelegatedInstallForUpdate(args, { captureOutput = false } = {}) {
+  const installArgs = hasFlag(args, "--managed-only") ? args : [...args, "--managed-only"];
   const localCliPath = String(process.env[UPDATE_CLI_PATH_ENV] || "").trim();
   if (localCliPath) {
     const meta = resolveCliPackageMeta(localCliPath);
-    const result = spawnSync("node", [localCliPath, "install", ...args], {
+    const result = spawnSync("node", [localCliPath, "install", ...installArgs], {
       cwd: packageRoot,
       stdio: captureOutput ? "pipe" : "inherit",
       encoding: captureOutput ? "utf8" : undefined,
@@ -1745,7 +2109,7 @@ function runDelegatedInstallForUpdate(args, { captureOutput = false } = {}) {
   const binCommand = primaryBinCommand();
   const result = spawnSync(
     npmBin,
-    ["exec", "--yes", `--package=${packageSpec}`, binCommand, "--", "install", ...args],
+    ["exec", "--yes", `--package=${packageSpec}`, binCommand, "--", "install", ...installArgs],
     {
       cwd: packageRoot,
       stdio: captureOutput ? "pipe" : "inherit",
@@ -2578,8 +2942,8 @@ function safelyRefreshIntegration(name, callback) {
   return integrations().safelyRefresh(name, callback);
 }
 
-function repairInstalledEditorIntegrations(env = process.env) {
-  return hostIntegrations(env).refreshAll();
+function repairInstalledEditorIntegrations(env = process.env, names = null) {
+  return hostIntegrations(env).refreshAll(names);
 }
 
 const args = process.argv.slice(2);
@@ -2616,11 +2980,15 @@ if (command === "status") {
   process.exit(runStatus(args.slice(1)));
 }
 
+if (command === "detect") {
+  process.exit(runDetect(args.slice(1)));
+}
+
 if (command === "install" || command === "setup") {
   const commandArgs = args.slice(1);
   process.exit(
-    runWithCliTelemetry(
-      () => runInstall(commandArgs, { commandName: "install" }),
+    await runWithCliTelemetryAsync(
+      () => runUniversalInstall(commandArgs, { commandName: "install" }),
       {
         startEvent: "install_start",
         successEvent: "install_success",
@@ -2723,8 +3091,8 @@ if (command === "claude-code") {
 
 if (command.startsWith("-")) {
   process.exit(
-    runWithCliTelemetry(
-      () => runInstall(args, { commandName: "install" }),
+    await runWithCliTelemetryAsync(
+      () => runUniversalInstall(args, { commandName: "install" }),
       {
         startEvent: "install_start",
         successEvent: "install_success",

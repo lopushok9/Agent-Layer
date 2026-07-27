@@ -23,7 +23,10 @@ def main() -> None:
         shutil.rmtree(temp_home)
     os.environ["OPENCLAW_HOME"] = str(temp_home)
     os.environ["AGENT_WALLET_KEYSTORE_SERVICE"] = "ai.agentlayer.wallet.smoketest"
-    os.environ.pop("AGENT_WALLET_KEYSTORE_BACKEND", None)
+    # Keep the ordinary smoke hermetic. Real native-keystore coverage lives in
+    # smoke_keystore_native_roundtrip.py and requires an explicit opt-in so a
+    # local test run can never open a macOS Keychain dialog.
+    os.environ["AGENT_WALLET_KEYSTORE_BACKEND"] = "plaintext"
 
     # PlaintextFileStore round-trips and is always available.
     store = PlaintextFileStore()
@@ -36,12 +39,7 @@ def main() -> None:
 
     # resolve_keystore returns something usable and round-trips.
     resolved = resolve_keystore()
-    assert resolved.backend_id in {
-        "macos-keychain",
-        "windows-dpapi",
-        "linux-secretservice",
-        "plaintext-file",
-    }
+    assert resolved.backend_id == "plaintext-file"
     resolved.set("boot_key", "round-trip")
     assert resolved.get("boot_key") == "round-trip"
     resolved.delete("boot_key")
@@ -61,7 +59,7 @@ def main() -> None:
         os.environ["AGENT_WALLET_KEYSTORE_BACKEND"] = "macos-keychain"
         assert resolve_keystore().backend_id == "macos-keychain"
     finally:
-        os.environ.pop("AGENT_WALLET_KEYSTORE_BACKEND", None)
+        os.environ["AGENT_WALLET_KEYSTORE_BACKEND"] = "plaintext"
         MacKeychainStore.available = original_macos_available
         MacKeychainStore.get = original_macos_get
         MacKeychainStore.set = original_macos_set

@@ -2,7 +2,7 @@
 
 A local release must (1) bump the canonical VERSION, (2) stamp every manifest,
 (3) verify consistency, and (4) reinstall the runtime into all local agent
-frameworks (OpenClaw, Codex, Claude Code) so they all run the new version.
+frameworks (OpenClaw, Codex, Claude Code, Hermes) so they all run the new version.
 
 This test exercises the non-mutating ``--dry-run`` plan: it asserts the ordered
 steps without executing real installs or touching VERSION.
@@ -40,10 +40,9 @@ def main() -> None:
     assert step_names == [
         "sync_version",
         "check_version",
-        "install_openclaw",
-        "install_codex",
-        "install_claude_code",
+        "install_detected_hosts",
     ], step_names
+    assert "--hosts detected --force" in plan["steps"][-1]["command"]
     # Every framework install carries the bumped version target.
     for step in plan["steps"]:
         assert "command" in step and step["command"], step

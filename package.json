@@ -1,7 +1,7 @@
 {
   "name": "@agentlayer.tech/wallet",
-  "version": "0.1.90",
-  "description": "NPM installer for the OpenClaw Agent Wallet local runtime.",
+  "version": "0.1.91",
+  "description": "Universal AgentLayer wallet installer for OpenClaw, Codex, Claude Code, and Hermes.",
   "type": "module",
   "repository": {
     "type": "git",
@@ -15,7 +15,7 @@
     "wallet": "./bin/openclaw-agent-wallet.mjs"
   },
   "scripts": {
-    "check": "node --check bin/openclaw-agent-wallet.mjs",
+    "check": "node --check bin/openclaw-agent-wallet.mjs && node --test bin/lib/host-detection.test.mjs",
     "build:openclaw-plugins": "node scripts/manage_openclaw_plugin_packages.mjs build",
     "check:openclaw-plugins": "node scripts/manage_openclaw_plugin_packages.mjs check",
     "check:release-version": "node scripts/check_release_version.mjs",
@@ -23,6 +23,8 @@
     "version:sync": "node scripts/sync_version.mjs",
     "release:local": "node scripts/release_local.mjs",
     "test:npm-installer": "python3 agent-wallet/tests/smoke_npm_installer.py",
+    "test:universal-installer": "node --test bin/lib/host-detection.test.mjs && python3 agent-wallet/tests/smoke_universal_installer.py",
+    "test:published-floor-upgrade": "python3 agent-wallet/tests/e2e_install_upgrade_from_published_npm.py",
     "pack:dry-run": "npm pack --dry-run"
   },
   "files": [
@@ -74,6 +76,7 @@
     "!codex/**/*.pyc",
     "!agent-wallet/.pytest_cache/**",
     "!agent-wallet/.runtime-venv/**",
+    "!bin/**/*.test.mjs",
     "!**/node_modules/**",
     "!**/*.tgz",
     "!**/.DS_Store"
@@ -81,6 +84,8 @@
   "keywords": [
     "openclaw",
     "codex",
+    "claude-code",
+    "hermes",
     "agent-wallet",
     "wallet",
     "solana",

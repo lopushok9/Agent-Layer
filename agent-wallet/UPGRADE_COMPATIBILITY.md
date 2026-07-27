@@ -20,8 +20,9 @@ Raising the floor requires all of the following:
 
 | Path | Purpose | Removal condition |
 |---|---|---|
-| JavaScript boot-key fallback | Updates runtimes that predate the verified Python installer resolver. | The supported floor includes `resolve_boot_key_for_installer`, and direct-upgrade fixtures no longer require the fallback. |
+| JavaScript boot-key fallback | Updates runtimes that predate the verified Python installer resolver. | The supported floor no longer includes releases without `resolve_boot_key_for_installer`; until then, isolated CI upgrades the published `0.1.53` package to the packed candidate and verifies boot-key, sealed-bundle, wallet-file, and address identity. |
 | Directory runtime-pointer migration | Converts pre-versioned `current/` directories into release entries. | The supported floor guarantees symlink-based runtime pointers. |
+| OpenClaw legacy adoption | Recognizes an AgentLayer entry whose package or extension path belongs to the active runtime home. | The supported floor guarantees an `integrations.json` OpenClaw ownership entry. |
 | Hermes legacy adoption | Recognizes an AgentLayer plugin installed before the ownership registry. | The supported floor guarantees an `integrations.json` Hermes ownership entry. |
 | Codex legacy adoption | Recognizes a matching local marketplace registration and AgentLayer manifest. | The supported floor guarantees an `integrations.json` Codex ownership entry. |
 | Claude Code legacy adoption | Recognizes the AgentLayer marketplace and plugin manifest before registry ownership. | The supported floor guarantees an `integrations.json` Claude Code ownership entry. |
