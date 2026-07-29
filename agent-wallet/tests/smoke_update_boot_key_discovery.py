@@ -38,6 +38,8 @@ def main() -> None:
     }
     env["OPENCLAW_HOME"] = str(temp_root)
     env["OPENCLAW_AGENT_WALLET_UPDATE_CLI_PATH"] = str(cli)
+    env["AGENT_WALLET_KEYSTORE_BACKEND"] = "plaintext"
+    env["AGENT_WALLET_KEYSTORE_SERVICE"] = "ai.agentlayer.wallet.update-discovery-test"
 
     result = subprocess.run(
         [

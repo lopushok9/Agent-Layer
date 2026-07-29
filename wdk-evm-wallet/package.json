@@ -8,7 +8,7 @@
     "bootstrap": "sh ./bootstrap.sh",
     "start:local": "sh ./run-local.sh",
     "start": "node src/server.js",
-    "check": "node --check src/server.js && node --check src/wdk_evm_wallet.js && node --check src/config.js && node --check src/json.js && node --check src/local_vault.js && node --check src/network_state.js",
+    "check": "node --check src/server.js && node --check src/shutdown.js && node --check src/wdk_evm_wallet.js && node --check src/config.js && node --check src/json.js && node --check src/local_vault.js && node --check src/network_state.js",
     "test:swap-runtime": "node --test --test-concurrency=1 tests/smoke_swap_runtime.mjs",
     "test:aave-runtime": "node --test --test-concurrency=1 tests/smoke_aave_runtime.mjs",
     "test:morpho-runtime": "node --test --test-concurrency=1 tests/smoke_morpho_runtime.mjs",
@@ -16,6 +16,7 @@
     "test:uniswap-runtime": "node --test --test-concurrency=1 tests/smoke_uniswap_runtime.mjs",
     "test:unit": "node --test tests/unit_uniswap_helpers.mjs",
     "test:identity": "node --test tests/unit_instance_identity.mjs",
+    "test:shutdown": "node --test tests/shutdown.test.mjs",
     "test:network-config": "node --test tests/unit_network_config.mjs",
     "test:network-state": "node --test tests/unit_network_state.mjs",
     "test:wallet-network": "node --test tests/unit_wdk_wallet_network.mjs"

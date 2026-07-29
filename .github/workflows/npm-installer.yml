@@ -108,8 +108,14 @@ jobs:
       - name: Smoke EVM daemon ownership
         run: python agent-wallet/tests/smoke_evm_service_ownership.py
 
+      - name: Smoke EVM same-home stale daemon restart
+        run: python agent-wallet/tests/smoke_bootstrap_openclaw_evm_restart_stale.py
+
       - name: Test EVM daemon instance identity
         run: npm run test:identity --prefix wdk-evm-wallet
+
+      - name: Test EVM daemon graceful shutdown
+        run: npm run test:shutdown --prefix wdk-evm-wallet
 
       - name: Validate npm package contents
         run: npm pack --dry-run

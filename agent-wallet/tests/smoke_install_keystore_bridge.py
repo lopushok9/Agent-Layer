@@ -10,8 +10,9 @@ spawning the runtime Python:
 This drives those exact subprocess calls (not in-process) so OS-specific issues
 — Windows stdin encoding, DPAPI, CLI arg parsing — are actually exercised.
 Set AGENT_WALLET_ALLOW_NATIVE_KEYSTORE_TEST=1 to explicitly permit OS-keystore
-access. The throwaway service protects the production boot-key item, but on
-macOS the test still accesses the user's actual login Keychain outside CI.
+access. The temporary wallet home must derive a throwaway service automatically,
+but on macOS the test still accesses the user's actual login Keychain outside
+CI.
 """
 
 from __future__ import annotations
@@ -36,8 +37,12 @@ def main() -> None:
     temp_home = Path(tempfile.mkdtemp(prefix="openclaw-install-bridge-"))
     env = dict(os.environ)
     env["OPENCLAW_HOME"] = str(temp_home)
-    env["AGENT_WALLET_KEYSTORE_SERVICE"] = "ai.agentlayer.wallet.bridgetest"
-    for var in ("AGENT_WALLET_BOOT_KEY", "AGENT_WALLET_BOOT_KEY_FILE", "AGENT_WALLET_KEYSTORE_BACKEND"):
+    for var in (
+        "AGENT_WALLET_BOOT_KEY",
+        "AGENT_WALLET_BOOT_KEY_FILE",
+        "AGENT_WALLET_KEYSTORE_BACKEND",
+        "AGENT_WALLET_KEYSTORE_SERVICE",
+    ):
         env.pop(var, None)
 
     expect = env.get("AGENT_WALLET_EXPECT_BACKEND", "").strip()
@@ -54,6 +59,15 @@ def main() -> None:
         )
 
     try:
+        # The exact environment used by the installer must not resolve to the
+        # production service when OPENCLAW_HOME is temporary.
+        r = run([
+            "-c",
+            "from agent_wallet.keystore import _service, KEYSTORE_SERVICE; "
+            "assert _service() != KEYSTORE_SERVICE; print(_service())",
+        ])
+        assert r.returncode == 0, f"temporary service isolation failed: {r.stderr}"
+
         # 1. provision — what Node's provisionBootKeyToKeystore() runs.
         r = run(["-m", "agent_wallet.openclaw_cli", "boot-key-import", "--key-stdin"], input_text=key)
         assert r.returncode == 0, f"boot-key-import failed rc={r.returncode}: {r.stderr}"

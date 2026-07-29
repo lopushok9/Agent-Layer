@@ -62,7 +62,7 @@ def main() -> None:
         approval_secret="test-approval-secret-for-evm-bootstrap-restart-stale-smoke",
     )
 
-    fake_root = temp_home / "fake-wdk-evm-wallet"
+    fake_root = temp_home / "runtime" / "wdk-evm-wallet"
     fake_root.mkdir(parents=True, exist_ok=True)
     run_local = fake_root / "run-local.sh"
     run_local.write_text(
@@ -83,6 +83,8 @@ def main() -> None:
 
     base_env = os.environ.copy()
     base_env["PYTHONPATH"] = str(ROOT)
+    base_env["OPENCLAW_HOME"] = str(temp_home)
+    base_env["WDK_EVM_DATA_DIR"] = str(temp_home / "wdk-evm-wallet")
     base_env["WDK_EVM_LOCAL_TOKEN"] = "test-local-evm-token"
 
     # Pre-start a STALE daemon already listening on the port.
@@ -121,12 +123,13 @@ def main() -> None:
                 str(fake_root),
                 "--password-stdin",
             ],
-            check=True,
+            check=False,
             capture_output=True,
             text=True,
             env=base_env,
             input="bootstrap-evm-restart-stale-password\n",
         )
+        assert completed.returncode == 0, completed.stderr or completed.stdout
         payload = json.loads(completed.stdout)
         service_bootstrap = payload["service_bootstrap"]
 

@@ -12,8 +12,8 @@ from pathlib import Path
 
 from agent_wallet.config import (
     read_boot_key_from_keystore,
+    resolve_boot_key,
     resolve_openclaw_home,
-    settings,
 )
 from agent_wallet.file_ops import atomic_write_text
 from agent_wallet.keystore import (
@@ -24,20 +24,6 @@ from agent_wallet.keystore import (
 )
 
 _ENV_LINE_PREFIX = "AGENT_WALLET_BOOT_KEY="
-
-
-def _read_legacy_boot_key() -> str:
-    """The authoritative live key from legacy sources only (env override -> file)."""
-    direct = os.getenv("AGENT_WALLET_BOOT_KEY", settings.agent_wallet_boot_key).strip()
-    if direct:
-        return direct
-    key_file = os.getenv("AGENT_WALLET_BOOT_KEY_FILE", settings.agent_wallet_boot_key_file).strip()
-    if key_file:
-        try:
-            return Path(key_file).expanduser().read_text(encoding="utf-8").strip()
-        except OSError:
-            return ""
-    return ""
 
 
 def _env_boot_key_value(line: str) -> str | None:
@@ -140,23 +126,26 @@ def migrate_boot_key_to_keystore() -> dict:
                 "removed_boot_key_file": False, "reason": "no-os-keystore"}
 
     authoritative = read_boot_key_from_keystore()
+    resolved = resolve_boot_key()
     first_time = False
-    if not authoritative:
-        legacy_key = _read_legacy_boot_key()
-        if not legacy_key:
+    if authoritative != resolved:
+        if not resolved:
             return {"migrated": False, "backend": store.backend_id, "swept_env_files": 0,
                     "removed_boot_key_file": False, "reason": "no-legacy-key"}
         try:
-            store.set(BOOT_KEY_ITEM, legacy_key)
+            store.set(BOOT_KEY_ITEM, resolved)
         except Exception as exc:
             return {"migrated": False, "backend": store.backend_id, "swept_env_files": 0,
                     "removed_boot_key_file": False, "reason": f"keystore-set-failed: {exc}"}
         # Verify-before-delete.
-        if store.get(BOOT_KEY_ITEM) != legacy_key:
+        if store.get(BOOT_KEY_ITEM) != resolved:
             return {"migrated": False, "backend": store.backend_id, "swept_env_files": 0,
                     "removed_boot_key_file": False, "reason": "verify-failed"}
-        authoritative = legacy_key
+        authoritative = resolved
         first_time = True
+    elif not authoritative:
+        return {"migrated": False, "backend": store.backend_id, "swept_env_files": 0,
+                "removed_boot_key_file": False, "reason": "no-legacy-key"}
 
     record_keystore_backend(store)
     swept, removed = _sweep_plaintext(home, authoritative)

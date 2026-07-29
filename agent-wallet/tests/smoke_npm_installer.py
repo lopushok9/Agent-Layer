@@ -31,6 +31,8 @@ def main() -> None:
     env["AGENT_WALLET_BOOT_KEY"] = "test-boot-key-for-npm-installer"
     env["AGENT_WALLET_MASTER_KEY"] = "test-master-key-for-npm-installer"
     env["AGENT_WALLET_APPROVAL_SECRET"] = "test-approval-secret-for-npm-installer"
+    env["AGENT_WALLET_KEYSTORE_BACKEND"] = "plaintext"
+    env["AGENT_WALLET_KEYSTORE_SERVICE"] = "ai.agentlayer.wallet.npm-installer-test"
     env["AGENT_WALLET_VERIFY_DISABLE"] = "1"
     env["HERMES_HOME"] = str(temp_root / "hermes-home")
     env["CODEX_HOME"] = str(temp_root / "codex-home")

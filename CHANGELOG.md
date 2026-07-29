@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- **EVM daemon restart after updates.** The installer now stops a verified
+  same-home `wdk-evm-wallet` daemon after committing a new runtime, so the next
+  EVM call starts the updated code. A process is signalled only when its local
+  health payload, wallet data directory, listening PID, process working
+  directory, and persisted ownership record agree. Other wallet homes and
+  unidentified listeners are left untouched.
+
+- The EVM daemon now drains active request handlers on `SIGTERM` before exiting.
+  `OPENCLAW_EVM_DISABLE_DAEMON_TAKEOVER=1` disables automatic daemon stops in
+  both the installer and Python runtime.
+
+- Isolated native keystore entries by wallet home. The default
+  `~/.openclaw` installation keeps the existing Keychain service, while tests
+  and secondary `OPENCLAW_HOME` installations receive a stable home-specific
+  service and cannot replace the primary boot key. Existing custom-home
+  installs can migrate from the legacy service only after the candidate key
+  decrypts their sealed state. Installer tests now also force an isolated
+  keystore backend and service explicitly.
+
 - Added a universal npm installer for OpenClaw, Codex, Claude Code, and Hermes.
   `wallet install` now detects installed agent frameworks, supports explicit
   `--hosts`, `--exclude`, and `--runtime-only` selection, and exposes

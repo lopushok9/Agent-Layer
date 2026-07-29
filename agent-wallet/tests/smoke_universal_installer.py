@@ -57,6 +57,8 @@ def main() -> None:
                 "AGENT_WALLET_BOOT_KEY": "universal-installer-test-boot-key",
                 "AGENT_WALLET_MASTER_KEY": "universal-installer-test-master-key",
                 "AGENT_WALLET_APPROVAL_SECRET": "universal-installer-test-approval-secret",
+                "AGENT_WALLET_KEYSTORE_BACKEND": "plaintext",
+                "AGENT_WALLET_KEYSTORE_SERVICE": "ai.agentlayer.wallet.universal-installer-test",
                 "AGENT_WALLET_VERIFY_DISABLE": "1",
                 "CODEX_HOME": str(home / ".codex"),
                 "AGENT_WALLET_CODEX_PLUGIN_ROOT": str(home / "plugins"),

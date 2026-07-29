@@ -13,6 +13,7 @@ BOOT_KEY_KEYCHAIN_ARCHITECTURE.md.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import platform
@@ -36,9 +37,53 @@ _SUBPROCESS_TIMEOUT = 10.0
 
 
 def _service() -> str:
-    """Keychain/Secret-Service service name. Overridable so tests never touch the
-    real shared slot (the OS keychain is global, not scoped to OPENCLAW_HOME)."""
-    return os.getenv("AGENT_WALLET_KEYSTORE_SERVICE", "").strip() or KEYSTORE_SERVICE
+    """Return the keystore namespace for the active wallet home.
+
+    Desktop keystores are global to the OS account, while ``OPENCLAW_HOME`` can
+    point at an isolated test or secondary installation. Keep the historical
+    service for the default home, but derive a stable namespace for every other
+    home so one installation cannot replace another installation's boot key.
+    Tests can still choose a readable throwaway namespace explicitly.
+    """
+    explicit = os.getenv("AGENT_WALLET_KEYSTORE_SERVICE", "").strip()
+    if explicit:
+        return explicit
+    home = resolve_openclaw_home().expanduser().resolve()
+    default_home = (_account_home() / ".openclaw").resolve()
+    if home == default_home:
+        return KEYSTORE_SERVICE
+    home_hash = hashlib.sha256(str(home).encode("utf-8")).hexdigest()[:16]
+    return f"{KEYSTORE_SERVICE}.home-{home_hash}"
+
+
+def _account_home() -> Path:
+    """Return the OS account home without trusting a test-overridden ``HOME``."""
+    if os.name == "nt":
+        user_profile = os.getenv("USERPROFILE", "").strip()
+        if user_profile:
+            return Path(user_profile)
+        drive = os.getenv("HOMEDRIVE", "").strip()
+        home_path = os.getenv("HOMEPATH", "").strip()
+        if drive and home_path:
+            return Path(f"{drive}{home_path}")
+    try:
+        import pwd
+
+        return Path(pwd.getpwuid(os.getuid()).pw_dir)
+    except (ImportError, KeyError, OSError):
+        return Path.home()
+
+
+def _legacy_unscoped_service() -> str | None:
+    """Return the pre-home-scoping service for safe compatibility reads."""
+    if os.getenv("AGENT_WALLET_KEYSTORE_SERVICE", "").strip():
+        return None
+    if _service() == KEYSTORE_SERVICE:
+        return None
+    state = _read_backend_state_payload()
+    if state and state["service"] == KEYSTORE_SERVICE:
+        return KEYSTORE_SERVICE
+    return None
 
 
 def _backend_preference() -> str:
@@ -56,7 +101,7 @@ def _state_path() -> Path:
     return resolve_openclaw_home() / "keystore" / _KEYSTORE_STATE_FILENAME
 
 
-def _read_backend_state() -> dict[str, str] | None:
+def _read_backend_state_payload() -> dict[str, str] | None:
     try:
         payload = json.loads(_state_path().read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -72,9 +117,17 @@ def _read_backend_state() -> dict[str, str] | None:
         "plaintext-file",
     }:
         return None
+    return {"backend": backend, "service": service}
+
+
+def _read_backend_state() -> dict[str, str] | None:
+    payload = _read_backend_state_payload()
+    if payload is None:
+        return None
+    service = payload["service"]
     if service != _service():
         return None
-    return {"backend": backend, "service": service}
+    return payload
 
 
 class KeyStoreError(Exception):
@@ -129,11 +182,14 @@ def _run(
 class MacKeychainStore:
     backend_id = "macos-keychain"
 
+    def __init__(self, service: str | None = None) -> None:
+        self.service = service or _service()
+
     def available(self) -> bool:
         return platform.system() == "Darwin" and Path(_SECURITY_BIN).exists()
 
     def get(self, name: str) -> str | None:
-        proc = _run([_SECURITY_BIN, "find-generic-password", "-s", _service(), "-a", name, "-w"])
+        proc = _run([_SECURITY_BIN, "find-generic-password", "-s", self.service, "-a", name, "-w"])
         if proc.returncode != 0:
             return None  # item not found (44) or other non-fatal lookup miss
         value = proc.stdout.rstrip("\n")
@@ -150,17 +206,17 @@ class MacKeychainStore:
         # Trade-off: any process running as this user can read the key without a
         # prompt — the same runtime exposure as a 0600 file. At-rest protection
         # (backups, synced home dirs, a stolen disk) is fully preserved.
-        _run([_SECURITY_BIN, "delete-generic-password", "-s", _service(), "-a", name])
+        _run([_SECURITY_BIN, "delete-generic-password", "-s", self.service, "-a", name])
         proc = _run([
             _SECURITY_BIN, "add-generic-password",
-            "-s", _service(), "-a", name,
+            "-s", self.service, "-a", name,
             "-w", value, "-A",
         ])
         if proc.returncode != 0:
             raise KeyStoreError(f"security add-generic-password failed: {proc.stderr.strip()}")
 
     def delete(self, name: str) -> None:
-        _run([_SECURITY_BIN, "delete-generic-password", "-s", _service(), "-a", name])
+        _run([_SECURITY_BIN, "delete-generic-password", "-s", self.service, "-a", name])
 
 
 class WindowsDpapiStore:
@@ -215,19 +271,22 @@ class WindowsDpapiStore:
 class LinuxSecretServiceStore:
     backend_id = "linux-secretservice"
 
+    def __init__(self, service: str | None = None) -> None:
+        self.service = service or _service()
+
     def available(self) -> bool:
         if platform.system() != "Linux" or shutil.which("secret-tool") is None:
             return False
         # A probe lookup succeeds (rc 0/1) only when a Secret Service answers;
         # a missing/unreachable service errors out (rc >1) or times out.
         try:
-            proc = _run(["secret-tool", "lookup", "service", _service(), "account", "__probe__"])
+            proc = _run(["secret-tool", "lookup", "service", self.service, "account", "__probe__"])
         except subprocess.TimeoutExpired:
             return False
         return proc.returncode in (0, 1)
 
     def get(self, name: str) -> str | None:
-        proc = _run(["secret-tool", "lookup", "service", _service(), "account", name])
+        proc = _run(["secret-tool", "lookup", "service", self.service, "account", name])
         if proc.returncode != 0:
             return None
         value = proc.stdout.rstrip("\n")
@@ -235,15 +294,15 @@ class LinuxSecretServiceStore:
 
     def set(self, name: str, value: str) -> None:
         proc = _run(
-            ["secret-tool", "store", "--label", f"{_service()} {name}",
-             "service", _service(), "account", name],
+            ["secret-tool", "store", "--label", f"{self.service} {name}",
+             "service", self.service, "account", name],
             input_text=value,
         )
         if proc.returncode != 0:
             raise KeyStoreError(f"secret-tool store failed: {proc.stderr.strip()}")
 
     def delete(self, name: str) -> None:
-        _run(["secret-tool", "clear", "service", _service(), "account", name])
+        _run(["secret-tool", "clear", "service", self.service, "account", name])
 
 
 class PlaintextFileStore:
@@ -340,14 +399,50 @@ def _resolve_keystore_uncached() -> KeyStore:
     return PlaintextFileStore()
 
 
-def _store_for_backend(backend_id: str) -> KeyStore | None:
+def _store_for_backend(backend_id: str, *, service: str | None = None) -> KeyStore | None:
     stores: dict[str, KeyStore] = {
-        "macos-keychain": MacKeychainStore(),
+        "macos-keychain": MacKeychainStore(service),
         "windows-dpapi": WindowsDpapiStore(),
-        "linux-secretservice": LinuxSecretServiceStore(),
+        "linux-secretservice": LinuxSecretServiceStore(service),
         "plaintext-file": PlaintextFileStore(),
     }
     return stores.get(backend_id)
+
+
+def read_legacy_unscoped_boot_key() -> str:
+    """Read the historical global service without probing or writing it.
+
+    This is used only as a compatibility candidate for an existing sealed
+    custom-home installation. The caller must verify the value against that
+    home's ``sealed_keys.json`` before accepting or migrating it.
+    """
+    legacy_service = _legacy_unscoped_service()
+    preference = _backend_preference()
+    if not legacy_service or preference in {"plain", "plaintext", "plaintext-file", "file"}:
+        return ""
+
+    if preference in {"macos", "macos-keychain", "keychain"}:
+        candidates: list[KeyStore] = [MacKeychainStore(legacy_service)]
+    elif preference in {"linux", "linux-secretservice", "secretservice"}:
+        candidates = [LinuxSecretServiceStore(legacy_service)]
+    elif preference in {"windows", "windows-dpapi", "dpapi"}:
+        candidates = []
+    else:
+        candidates = [
+            MacKeychainStore(legacy_service),
+            LinuxSecretServiceStore(legacy_service),
+        ]
+
+    for candidate in candidates:
+        try:
+            if not candidate.available():
+                continue
+            value = candidate.get(BOOT_KEY_ITEM)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        except Exception:
+            continue
+    return ""
 
 
 def record_keystore_backend(store: KeyStore) -> dict[str, object]:

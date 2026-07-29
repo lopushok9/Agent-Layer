@@ -448,6 +448,19 @@ def read_boot_key_from_keystore() -> str:
         return ""
 
 
+def read_boot_key_from_legacy_unscoped_keystore() -> str:
+    """Read the pre-home-scoping native service for compatibility only."""
+    sealed_path = resolve_openclaw_home() / "sealed_keys.json"
+    if not sealed_path.exists():
+        return ""
+    try:
+        from agent_wallet.keystore import read_legacy_unscoped_boot_key
+
+        return read_legacy_unscoped_boot_key()
+    except Exception:
+        return ""
+
+
 def _read_boot_key_file(path_value: str) -> str:
     if not path_value.strip():
         return ""
@@ -476,6 +489,13 @@ def _boot_key_candidates() -> Iterator[tuple[str, str]]:
     keystore_item = candidate("keystore", read_boot_key_from_keystore())
     if keystore_item:
         yield keystore_item
+
+    legacy_keystore_item = candidate(
+        "legacy_unscoped_keystore",
+        read_boot_key_from_legacy_unscoped_keystore(),
+    )
+    if legacy_keystore_item:
+        yield legacy_keystore_item
 
     configured_file = os.getenv(
         "AGENT_WALLET_BOOT_KEY_FILE", settings.agent_wallet_boot_key_file

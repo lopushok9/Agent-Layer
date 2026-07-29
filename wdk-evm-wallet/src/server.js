@@ -7,6 +7,7 @@ import { loadConfig } from "./config.js";
 import { readJsonBody, sendJson } from "./json.js";
 import { LocalEvmVault } from "./local_vault.js";
 import { EvmNetworkState } from "./network_state.js";
+import { createShutdownCoordinator, withTrackedRequest } from "./shutdown.js";
 import { WdkEvmWalletService } from "./wdk_evm_wallet.js";
 
 const config = loadConfig();
@@ -683,11 +684,31 @@ async function handleRequest(request, response) {
 }
 
 const server = createServer((request, response) => {
-  handleRequest(request, response).catch((error) => {
-    const shaped = toErrorResponse(error, new URL(request.url || "/", "http://localhost").pathname, 500);
-    sendJson(response, shaped.statusCode, shaped.payload);
+  void withTrackedRequest(shutdown, async () => {
+    try {
+      await handleRequest(request, response);
+    } catch (error) {
+      const shaped = toErrorResponse(
+        error,
+        new URL(request.url || "/", "http://localhost").pathname,
+        500,
+      );
+      sendJson(response, shaped.statusCode, shaped.payload);
+    }
   });
 });
+
+// 8s stays strictly inside the 10s SIGTERM->SIGKILL window the Python client
+// allows (agent_wallet/evm_user_wallets.py), so the orderly path always wins.
+const shutdown = createShutdownCoordinator({
+  closeServer: () => server.close(),
+  exit: (code) => process.exit(code),
+  graceMs: 8000,
+  log: (message) => console.log(message),
+});
+
+process.on("SIGTERM", () => shutdown.begin("SIGTERM"));
+process.on("SIGINT", () => shutdown.begin("SIGINT"));
 
 server.listen(config.port, config.host, () => {
   console.log(

@@ -35,6 +35,8 @@ def main() -> None:
     }
     env["OPENCLAW_HOME"] = str(temp_home)
     env["OPENCLAW_AGENT_WALLET_UPDATE_CLI_PATH"] = str(cli)
+    env["AGENT_WALLET_KEYSTORE_BACKEND"] = "plaintext"
+    env["AGENT_WALLET_KEYSTORE_SERVICE"] = "ai.agentlayer.wallet.legacy-update-test"
     env["AGENT_WALLET_VERIFY_DISABLE"] = "1"
     env["HERMES_HOME"] = str(temp_home / "hermes")
     env["AGENT_WALLET_CODEX_PLUGIN_ROOT"] = str(temp_home / "codex-plugins")

@@ -15,7 +15,7 @@
     "wallet": "./bin/openclaw-agent-wallet.mjs"
   },
   "scripts": {
-    "check": "node --check bin/openclaw-agent-wallet.mjs && node --test bin/lib/host-detection.test.mjs",
+    "check": "node --check bin/openclaw-agent-wallet.mjs && node --check bin/lib/evm-daemon.mjs && node --test bin/lib/host-detection.test.mjs bin/lib/evm-daemon.test.mjs",
     "build:openclaw-plugins": "node scripts/manage_openclaw_plugin_packages.mjs build",
     "check:openclaw-plugins": "node scripts/manage_openclaw_plugin_packages.mjs check",
     "check:release-version": "node scripts/check_release_version.mjs",

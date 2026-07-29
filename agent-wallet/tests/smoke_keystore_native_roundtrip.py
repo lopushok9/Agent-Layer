@@ -10,8 +10,9 @@ backend resolve_keystore() selects on the host it runs on:
 Intended for the CI matrix (.github/workflows/keystore-matrix.yml). Set
 AGENT_WALLET_ALLOW_NATIVE_KEYSTORE_TEST=1 to explicitly permit OS-keystore
 access and AGENT_WALLET_EXPECT_BACKEND to assert the exact backend for a given
-runner. Uses a throwaway service, but on macOS it still accesses the user's
-actual login Keychain when run outside isolated CI.
+runner. The temporary wallet home must derive a throwaway service automatically;
+on macOS the test still accesses the user's actual login Keychain when run
+outside isolated CI.
 """
 
 from __future__ import annotations
@@ -33,17 +34,22 @@ def main() -> None:
         )
     temp_home = Path(tempfile.mkdtemp(prefix="openclaw-ks-native-"))
     os.environ["OPENCLAW_HOME"] = str(temp_home)
-    os.environ["AGENT_WALLET_KEYSTORE_SERVICE"] = "ai.agentlayer.wallet.citest"
-    for var in ("AGENT_WALLET_BOOT_KEY", "AGENT_WALLET_BOOT_KEY_FILE", "AGENT_WALLET_KEYSTORE_BACKEND"):
+    for var in (
+        "AGENT_WALLET_BOOT_KEY",
+        "AGENT_WALLET_BOOT_KEY_FILE",
+        "AGENT_WALLET_KEYSTORE_BACKEND",
+        "AGENT_WALLET_KEYSTORE_SERVICE",
+    ):
         os.environ.pop(var, None)
 
     import agent_wallet.config as config
-    from agent_wallet.keystore import BOOT_KEY_ITEM, resolve_keystore
+    from agent_wallet.keystore import BOOT_KEY_ITEM, KEYSTORE_SERVICE, _service, resolve_keystore
 
     config.settings.agent_wallet_boot_key = ""
     config.settings.agent_wallet_boot_key_file = ""
 
     store = resolve_keystore()
+    assert _service() != KEYSTORE_SERVICE, "temporary home resolved to production service"
     print(f"platform={sys.platform} resolved_backend={store.backend_id}")
 
     expect = os.environ.get("AGENT_WALLET_EXPECT_BACKEND", "").strip()

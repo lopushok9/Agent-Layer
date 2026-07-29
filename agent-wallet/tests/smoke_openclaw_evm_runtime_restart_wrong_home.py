@@ -1,9 +1,8 @@
-"""Smoke test: runtime restarts a healthy same-version daemon from the wrong home.
+"""Smoke test: runtime never stops a healthy daemon from another wallet home.
 
-A stray local daemon can survive on the shared localhost port after a temp-home
-install/update and answer /health successfully, but with a different dataDir and
-therefore a different bearer token. The runtime must treat that as stale and
-restart it before issuing authenticated requests.
+Different wallet homes must use different service URLs. A caller that reuses a
+port already owned by another home receives an actionable refusal instead of
+terminating that other profile's process.
 """
 
 from __future__ import annotations
@@ -101,7 +100,6 @@ def main() -> None:
         start_new_session=True,
     )
 
-    new_pids: list[int] = []
     original_env = os.environ.copy()
     try:
         health = _wait_health(service_url)
@@ -112,36 +110,27 @@ def main() -> None:
         os.environ.update(base_env)
 
         from agent_wallet.config import reload_settings  # noqa: E402
-        from agent_wallet.evm_user_wallets import _listening_pids, get_user_evm_wallet_binding  # noqa: E402
+        from agent_wallet.wallet_layer.base import WalletBackendError  # noqa: E402
         from agent_wallet.openclaw_runtime import onboard_openclaw_user_wallet  # noqa: E402
 
         reload_settings()
-        context = onboard_openclaw_user_wallet(
-            "restart-wrong-home@example.com",
-            backend="wdk_evm_local",
-            network="base",
-        )
-        session = context.session_metadata()
-        assert session.backend == "wdk_evm_local"
-        assert session.network == "base"
-        assert session.address.startswith("0x")
+        try:
+            onboard_openclaw_user_wallet(
+                "restart-wrong-home@example.com",
+                backend="wdk_evm_local",
+                network="base",
+            )
+        except WalletBackendError as exc:
+            assert "different wallet home" in str(exc), str(exc)
+        else:
+            raise AssertionError("a wrong-home daemon must not be stopped automatically")
 
-        binding = get_user_evm_wallet_binding("restart-wrong-home@example.com", network="base")
-        assert binding["wallet_id"] == "evm-wallet-123"
-
-        assert stale_proc.poll() is not None, "stale daemon should have been stopped"
-        fresh_health = _wait_health(service_url)
-        assert fresh_health.get("dataDir") == str(temp_home / "wdk-evm-wallet"), fresh_health
-        new_pids = [pid for pid in _listening_pids(free_port) if pid != stale_proc.pid]
-        assert new_pids, "fresh daemon should be listening after restart"
+        assert stale_proc.poll() is None, "wrong-home daemon must remain running"
+        unchanged_health = _wait_health(service_url)
+        assert unchanged_health.get("dataDir") == str(wrong_home / "wdk-evm-wallet")
     finally:
         os.environ.clear()
         os.environ.update(original_env)
-        for pid in new_pids:
-            try:
-                os.kill(pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
         try:
             os.kill(stale_proc.pid, signal.SIGTERM)
         except ProcessLookupError:

@@ -13,6 +13,7 @@ import {
   detectHosts,
   stripUniversalInstallerArgs,
 } from "./lib/host-detection.mjs";
+import { stopLocalEvmDaemonSync } from "./lib/evm-daemon.mjs";
 import { createHostIntegrationManager, createIntegrationManager } from "./lib/integrations.mjs";
 import { createUpdateTransactionManager } from "./lib/update-transaction.mjs";
 
@@ -1997,6 +1998,9 @@ function runInstallUnlocked(args, { commandName = "install", installPlan = null 
     { ...readUpdateJournal(env), release_root: releaseRoot, previous_runtime: previousTarget },
     env,
   );
+  // Daemon restart is advisory lifecycle cleanup, not part of the atomic
+  // runtime commit. Record the successful update before waiting on it.
+  const evmDaemonStop = stopLocalEvmDaemonSync({ env });
 
   const integrationRegistryRecovery = integrations(env).recoverCorruptRegistry();
   const hostInstallation = applyHostInstallPlan(hostPlan, args, env);
@@ -2033,6 +2037,7 @@ function runInstallUnlocked(args, { commandName = "install", installPlan = null 
         integration_registry_recovery: integrationRegistryRecovery,
         integration_refresh: hostInstallation.refreshed,
         global_cli_refresh: globalCliRefresh,
+        evm_daemon_stop: evmDaemonStop,
         ...(hostInstallFailed
           ? {
               category: "host_install_failed",
@@ -2268,12 +2273,14 @@ function runRollback(args) {
     switchSymlink(previousRuntimePath(), releaseRootFor(current));
   }
   switchSymlink(currentPath, target);
+  const evmDaemonStop = stopLocalEvmDaemonSync();
   console.log(
     JSON.stringify(
       {
         ok: true,
         active_version: activeVersion(),
         current_runtime: currentPath,
+        evm_daemon_stop: evmDaemonStop,
       },
       null,
       2,
