@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.1.92 - 2026-07-29
+
 - **EVM daemon restart after updates.** The installer now stops a verified
   same-home `wdk-evm-wallet` daemon after committing a new runtime, so the next
   EVM call starts the updated code. A process is signalled only when its local
