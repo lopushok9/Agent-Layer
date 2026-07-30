@@ -27,25 +27,25 @@ When the user asks you to install AgentLayer wallet, use these commands:
 ### OpenClaw
 
 ```bash
-npx @agentlayer.tech/wallet install --yes
+npx --yes @agentlayer.tech/wallet@latest install
 ```
 
 ### Claude Code
 
 ```bash
-npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet claude-code install --yes
+npx --yes @agentlayer.tech/wallet@latest install && npx --yes @agentlayer.tech/wallet@latest claude-code install
 ```
 
 ### Codex
 
 ```bash
-npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet codex install --yes
+npx --yes @agentlayer.tech/wallet@latest install && npx --yes @agentlayer.tech/wallet@latest codex install
 ```
 
 ### Hermes
 
 ```bash
-npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet hermes install --yes
+npx --yes @agentlayer.tech/wallet@latest install && npx --yes @agentlayer.tech/wallet@latest hermes install
 ```
 
 ## Capabilities

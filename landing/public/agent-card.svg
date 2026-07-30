@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="365 180 985 540" width="985" height="540" role="img" aria-label="An agent holding a payment card">
+  <defs>
+    <linearGradient id="robotGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#e86643"/>
+      <stop offset="0.55" stop-color="#f07857"/>
+      <stop offset="1" stop-color="#df5d3c"/>
+    </linearGradient>
+    <linearGradient id="cardGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2b2b2b"/>
+      <stop offset="1" stop-color="#171717"/>
+    </linearGradient>
+    <filter id="softShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#softShadow)">
+    <!-- Robot body -->
+    <path d="M516 212 H944 V323 H1098 V435 H944 V666 H887 V548 H835 V666 H780 V548 H676 V666 H621 V548 H569 V666 H513 V435 H401 V323 H516 Z"
+          fill="url(#robotGrad)"/>
+
+    <!-- Eyes -->
+    <rect x="572" y="267" width="52" height="54" fill="#ffffff"/>
+    <rect x="835" y="267" width="52" height="54" fill="#ffffff"/>
+
+    <!-- Card -->
+    <g transform="rotate(6 1186 351)">
+      <rect x="1066" y="272" width="240" height="152" rx="2" fill="url(#cardGrad)"/>
+      <!-- chip -->
+      <rect x="1092" y="300" width="48" height="46" rx="2" fill="#f2c14e"/>
+      <rect x="1092" y="300" width="24" height="23" fill="#ffd36a"/>
+      <rect x="1116" y="300" width="24" height="23" fill="#dca93a"/>
+      <rect x="1092" y="323" width="24" height="23" fill="#e6b543"/>
+      <rect x="1116" y="323" width="24" height="23" fill="#f5ca5a"/>
+      <!-- card marks -->
+      <rect x="1089" y="379" width="36" height="14" fill="#565656"/>
+      <rect x="1139" y="379" width="36" height="14" fill="#666666"/>
+      <rect x="1189" y="379" width="36" height="14" fill="#5f5f5f"/>
+      <rect x="1239" y="379" width="36" height="14" fill="#747474"/>
+    </g>
+  </g>
+</svg>

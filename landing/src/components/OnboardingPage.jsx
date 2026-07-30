@@ -78,7 +78,7 @@ export function OnboardingPage() {
 
   const command = useMemo(
     () => invite
-      ? `npx @agentlayer.tech/wallet install --yes --invite ${invite.code}`
+      ? `npx --yes @agentlayer.tech/wallet@latest install --invite ${invite.code}`
       : '',
     [invite],
   )

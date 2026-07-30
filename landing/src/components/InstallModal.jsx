@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import '../styles/InstallModal.css'
 
-const OPENCLAW_INSTALL = 'npx @agentlayer.tech/wallet install --yes'
+const OPENCLAW_INSTALL = 'npx --yes @agentlayer.tech/wallet@latest install'
 const HERMES_INSTALL =
-  'npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet hermes install --yes'
+  'npx --yes @agentlayer.tech/wallet@latest install && npx --yes @agentlayer.tech/wallet@latest hermes install'
 
 export const InstallModal = ({ isOpen, onClose }) => {
   const [copiedKey, setCopiedKey] = useState(null)
