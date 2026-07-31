@@ -5,6 +5,21 @@ const FRAMEWORKS = ['OpenClaw', 'Claude Code', 'Codex', 'Hermes']
 const NETWORKS = ['Base', 'Solana', 'Ethereum', 'Robinhood']
 const INSTALL_COMMAND = 'npx --yes @agentlayer.tech/wallet@latest install'
 
+const ONCHAIN_CAPABILITIES = [
+    {
+        title: 'Isolated liquidity',
+        body: 'Access to the best markets, like Morpho and Kamino.',
+    },
+    {
+        title: 'Zero-fee swaps',
+        body: 'Including cross-chain swaps.',
+    },
+    {
+        title: 'Tokenized assets',
+        body: 'Access to commodities and tokenized stocks.',
+    },
+]
+
 const X402_CASES = [
     {
         limit: 'The model can’t generate images',
@@ -68,6 +83,66 @@ const useCountUp = (target, { duration = 1100, delay = 0 } = {}) => {
 }
 
 /**
+ * Counts up to `target` the first time the element reaches the viewport.
+ *
+ * Like the reveal below, it only resets to zero once it knows it can animate
+ * back up, and only while the figure is still off-screen — so a visitor never
+ * sees a stranded 0, and prerendered HTML carries the real number.
+ */
+const useCountUpOnView = (target, { duration = 1500, decimals = 0 } = {}) => {
+    const ref = useRef(null)
+    const [value, setValue] = useState(target)
+
+    useIsomorphicLayoutEffect(() => {
+        const node = ref.current
+        if (!node) return undefined
+        if (prefersReducedMotion() || typeof IntersectionObserver === 'undefined') return undefined
+
+        let frame = 0
+
+        const run = () => {
+            const start = performance.now()
+            const step = (now) => {
+                const progress = Math.min((now - start) / duration, 1)
+                // ease-out-expo: quick climb, long settle onto the final figure
+                const eased = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress)
+                setValue(Number((target * eased).toFixed(decimals)))
+                if (progress < 1) frame = requestAnimationFrame(step)
+            }
+            frame = requestAnimationFrame(step)
+        }
+
+        const box = node.getBoundingClientRect()
+        if (box.top < window.innerHeight && box.bottom > 0) {
+            // Already on screen at mount — animate straight away rather than
+            // blanking a figure the visitor can see.
+            run()
+            return () => cancelAnimationFrame(frame)
+        }
+
+        setValue(0)
+
+        const observer = new IntersectionObserver(
+            ([entry]) => {
+                if (!entry.isIntersecting) return
+                observer.disconnect()
+                run()
+            },
+            { rootMargin: '0px 0px -20% 0px' },
+        )
+
+        observer.observe(node)
+
+        return () => {
+            observer.disconnect()
+            cancelAnimationFrame(frame)
+        }
+    }, [target, duration, decimals])
+
+    return [ref, value]
+}
+
+/**
  * Reveals an element the first time it scrolls into view.
  *
  * The hidden state is armed from JS rather than rendered, so the section stays
@@ -119,6 +194,8 @@ export const Interface = ({ onInstallClick }) => {
     const installs = useCountUp(10000, { duration: 1200, delay: 380 })
     const tools = useCountUp(60, { duration: 1000, delay: 480 })
     const x402Ref = useReveal()
+    const onchainRef = useReveal()
+    const [apyRef, apy] = useCountUpOnView(10.5, { duration: 1600, decimals: 1 })
 
     const handleInstallCopy = async () => {
         const command = INSTALL_COMMAND
@@ -247,7 +324,6 @@ export const Interface = ({ onInstallClick }) => {
                             <div className="hh-links">
                                 <a href="https://docs.agent-layer.tech" target="_blank" rel="noreferrer">Docs</a>
                                 <a href="https://x.com/agentlayer_ai" target="_blank" rel="noreferrer">Blog</a>
-                                <a href="/skill.md">For LLMs</a>
                             </div>
                         </div>
                     </section>
@@ -269,7 +345,7 @@ export const Interface = ({ onInstallClick }) => {
                                 <span className="hh-stat-num">{tools}</span>
                                 <span className="hh-stat-plus" aria-hidden="true">+</span>
                             </span>
-                            <span className="hh-stat-note">swaps · lending · staking · x402</span>
+                            <span className="hh-stat-note">swaps · lending · staking</span>
                         </div>
 
                         {/* 02 — Supported frameworks */}
@@ -289,7 +365,7 @@ export const Interface = ({ onInstallClick }) => {
             {/* x402 — what a wallet unlocks */}
             <section className="x4" ref={x402Ref} aria-labelledby="x4-title">
                 <div className="x4-head">
-                    <span className="x4-eyebrow">x402</span>
+                    <span className="x4-eyebrow">Discover thousands of services with x402</span>
                     <h2 className="x4-title" id="x4-title">
                         An agent with a wallet<br />stops hitting walls.
                     </h2>
@@ -318,6 +394,31 @@ export const Interface = ({ onInstallClick }) => {
                     Money is the capability layer.
                     <a href="/use-cases">See all use cases</a>
                 </p>
+            </section>
+
+            {/* On-chain capabilities */}
+            <section className="oc" ref={onchainRef} aria-labelledby="oc-title">
+                <div className="oc-lead">
+                    <div className="oc-lead-text">
+                        <span className="oc-eyebrow">On-chain</span>
+                        <h2 className="oc-title" id="oc-title">Agents generate yield</h2>
+                    </div>
+
+                    <p className="oc-figure" ref={apyRef}>
+                        <span className="oc-num">{apy.toFixed(1)}</span>
+                        <span className="oc-pct" aria-hidden="true">%</span>
+                        <span className="oc-apy">APY</span>
+                    </p>
+                </div>
+
+                <ul className="oc-grid">
+                    {ONCHAIN_CAPABILITIES.map((item, index) => (
+                        <li className="oc-cell" key={item.title} style={{ '--i': index }}>
+                            <h3 className="oc-cell-title">{item.title}</h3>
+                            <p className="oc-cell-body">{item.body}</p>
+                        </li>
+                    ))}
+                </ul>
             </section>
 
             {/* Continuation Section (Reference Implementation) */}

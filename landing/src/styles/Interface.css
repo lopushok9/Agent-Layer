@@ -635,6 +635,13 @@
         animation: none;
     }
 
+    .oc-lead,
+    .oc-cell {
+        opacity: 1;
+        transform: none;
+        transition: none;
+    }
+
     /* No auto-scroll: lay the frameworks out as a plain wrapped list instead
        of leaving a frozen, half-clipped strip. */
     .hh-marquee {
@@ -694,18 +701,21 @@
     grid-row: 1;
 }
 
+/* Reads as a sentence, not a tag: dropping the uppercase and the wide
+   tracking is what makes it legible at this length; the size and darker
+   ink are what make it carry. */
 .x4-eyebrow {
-    display: inline-block;
-    font-family: var(--al-mono);
-    font-size: 11px;
+    display: block;
+    max-width: 34ch;
+    font-size: clamp(14px, 1.05vw, 15.5px);
     font-weight: 500;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--al-muted-2);
+    line-height: 1.35;
+    letter-spacing: -0.005em;
+    color: var(--al-muted);
 }
 
 .x4-title {
-    margin: 18px 0 0;
+    margin: 14px 0 0;
     font-size: clamp(30px, 3.1vw, 46px);
     font-weight: 600;
     line-height: 1.04;
@@ -888,6 +898,173 @@
     .x4-action {
         margin-left: 12px;
         padding-left: 22px;
+    }
+}
+
+/* ============================================================
+   On-chain capabilities. Same hairline language as the fold and x402, but a
+   different composition on purpose: one wide claim carrying the figure,
+   then a triptych — rather than another two-column ledger.
+   ============================================================ */
+
+.oc {
+    padding: clamp(80px, 13vh, 150px) 32px clamp(76px, 12vh, 140px);
+    border-top: 1px solid var(--al-line);
+    box-sizing: border-box;
+}
+
+.oc-lead {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: clamp(32px, 5vw, 80px);
+    align-items: end;
+    padding-bottom: clamp(30px, 4.5vh, 48px);
+    border-bottom: 1px solid var(--al-line);
+}
+
+.oc-eyebrow {
+    display: block;
+    font-size: clamp(14px, 1.05vw, 15.5px);
+    font-weight: 500;
+    line-height: 1.35;
+    letter-spacing: -0.005em;
+    color: var(--al-muted);
+}
+
+.oc-title {
+    margin: 14px 0 0;
+    font-size: clamp(32px, 4.4vw, 66px);
+    font-weight: 600;
+    line-height: 1.02;
+    letter-spacing: -0.04em;
+    color: var(--al-ink);
+    text-wrap: balance;
+}
+
+/* The figure is the anchor of the section — it outweighs its own heading */
+.oc-figure {
+    display: flex;
+    align-items: baseline;
+    gap: 0;
+    margin: 0;
+    color: var(--al-ink);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+    white-space: nowrap;
+}
+
+.oc-num {
+    font-size: clamp(64px, 9vw, 132px);
+    font-weight: 600;
+    line-height: 0.82;
+    letter-spacing: -0.055em;
+    /* Holds the width of the final "10.5" (3 tabular digits + a period) so the
+       % and APY don't slide sideways while the figure counts up. */
+    min-width: 3.36ch;
+    text-align: right;
+}
+
+.oc-pct {
+    font-size: clamp(30px, 4vw, 58px);
+    font-weight: 600;
+    line-height: 0.82;
+    letter-spacing: -0.04em;
+    color: var(--al-muted-2);
+    margin-left: 2px;
+}
+
+.oc-apy {
+    margin-left: clamp(12px, 1.2vw, 18px);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--al-muted-2);
+}
+
+.oc-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.oc-cell {
+    padding-top: clamp(28px, 4vh, 42px);
+}
+
+.oc-cell+.oc-cell {
+    padding-left: clamp(24px, 3.2vw, 56px);
+    border-left: 1px solid var(--al-line);
+}
+
+.oc-cell-title {
+    margin: 0;
+    font-size: clamp(17px, 1.35vw, 21px);
+    font-weight: 600;
+    line-height: 1.25;
+    letter-spacing: -0.025em;
+    color: var(--al-ink);
+}
+
+.oc-cell-body {
+    margin: 10px 0 0;
+    max-width: 30ch;
+    font-size: clamp(14px, 1vw, 15.5px);
+    line-height: 1.5;
+    letter-spacing: -0.005em;
+    color: var(--al-muted);
+    text-wrap: pretty;
+}
+
+.oc.is-armed .oc-lead,
+.oc.is-armed .oc-cell {
+    opacity: 0;
+    transform: translateY(16px);
+}
+
+.oc.is-armed.is-in .oc-lead,
+.oc.is-armed.is-in .oc-cell {
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity 0.7s var(--al-ease), transform 0.7s var(--al-ease);
+}
+
+.oc.is-armed.is-in .oc-cell {
+    transition-delay: calc(0.14s + var(--i) * 0.09s);
+}
+
+/* --- On-chain: stacked layout --- */
+@media (max-width: 900px) {
+    .oc {
+        padding: clamp(64px, 10vh, 96px) 20px clamp(56px, 9vh, 88px);
+    }
+
+    /* Figure drops below the claim instead of competing with it for width */
+    .oc-lead {
+        grid-template-columns: minmax(0, 1fr);
+        row-gap: clamp(24px, 4vh, 36px);
+        align-items: start;
+    }
+
+    .oc-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .oc-cell {
+        padding-top: clamp(22px, 3vh, 30px);
+    }
+
+    .oc-cell+.oc-cell {
+        margin-top: clamp(22px, 3vh, 30px);
+        padding-left: 0;
+        border-left: none;
+        border-top: 1px solid var(--al-line);
+    }
+
+    .oc-cell-body {
+        max-width: 46ch;
     }
 }
 
