@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Analytics } from '@vercel/analytics/react'
 import { Interface } from './components/Interface'
 import { InstallModal } from './components/InstallModal'
 import { ProductPage } from './components/ProductPage'
@@ -134,6 +135,9 @@ function App({ initialPage, initialPath, suppressNavigation = false }) {
       {installModalOpen && (
         <InstallModal isOpen={installModalOpen} onClose={() => setInstallModalOpen(false)} />
       )}
+      {/* Renders null and injects its script on mount, so prerendering is unaffected.
+          Reports the raw pathname, which is what we want: every route here is static. */}
+      <Analytics />
     </>
   )
 }
