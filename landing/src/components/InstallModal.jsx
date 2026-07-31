@@ -95,12 +95,6 @@ export const InstallModal = ({ isOpen, onClose }) => {
             </button>
           </div>
         </div>
-
-        <div className="install-modal-footer">
-          <p className="install-modal-note">
-            Beta version. Test critical flows before relying on them in production.
-          </p>
-        </div>
       </section>
     </div>
   )

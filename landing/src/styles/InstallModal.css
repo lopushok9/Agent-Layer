@@ -165,20 +165,6 @@
   word-break: break-word;
 }
 
-.install-modal-footer {
-  display: block;
-  padding: 18px 28px 24px;
-  border-top: 1px solid rgba(17, 18, 19, 0.12);
-}
-
-.install-modal-note {
-  margin: 0;
-  max-width: 40ch;
-  font-size: 13px;
-  line-height: 1.5;
-  color: #5f6368;
-}
-
 @media (max-width: 720px) {
   .install-modal-overlay {
     padding: 16px;
@@ -194,11 +180,10 @@
     min-width: 0;
   }
 
-  /* Padding belongs to the containers only — putting it on the paragraph too
+  /* Padding belongs to the containers only: putting it on the paragraph too
      double-indented it away from the fields it introduces. */
   .install-modal-body,
-  .install-modal-header,
-  .install-modal-footer {
+  .install-modal-header {
     padding-left: 20px;
     padding-right: 20px;
   }

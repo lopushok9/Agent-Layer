@@ -361,24 +361,44 @@
   }
 
   .pp-footer-header {
-    flex-direction: column;
-    gap: 40px;
+    display: contents;
+  }
+
+  /* Keeps "finance" and "for ai agents" together: stacked, the link block
+     was landing between the two halves of the brand line. */
+  .pp-footer-title {
+    order: 1;
+  }
+
+  .pp-footer-huge {
+    order: 2;
   }
 
   .pp-footer-links {
-    flex-direction: column;
-    gap: 32px;
+    order: 3;
+    flex-direction: row;
+    gap: 24px;
+    width: 100%;
+  }
+
+  .pp-link-col {
+    flex: 1;
+    min-width: 0;
   }
 
   .pp-footer-bottom {
+    order: 4;
     flex-direction: column;
     align-items: flex-start;
-    gap: 24px;
+    gap: 20px;
+    margin-top: 44px;
+    padding-top: 26px;
+    border-top: 1px solid rgba(17, 18, 19, 0.1);
   }
 
   .pp-footer-bottom-links {
     flex-direction: column;
-    gap: 12px;
+    gap: 14px;
   }
 }
 

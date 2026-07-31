@@ -1573,15 +1573,19 @@
         margin: 0;
     }
 
+    /* Side by side: stacked, the two columns read as one undifferentiated
+       run of six links instead of nav and external. */
     .extended-links {
         order: 3;
-        flex-direction: column;
-        gap: 40px;
+        flex-direction: row;
+        gap: 24px;
         width: 100%;
     }
 
     .link-column {
-        gap: 20px;
+        flex: 1;
+        min-width: 0;
+        gap: 18px;
     }
 
     .huge-antigravity {
@@ -1589,15 +1593,22 @@
         /* Keep relative mass */
     }
 
+    /* The signature closes the page, so it gets its own zone. Without the rule
+       below it butted straight against the last link and read as a seventh one. */
     .extended-footer {
         order: 4;
         flex-direction: column;
         align-items: flex-start;
-        gap: 32px;
+        gap: 20px;
+        width: 100%;
+        margin-top: 44px;
+        padding-top: 26px;
+        padding-bottom: 0;
+        border-top: 1px solid var(--al-line);
     }
 
     .footer-bottom-links {
         flex-direction: column;
-        gap: 16px;
+        gap: 14px;
     }
 }
