@@ -5,6 +5,19 @@ const FRAMEWORKS = ['OpenClaw', 'Claude Code', 'Codex', 'Hermes']
 const NETWORKS = ['Base', 'Solana', 'Ethereum', 'Robinhood']
 const INSTALL_COMMAND = 'npx --yes @agentlayer.tech/wallet@latest install'
 
+// Every entry here is a protocol the wallet actually integrates.
+// Marks live in /logos; an entry without one still renders as a plain name.
+const ONCHAIN_TOOLS = [
+    { name: 'Uniswap', logo: '/logos/uniswap.webp' },
+    { name: 'Jupiter', logo: '/logos/jupiter.webp' },
+    { name: 'Aave', logo: '/logos/aave.webp' },
+    { name: 'Lido', logo: '/logos/lido.webp' },
+    { name: 'Kamino', logo: '/logos/kamino.webp' },
+    { name: 'LI.FI', logo: '/logos/lifi.webp' },
+    { name: 'Morpho', logo: '/logos/morpho.webp' },
+    { name: 'Flash Trade', logo: '/logos/flash-trade.webp' },
+]
+
 const ONCHAIN_CAPABILITIES = [
     {
         title: 'Isolated liquidity',
@@ -175,6 +188,26 @@ const useReveal = () => {
     return ref
 }
 
+const ToolsGroup = ({ duplicate }) => (
+    <div className="oc-tools-group" aria-hidden={duplicate || undefined}>
+        {ONCHAIN_TOOLS.map((tool) => (
+            <span className="oc-tool" key={tool.name}>
+                {tool.logo && (
+                    <img
+                        className="oc-tool-logo"
+                        src={tool.logo}
+                        alt=""
+                        aria-hidden="true"
+                        width="20"
+                        height="20"
+                    />
+                )}
+                <span className="oc-tool-name">{tool.name}</span>
+            </span>
+        ))}
+    </div>
+)
+
 const MarqueeGroup = ({ duplicate }) => (
     <div className="hh-marquee-group" aria-hidden={duplicate || undefined}>
         {Array.from({ length: 2 }).flatMap((_, cycle) =>
@@ -222,9 +255,7 @@ export const Interface = ({ onInstallClick }) => {
 
                 <nav className="nav desktop-only">
                     <a href="/wallet" className="nav-item">Wallet</a>
-                    <a href="/mcp" className="nav-item">MCP</a>
                     <a href="/use-cases" className="nav-item">Use Cases</a>
-                    <a href="/how-to-use" className="nav-item">How to use</a>
                     <a href="/skill.md" className="nav-item">For LLMs</a>
                     <a href="/for-investors" className="nav-item">For Investors</a>
                     <a href="/about" className="nav-item">About</a>
@@ -269,9 +300,7 @@ export const Interface = ({ onInstallClick }) => {
                 <div className="mobile-menu-content">
                     <nav className="mobile-nav-list">
                         <a href="/wallet" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>Wallet</a>
-                        <a href="/mcp" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>MCP</a>
                         <a href="/use-cases" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>Use Cases</a>
-                        <a href="/how-to-use" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>How to use</a>
                         <a href="/skill.md" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>For LLMs</a>
                         <a href="/for-investors" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>For Investors</a>
                         <a href="/about" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>About</a>
@@ -398,10 +427,23 @@ export const Interface = ({ onInstallClick }) => {
 
             {/* On-chain capabilities */}
             <section className="oc" ref={onchainRef} aria-labelledby="oc-title">
+                <div className="oc-tools">
+                    <span className="oc-tools-label">Tools your agent gets with AgentLayer</span>
+                    <div className="oc-marquee">
+                        <div className="oc-marquee-track">
+                            <ToolsGroup />
+                            <ToolsGroup duplicate />
+                        </div>
+                    </div>
+                </div>
+
                 <div className="oc-lead">
                     <div className="oc-lead-text">
                         <span className="oc-eyebrow">On-chain</span>
                         <h2 className="oc-title" id="oc-title">Agents generate yield</h2>
+                        <p className="oc-lede">
+                            Your agent plugs into battle-tested DeFi infrastructure — swaps, lending, borrowing and more.
+                        </p>
                     </div>
 
                     <p className="oc-figure" ref={apyRef}>
@@ -428,15 +470,12 @@ export const Interface = ({ onInstallClick }) => {
                     <div className="extended-links">
                         <div className="link-column">
                         <a href="/wallet">Wallet</a>
-                        <a href="/mcp">MCP</a>
                         <a href="/use-cases">Use Cases</a>
-                        <a href="/how-to-use">How to use</a>
                         <a href="/skill.md">For LLMs</a>
                         </div>
                         <div className="link-column">
                             <a href="https://docs.agent-layer.tech" target="_blank" rel="noreferrer">Docs</a>
                             <a href="https://github.com/lopushok9/Agent-Layer" target="_blank" rel="noreferrer">GitHub</a>
-                            <a href="/skill.md">skill.md</a>
                             <a href="https://x.com/agentlayer_ai" target="_blank" rel="noreferrer">Blog</a>
                         </div>
                     </div>
@@ -447,13 +486,13 @@ export const Interface = ({ onInstallClick }) => {
                 </div>
 
                     <div className="extended-footer">
-                        <div className="footer-brand">Agent Layer</div>
+                        <div className="footer-brand">AgentLayer</div>
                         <div className="footer-bottom-links">
                             <span className="footer-ca" aria-label="Contract address">
                                 <span className="footer-ca-label">CA:</span>
                                 <span className="footer-ca-value">444DPguaifQZ5NicFicD9Kni6emKexyq<wbr />qG4dEkUaBAGS</span>
                             </span>
-                            <a href="/about">About Agent Layer</a>
+                            <a href="/about">About AgentLayer</a>
                             <a href="/terms">Terms</a>
                         </div>
                     </div>

@@ -22,31 +22,15 @@ AgentLayer is a crypto wallet for agents (opensource). Make payments via x402, u
 
 ## Install flow
 
-When the user asks you to install AgentLayer wallet, use these commands:
-
-### OpenClaw
-
-```bash
-npx --yes @agentlayer.tech/wallet@latest install
-```
-
-### Claude Code
+When the user asks you to install AgentLayer wallet, run this one command. It
+detects every supported framework on the machine — OpenClaw, Claude Code, Codex,
+Hermes — and installs into all of them:
 
 ```bash
-npx --yes @agentlayer.tech/wallet@latest install && npx --yes @agentlayer.tech/wallet@latest claude-code install
+npx --yes @agentlayer.tech/wallet@latest install --yes
 ```
 
-### Codex
-
-```bash
-npx --yes @agentlayer.tech/wallet@latest install && npx --yes @agentlayer.tech/wallet@latest codex install
-```
-
-### Hermes
-
-```bash
-npx --yes @agentlayer.tech/wallet@latest install && npx --yes @agentlayer.tech/wallet@latest hermes install
-```
+No per-framework command is needed.
 
 ## Capabilities
 

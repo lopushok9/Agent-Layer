@@ -11,7 +11,7 @@
 }
 
 .install-modal {
-  width: min(760px, 100%);
+  width: min(620px, 100%);
   max-height: min(88vh, 860px);
   display: flex;
   flex-direction: column;
@@ -82,46 +82,52 @@
 .install-modal-body {
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: 24px 28px 0;
+  padding: 24px 28px;
 }
 
-.install-modal-stack {
-  display: grid;
-  gap: 14px;
-  padding: 20px 0 24px;
+/* Second lead-in sits far enough below the first block to read as a
+   separate option rather than a caption for it. */
+.install-modal-alt {
+  margin-top: 28px;
 }
 
-.install-modal-panel {
-  border: 1px solid #111213;
-  padding: 16px;
-  background: linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
-}
-
-.install-modal-panel-head {
+.install-modal-row {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  margin-bottom: 12px;
+  align-items: stretch;
+  gap: 10px;
+  margin-top: 12px;
 }
 
-.install-modal-panel-title {
-  margin: 4px 0 0;
-  font-size: 24px;
-  line-height: 1;
-  letter-spacing: -0.04em;
-  font-weight: 800;
+.install-modal-row>:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
-.install-modal-code-label {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: #5f6368;
+.install-modal-link {
+  display: flex;
+  align-items: center;
+  padding: 14px 16px;
+  border: 1px solid #111213;
+  background: #f3f3f1;
+  color: #111213;
+  font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', monospace;
+  font-size: 13.5px;
+  line-height: 1.45;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+  transition: background 0.2s ease;
+}
+
+.install-modal-link:hover,
+.install-modal-link:focus-visible {
+  background: #e9e9e6;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  outline: none;
 }
 
 .install-modal-copy-btn {
+  flex: 0 0 auto;
   border: 1px solid #111213;
   border-radius: 0;
   background: #ffffff;
@@ -145,7 +151,9 @@
 
 .install-modal-code {
   margin: 0;
-  padding: 16px 18px;
+  display: flex;
+  align-items: center;
+  padding: 14px 16px;
   overflow-x: auto;
   border: 1px solid #111213;
   border-radius: 0;
@@ -176,13 +184,18 @@
     padding: 16px;
   }
 
-  .install-modal-header,
-  .install-modal-footer {
-    flex-direction: column;
-    align-items: stretch;
+  /* Title and Close still fit side by side; stacking them wasted a whole row */
+  .install-modal-header {
+    align-items: center;
+    gap: 16px;
   }
 
-  .install-modal-copy,
+  .install-modal-close {
+    min-width: 0;
+  }
+
+  /* Padding belongs to the containers only — putting it on the paragraph too
+     double-indented it away from the fields it introduces. */
   .install-modal-body,
   .install-modal-header,
   .install-modal-footer {
@@ -190,20 +203,11 @@
     padding-right: 20px;
   }
 
-  .install-modal-panel {
-    padding: 16px;
-  }
-
-  .install-modal-panel-head {
+  /* Copy button drops under its field rather than squeezing it */
+  .install-modal-row {
     flex-direction: column;
-    align-items: stretch;
   }
 
-  .install-modal-panel-title {
-    font-size: 22px;
-  }
-
-  .install-modal-close,
   .install-modal-copy-btn {
     width: 100%;
   }

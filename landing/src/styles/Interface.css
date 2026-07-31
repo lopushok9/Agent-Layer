@@ -642,6 +642,28 @@
         transition: none;
     }
 
+    /* No auto-scroll: wrap the integrations into a plain list rather than
+       leaving a frozen strip with most of the names clipped off. */
+    .oc-marquee {
+        -webkit-mask-image: none;
+        mask-image: none;
+    }
+
+    .oc-marquee-track {
+        animation: none;
+        width: 100%;
+    }
+
+    .oc-tools-group {
+        flex-wrap: wrap;
+        row-gap: 12px;
+        padding-right: 0;
+    }
+
+    .oc-tools-group[aria-hidden] {
+        display: none;
+    }
+
     /* No auto-scroll: lay the frameworks out as a plain wrapped list instead
        of leaving a frozen, half-clipped strip. */
     .hh-marquee {
@@ -913,6 +935,78 @@
     box-sizing: border-box;
 }
 
+/* Integrations band across the top of the section. Same seamless-track
+   technique as the fold's frameworks strip, reusing its keyframes. */
+.oc-tools {
+    display: flex;
+    align-items: center;
+    padding-bottom: clamp(28px, 4vh, 40px);
+    margin-bottom: clamp(40px, 7vh, 76px);
+    border-bottom: 1px solid var(--al-line);
+}
+
+.oc-tools-label {
+    flex: 0 0 auto;
+    padding-right: clamp(24px, 3vw, 44px);
+    font-size: clamp(13px, 1vw, 14.5px);
+    font-weight: 500;
+    letter-spacing: -0.005em;
+    color: var(--al-muted);
+    white-space: nowrap;
+}
+
+.oc-marquee {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 72px), transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 72px), transparent);
+}
+
+/* The track advances by exactly -50%, so one group box must equal one full
+   cycle: the trailing spacing lives in the group's padding, not a track gap. */
+.oc-marquee-track {
+    display: flex;
+    width: max-content;
+    /* ~30px/s — deliberately calmer than the fold's strip, which carries no
+       marks to look at, but close enough that the two don't feel unrelated. */
+    animation: hhMarquee 24s linear infinite;
+}
+
+.oc-marquee:hover .oc-marquee-track {
+    animation-play-state: paused;
+}
+
+.oc-tools-group {
+    display: flex;
+    align-items: center;
+    gap: clamp(26px, 2.6vw, 44px);
+    padding-right: clamp(26px, 2.6vw, 44px);
+}
+
+.oc-tool {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    white-space: nowrap;
+}
+
+.oc-tool-logo {
+    width: 20px;
+    height: 20px;
+    flex: 0 0 auto;
+    border-radius: 4px;
+    object-fit: contain;
+}
+
+.oc-tool-name {
+    font-size: clamp(14px, 1.1vw, 16px);
+    font-weight: 500;
+    letter-spacing: -0.015em;
+    color: var(--al-ink);
+}
+
 .oc-lead {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -939,6 +1033,16 @@
     letter-spacing: -0.04em;
     color: var(--al-ink);
     text-wrap: balance;
+}
+
+.oc-lede {
+    margin: 20px 0 0;
+    max-width: 52ch;
+    font-size: clamp(15px, 1.15vw, 17.5px);
+    line-height: 1.5;
+    letter-spacing: -0.01em;
+    color: var(--al-ink-2);
+    text-wrap: pretty;
 }
 
 /* The figure is the anchor of the section — it outweighs its own heading */
@@ -1039,6 +1143,23 @@
 @media (max-width: 900px) {
     .oc {
         padding: clamp(64px, 10vh, 96px) 20px clamp(56px, 9vh, 88px);
+    }
+
+    /* Label sits above the strip; side by side there is no room to scroll */
+    .oc-tools {
+        display: block;
+    }
+
+    .oc-tools-label {
+        display: block;
+        padding-right: 0;
+        margin-bottom: 16px;
+        white-space: normal;
+    }
+
+    .oc-marquee {
+        -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 44px), transparent);
+        mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 44px), transparent);
     }
 
     /* Figure drops below the claim instead of competing with it for width */

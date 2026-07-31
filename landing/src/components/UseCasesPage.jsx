@@ -49,9 +49,7 @@ export const UseCasesPage = ({ onInstallClick }) => {
 
         <nav className="uc-nav">
           <a href="/wallet" className="uc-nav-item">Wallet</a>
-          <a href="/mcp" className="uc-nav-item">MCP</a>
           <a href="/use-cases" className="uc-nav-item uc-nav-active">Use Cases</a>
-          <a href="/how-to-use" className="uc-nav-item">How to use</a>
           <a href="/skill.md" className="uc-nav-item">For LLMs</a>
           <a href="/for-investors" className="uc-nav-item">For Investors</a>
           <a href="/about" className="uc-nav-item">About</a>
@@ -111,9 +109,7 @@ export const UseCasesPage = ({ onInstallClick }) => {
             <div className="uc-footer-links">
               <div className="uc-link-col">
                 <a href="/wallet">Wallet</a>
-                <a href="/mcp">MCP</a>
                 <a href="/use-cases">Use Cases</a>
-                <a href="/how-to-use">How to use</a>
                 <a href="/skill.md">For LLMs</a>
               </div>
               <div className="uc-link-col">
@@ -129,13 +125,13 @@ export const UseCasesPage = ({ onInstallClick }) => {
           </div>
 
           <div className="uc-footer-bottom">
-            <div className="uc-footer-brand">Agent Layer</div>
+            <div className="uc-footer-brand">AgentLayer</div>
             <div className="uc-footer-bottom-links">
               <span className="footer-ca" aria-label="Contract address">
                 <span className="footer-ca-label">CA:</span>
                 <span className="footer-ca-value">444DPguaifQZ5NicFicD9Kni6emKexyq<wbr />qG4dEkUaBAGS</span>
               </span>
-              <a href="/about">About Agent Layer</a>
+              <a href="/about">About AgentLayer</a>
               <a href="/terms">Terms</a>
             </div>
           </div>

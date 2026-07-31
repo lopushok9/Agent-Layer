@@ -47,9 +47,7 @@ export const ProductPage = ({ onInstallClick }) => {
 
         <nav className="pp-nav">
           <a href="/wallet" className="pp-nav-item">Wallet</a>
-          <a href="/mcp" className="pp-nav-item pp-nav-active">MCP</a>
           <a href="/use-cases" className="pp-nav-item">Use Cases</a>
-          <a href="/how-to-use" className="pp-nav-item">How to use</a>
           <a href="/skill.md" className="pp-nav-item">For LLMs</a>
           <a href="/for-investors" className="pp-nav-item">For Investors</a>
           <a href="/about" className="pp-nav-item">About</a>
@@ -113,9 +111,7 @@ export const ProductPage = ({ onInstallClick }) => {
             <div className="pp-footer-links">
               <div className="pp-link-col">
                 <a href="/wallet">Wallet</a>
-                <a href="/mcp">MCP</a>
                 <a href="/use-cases">Use Cases</a>
-                <a href="/how-to-use">How to use</a>
                 <a href="/skill.md">For LLMs</a>
               </div>
               <div className="pp-link-col">
@@ -131,13 +127,13 @@ export const ProductPage = ({ onInstallClick }) => {
           </div>
 
           <div className="pp-footer-bottom">
-            <div className="pp-footer-brand">Agent Layer</div>
+            <div className="pp-footer-brand">AgentLayer</div>
             <div className="pp-footer-bottom-links">
               <span className="footer-ca" aria-label="Contract address">
                 <span className="footer-ca-label">CA:</span>
                 <span className="footer-ca-value">444DPguaifQZ5NicFicD9Kni6emKexyq<wbr />qG4dEkUaBAGS</span>
               </span>
-              <a href="/about">About Agent Layer</a>
+              <a href="/about">About AgentLayer</a>
               <a href="/terms">Terms</a>
             </div>
           </div>
