@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { Particles } from './components/Particles'
 import { Interface } from './components/Interface'
 import { InstallModal } from './components/InstallModal'
 import { ProductPage } from './components/ProductPage'
@@ -123,7 +122,6 @@ function App({ initialPage, initialPath, suppressNavigation = false }) {
 
   return (
     <>
-      <Particles />
       {page === 'wallet' && <WalletPage onInstallClick={() => setInstallModalOpen(true)} />}
       {page === 'product' && <ProductPage onInstallClick={() => setInstallModalOpen(true)} />}
       {page === 'use-cases' && <UseCasesPage onInstallClick={() => setInstallModalOpen(true)} />}

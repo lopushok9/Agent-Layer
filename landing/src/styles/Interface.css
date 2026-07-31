@@ -254,40 +254,6 @@
     /* Adjustment to visually center "slightly above" */
 }
 
-.hero-content {
-    max-width: 720px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    animation: fadeInUp 1s ease-out forwards;
-    opacity: 0;
-    animation-delay: 0.5s;
-}
-
-.hero-logo-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 22px;
-    /* 18-22px margin-top for text implies spacing here */
-}
-
-.hero-brand-mark {
-    width: 112px;
-    height: 112px;
-    border-radius: 28px;
-    display: block;
-    object-fit: cover;
-}
-
-.hero-brand-text {
-    font-size: 30px;
-    /* Logo text size 28-32px */
-    font-weight: 600;
-    letter-spacing: -0.02em;
-    color: #111213;
-}
-
 .hero-headline {
     font-size: 38px;
     /* 34-40px desktop */
@@ -298,113 +264,929 @@
     margin: 0 0 18px 0;
 }
 
-.subtitle {
-    font-size: 14px;
-    color: #5f6368;
-    font-weight: 400;
-    line-height: 20px;
-    letter-spacing: -0.005em;
-    margin: 0;
+/* ============================================================
+   HOME FOLD — editorial spec-sheet grid
+   Four blocks above the scroll: thesis / frameworks / installs / tools.
+   Scoped under .hero-home so other pages keep their own hero rules.
+   ============================================================ */
+
+.hero-home {
+    display: flex;
+    flex-direction: column;
+    min-height: calc(100vh - 72px);
+    min-height: calc(100svh - 72px);
+    box-sizing: border-box;
 }
 
-.hero-subtitle-secondary {
-    margin-top: 6px;
-    font-size: 17px;
-    line-height: 25px;
-    color: #373b40;
-    max-width: 700px;
+.hh-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: minmax(0, 1.32fr) minmax(300px, 0.68fr);
+    align-items: stretch;
+    padding: clamp(28px, 5vh, 64px) 32px clamp(24px, 4vh, 56px);
+    box-sizing: border-box;
 }
 
-.hero-install-command {
-    margin-top: 32px;
-    border: 1px solid #d8dde3;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.96);
-    box-shadow: 0 18px 48px rgba(17, 18, 19, 0.08);
-    padding: 14px 18px 14px 22px;
-    max-width: min(92vw, 640px);
-    width: auto;
+/* --- 01 Thesis --- */
+.hh-thesis {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding-right: clamp(24px, 4vw, 80px);
+}
+
+.hh-eyebrow {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 14px;
-    cursor: pointer;
-    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
-    text-align: left;
+    flex-wrap: wrap;
+    gap: 10px;
+    row-gap: 6px;
+    margin: 0 0 clamp(16px, 2.4vh, 28px);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--al-muted-2);
 }
 
-.hero-install-command code {
-    display: block;
+/* Separator travels with the name it precedes, so a wrap never strands a slash */
+.hh-eyebrow-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    white-space: nowrap;
+}
+
+.hh-eyebrow i {
+    font-style: normal;
+    color: var(--al-faint);
+}
+
+.hh-pulse {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--al-ink);
+    flex: 0 0 auto;
+    animation: hhPulse 2.6s var(--al-ease) infinite;
+}
+
+.hh-title {
     margin: 0;
-    color: #111213;
-    font-size: 15px;
+    font-size: clamp(48px, 6.6vw, 104px);
+    font-weight: 600;
+    line-height: 0.92;
+    letter-spacing: -0.045em;
+    color: var(--al-ink);
+    text-wrap: balance;
+}
+
+.hh-lede {
+    margin: clamp(18px, 2.6vh, 30px) 0 0;
+    font-size: clamp(16px, 1.15vw, 19px);
+    line-height: 1.5;
+    letter-spacing: -0.01em;
+    color: var(--al-ink-2);
+    max-width: 48ch;
+    text-wrap: pretty;
+}
+
+.hh-actions {
+    margin-top: clamp(26px, 4vh, 44px);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 18px;
+}
+
+.hh-install {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 16px;
+    max-width: 100%;
+    padding: 13px 13px 13px 20px;
+    border: 1px solid var(--al-line-strong);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(6px);
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 0.25s var(--al-ease), box-shadow 0.25s var(--al-ease), transform 0.25s var(--al-ease);
+}
+
+.hh-install code {
+    font-family: var(--al-mono);
+    font-size: 14.5px;
     line-height: 1.4;
-    font-family: "IBM Plex Mono", "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
-    white-space: normal;
-    overflow-wrap: anywhere;
+    letter-spacing: -0.01em;
+    color: var(--al-ink);
+    white-space: nowrap;
 }
 
-.hero-install-command:hover,
-.hero-install-command:focus-visible {
+.hh-install:hover,
+.hh-install:focus-visible {
     border-color: #b8c0c8;
-    box-shadow: 0 22px 56px rgba(17, 18, 19, 0.12);
+    box-shadow: 0 14px 34px rgba(17, 18, 19, 0.09);
     transform: translateY(-1px);
-}
-
-.hero-install-command:focus-visible {
     outline: none;
 }
 
-.hero-install-command.copied {
-    border-color: #b7d4bf;
+.hh-install.is-copied {
+    border-color: #a9cfb8;
 }
 
-.hero-install-command-copy {
+.hh-install-copy {
     flex: 0 0 auto;
     width: 30px;
     height: 30px;
     border-radius: 999px;
-    border: 1px solid #d8dde3;
-    background: #f6f8fa;
+    border: 1px solid var(--al-line-strong);
+    background: var(--al-surface);
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    transition: background 0.2s var(--al-ease);
 }
 
-.hero-install-command-copy img {
+.hh-install:hover .hh-install-copy {
+    background: #eef1f4;
+}
+
+.hh-install-copy img {
     width: 15px;
     height: 15px;
     display: block;
 }
 
-.subtitle a {
-    color: #1a73e8;
-    /* Google blue */
-    text-decoration: none;
+/* Copy confirmation reads out without shifting the pill's width */
+.hh-install-status {
+    position: absolute;
+    left: 100%;
+    margin-left: 12px;
+    white-space: nowrap;
+    font-size: 12px;
     font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #3f7d57;
+    opacity: 0;
+    transition: opacity 0.2s var(--al-ease);
 }
 
-.subtitle a:hover {
-    text-decoration: underline;
+.hh-install.is-copied .hh-install-status {
+    opacity: 1;
 }
 
-.hero-footer-links {
-    margin-top: 16px;
-    /* 14-18px top margin */
+.hh-links {
     display: flex;
-    gap: 8px;
-    align-items: center;
-    font-size: 14px;
+    flex-wrap: wrap;
+    gap: 20px;
+    font-size: 13.5px;
     font-weight: 500;
+    letter-spacing: -0.005em;
 }
 
-.hero-footer-links a {
-    color: #1a73e8;
+.hh-links a {
+    color: var(--al-muted);
     text-decoration: none;
+    padding-bottom: 2px;
+    border-bottom: 1px solid transparent;
+    transition: color 0.2s var(--al-ease), border-color 0.2s var(--al-ease);
 }
 
-.hero-footer-links a:hover {
-    text-decoration: underline;
+.hh-links a:hover {
+    color: var(--al-ink);
+    border-bottom-color: var(--al-ink);
+}
+
+/* --- 03 / 04 Numbers --- */
+.hh-stats {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding-left: clamp(28px, 3.4vw, 64px);
+    border-left: 1px solid var(--al-line);
+}
+
+.hh-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+/* Every rail block after the first is split off by a hairline */
+.hh-stats>*+* {
+    margin-top: clamp(24px, 4vh, 44px);
+    padding-top: clamp(24px, 4vh, 44px);
+    border-top: 1px solid var(--al-line);
+}
+
+.hh-stat-label {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--al-muted-2);
+}
+
+.hh-stat-value {
+    display: flex;
+    align-items: flex-start;
+    margin-top: 10px;
+    color: var(--al-ink);
+    font-weight: 600;
+    letter-spacing: -0.05em;
+    line-height: 0.9;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+}
+
+.hh-stat-num {
+    font-size: clamp(46px, 4.6vw, 76px);
+}
+
+.hh-stat-plus {
+    font-size: clamp(22px, 2vw, 32px);
+    color: var(--al-faint);
+    margin-left: 4px;
+    line-height: 1.1;
+}
+
+.hh-stat-note {
+    margin-top: 12px;
+    font-size: 13px;
+    line-height: 1.45;
+    letter-spacing: -0.005em;
+    color: var(--al-muted);
+}
+
+/* --- 02 Supported frameworks (compact rail block) --- */
+.hh-frameworks {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.hh-marquee {
+    position: relative;
+    width: 100%;
+    margin-top: 12px;
+    overflow: hidden;
+    container-type: inline-size;
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 20px, #000 calc(100% - 56px), transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 20px, #000 calc(100% - 56px), transparent);
+}
+
+/* The track advances by exactly -50%, so one group box must equal one full
+   cycle: the inter-group spacing lives in the group's padding, not a track gap. */
+/* Sized against the rail's own width so all four names always sit on one line,
+   at whatever viewport, without ever wrapping. Gaps are em-based so they scale
+   with it. ~4.1cqi is the ceiling for four names + three separators. */
+.hh-marquee-track {
+    display: flex;
+    align-items: center;
+    width: max-content;
+    font-size: 15px;
+    font-size: clamp(12.5px, 4.1cqi, 18px);
+    animation: hhMarquee 16s linear infinite;
+}
+
+.hh-marquee:hover .hh-marquee-track {
+    animation-play-state: paused;
+}
+
+.hh-marquee-group {
+    display: flex;
+    align-items: center;
+    gap: 0.8em;
+    padding-right: 0.8em;
+}
+
+.hh-marquee-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.8em;
+}
+
+.hh-marquee-item {
+    font-weight: 500;
+    letter-spacing: -0.015em;
+    color: var(--al-ink);
+    white-space: nowrap;
+}
+
+.hh-marquee-sep {
+    color: var(--al-faint);
+}
+
+/* --- Entrance --- */
+.hh-rise {
+    opacity: 0;
+    animation: hhRise 0.85s var(--al-ease) forwards;
+    animation-delay: var(--d, 0s);
+}
+
+@keyframes hhRise {
+    from {
+        opacity: 0;
+        transform: translateY(14px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes hhMarquee {
+    from {
+        transform: translate3d(0, 0, 0);
+    }
+
+    to {
+        transform: translate3d(-50%, 0, 0);
+    }
+}
+
+@keyframes hhPulse {
+
+    0%,
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    50% {
+        opacity: 0.35;
+        transform: scale(0.7);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .hh-rise,
+    .header {
+        animation: none;
+        opacity: 1;
+    }
+
+    .hh-pulse {
+        animation: none;
+    }
+
+    .oc-lead,
+    .oc-cell {
+        opacity: 1;
+        transform: none;
+        transition: none;
+    }
+
+    /* No auto-scroll: wrap the integrations into a plain list rather than
+       leaving a frozen strip with most of the names clipped off. */
+    .oc-marquee {
+        -webkit-mask-image: none;
+        mask-image: none;
+    }
+
+    .oc-marquee-track {
+        animation: none;
+        width: 100%;
+    }
+
+    .oc-tools-group {
+        flex-wrap: wrap;
+        row-gap: 12px;
+        padding-right: 0;
+    }
+
+    .oc-tools-group[aria-hidden] {
+        display: none;
+    }
+
+    /* No auto-scroll: lay the frameworks out as a plain wrapped list instead
+       of leaving a frozen, half-clipped strip. */
+    .hh-marquee {
+        -webkit-mask-image: none;
+        mask-image: none;
+    }
+
+    .hh-marquee-track {
+        animation: none;
+        width: 100%;
+    }
+
+    .hh-marquee-group {
+        padding-right: 0;
+    }
+
+    .hh-marquee-group[aria-hidden] {
+        display: none;
+    }
+
+    /* One cycle of names is enough when nothing moves */
+    .hh-marquee-cell:nth-child(n+5) {
+        display: none;
+    }
+
+    .hh-marquee-cell:nth-child(4) .hh-marquee-sep {
+        display: none;
+    }
+}
+
+/* ============================================================
+   x402 — mid-page block. Same hairline spec-sheet language as the fold:
+   a header column on the left, a ledger of cases on the right.
+   ============================================================ */
+
+/* The trailing 1fr row absorbs any slack, so the kicker always hugs the
+   bottom of the ledger even when the illustration makes the left column
+   the taller of the two. */
+.x4 {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.25fr);
+    grid-template-rows: auto auto 1fr;
+    column-gap: clamp(40px, 7vw, 130px);
+    align-items: start;
+    padding: clamp(80px, 14vh, 168px) 32px clamp(72px, 12vh, 140px);
+    border-top: 1px solid var(--al-line);
+    box-sizing: border-box;
+}
+
+.x4-head {
+    grid-column: 1;
+    grid-row: 1 / -1;
+}
+
+.x4-list {
+    grid-column: 2;
+    grid-row: 1;
+}
+
+/* Reads as a sentence, not a tag: dropping the uppercase and the wide
+   tracking is what makes it legible at this length; the size and darker
+   ink are what make it carry. */
+.x4-eyebrow {
+    display: block;
+    max-width: 34ch;
+    font-size: clamp(14px, 1.05vw, 15.5px);
+    font-weight: 500;
+    line-height: 1.35;
+    letter-spacing: -0.005em;
+    color: var(--al-muted);
+}
+
+.x4-title {
+    margin: 14px 0 0;
+    font-size: clamp(30px, 3.1vw, 46px);
+    font-weight: 600;
+    line-height: 1.04;
+    letter-spacing: -0.035em;
+    color: var(--al-ink);
+}
+
+.x4-lede {
+    margin: 22px 0 0;
+    max-width: 30ch;
+    font-size: clamp(17px, 1.35vw, 21px);
+    line-height: 1.45;
+    letter-spacing: -0.015em;
+    color: var(--al-ink-2);
+    text-wrap: pretty;
+}
+
+/* The one chromatic moment on the page. It sits with the claim it illustrates
+   — an agent holding a card — rather than decorating the top of the page. */
+.x4-art {
+    display: block;
+    width: min(100%, 380px);
+    height: auto;
+    /* Reserves the box before the asset lands, so nothing shifts */
+    aspect-ratio: 985 / 540;
+    margin: clamp(32px, 5vh, 56px) 0 0;
+    /* The artwork carries 3.65% of empty canvas on its left. Transform
+       percentages resolve against the element's own width, so this pulls the
+       robot's edge onto the text's left margin at any rendered size. */
+    transform: translateX(-3.65%);
+}
+
+.x4-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--al-line);
+}
+
+.x4-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: clamp(20px, 2.6vw, 40px);
+    align-items: baseline;
+    padding: clamp(26px, 3.4vh, 38px) 0;
+    border-bottom: 1px solid var(--al-line);
+}
+
+.x4-index {
+    font-family: var(--al-mono);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    color: var(--al-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.x4-body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.x4-limit {
+    font-size: clamp(18px, 1.5vw, 22px);
+    font-weight: 600;
+    line-height: 1.25;
+    letter-spacing: -0.025em;
+    color: var(--al-ink);
+    text-wrap: balance;
+}
+
+/* The answer is indented well past the limit above it, so the eye reads the
+   problem first and the resolution as a separate, deliberate beat. */
+.x4-action {
+    position: relative;
+    margin-left: clamp(28px, 4.5vw, 76px);
+    padding-left: clamp(26px, 2.2vw, 34px);
+    font-size: clamp(16px, 1.3vw, 20px);
+    line-height: 1.4;
+    letter-spacing: -0.015em;
+    color: var(--al-ink-2);
+    text-wrap: pretty;
+}
+
+.x4-action::before {
+    content: "→";
+    position: absolute;
+    left: 0;
+    color: var(--al-faint);
+}
+
+.x4-kicker {
+    grid-column: 2;
+    grid-row: 2;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px 22px;
+    margin: clamp(26px, 3.4vh, 38px) 0 0;
+    font-size: clamp(15px, 1.1vw, 17px);
+    font-weight: 500;
+    letter-spacing: -0.015em;
+    color: var(--al-ink);
+}
+
+.x4-kicker a {
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--al-muted);
+    text-decoration: none;
+    padding-bottom: 2px;
+    border-bottom: 1px solid var(--al-line-strong);
+    transition: color 0.2s var(--al-ease), border-color 0.2s var(--al-ease);
+}
+
+.x4-kicker a:hover {
+    color: var(--al-ink);
+    border-bottom-color: var(--al-ink);
+}
+
+/* Reveal on first scroll into view, staggered down the ledger.
+   `is-armed` is set by JS, so without it everything renders visible. */
+.x4.is-armed .x4-head,
+.x4.is-armed .x4-row,
+.x4.is-armed .x4-kicker {
+    opacity: 0;
+    transform: translateY(16px);
+}
+
+.x4.is-armed.is-in .x4-head,
+.x4.is-armed.is-in .x4-row,
+.x4.is-armed.is-in .x4-kicker {
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity 0.7s var(--al-ease), transform 0.7s var(--al-ease);
+}
+
+.x4.is-armed.is-in .x4-row {
+    transition-delay: calc(0.08s + var(--i) * 0.09s);
+}
+
+.x4.is-armed.is-in .x4-kicker {
+    transition-delay: 0.38s;
+}
+
+/* --- x402: stacked layout --- */
+@media (max-width: 900px) {
+    .x4 {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: none;
+        row-gap: clamp(36px, 6vh, 56px);
+        padding: clamp(64px, 10vh, 96px) 20px clamp(56px, 9vh, 88px);
+    }
+
+    .x4-head,
+    .x4-list,
+    .x4-kicker {
+        grid-column: 1;
+        grid-row: auto;
+    }
+
+    .x4-lede {
+        max-width: 46ch;
+    }
+
+    /* Stacked: the art would push the cases too far down at full size */
+    .x4-art {
+        width: min(72%, 300px);
+        margin-top: clamp(26px, 4vh, 36px);
+    }
+
+}
+
+@media (max-width: 560px) {
+    .x4-title {
+        font-size: clamp(28px, 8vw, 36px);
+    }
+
+    /* Less room to indent, so the arrow carries the offset instead */
+    .x4-action {
+        margin-left: 12px;
+        padding-left: 22px;
+    }
+}
+
+/* ============================================================
+   On-chain capabilities. Same hairline language as the fold and x402, but a
+   different composition on purpose: one wide claim carrying the figure,
+   then a triptych — rather than another two-column ledger.
+   ============================================================ */
+
+.oc {
+    padding: clamp(80px, 13vh, 150px) 32px clamp(76px, 12vh, 140px);
+    border-top: 1px solid var(--al-line);
+    box-sizing: border-box;
+}
+
+/* Integrations band across the top of the section. Same seamless-track
+   technique as the fold's frameworks strip, reusing its keyframes. */
+.oc-tools {
+    display: flex;
+    align-items: center;
+    padding-bottom: clamp(28px, 4vh, 40px);
+    margin-bottom: clamp(40px, 7vh, 76px);
+    border-bottom: 1px solid var(--al-line);
+}
+
+.oc-tools-label {
+    flex: 0 0 auto;
+    padding-right: clamp(24px, 3vw, 44px);
+    font-size: clamp(13px, 1vw, 14.5px);
+    font-weight: 500;
+    letter-spacing: -0.005em;
+    color: var(--al-muted);
+    white-space: nowrap;
+}
+
+.oc-marquee {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 72px), transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 72px), transparent);
+}
+
+/* The track advances by exactly -50%, so one group box must equal one full
+   cycle: the trailing spacing lives in the group's padding, not a track gap. */
+.oc-marquee-track {
+    display: flex;
+    width: max-content;
+    /* ~30px/s — deliberately calmer than the fold's strip, which carries no
+       marks to look at, but close enough that the two don't feel unrelated. */
+    animation: hhMarquee 24s linear infinite;
+}
+
+.oc-marquee:hover .oc-marquee-track {
+    animation-play-state: paused;
+}
+
+.oc-tools-group {
+    display: flex;
+    align-items: center;
+    gap: clamp(26px, 2.6vw, 44px);
+    padding-right: clamp(26px, 2.6vw, 44px);
+}
+
+.oc-tool {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    white-space: nowrap;
+}
+
+.oc-tool-logo {
+    width: 20px;
+    height: 20px;
+    flex: 0 0 auto;
+    border-radius: 4px;
+    object-fit: contain;
+}
+
+.oc-tool-name {
+    font-size: clamp(14px, 1.1vw, 16px);
+    font-weight: 500;
+    letter-spacing: -0.015em;
+    color: var(--al-ink);
+}
+
+.oc-lead {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: clamp(32px, 5vw, 80px);
+    align-items: end;
+    padding-bottom: clamp(30px, 4.5vh, 48px);
+    border-bottom: 1px solid var(--al-line);
+}
+
+.oc-eyebrow {
+    display: block;
+    font-size: clamp(14px, 1.05vw, 15.5px);
+    font-weight: 500;
+    line-height: 1.35;
+    letter-spacing: -0.005em;
+    color: var(--al-muted);
+}
+
+.oc-title {
+    margin: 14px 0 0;
+    font-size: clamp(32px, 4.4vw, 66px);
+    font-weight: 600;
+    line-height: 1.02;
+    letter-spacing: -0.04em;
+    color: var(--al-ink);
+    text-wrap: balance;
+}
+
+.oc-lede {
+    margin: 20px 0 0;
+    max-width: 52ch;
+    font-size: clamp(15px, 1.15vw, 17.5px);
+    line-height: 1.5;
+    letter-spacing: -0.01em;
+    color: var(--al-ink-2);
+    text-wrap: pretty;
+}
+
+/* The figure is the anchor of the section — it outweighs its own heading */
+.oc-figure {
+    display: flex;
+    align-items: baseline;
+    gap: 0;
+    margin: 0;
+    color: var(--al-ink);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+    white-space: nowrap;
+}
+
+.oc-num {
+    font-size: clamp(64px, 9vw, 132px);
+    font-weight: 600;
+    line-height: 0.82;
+    letter-spacing: -0.055em;
+    /* Holds the width of the final "10.5" (3 tabular digits + a period) so the
+       % and APY don't slide sideways while the figure counts up. */
+    min-width: 3.36ch;
+    text-align: right;
+}
+
+.oc-pct {
+    font-size: clamp(30px, 4vw, 58px);
+    font-weight: 600;
+    line-height: 0.82;
+    letter-spacing: -0.04em;
+    color: var(--al-muted-2);
+    margin-left: 2px;
+}
+
+.oc-apy {
+    margin-left: clamp(12px, 1.2vw, 18px);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--al-muted-2);
+}
+
+.oc-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.oc-cell {
+    padding-top: clamp(28px, 4vh, 42px);
+}
+
+.oc-cell+.oc-cell {
+    padding-left: clamp(24px, 3.2vw, 56px);
+    border-left: 1px solid var(--al-line);
+}
+
+.oc-cell-title {
+    margin: 0;
+    font-size: clamp(17px, 1.35vw, 21px);
+    font-weight: 600;
+    line-height: 1.25;
+    letter-spacing: -0.025em;
+    color: var(--al-ink);
+}
+
+.oc-cell-body {
+    margin: 10px 0 0;
+    max-width: 30ch;
+    font-size: clamp(14px, 1vw, 15.5px);
+    line-height: 1.5;
+    letter-spacing: -0.005em;
+    color: var(--al-muted);
+    text-wrap: pretty;
+}
+
+.oc.is-armed .oc-lead,
+.oc.is-armed .oc-cell {
+    opacity: 0;
+    transform: translateY(16px);
+}
+
+.oc.is-armed.is-in .oc-lead,
+.oc.is-armed.is-in .oc-cell {
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity 0.7s var(--al-ease), transform 0.7s var(--al-ease);
+}
+
+.oc.is-armed.is-in .oc-cell {
+    transition-delay: calc(0.14s + var(--i) * 0.09s);
+}
+
+/* --- On-chain: stacked layout --- */
+@media (max-width: 900px) {
+    .oc {
+        padding: clamp(64px, 10vh, 96px) 20px clamp(56px, 9vh, 88px);
+    }
+
+    /* Label sits above the strip; side by side there is no room to scroll */
+    .oc-tools {
+        display: block;
+    }
+
+    .oc-tools-label {
+        display: block;
+        padding-right: 0;
+        margin-bottom: 16px;
+        white-space: normal;
+    }
+
+    .oc-marquee {
+        -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 44px), transparent);
+        mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 44px), transparent);
+    }
+
+    /* Figure drops below the claim instead of competing with it for width */
+    .oc-lead {
+        grid-template-columns: minmax(0, 1fr);
+        row-gap: clamp(24px, 4vh, 36px);
+        align-items: start;
+    }
+
+    .oc-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .oc-cell {
+        padding-top: clamp(22px, 3vh, 30px);
+    }
+
+    .oc-cell+.oc-cell {
+        margin-top: clamp(22px, 3vh, 30px);
+        padding-left: 0;
+        border-left: none;
+        border-top: 1px solid var(--al-line);
+    }
+
+    .oc-cell-body {
+        max-width: 46ch;
+    }
 }
 
 /* Footer Bar */
@@ -580,6 +1362,53 @@
     transition: opacity 0.2s;
 }
 
+/* --- Fold: tablet / narrow desktop ---
+   Stacks at 1100px rather than 1024px: below that the rail gets too narrow to
+   hold all four framework names on one line. */
+@media (max-width: 1100px) {
+    .hh-grid {
+        grid-template-columns: minmax(0, 1fr);
+        gap: clamp(32px, 5vh, 56px);
+    }
+
+    .hh-thesis {
+        padding-right: 0;
+        max-width: 60ch;
+    }
+
+    /* Numbers become a horizontal pair; frameworks span the full width below */
+    .hh-stats {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        padding-left: 0;
+        padding-top: clamp(28px, 4vh, 40px);
+        border-left: none;
+        border-top: 1px solid var(--al-line);
+    }
+
+    .hh-stats>*+* {
+        margin-top: 0;
+        padding-top: 0;
+        border-top: none;
+    }
+
+    .hh-stat+.hh-stat {
+        padding-left: clamp(24px, 5vw, 48px);
+        border-left: 1px solid var(--al-line);
+    }
+
+    .hh-frameworks {
+        grid-column: 1 / -1;
+        margin-top: clamp(24px, 4vh, 36px);
+        padding-top: clamp(24px, 4vh, 36px);
+        border-top: 1px solid var(--al-line);
+    }
+
+    .hh-stat-num {
+        font-size: clamp(40px, 7vw, 60px);
+    }
+}
+
 /* --- Mobile Breakpoint --- */
 @media (max-width: 768px) {
     .desktop-only {
@@ -623,20 +1452,6 @@
         padding-bottom: 0px;
     }
 
-    .hero-content {
-        max-width: 100%;
-        padding: 0 20px;
-        animation: none;
-        /* Simplify mobile load */
-        opacity: 1;
-    }
-
-    .hero-logo-row {
-        flex-direction: column;
-        gap: 16px;
-        margin-bottom: 16px;
-    }
-
     .hero-headline {
         font-size: 32px;
         /* Adjusted magnitude */
@@ -646,43 +1461,94 @@
         margin-top: 16px;
     }
 
-    .hero-brand-text {
-        font-size: 24px;
-        /* Slightly smaller logic */
+    /* --- Fold on phones --- */
+    .hero-home {
+        min-height: 100vh;
+        min-height: 100svh;
+        padding-top: 64px;
+        /* Offset for the fixed header */
     }
 
-    .subtitle {
-        max-width: 300px;
-        margin-top: 14px;
+    .hh-grid {
+        padding: clamp(20px, 3vh, 32px) 20px 24px;
+        gap: 28px;
     }
 
-    .hero-subtitle-secondary {
-        margin-top: 4px;
+    /* Keep the four network names on one line down to ~360px viewports */
+    .hh-eyebrow {
+        gap: 7px;
+        letter-spacing: 0.11em;
+    }
+
+    .hh-eyebrow-cell {
+        gap: 7px;
+    }
+
+    .hh-title {
+        font-size: clamp(36px, 11vw, 52px);
+        line-height: 0.98;
+        letter-spacing: -0.04em;
+    }
+
+    .hh-lede {
+        margin-top: 16px;
         font-size: 16px;
-        line-height: 24px;
-        max-width: 320px;
+        line-height: 1.5;
+        max-width: none;
     }
 
-    .hero-install-command {
-        margin-top: 24px;
-        padding: 13px 14px 13px 16px;
-        max-width: calc(100% - 40px);
-        width: auto;
+    .hh-actions {
+        margin-top: 22px;
+        gap: 14px;
+    }
+
+    .hh-install {
+        width: 100%;
         gap: 12px;
+        padding: 12px 12px 12px 16px;
+        justify-content: space-between;
+        backdrop-filter: none;
     }
 
-    .hero-install-command code {
+    .hh-install code {
         font-size: 13px;
+        white-space: normal;
+        overflow-wrap: anywhere;
     }
 
-    .hero-install-command-copy {
+    .hh-install-copy {
         width: 28px;
         height: 28px;
     }
 
-    .hero-install-command-copy img {
-        width: 14px;
-        height: 14px;
+    /* No room beside the pill on phones — confirm underneath instead */
+    .hh-install-status {
+        position: static;
+        margin-left: 0;
+        display: none;
+    }
+
+    .hh-install.is-copied .hh-install-status {
+        display: none;
+    }
+
+    .hh-stat-note {
+        font-size: 12px;
+    }
+
+    /* Keep all four blocks inside the fold on short phone viewports */
+    .hh-stats {
+        padding-top: 22px;
+    }
+
+    .hh-frameworks {
+        margin-top: 18px;
+        padding-top: 18px;
+    }
+
+    .hh-marquee {
+        -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 36px), transparent);
+        mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 36px), transparent);
     }
 
     .extended-section {
@@ -707,15 +1573,19 @@
         margin: 0;
     }
 
+    /* Side by side: stacked, the two columns read as one undifferentiated
+       run of six links instead of nav and external. */
     .extended-links {
         order: 3;
-        flex-direction: column;
-        gap: 40px;
+        flex-direction: row;
+        gap: 24px;
         width: 100%;
     }
 
     .link-column {
-        gap: 20px;
+        flex: 1;
+        min-width: 0;
+        gap: 18px;
     }
 
     .huge-antigravity {
@@ -723,15 +1593,22 @@
         /* Keep relative mass */
     }
 
+    /* The signature closes the page, so it gets its own zone. Without the rule
+       below it butted straight against the last link and read as a seventh one. */
     .extended-footer {
         order: 4;
         flex-direction: column;
         align-items: flex-start;
-        gap: 32px;
+        gap: 20px;
+        width: 100%;
+        margin-top: 44px;
+        padding-top: 26px;
+        padding-bottom: 0;
+        border-top: 1px solid var(--al-line);
     }
 
     .footer-bottom-links {
         flex-direction: column;
-        gap: 16px;
+        gap: 14px;
     }
 }

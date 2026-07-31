@@ -16,9 +16,7 @@ export const HowToUsePage = ({ onInstallClick }) => {
 
         <nav className="htu-nav">
           <a href="/wallet" className="htu-nav-item">Wallet</a>
-          <a href="/mcp" className="htu-nav-item">MCP</a>
           <a href="/use-cases" className="htu-nav-item">Use Cases</a>
-          <a href="/how-to-use" className="htu-nav-item htu-nav-active">How to use</a>
           <a href="/skill.md" className="htu-nav-item">For LLMs</a>
           <a href="/for-investors" className="htu-nav-item">For Investors</a>
           <a href="/about" className="htu-nav-item">About</a>
@@ -125,9 +123,7 @@ export const HowToUsePage = ({ onInstallClick }) => {
             <div className="htu-footer-links">
               <div className="htu-link-col">
                 <a href="/wallet">Wallet</a>
-                <a href="/mcp">MCP</a>
                 <a href="/use-cases">Use Cases</a>
-                <a href="/how-to-use">How to use</a>
                 <a href="/skill.md">For LLMs</a>
               </div>
               <div className="htu-link-col">
@@ -143,13 +139,9 @@ export const HowToUsePage = ({ onInstallClick }) => {
           </div>
 
           <div className="htu-footer-bottom">
-            <div className="htu-footer-brand">Agent Layer</div>
+            <div className="htu-footer-brand">AgentLayer</div>
             <div className="htu-footer-bottom-links">
-              <span className="footer-ca" aria-label="Contract address">
-                <span className="footer-ca-label">CA:</span>
-                <span className="footer-ca-value">444DPguaifQZ5NicFicD9Kni6emKexyq<wbr />qG4dEkUaBAGS</span>
-              </span>
-              <a href="/about">About Agent Layer</a>
+              <a href="/about">About AgentLayer</a>
               <a href="/terms">Terms</a>
             </div>
           </div>

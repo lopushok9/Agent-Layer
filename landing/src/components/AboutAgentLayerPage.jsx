@@ -32,9 +32,7 @@ export const AboutAgentLayerPage = ({ onInstallClick }) => {
 
         <nav className="ab-nav">
           <a href="/wallet" className="ab-nav-item">Wallet</a>
-          <a href="/mcp" className="ab-nav-item">MCP</a>
           <a href="/use-cases" className="ab-nav-item">Use Cases</a>
-          <a href="/how-to-use" className="ab-nav-item">How to use</a>
           <a href="/skill.md" className="ab-nav-item">For LLMs</a>
           <a href="/for-investors" className="ab-nav-item">For Investors</a>
           <a href="/about" className="ab-nav-item ab-nav-active">About</a>
@@ -55,7 +53,7 @@ export const AboutAgentLayerPage = ({ onInstallClick }) => {
       <main className="ab-main">
         <section className="ab-hero">
           <div className="ab-hero-inner">
-            <span className="ab-label">About Agent Layer</span>
+            <span className="ab-label">About AgentLayer</span>
             <h1 className="ab-hero-headline">
               The finance layer
               <br />for autonomous agents
@@ -86,9 +84,7 @@ export const AboutAgentLayerPage = ({ onInstallClick }) => {
             <div className="ab-footer-links">
               <div className="ab-link-col">
                 <a href="/wallet">Wallet</a>
-                <a href="/mcp">MCP</a>
                 <a href="/use-cases">Use Cases</a>
-                <a href="/how-to-use">How to use</a>
                 <a href="/skill.md">For LLMs</a>
               </div>
               <div className="ab-link-col">
@@ -104,13 +100,9 @@ export const AboutAgentLayerPage = ({ onInstallClick }) => {
           </div>
 
           <div className="ab-footer-bottom">
-            <div className="ab-footer-brand">Agent Layer</div>
+            <div className="ab-footer-brand">AgentLayer</div>
             <div className="ab-footer-bottom-links">
-              <span className="footer-ca" aria-label="Contract address">
-                <span className="footer-ca-label">CA:</span>
-                <span className="footer-ca-value">444DPguaifQZ5NicFicD9Kni6emKexyq<wbr />qG4dEkUaBAGS</span>
-              </span>
-              <a href="/about" className="ab-footer-active-link">About Agent Layer</a>
+              <a href="/about" className="ab-footer-active-link">About AgentLayer</a>
               <a href="/terms">Terms</a>
             </div>
           </div>

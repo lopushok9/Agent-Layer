@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react'
 import '../styles/InstallModal.css'
 
-const OPENCLAW_INSTALL = 'npx @agentlayer.tech/wallet install --yes'
-const HERMES_INSTALL =
-  'npx @agentlayer.tech/wallet install --yes && npx @agentlayer.tech/wallet hermes install --yes'
+const INSTALL_COMMAND = 'npx --yes @agentlayer.tech/wallet@latest install'
+const SKILL_URL = 'https://www.agent-layer.tech/skill.md'
 
 export const InstallModal = ({ isOpen, onClose }) => {
   const [copiedKey, setCopiedKey] = useState(null)
@@ -61,58 +60,40 @@ export const InstallModal = ({ isOpen, onClose }) => {
 
         <div className="install-modal-body">
           <p className="install-modal-copy">
-            Beta release. Use the default install for OpenClaw, or add Hermes in the same step.
+            Use this command to install AgentLayer into every detected framework.
           </p>
 
-          <div className="install-modal-stack">
-            <section className="install-modal-panel" aria-label="OpenClaw install command">
-              <div className="install-modal-panel-head">
-                <div>
-                  <span className="install-modal-code-label">OpenClaw</span>
-                  <h3 className="install-modal-panel-title">Default install</h3>
-                </div>
-                <button
-                  type="button"
-                  className="install-modal-copy-btn"
-                  onClick={() => handleCopy(OPENCLAW_INSTALL, 'openclaw')}
-                  aria-label="Copy OpenClaw install command"
-                >
-                  {copiedKey === 'openclaw' ? 'Copied' : 'Copy'}
-                </button>
-              </div>
-
-              <pre className="install-modal-code">
-                <code>{OPENCLAW_INSTALL}</code>
-              </pre>
-            </section>
-
-            <section className="install-modal-panel" aria-label="Hermes install command">
-              <div className="install-modal-panel-head">
-                <div>
-                  <span className="install-modal-code-label">Hermes</span>
-                  <h3 className="install-modal-panel-title">Install with Hermes</h3>
-                </div>
-                <button
-                  type="button"
-                  className="install-modal-copy-btn"
-                  onClick={() => handleCopy(HERMES_INSTALL, 'hermes')}
-                  aria-label="Copy Hermes install command"
-                >
-                  {copiedKey === 'hermes' ? 'Copied' : 'Copy'}
-                </button>
-              </div>
-
-              <pre className="install-modal-code">
-                <code>{HERMES_INSTALL}</code>
-              </pre>
-            </section>
+          <div className="install-modal-row">
+            <pre className="install-modal-code">
+              <code>{INSTALL_COMMAND}</code>
+            </pre>
+            <button
+              type="button"
+              className="install-modal-copy-btn"
+              onClick={() => handleCopy(INSTALL_COMMAND, 'command')}
+              aria-label="Copy install command"
+            >
+              {copiedKey === 'command' ? 'Copied' : 'Copy'}
+            </button>
           </div>
-        </div>
 
-        <div className="install-modal-footer">
-          <p className="install-modal-note">
-            Beta version. Test critical flows before relying on them in production.
+          <p className="install-modal-copy install-modal-alt">
+            Or give your agent this link.
           </p>
+
+          <div className="install-modal-row">
+            <a className="install-modal-link" href={SKILL_URL} target="_blank" rel="noreferrer">
+              {SKILL_URL}
+            </a>
+            <button
+              type="button"
+              className="install-modal-copy-btn"
+              onClick={() => handleCopy(SKILL_URL, 'link')}
+              aria-label="Copy skill.md link"
+            >
+              {copiedKey === 'link' ? 'Copied' : 'Copy'}
+            </button>
+          </div>
         </div>
       </section>
     </div>

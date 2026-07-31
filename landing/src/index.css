@@ -3,6 +3,19 @@
   line-height: 1.5;
   font-weight: 400;
 
+  /* --- Shared tokens (additive; safe for existing pages) --- */
+  --al-bg: #ffffff;
+  --al-ink: #111213;
+  --al-ink-2: #373b40;
+  --al-muted: #5f6368;
+  --al-muted-2: #8b9097;
+  --al-faint: #c3c8ce;
+  --al-line: #e9ebee;
+  --al-line-strong: #d8dde3;
+  --al-surface: #f6f8fa;
+  --al-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --al-mono: "IBM Plex Mono", "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
+
   color-scheme: light;
   color: #111213;
   /* Updated text color */
@@ -45,24 +58,4 @@ body {
   line-height: 1;
   letter-spacing: -0.02em;
   transform: translateY(-0.06em);
-}
-
-.footer-ca {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.4em;
-  color: #7c828a;
-  font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', monospace;
-  font-size: 12px;
-  line-height: 1.45;
-  letter-spacing: -0.01em;
-}
-
-.footer-ca-label {
-  opacity: 0.75;
-}
-
-.footer-ca-value {
-  white-space: normal;
-  word-break: normal;
 }

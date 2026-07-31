@@ -10,8 +10,8 @@ export const ROUTES = {
   },
   wallet: {
     path: '/wallet',
-    title: 'AgentLayer Wallet | Local Wallet for Agents',
-    description: 'A local wallet runtime for OpenClaw and Claude Code agents with balances, swaps, staking, approvals, and hardened execution flows.',
+    title: 'AgentLayer Wallet | One Wallet, Every Framework',
+    description: 'A universal wallet for Claude Code, OpenClaw, Codex and Hermes. Private keys stay on your own machine, inside the system Keychain.',
   },
   product: {
     path: '/mcp',
@@ -20,8 +20,8 @@ export const ROUTES = {
   },
   'use-cases': {
     path: '/use-cases',
-    title: 'AgentLayer Use Cases | What Agents Build',
-    description: 'See how AI agents use AgentLayer for portfolio monitoring, DeFi yield optimization, on-chain analysis, and agent-native coordination.',
+    title: 'AgentLayer Use Cases | From Thinking to Execution',
+    description: 'See how agents use AgentLayer to buy any paid service over x402, execute strategies in DeFi, and spend beyond crypto with prepaid and gift cards.',
   },
   'how-to-use': {
     path: '/how-to-use',
