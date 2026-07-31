@@ -97,12 +97,15 @@ function routePathToOutputFile(routePath) {
   return path.join(clientDistDir, routePath.slice(1), 'index.html')
 }
 
+// Must match the canonical each page declares in its own head, which routes.js
+// builds as `${SITE_ORIGIN}${path}` with no trailing slash. Emitting the
+// slashed form here pointed the sitemap at URLs the pages themselves disown.
 function routePathToCanonical(routePath, siteOrigin) {
   if (routePath === '/') {
     return `${siteOrigin}/`
   }
 
-  return `${siteOrigin}${routePath}/`
+  return `${siteOrigin}${routePath}`
 }
 
 function buildSitemapXml(siteOrigin, routePaths) {
@@ -124,7 +127,7 @@ async function main() {
     await writeFile(outputFile, html)
   }
 
-  const sitemapXml = buildSitemapXml(routesModule.SITE_ORIGIN, routesModule.PRERENDER_PATHS)
+  const sitemapXml = buildSitemapXml(routesModule.SITE_ORIGIN, routesModule.SITEMAP_PATHS)
   await writeFile(path.join(clientDistDir, 'sitemap.xml'), sitemapXml)
 }
 
