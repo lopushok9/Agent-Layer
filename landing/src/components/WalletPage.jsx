@@ -3,33 +3,13 @@ import '../styles/WalletPage.css'
 const WALLET_FEATURES = [
   {
     num: '01',
-    name: 'Wallet context',
-    description: 'Expose wallet address, balances, portfolio state, token prices and staking context through a compact OpenClaw tool surface. The agent reads first before it acts.',
-    tools: ['get_wallet_address', 'get_wallet_balance', 'get_wallet_portfolio', 'get_solana_token_prices'],
+    name: 'Control your keys',
+    description: 'Every private key is stored on your own machine, inside the system Keychain. Nobody gets access to them, not even the agent that spends from them.',
   },
   {
     num: '02',
-    name: 'Safe execution',
-    description: 'Transfers, swaps, staking, stake deactivation and withdrawals follow a preview-first path. Prepare returns an execution plan only, while execute is reserved for explicitly approved actions.',
-    tools: ['transfer_sol', 'transfer_spl_token', 'swap_solana_tokens', 'stake_sol_native'],
-  },
-  {
-    num: '03',
-    name: 'Approval control',
-    description: 'Sensitive actions are bound to host-issued approval tokens. Mainnet flows require explicit confirmation, and execution remains tied to the approved wallet intent instead of free-form agent output.',
-    tools: ['approval_token', 'mainnet_confirmation', 'single-use approval', 'preview → execute'],
-  },
-  {
-    num: '04',
-    name: 'Encrypted storage',
-    description: 'Per-user wallets are encrypted at rest, derived from sealed runtime secrets, and isolated by user and network. Secret material stays out of config JSON and out of plain runtime env.',
-    tools: ['sealed_keys.json', 'AGENT_WALLET_BOOT_KEY', 'per-user encryption', 'network isolation'],
-  },
-  {
-    num: '05',
-    name: 'Mainnet hardening',
-    description: 'Mainnet wallets are pinned by address, legacy plaintext wallets can be migrated, and runtime policy rejects unsafe secret-loading paths. The goal is operational safety, not just happy-path demos.',
-    tools: ['wallet pinning', 'plaintext migration', 'runtime secret rejection', 'sign-only support'],
+    name: 'Run /wallet',
+    description: 'Fast and simple. Run /wallet to see your balance instantly, then turn that context straight into the next action.',
   },
 ]
 
@@ -70,16 +50,13 @@ export const WalletPage = ({ onInstallClick }) => {
           <div className="wp-hero-inner">
             <span className="wp-label">Wallet</span>
             <h1 className="wp-hero-headline">
-              A local wallet runtime
-              <br />for OpenClaw agents
+              One wallet,
+              <br />every framework
             </h1>
             <p className="wp-hero-sub">
-              AgentLayer Wallet gives OpenClaw a hardened execution layer for Solana.
+              A universal wallet across all your frameworks.
+              Claude Code, OpenClaw, Codex and Hermes are supported out of the box.
             </p>
-            <div className="wp-status">
-              <span className="wp-status-dot" />
-              beta. local runtime for balances, swaps and staking
-            </div>
           </div>
         </section>
 
@@ -90,11 +67,6 @@ export const WalletPage = ({ onInstallClick }) => {
                 <span className="wp-feature-num">{feature.num}</span>
                 <h2 className="wp-feature-name">{feature.name}</h2>
                 <p className="wp-feature-desc">{feature.description}</p>
-                <div className="wp-feature-tags">
-                  {feature.tools.map((tool) => (
-                    <span className="wp-tag" key={tool}>{tool}</span>
-                  ))}
-                </div>
               </div>
             </article>
           ))}

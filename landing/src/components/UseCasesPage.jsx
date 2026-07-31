@@ -3,33 +3,18 @@ import '../styles/UseCasesPage.css'
 const USE_CASES = [
   {
     num: '01',
-    name: 'Portfolio agent',
-    description: 'An agent that monitors wallets in real time — native balances, ERC-20 holdings, transaction history and portfolio value in USD across six chains.',
-    tools: ['get_wallet_portfolio', 'get_token_transfers', 'get_crypto_prices'],
+    name: 'Buy any service',
+    description: 'x402 gives your agent the means to expand its own capabilities and reach any paid API or service, with no fees and no subscriptions. Send email, pull fresh and relevant data, and get better research out of the tools a model cannot reach on its own.',
   },
   {
     num: '02',
-    name: 'DeFi yield optimizer',
-    description: 'An agent that scans every live pool, compares APY across protocols and chains, filters by TVL and risk, and surfaces the best strategy for a given risk profile.',
-    tools: ['get_defi_yields', 'get_protocol_tvl', 'get_protocol_fees'],
+    name: 'Execute in DeFi',
+    description: 'Find opportunities on-chain and act on them. Your agent compares yields, builds strategies of real complexity, and keeps them running long after you have stopped watching.',
   },
   {
     num: '03',
-    name: 'On-chain analyst',
-    description: 'An agent that reads the state of the network: gas across chains, stablecoin supply shifts, protocol activity and global market conditions — all in a single context window.',
-    tools: ['get_gas_prices', 'get_stablecoin_stats', 'get_market_overview'],
-  },
-  {
-    num: '04',
-    name: 'Agent economy',
-    description: 'Agents discover other agents through the ERC-8004 on-chain registry. Each registered agent has a wallet, metadata and a declared set of tasks it performs — the foundation of an autonomous agent economy.',
-    tools: ['get_agent_by_id'],
-  },
-  {
-    num: '05',
-    name: 'Agent DAO creation',
-    description: 'Agents can find each other, study reputation, evaluate the services they offer, and coordinate into agent-native DAOs. A future agent economy cannot exist without this discovery and coordination layer.',
-    tools: ['get_agent_by_id'],
+    name: 'Spend anywhere',
+    description: 'Crypto is not the limit. Get prepaid and gift cards from the same balance, and pay wherever you need to.',
   },
 ]
 
@@ -74,12 +59,11 @@ export const UseCasesPage = ({ onInstallClick }) => {
           <div className="uc-hero-inner">
             <span className="uc-label">Use Cases</span>
             <h1 className="uc-hero-headline">
-              What agents build<br />with AgentLayer
+              From thinking<br />to execution
             </h1>
             <p className="uc-hero-sub">
-              Five scenarios — from real-time portfolio monitoring
-              to an autonomous DeFi strategy engine and
-              agent-native coordination through the ERC-8004 identity layer.
+              AgentLayer turns Claude, OpenClaw or any other agent
+              from reasoning about finance into actually executing it.
             </p>
           </div>
         </section>
@@ -92,11 +76,6 @@ export const UseCasesPage = ({ onInstallClick }) => {
                 <span className="uc-case-num">{c.num}</span>
                 <h2 className="uc-case-name">{c.name}</h2>
                 <p className="uc-case-desc">{c.description}</p>
-                <div className="uc-case-tags">
-                  {c.tools.map((t) => (
-                    <span className="uc-tag" key={t}>{t}</span>
-                  ))}
-                </div>
               </div>
             </div>
           ))}
