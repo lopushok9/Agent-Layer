@@ -346,6 +346,9 @@
 
 .htu-footer-bottom {
   display: flex;
+  /* Full-width address wraps onto its own row under the links. */
+  flex-wrap: wrap;
+  row-gap: 20px;
   justify-content: space-between;
   align-items: flex-end;
   padding-bottom: 20px;

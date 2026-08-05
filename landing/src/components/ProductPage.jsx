@@ -132,6 +132,10 @@ export const ProductPage = ({ onInstallClick }) => {
               <a href="/about">About AgentLayer</a>
               <a href="/terms">Terms</a>
             </div>
+            <span className="footer-ca" aria-label="Contract address">
+              <span className="footer-ca-label">CA</span>
+              <span className="footer-ca-value">444DPguaifQZ5NicFicD9Kni6emKexyq<wbr />qG4dEkUaBAGS</span>
+            </span>
           </div>
         </div>
 

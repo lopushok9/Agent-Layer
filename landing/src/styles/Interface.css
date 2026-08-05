@@ -1518,6 +1518,10 @@
 
 .extended-footer {
     display: flex;
+    /* The address is full-width, so it wraps onto its own row beneath the
+       brand and links instead of competing with them for the same line. */
+    flex-wrap: wrap;
+    row-gap: 20px;
     justify-content: space-between;
     align-items: flex-end;
     padding-top: 0;
