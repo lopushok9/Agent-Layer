@@ -385,6 +385,49 @@
   letter-spacing: -0.005em;
 }
 
+/* ── Opt out ──
+   An escape hatch, not a third step: no number, smaller heading, outline
+   button. It has to be findable without competing with the flow above it. */
+.ob-skip-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.025em;
+  color: var(--al-ink);
+}
+
+.ob-skip-copy {
+  margin: 8px 0 0;
+  max-width: 46ch;
+  color: var(--al-muted);
+  font-size: 14px;
+  line-height: 1.5;
+  letter-spacing: -0.005em;
+  text-wrap: pretty;
+}
+
+.ob-skip-command {
+  display: block;
+  margin-top: 16px;
+  padding: 13px 15px;
+  overflow-x: auto;
+  border: 1px solid var(--al-line);
+  background: var(--al-surface);
+  color: var(--al-ink-2);
+  font-family: var(--al-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.ob-skip .ob-secondary-button {
+  margin-top: 12px;
+  min-height: 42px;
+  font-size: 13px;
+}
+
 .ob-error {
   margin-top: 18px;
   padding: 12px 14px;
@@ -511,7 +554,8 @@
   }
 
   .ob-claim-row .ob-primary-button,
-  .ob-claim-row .ob-secondary-button {
+  .ob-claim-row .ob-secondary-button,
+  .ob-skip .ob-secondary-button {
     width: 100%;
   }
 
