@@ -8,6 +8,8 @@ const PROVIDER_LABELS = {
   x: 'X',
 }
 
+const PLAIN_INSTALL_COMMAND = 'npx --yes @agentlayer.tech/wallet@latest install'
+
 async function onboardingRequest(path, options = {}) {
   const response = await fetch(path, {
     credentials: 'same-origin',
@@ -49,7 +51,7 @@ export function OnboardingPage() {
   const [invite, setInvite] = useState(null)
   const [error, setError] = useState(authErrorFromUrl)
   const [canReplace, setCanReplace] = useState(false)
-  const [copied, setCopied] = useState(false)
+  const [copiedKey, setCopiedKey] = useState(null)
 
   useEffect(() => {
     let active = true
@@ -78,7 +80,7 @@ export function OnboardingPage() {
 
   const command = useMemo(
     () => invite
-      ? `npx --yes @agentlayer.tech/wallet@latest install --invite ${invite.code}`
+      ? `${PLAIN_INSTALL_COMMAND} --invite ${invite.code}`
       : '',
     [invite],
   )
@@ -111,7 +113,7 @@ export function OnboardingPage() {
     }
     setWorking(true)
     setError(null)
-    setCopied(false)
+    setCopiedKey(null)
     try {
       const payload = await onboardingRequest(
         replace
@@ -135,10 +137,13 @@ export function OnboardingPage() {
     }
   }
 
-  async function copyCommand() {
+  async function copyCommand(value, key) {
     try {
-      await navigator.clipboard.writeText(command)
-      setCopied(true)
+      await navigator.clipboard.writeText(value)
+      setCopiedKey(key)
+      window.setTimeout(() => {
+        setCopiedKey((current) => (current === key ? null : current))
+      }, 1600)
     } catch {
       setError('Could not copy automatically. Select and copy the command manually.')
     }
@@ -277,8 +282,12 @@ export function OnboardingPage() {
                 <span>Expires {new Date(invite.expiresAt).toLocaleDateString()}</span>
               </div>
               <code>{command}</code>
-              <button className="ob-primary-button" type="button" onClick={copyCommand}>
-                {copied ? 'Copied' : 'Copy install command'}
+              <button
+                className="ob-primary-button"
+                type="button"
+                onClick={() => copyCommand(command, 'invite')}
+              >
+                {copiedKey === 'invite' ? 'Copied' : 'Copy install command'}
               </button>
               <p className="ob-security-note">
                 Keep this command private. The invite is consumed only after the
@@ -288,6 +297,25 @@ export function OnboardingPage() {
           )}
 
           {error && <div className="ob-error" role="alert">{error}</div>}
+
+          <div className="ob-divider" />
+
+          <section className="ob-skip" aria-labelledby="ob-skip-title">
+            <h2 className="ob-skip-title" id="ob-skip-title">
+              Rather not connect an account?
+            </h2>
+            <p className="ob-skip-copy">
+              Skip the bonus and install the wallet on its own. No sign-in, no invite code.
+            </p>
+            <code className="ob-skip-command">{PLAIN_INSTALL_COMMAND}</code>
+            <button
+              className="ob-secondary-button"
+              type="button"
+              onClick={() => copyCommand(PLAIN_INSTALL_COMMAND, 'plain')}
+            >
+              {copiedKey === 'plain' ? 'Copied' : 'Copy install command'}
+            </button>
+          </section>
         </section>
       </main>
 
