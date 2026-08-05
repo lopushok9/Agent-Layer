@@ -1,12 +1,26 @@
+/* Onboarding shares the home page's vocabulary: hairlines instead of boxes,
+   left-aligned type, the shared tokens, and one dark pill for the primary
+   action. The page kept its own greys, mono stack and weights before, which
+   made it read as a different product. */
+
+/* Flex column so main absorbs the leftover height: hard-coding
+   calc(100vh - header) made the page taller than the viewport by exactly the
+   footer, forcing a scrollbar on a page that otherwise fits. */
 .ob-page {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  width: 100%;
   min-height: 100vh;
-  color: #111213;
+  display: flex;
+  flex-direction: column;
+  color: var(--al-ink);
   background: #fff;
   font-family: 'Inter', sans-serif;
+  box-sizing: border-box;
 }
 
+/* ── Header ── */
 .ob-header {
   display: flex;
   justify-content: space-between;
@@ -14,14 +28,14 @@
   height: 72px;
   padding: 0 32px;
   box-sizing: border-box;
-  border-bottom: 1px solid rgba(17, 18, 19, 0.1);
+  border-bottom: 1px solid var(--al-line);
 }
 
 .ob-brand {
   display: flex;
   align-items: center;
   gap: 12px;
-  color: #111213;
+  color: var(--al-ink);
   text-decoration: none;
 }
 
@@ -34,138 +48,178 @@
 
 .ob-brand-text,
 .ob-back-link {
-  color: #111213;
+  color: var(--al-ink);
   font-size: 14px;
   font-weight: 500;
   letter-spacing: -0.01em;
 }
 
 .ob-back-link {
-  text-underline-offset: 3px;
+  text-decoration: none;
+  padding-bottom: 2px;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s var(--al-ease);
 }
 
+.ob-back-link:hover {
+  border-bottom-color: var(--al-ink);
+}
+
+/* ── Layout ── */
 .ob-main {
+  flex: 1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(480px, 0.82fr);
-  min-height: calc(100vh - 73px);
+  grid-template-columns: minmax(0, 1fr) minmax(460px, 0.9fr);
 }
 
 .ob-intro {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: clamp(48px, 8vw, 120px);
-  border-right: 1px solid rgba(17, 18, 19, 0.1);
+  padding: clamp(48px, 6vw, 96px);
+  border-right: 1px solid var(--al-line);
   box-sizing: border-box;
 }
 
+/* ── Intro ── */
 .ob-kicker {
-  margin-bottom: 28px;
-  color: #6a7078;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  display: block;
+  margin-bottom: 18px;
+  font-size: clamp(14px, 1.05vw, 15.5px);
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: -0.005em;
+  color: var(--al-muted);
 }
 
+/* Was clamp(64px, 8vw, 128px) at 0.84/-0.065em: a third tighter than anything
+   on the home page, which is what made a narrow column feel airless. */
 .ob-intro h1 {
   margin: 0;
-  font-size: clamp(64px, 8vw, 128px);
-  font-weight: 800;
-  letter-spacing: -0.065em;
-  line-height: 0.84;
+  font-size: clamp(40px, 5vw, 76px);
+  font-weight: 600;
+  line-height: 0.98;
+  letter-spacing: -0.04em;
+  text-wrap: balance;
 }
 
 .ob-intro > p {
-  max-width: 570px;
-  margin: 40px 0 0;
-  color: #5f6368;
-  font-size: 17px;
-  line-height: 1.65;
+  max-width: 46ch;
+  margin: clamp(22px, 3vh, 32px) 0 0;
+  color: var(--al-ink-2);
+  font-size: clamp(15px, 1.15vw, 17.5px);
+  line-height: 1.5;
+  letter-spacing: -0.01em;
+  text-wrap: pretty;
 }
 
+/* Slash-separated, like the network line in the home fold. As bordered pills
+   these read as three buttons that cannot be pressed. */
 .ob-facts {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 36px;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: clamp(26px, 4vh, 38px);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--al-muted-2);
 }
 
 .ob-facts span {
-  padding: 6px 11px;
-  border: 1px solid rgba(17, 18, 19, 0.14);
-  border-radius: 999px;
-  color: #565b62;
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  font-size: 11px;
+  white-space: nowrap;
 }
 
+/* Trailing rather than leading, so a wrap leaves the slash at the end of the
+   previous line instead of stranding it at the start of the next. */
+.ob-facts span:not(:last-child)::after {
+  content: "/";
+  margin-left: 10px;
+  color: var(--al-faint);
+}
+
+/* ── Panel ── */
 .ob-panel {
   align-self: center;
-  padding: clamp(40px, 6vw, 88px);
+  width: 100%;
+  padding: clamp(40px, 5vw, 80px);
   box-sizing: border-box;
 }
 
 .ob-step {
   display: grid;
-  grid-template-columns: 38px 1fr;
+  grid-template-columns: 34px 1fr;
   gap: 12px;
 }
 
 .ob-step-number {
-  padding-top: 7px;
-  color: #8b9097;
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  font-size: 11px;
+  padding-top: 6px;
+  color: var(--al-faint);
+  font-family: var(--al-mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
 }
 
 .ob-step h2 {
   margin: 0;
-  font-size: clamp(28px, 3vw, 42px);
-  font-weight: 750;
-  letter-spacing: -0.045em;
+  font-size: clamp(24px, 2.4vw, 34px);
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.035em;
 }
 
 .ob-step p {
-  margin: 9px 0 0;
-  color: #6a7078;
-  font-size: 14px;
+  margin: 10px 0 0;
+  max-width: 44ch;
+  color: var(--al-muted);
+  font-size: 14.5px;
   line-height: 1.5;
+  letter-spacing: -0.005em;
+  text-wrap: pretty;
 }
 
+/* ── Providers ── */
 .ob-provider-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-top: 28px;
+  gap: 10px;
+  margin-top: clamp(22px, 3vh, 30px);
 }
 
 .ob-provider-button {
-  min-height: 112px;
-  padding: 20px;
-  border: 1px solid #111213;
-  border-radius: 2px;
-  color: #111213;
+  min-height: 92px;
+  padding: 18px;
+  border: 1px solid var(--al-line-strong);
+  border-radius: 0;
+  color: var(--al-ink);
   background: #fff;
   cursor: pointer;
   text-align: left;
-  transition: background 160ms ease, color 160ms ease;
+  font: inherit;
+  transition: border-color 0.2s var(--al-ease), background 0.2s var(--al-ease), color 0.2s var(--al-ease);
 }
 
-.ob-provider-button:not(:disabled):hover {
+.ob-provider-button:not(:disabled):hover,
+.ob-provider-button:not(:disabled):focus-visible {
   color: #fff;
-  background: #111213;
+  background: var(--al-ink);
+  border-color: var(--al-ink);
+  outline: none;
 }
 
 .ob-provider-button:disabled {
   cursor: default;
-  opacity: 0.45;
+  color: var(--al-muted-2);
+  border-color: var(--al-line);
 }
 
 .ob-provider-connected {
   color: #fff;
-  background: #111213;
-  opacity: 1 !important;
+  background: var(--al-ink);
+  border-color: var(--al-ink);
 }
 
 .ob-provider-button span,
@@ -174,110 +228,147 @@
   display: block;
 }
 
-.ob-provider-button span,
-.ob-provider-button small {
+.ob-provider-button span {
   font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.7;
 }
 
 .ob-provider-button strong {
-  margin-top: 8px;
-  font-size: 23px;
-  letter-spacing: -0.035em;
+  margin-top: 10px;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
 }
 
 .ob-provider-button small {
   margin-top: 8px;
-  color: #8b9097;
+  font-size: 11.5px;
+  font-weight: 400;
+  letter-spacing: -0.005em;
+  text-transform: none;
+  opacity: 0.75;
 }
 
 .ob-loading {
-  margin-top: 28px;
-  color: #6a7078;
-  font-size: 13px;
+  margin-top: clamp(22px, 3vh, 30px);
+  color: var(--al-muted);
+  font-size: 13.5px;
 }
 
 .ob-session-row {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
   gap: 20px;
   margin-top: 16px;
-  color: #5f6368;
-  font-size: 12px;
+  color: var(--al-muted);
+  font-size: 12.5px;
+  letter-spacing: -0.005em;
 }
 
 .ob-session-row button {
   padding: 0;
   border: 0;
-  color: #111213;
+  color: var(--al-ink);
   background: transparent;
+  font: inherit;
   cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 3px;
+  border-bottom: 1px solid var(--al-line-strong);
+  transition: border-color 0.2s var(--al-ease);
+}
+
+.ob-session-row button:hover {
+  border-bottom-color: var(--al-ink);
 }
 
 .ob-divider {
   height: 1px;
-  margin: 44px 0;
-  background: rgba(17, 18, 19, 0.1);
+  margin: clamp(32px, 5vh, 48px) 0;
+  background: var(--al-line);
 }
 
+/* ── Actions ── */
 .ob-claim-row {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  margin-top: 28px;
+  margin-top: clamp(22px, 3vh, 30px);
 }
 
 .ob-primary-button,
 .ob-secondary-button {
-  min-height: 46px;
-  padding: 0 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 22px;
   border-radius: 999px;
-  font-size: 13px;
-  font-weight: 650;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   cursor: pointer;
+  box-sizing: border-box;
+  transition: background 0.2s var(--al-ease), border-color 0.2s var(--al-ease);
 }
 
 .ob-primary-button {
-  border: 1px solid #111213;
+  border: 1px solid var(--al-ink);
   color: #fff;
-  background: #111213;
+  background: var(--al-ink);
+}
+
+.ob-primary-button:not(:disabled):hover {
+  background: #1a1b1f;
 }
 
 .ob-secondary-button {
-  border: 1px solid rgba(17, 18, 19, 0.2);
-  color: #111213;
+  border: 1px solid var(--al-line-strong);
+  color: var(--al-ink);
   background: #fff;
+}
+
+.ob-secondary-button:not(:disabled):hover {
+  border-color: var(--al-ink);
 }
 
 .ob-primary-button:disabled,
 .ob-secondary-button:disabled {
   cursor: default;
-  opacity: 0.4;
+  opacity: 0.35;
 }
 
+/* ── Invite result ── */
 .ob-invite-result {
-  margin-top: 28px;
+  margin-top: clamp(22px, 3vh, 30px);
 }
 
 .ob-command-label {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 9px;
-  color: #6a7078;
+  margin-bottom: 10px;
+  color: var(--al-muted-2);
   font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
 }
 
 .ob-invite-result code {
   display: block;
   overflow-x: auto;
-  padding: 18px;
-  border: 1px solid rgba(17, 18, 19, 0.16);
-  background: #f6f6f4;
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  font-size: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--al-line-strong);
+  background: var(--al-surface);
+  color: var(--al-ink);
+  font-family: var(--al-mono);
+  font-size: 12.5px;
   line-height: 1.55;
+  letter-spacing: -0.01em;
   white-space: nowrap;
 }
 
@@ -287,9 +378,11 @@
 
 .ob-security-note {
   margin: 16px 0 0;
-  color: #7b8087;
-  font-size: 11px;
+  max-width: 46ch;
+  color: var(--al-muted-2);
+  font-size: 12px;
   line-height: 1.5;
+  letter-spacing: -0.005em;
 }
 
 .ob-error {
@@ -298,23 +391,91 @@
   border-left: 2px solid #9f2d24;
   color: #7a211b;
   background: #fff5f3;
-  font-size: 12px;
+  font-size: 12.5px;
   line-height: 1.5;
 }
 
+/* ── Footer ──
+   Slim by design, to match the stripped-back header: this is a conversion
+   page, and the full site footer would pull attention out of the flow. */
+.ob-footer {
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: 16px;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 26px 32px 30px;
+  border-top: 1px solid var(--al-line);
+  box-sizing: border-box;
+}
+
+.ob-footer-brand {
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--al-ink);
+}
+
+.ob-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.ob-footer-links a {
+  color: var(--al-muted);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  text-decoration: none;
+  padding-bottom: 2px;
+  border-bottom: 1px solid transparent;
+  transition: color 0.2s var(--al-ease), border-color 0.2s var(--al-ease);
+}
+
+.ob-footer-links a:hover {
+  color: var(--al-ink);
+  border-bottom-color: var(--al-ink);
+}
+
+/* ── Entrance ── */
+.ob-rise {
+  opacity: 0;
+  animation: obRise 0.8s var(--al-ease) forwards;
+  animation-delay: var(--d, 0s);
+}
+
+@keyframes obRise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ob-rise {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* ── Responsive ── */
 @media (max-width: 980px) {
   .ob-main {
     grid-template-columns: 1fr;
   }
 
   .ob-intro {
-    min-height: 58vh;
     border-right: 0;
-    border-bottom: 1px solid rgba(17, 18, 19, 0.1);
+    border-bottom: 1px solid var(--al-line);
   }
 
   .ob-panel {
-    width: 100%;
     max-width: 760px;
     margin: 0 auto;
   }
@@ -323,16 +484,12 @@
 @media (max-width: 560px) {
   .ob-header {
     height: 64px;
-    padding: 0 18px;
+    padding: 0 20px;
   }
 
   .ob-brand-mark {
     width: 44px;
     height: 44px;
-  }
-
-  .ob-main {
-    min-height: calc(100vh - 65px);
   }
 
   .ob-intro,
@@ -341,15 +498,30 @@
   }
 
   .ob-intro h1 {
-    font-size: clamp(56px, 19vw, 84px);
+    font-size: clamp(36px, 11vw, 52px);
+    line-height: 1.0;
   }
 
   .ob-provider-grid {
     grid-template-columns: 1fr;
   }
 
+  .ob-provider-button {
+    min-height: 0;
+  }
+
+  .ob-claim-row .ob-primary-button,
+  .ob-claim-row .ob-secondary-button {
+    width: 100%;
+  }
+
   .ob-command-label {
     align-items: flex-start;
     flex-direction: column;
+    gap: 4px;
+  }
+
+  .ob-footer {
+    padding: 24px 20px 28px;
   }
 }

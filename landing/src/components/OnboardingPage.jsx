@@ -177,13 +177,13 @@ export function OnboardingPage() {
 
       <main className="ob-main">
         <section className="ob-intro">
-          <span className="ob-kicker">Base welcome credit</span>
-          <h1>Start your agent<br />with $1.</h1>
-          <p>
+          <span className="ob-kicker ob-rise" style={{ '--d': '0.08s' }}>Base welcome credit</span>
+          <h1 className="ob-rise" style={{ '--d': '0.16s' }}>Start your agent with $1</h1>
+          <p className="ob-rise" style={{ '--d': '0.24s' }}>
             Connect GitHub or X, create your AgentLayer wallet, and use the
             welcome credit for x402 payments on Base.
           </p>
-          <div className="ob-facts" aria-label="Campaign details">
+          <div className="ob-facts ob-rise" style={{ '--d': '0.32s' }} aria-label="Campaign details">
             <span>GitHub or X</span>
             <span>One-time invite</span>
             <span>Base network</span>
@@ -290,6 +290,20 @@ export function OnboardingPage() {
           {error && <div className="ob-error" role="alert">{error}</div>}
         </section>
       </main>
+
+      <footer className="ob-footer">
+        <div className="ob-footer-brand">AgentLayer</div>
+        <div className="ob-footer-links">
+          <a href="/">Home</a>
+          <a href="/wallet">Wallet</a>
+          <a href="/about">About AgentLayer</a>
+          <a href="/terms">Terms</a>
+        </div>
+        <span className="footer-ca" aria-label="Contract address">
+          <span className="footer-ca-label">CA</span>
+          <span className="footer-ca-value">444DPguaifQZ5NicFicD9Kni6emKexyq<wbr />qG4dEkUaBAGS</span>
+        </span>
+      </footer>
     </div>
   )
 }
