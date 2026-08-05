@@ -72,11 +72,14 @@
   grid-template-columns: minmax(0, 1fr) minmax(460px, 0.9fr);
 }
 
+/* Both columns start at the same line. Centred, the pitch floated against a
+   taller panel and the two never agreed on where the page began. The shared
+   top value is what keeps them aligned, so change it in both places. */
 .ob-intro {
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  padding: clamp(48px, 6vw, 96px);
+  justify-content: flex-start;
+  padding: clamp(52px, 7vh, 92px) clamp(48px, 6vw, 96px);
   border-right: 1px solid var(--al-line);
   box-sizing: border-box;
 }
@@ -142,9 +145,9 @@
 
 /* ── Panel ── */
 .ob-panel {
-  align-self: center;
+  align-self: start;
   width: 100%;
-  padding: clamp(40px, 5vw, 80px);
+  padding: clamp(52px, 7vh, 92px) clamp(40px, 5vw, 80px);
   box-sizing: border-box;
 }
 
