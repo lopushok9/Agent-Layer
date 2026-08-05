@@ -45,8 +45,8 @@ export const ROUTES = {
   },
   onboard: {
     path: '/onboard',
-    title: 'AgentLayer Welcome Bonus | Connect GitHub or X',
-    description: 'Connect GitHub or X, receive a one-time invite code, and bind it to your local AgentLayer wallet on Base.',
+    title: 'AgentLayer Welcome Bonus | Try Agentic Commerce',
+    description: 'Connect GitHub or X to claim a welcome bonus on Base, then let your agent make its first x402 payments from a wallet on your own machine.',
   },
 }
 

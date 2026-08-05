@@ -177,11 +177,11 @@ export function OnboardingPage() {
 
       <main className="ob-main">
         <section className="ob-intro">
-          <span className="ob-kicker ob-rise" style={{ '--d': '0.08s' }}>Base welcome credit</span>
-          <h1 className="ob-rise" style={{ '--d': '0.16s' }}>Start your agent with $1</h1>
+          <span className="ob-kicker ob-rise" style={{ '--d': '0.08s' }}>Welcome bonus on Base</span>
+          <h1 className="ob-rise" style={{ '--d': '0.16s' }}>Try agentic commerce</h1>
           <p className="ob-rise" style={{ '--d': '0.24s' }}>
-            Connect GitHub or X, create your AgentLayer wallet, and use the
-            welcome credit for x402 payments on Base.
+            Connect GitHub or X, create your AgentLayer wallet, and put the
+            bonus toward your agent's first x402 payments on Base.
           </p>
           <div className="ob-facts ob-rise" style={{ '--d': '0.32s' }} aria-label="Campaign details">
             <span>GitHub or X</span>

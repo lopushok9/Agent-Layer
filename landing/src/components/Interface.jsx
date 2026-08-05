@@ -472,10 +472,10 @@ export const Interface = ({ onInstallClick }) => {
                 <div className="wb-lead">
                     <div className="wb-copy">
                         <span className="wb-eyebrow">Welcome bonus</span>
-                        <h2 className="wb-title" id="wb-title">Start your agent with $1</h2>
+                        <h2 className="wb-title" id="wb-title">Try agentic commerce</h2>
                         <p className="wb-lede">
-                            Connect GitHub to claim a one-time code. The installer binds it to the
-                            Base wallet on your machine, and the credit is yours to spend over x402.
+                            New wallets come with a bonus on Base. Connect GitHub to claim a one-time
+                            code, and let your agent make its first payments over x402.
                         </p>
                     </div>
 
