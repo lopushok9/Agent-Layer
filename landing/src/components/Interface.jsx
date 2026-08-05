@@ -18,6 +18,9 @@ const ONCHAIN_TOOLS = [
     { name: 'Flash Trade', logo: '/logos/flash-trade.webp' },
 ]
 
+// Only GitHub is configured in production; X stays out of the copy until it is.
+const BONUS_STEPS = ['Connect GitHub', 'Claim your code', 'Run the installer']
+
 const ONCHAIN_CAPABILITIES = [
     {
         title: 'Isolated liquidity',
@@ -228,6 +231,7 @@ export const Interface = ({ onInstallClick }) => {
     const tools = useCountUp(60, { duration: 1000, delay: 480 })
     const x402Ref = useReveal()
     const onchainRef = useReveal()
+    const bonusRef = useReveal()
     const [apyRef, apy] = useCountUpOnView(10.5, { duration: 1600, decimals: 1 })
 
     const handleInstallCopy = async () => {
@@ -461,6 +465,38 @@ export const Interface = ({ onInstallClick }) => {
                         </li>
                     ))}
                 </ul>
+            </section>
+
+            {/* Welcome bonus — the page's one call to action */}
+            <section className="wb" ref={bonusRef} aria-labelledby="wb-title">
+                <div className="wb-lead">
+                    <div className="wb-copy">
+                        <span className="wb-eyebrow">Welcome bonus</span>
+                        <h2 className="wb-title" id="wb-title">Start your agent with $1</h2>
+                        <p className="wb-lede">
+                            Connect GitHub to claim a one-time code. The installer binds it to the
+                            Base wallet on your machine, and the credit is yours to spend over x402.
+                        </p>
+                    </div>
+
+                    <a className="wb-cta" href="/onboard">
+                        Claim your bonus
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M1 7H13M13 7L8 2M13 7L8 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                    </a>
+                </div>
+
+                <ol className="wb-steps">
+                    {BONUS_STEPS.map((step, index) => (
+                        <li className="wb-step" key={step} style={{ '--i': index }}>
+                            <span className="wb-step-num" aria-hidden="true">
+                                {String(index + 1).padStart(2, '0')}
+                            </span>
+                            <span className="wb-step-text">{step}</span>
+                        </li>
+                    ))}
+                </ol>
             </section>
 
             {/* Continuation Section (Reference Implementation) */}

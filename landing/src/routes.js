@@ -58,9 +58,10 @@ export const PRERENDER_PAGES = Object.keys(ROUTES)
 export const PRERENDER_PATHS = PRERENDER_PAGES.map((page) => ROUTES[page].path)
 
 // Every route is prerendered so direct links work, but only public content
-// belongs in the sitemap. Excluded: onboard (a gated invite flow, not a page
-// to rank), plus mcp and how-to-use, which are no longer linked from anywhere.
-export const SITEMAP_PAGES = ['home', 'wallet', 'use-cases', 'for-investors', 'about', 'terms']
+// belongs in the sitemap. Excluded: mcp and how-to-use, which are no longer
+// linked from anywhere. Onboard is included now that the home page promotes
+// it as the entry point for the welcome bonus.
+export const SITEMAP_PAGES = ['home', 'wallet', 'use-cases', 'for-investors', 'about', 'terms', 'onboard']
 export const SITEMAP_PATHS = SITEMAP_PAGES.map((page) => ROUTES[page].path)
 
 export const LEGACY_HASH_REDIRECTS = {

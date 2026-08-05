@@ -636,10 +636,21 @@
     }
 
     .oc-lead,
-    .oc-cell {
+    .oc-cell,
+    .wb-lead,
+    .wb-step {
         opacity: 1;
         transform: none;
         transition: none;
+    }
+
+    .wb-cta,
+    .wb-cta svg {
+        transition: none;
+    }
+
+    .wb-cta:hover {
+        transform: none;
     }
 
     /* No auto-scroll: wrap the integrations into a plain list rather than
@@ -1186,6 +1197,181 @@
 
     .oc-cell-body {
         max-width: 46ch;
+    }
+}
+
+/* ============================================================
+   Welcome bonus. The only call to action on the page, so it is deliberately
+   the lightest block here: one claim, one button, three short steps. The two
+   sections above are tall and dense; repeating that shape a third time would
+   bury the action.
+   ============================================================ */
+
+.wb {
+    padding: clamp(72px, 11vh, 130px) 32px clamp(72px, 11vh, 130px);
+    border-top: 1px solid var(--al-line);
+    box-sizing: border-box;
+}
+
+.wb-lead {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: clamp(32px, 5vw, 80px);
+    align-items: end;
+}
+
+.wb-eyebrow {
+    display: block;
+    font-size: clamp(14px, 1.05vw, 15.5px);
+    font-weight: 500;
+    line-height: 1.35;
+    letter-spacing: -0.005em;
+    color: var(--al-muted);
+}
+
+.wb-title {
+    margin: 14px 0 0;
+    font-size: clamp(30px, 3.8vw, 56px);
+    font-weight: 600;
+    line-height: 1.02;
+    letter-spacing: -0.04em;
+    color: var(--al-ink);
+    text-wrap: balance;
+}
+
+.wb-lede {
+    margin: 18px 0 0;
+    max-width: 52ch;
+    font-size: clamp(15px, 1.15vw, 17.5px);
+    line-height: 1.5;
+    letter-spacing: -0.01em;
+    color: var(--al-ink-2);
+    text-wrap: pretty;
+}
+
+/* Same dark pill as the header install button, so the primary action reads
+   the same wherever it appears. */
+.wb-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    flex: 0 0 auto;
+    height: 52px;
+    padding: 0 26px;
+    /* Without this, the full-width mobile rule below adds the padding on top
+       of 100% and pushes the button past the viewport. */
+    box-sizing: border-box;
+    border-radius: 999px;
+    background: var(--al-ink);
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background 0.2s var(--al-ease), transform 0.2s var(--al-ease);
+}
+
+.wb-cta:hover,
+.wb-cta:focus-visible {
+    background: #1a1b1f;
+    transform: translateY(-1px);
+    outline: none;
+}
+
+.wb-cta svg {
+    transition: transform 0.25s var(--al-ease);
+}
+
+.wb-cta:hover svg {
+    transform: translateX(3px);
+}
+
+.wb-steps {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin: clamp(40px, 6vh, 64px) 0 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--al-line);
+}
+
+.wb-step {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    padding-top: clamp(20px, 2.6vh, 28px);
+}
+
+.wb-step+.wb-step {
+    padding-left: clamp(24px, 3.2vw, 56px);
+    border-left: 1px solid var(--al-line);
+}
+
+.wb-step-num {
+    font-family: var(--al-mono);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    color: var(--al-faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.wb-step-text {
+    font-size: clamp(15px, 1.15vw, 17px);
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: var(--al-ink);
+}
+
+.wb.is-armed .wb-lead,
+.wb.is-armed .wb-step {
+    opacity: 0;
+    transform: translateY(16px);
+}
+
+.wb.is-armed.is-in .wb-lead,
+.wb.is-armed.is-in .wb-step {
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity 0.7s var(--al-ease), transform 0.7s var(--al-ease);
+}
+
+.wb.is-armed.is-in .wb-step {
+    transition-delay: calc(0.14s + var(--i) * 0.09s);
+}
+
+/* --- Welcome bonus: stacked layout --- */
+@media (max-width: 900px) {
+    .wb {
+        padding: clamp(60px, 9vh, 88px) 20px clamp(60px, 9vh, 88px);
+    }
+
+    /* Button drops below the pitch and spans the column, rather than
+       competing with the headline for width. */
+    .wb-lead {
+        grid-template-columns: minmax(0, 1fr);
+        row-gap: clamp(28px, 4vh, 40px);
+        align-items: start;
+    }
+
+    .wb-cta {
+        justify-content: center;
+        width: 100%;
+    }
+
+    .wb-steps {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .wb-step {
+        padding-top: clamp(16px, 2.4vh, 22px);
+    }
+
+    .wb-step+.wb-step {
+        margin-top: clamp(16px, 2.4vh, 22px);
+        padding-left: 0;
+        border-left: none;
+        border-top: 1px solid var(--al-line);
     }
 }
 
