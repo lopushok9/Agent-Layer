@@ -58,6 +58,8 @@ no-op once the backend is healthy.
   switch the session's active wallet backend to Base so follow-up wallet
   requests default to it.
 - `/wallet-ethereum` — print the Ethereum EVM wallet overview directly in chat.
+- `/cards` -- issue a Laso Finance prepaid card (US or international), paid
+  via x402 from the connected wallet.
 - `/agentlayer-autonomous-approve` — enable high-trust autonomous Base swaps
   (`swap_evm_tokens` / `swap_evm_uniswap_tokens` on Base only) without
   per-transaction approvals. In Claude Code this command now asks for an
