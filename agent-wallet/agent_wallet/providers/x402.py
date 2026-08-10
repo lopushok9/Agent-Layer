@@ -504,7 +504,15 @@ def _requirement_compatibility(requirement: dict[str, Any], backend: AgentWallet
     elif chain == "evm" and scheme == "upto" and not _evm_payment_requirement_supported(requirement):
         reason = "This EVM upto payment is missing a facilitatorAddress in its extra data, so it cannot be signed."
     elif planned_execution_supported and wallet_network_matches:
-        reason = "Wallet network matches, but this backend does not yet expose a supported x402 signer path."
+        if chain == "solana" and getattr(backend, "read_only", False):
+            reason = (
+                "Signer not loaded in this read-only preview context by "
+                "design (avoids unnecessary key material access on cheap "
+                "preview calls) -- the real x402_pay_request call loads "
+                "the signer and can still succeed here."
+            )
+        else:
+            reason = "Wallet network matches, but this backend does not yet expose a supported x402 signer path."
     elif planned_execution_supported:
         reason = "Planned execution path exists, but the requirement targets a different network than the active wallet."
     else:

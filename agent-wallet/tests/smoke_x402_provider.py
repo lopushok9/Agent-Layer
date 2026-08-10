@@ -41,6 +41,14 @@ class FakeBackend(AgentWalletBackend):
         )
 
 
+class FakeReadOnlySolanaBackend(FakeBackend):
+    """Mirrors what create_openclaw_solana_backend builds for the resident
+    read-only preview worker: no live signer, but capable in principle."""
+
+    signer = None
+    read_only = True
+
+
 class FakeEvmBackend(AgentWalletBackend):
     name = "fake_evm_wallet"
     chain = "evm"
@@ -506,6 +514,19 @@ async def main() -> None:
         assert preview["execute_available"] is True
         assert preview["request"]["body_hash"]
         assert preview["request"]["request_fingerprint"]
+
+        read_only_preview = await x402.preview_request(
+            backend=FakeReadOnlySolanaBackend(),
+            url="https://paid.example.com/report",
+            method="POST",
+            query={"topic": "solana"},
+            json_body={"depth": "full"},
+        )
+        read_only_compat = read_only_preview["accepted_payments"][0]["compatibility"]
+        assert read_only_compat["wallet_network_matches"] is True
+        assert read_only_compat["currently_executable"] is False
+        assert "read-only preview" in read_only_compat["reason"], read_only_compat["reason"]
+        assert "does not yet expose a supported x402 signer path" not in read_only_compat["reason"]
 
         executed = await x402.pay_and_fetch(
             backend=FakeBackend(),

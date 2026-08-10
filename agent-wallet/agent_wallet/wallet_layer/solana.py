@@ -261,6 +261,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         signer: SolanaLocalKeypairSigner | None = None,
         address: str | None = None,
         sign_only: bool = True,
+        read_only: bool = False,
         rpc_provider_mode: str | None = None,
         rpc_provider: str | None = None,
         rpc_transport: str | None = None,
@@ -281,6 +282,7 @@ class SolanaWalletBackend(AgentWalletBackend):
         self.commitment = commitment
         self.network = normalize_solana_network(network)
         self.signer = signer
+        self.read_only = read_only
         self.address = final_address
         self.sign_only = sign_only
         self.rpc_provider_mode = rpc_provider_mode
