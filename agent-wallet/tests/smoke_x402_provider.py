@@ -49,6 +49,15 @@ class FakeReadOnlySolanaBackend(FakeBackend):
     read_only = True
 
 
+class FakeSignerlessSolanaBackend(FakeBackend):
+    """A genuinely signer-less Solana backend (not a read-only preview
+    context) -- must still get the original 'unsupported' reason, proving
+    the read_only fix didn't change behavior for the real gap case."""
+
+    signer = None
+    read_only = False
+
+
 class FakeEvmBackend(AgentWalletBackend):
     name = "fake_evm_wallet"
     chain = "evm"
@@ -527,6 +536,19 @@ async def main() -> None:
         assert read_only_compat["currently_executable"] is False
         assert "read-only preview" in read_only_compat["reason"], read_only_compat["reason"]
         assert "does not yet expose a supported x402 signer path" not in read_only_compat["reason"]
+
+        signerless_preview = await x402.preview_request(
+            backend=FakeSignerlessSolanaBackend(),
+            url="https://paid.example.com/report",
+            method="POST",
+            query={"topic": "solana"},
+            json_body={"depth": "full"},
+        )
+        signerless_compat = signerless_preview["accepted_payments"][0]["compatibility"]
+        assert signerless_compat["wallet_network_matches"] is True
+        assert signerless_compat["currently_executable"] is False
+        assert "does not yet expose a supported x402 signer path" in signerless_compat["reason"]
+        assert "read-only preview" not in signerless_compat["reason"]
 
         executed = await x402.pay_and_fetch(
             backend=FakeBackend(),

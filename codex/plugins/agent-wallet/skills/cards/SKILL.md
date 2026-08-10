@@ -36,7 +36,8 @@ Which Laso Finance card would you like?
 Ask in plain text for an amount within the chosen card's range (US:
 $5-$1,000; International: $100-$1,000, plus 3.8% fee added on top).
 Validate the reply against the range before continuing; if out of range,
-ask again with the exact range restated.
+ask again with the exact range restated -- do not call any tool with an
+invalid amount.
 
 ## Step 3: Preview the payment
 
@@ -47,7 +48,7 @@ is currently active. Then call `x402_preview_request`:
 {
   "url": "https://laso.finance/get-card",
   "method": "GET",
-  "query": {"amount": "<amount>", "format": "json"}
+  "query": {"amount": <amount>, "format": "json"}
 }
 ```
 
@@ -59,20 +60,22 @@ Read `accepted_payments` from the response and find the entry whose
 (in the asset's smallest unit -- USDC has 6 decimals, so `5000000` = $5),
 `pay_to`, and `compatibility.currently_executable`.
 
-**Known quirk:** on Solana, `compatibility.currently_executable` may read
-`false` with a reason mentioning a read-only preview context -- this
-reflects a preview-only limitation, not that Solana execution is
-unsupported. Do not treat that as a hard blocker; proceed to Step 4 and let
-the actual payment call in Step 5 be the real test. If `x402_pay_request` in
-Step 5 then fails with a genuine error, follow the fallback in Step 5's
-error handling.
+**Known quirk:** on Solana, `compatibility.currently_executable` (and the
+top-level `execute_available`) may both read `false` with a reason
+mentioning a read-only preview context -- this reflects a preview-only
+limitation, not that Solana execution is unsupported. Do not treat either
+field as a hard blocker; proceed to Step 4 and let the actual payment call
+in Step 5 be the real test. If `x402_pay_request` in Step 5 then fails with
+a genuine error, follow the fallback in Step 5's error handling.
 
 ## Step 4: Confirm before paying
 
-Restate, in plain text, the amount, fee, network, `pay_to` address, and
-domain (`laso.finance`), and ask the user to reply "confirm" or "cancel".
-Only continue to Step 5 on an explicit "confirm" -- an ambiguous or missing
-reply is not consent.
+Restate, in plain text, the total debit -- computed from Step 3's preview
+`amount` field (smallest units, 6 decimals for USDC; this figure already
+includes any fee, not just the amount the user entered) -- the network,
+`pay_to` address, and domain (`laso.finance`), and ask the user to reply
+"confirm" or "cancel". Only continue to Step 5 on an explicit "confirm" --
+an ambiguous or missing reply is not consent.
 
 ## Step 5: Pay
 

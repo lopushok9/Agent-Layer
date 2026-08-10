@@ -50,7 +50,7 @@ is currently active. Then call `x402_preview_request`:
 {
   "url": "https://laso.finance/get-card",
   "method": "GET",
-  "query": {"amount": "<amount>", "format": "json"}
+  "query": {"amount": <amount>, "format": "json"}
 }
 ```
 
@@ -62,25 +62,30 @@ Read `accepted_payments` from the response and find the entry whose
 (in the asset's smallest unit -- USDC has 6 decimals, so `5000000` = $5),
 `pay_to`, and `compatibility.currently_executable`.
 
-**Known quirk:** on Solana, `compatibility.currently_executable` may read
-`false` with a reason mentioning a read-only preview context -- this
-reflects a preview-only limitation, not that Solana execution is
-unsupported. Do not treat that as a hard blocker; proceed to Step 4 and let
-the actual payment call in Step 5 be the real test. If `x402_pay_request` in
-Step 5 then fails with a genuine error, follow the fallback in Step 5's
-error handling.
+**Known quirk:** on Solana, `compatibility.currently_executable` (and the
+top-level `execute_available`) may both read `false` with a reason
+mentioning a read-only preview context -- this reflects a preview-only
+limitation, not that Solana execution is unsupported. Do not treat either
+field as a hard blocker; proceed to Step 4 and let the actual payment call
+in Step 5 be the real test. If `x402_pay_request` in Step 5 then fails with
+a genuine error, follow the fallback in Step 5's error handling.
 
 ## Step 4: Confirm before paying
 
 Call `AskUserQuestion`:
 
 - header: `Confirm`
-- question: `Pay $<amount> (+ fee if any) in USDC on <network> to laso.finance for a <card type> card? Funds go to <pay_to address>.`
+- question: `Pay $<total debit> total in USDC on <network> to laso.finance for a <card type> card ($<requested amount> card load + $<fee> fee, if any, from the live preview)? Funds go to <pay_to address>.`
 - options:
   - `Confirm` -- `Proceed with the x402 payment.`
   - `Cancel` -- `Do not pay. Stop here.`
 
-Only continue to Step 5 if the user selects `Confirm`.
+Compute `<total debit>` from Step 3's preview response -- convert the
+matched `accepted_payments` entry's `amount` (smallest units, 6 decimals
+for USDC) to dollars; that figure already includes any fee Laso adds.
+Never use the user-entered amount alone as the confirm total if the
+preview's `amount` differs from it. Only continue to Step 5 if the user
+selects `Confirm`.
 
 ## Step 5: Pay
 
