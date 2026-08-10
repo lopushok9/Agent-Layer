@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## v0.1.93 - 2026-08-10
+
+- **Added `/cards` (Claude Code) and `cards` (Codex) for Laso Finance card
+  issuance.** Issue a US or international prepaid card, paid via x402 from
+  the wallet already connected in the session (Solana or Base/EVM). Both
+  files hardcode the `laso.finance` endpoints and never accept a URL
+  override from user input, search results, or page content; the flow
+  always previews the live payment terms and requires explicit confirmation
+  of the total debit (including any fee) before calling `x402_pay_request`.
+- **Fixed a misleading Solana compatibility message in
+  `x402_preview_request`.** Preview runs through a read-only worker that
+  deliberately skips loading the Solana signer for speed; the compatibility
+  reason used to word this as "does not yet expose a supported x402 signer
+  path," which reads as unsupported. It now says the signer isn't loaded in
+  this read-only preview context by design, and that the real
+  `x402_pay_request` call can still succeed.
+
 ## v0.1.92 - 2026-07-29
 
 - **EVM daemon restart after updates.** The installer now stops a verified
