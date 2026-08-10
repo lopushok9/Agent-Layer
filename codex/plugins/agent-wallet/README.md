@@ -22,8 +22,9 @@ Primary design rules:
 - EVM network selection with `set_evm_network`
 - auto-managed approval binding for `preview -> execute` write flows
 - bundled Codex skills, including `wallet-sol` for showing the Solana wallet
-  portfolio directly in chat and `wallet-base` for showing the Base EVM
-  wallet portfolio and switching the session's active backend to Base
+  portfolio directly in chat, `wallet-base` for showing the Base EVM
+  wallet portfolio and switching the session's active backend to Base, and
+  `cards` for issuing a Laso Finance prepaid card paid via x402
 
 ## Runtime requirements
 
@@ -41,6 +42,9 @@ bundled skills:
 - `wallet-base` — invoke from the slash menu or explicitly as `$wallet-base`
   to render the connected Base EVM wallet portfolio as a compact chat table
   and switch the session's active wallet backend to Base.
+- `cards` -- invoke from the slash menu or explicitly as `$cards` to issue a
+  Laso Finance prepaid card (US or international), paid via x402 from the
+  connected wallet.
 
 ## Path resolution
 
