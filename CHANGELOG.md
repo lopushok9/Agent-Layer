@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## v0.1.94 - 2026-08-13
+
+- **Added Uniswap V3/V4 liquidity provisioning for Ethereum, Base, and
+  Robinhood Chain.** The EVM wallet now previews, prepares, and executes
+  create, increase, decrease, and fee-claim actions through Uniswap's
+  Liquidity API. Final LP calldata is refreshed and simulated immediately
+  before signing; executable transactions are accepted only for pinned
+  PositionManager deployments and matching wallet/network fields.
+- **Added bounded LP approval handling and intent-safe confirmations.** Token
+  approvals are restricted to LP-request assets and approved spenders, while
+  confirmations bind the action, network, protocol, pool/position, and assets
+  rather than fast-expiring ticks or calldata. Single-sided concentrated
+  positions with a zero amount on one ERC-20 side no longer fail approval
+  discovery.
+- **Exposed LP actions through the provider gateway, OpenClaw, and Codex.**
+  The provider gateway forwards the existing shared Uniswap API key to the
+  Liquidity API; OpenClaw's pair-search contract was restored and registered.
+
 ## v0.1.93 - 2026-08-10
 
 - **Added `/cards` (Claude Code) and `cards` (Codex) for Laso Finance card
