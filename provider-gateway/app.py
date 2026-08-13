@@ -806,6 +806,10 @@ def _uniswap_base_url() -> str:
     return _trim(os.getenv("UNISWAP_TRADING_API_BASE_URL")) or "https://trade-api.gateway.uniswap.org/v1"
 
 
+def _uniswap_liquidity_base_url() -> str:
+    return _trim(os.getenv("UNISWAP_LIQUIDITY_API_BASE_URL")) or "https://liquidity.api.uniswap.org"
+
+
 def _uniswap_configured() -> bool:
     return bool(_trim(os.getenv("UNISWAP_API_KEY")))
 
@@ -1042,6 +1046,7 @@ def _status_payload() -> dict[str, Any]:
         "uniswap_features": {
             "quote": True,
             "swap": True,
+            "liquidity": True,
         },
     }
 
@@ -2008,6 +2013,34 @@ async def uniswap_swap(request: Request) -> JSONResponse:
     return JSONResponse(payload, status_code=status_code)
 
 
+async def uniswap_liquidity(request: Request) -> JSONResponse:
+    """Proxy an allow-listed Uniswap LP API action with the shared API key."""
+    auth_error = _require_machine_token(request)
+    if auth_error:
+        return _json_error(auth_error, 401)
+    if not _uniswap_configured():
+        return _json_error("Uniswap is not configured", 503)
+    action = str(request.path_params.get("action") or "").strip().lower()
+    if action not in {"check_approval", "create", "increase", "decrease", "claim_fees"}:
+        return _json_error("Unsupported Uniswap liquidity action", 404)
+    try:
+        body = _require_body_dict(await request.json())
+        status_code, payload = await _http_post(
+            f"{_uniswap_liquidity_base_url()}/lp/{action}",
+            headers={
+                "x-api-key": _trim(os.getenv("UNISWAP_API_KEY")),
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            json_body=body,
+        )
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except (RuntimeError, httpx.HTTPError) as exc:
+        return _json_error(f"Uniswap liquidity error: {exc}", 502)
+    return JSONResponse(payload, status_code=status_code)
+
+
 async def houdini_tokens(request: Request) -> JSONResponse:
     auth_error = _require_bearer(request)
     if auth_error:
@@ -2291,6 +2324,7 @@ routes = [
     Route("/v1/evm/uniswap/quote", uniswap_quote, methods=["POST"]),
     Route("/v1/evm/uniswap/order", uniswap_order, methods=["POST"]),
     Route("/v1/evm/uniswap/swap", uniswap_swap, methods=["POST"]),
+    Route("/v1/evm/uniswap/lp/{action:str}", uniswap_liquidity, methods=["POST"]),
     Route("/v1/houdini/tokens", houdini_tokens, methods=["GET"]),
     Route("/v1/houdini/quotes/private", houdini_private_quotes, methods=["GET"]),
     Route("/v1/houdini/exchanges", houdini_exchange_create, methods=["POST"]),

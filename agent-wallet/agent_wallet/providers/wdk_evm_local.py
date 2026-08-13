@@ -40,6 +40,8 @@ LONG_RUNNING_POST_PATHS = {
     "/v1/evm/swap/send",
     "/v1/evm/uniswap/swap/quote",
     "/v1/evm/uniswap/swap/send",
+    "/v1/evm/uniswap/liquidity/quote",
+    "/v1/evm/uniswap/liquidity/send",
     "/v1/evm/lifi/quote",
     "/v1/evm/lifi/send",
     "/v1/evm/transfer/send",

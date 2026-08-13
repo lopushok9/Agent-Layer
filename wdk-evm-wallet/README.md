@@ -187,6 +187,7 @@ Environment variables:
 - `MORPHO_API_BASE_URL`
 - `UNISWAP_API_KEY`
 - `UNISWAP_TRADING_API_BASE_URL`
+- `UNISWAP_LIQUIDITY_API_BASE_URL`
 - `UNISWAP_ROUTER_VERSION`
 - `UNISWAP_ROUTER_VERSION_BY_NETWORK`
 - `UNISWAP_DEFAULT_SLIPPAGE_BPS`
@@ -214,6 +215,11 @@ Swap providers:
 - `UNISWAP_API_KEY` is required for the Uniswap routes; it identifies the
   integrator (this service), not an end user — swaps are scoped per request by the
   active wallet address, so a single key never mixes users
+- LP actions (`create`, `increase`, `decrease`, `claim_fees`) are exposed at
+  `/v1/evm/uniswap/liquidity/*` and use Uniswap's Liquidity API. The runtime
+  accepts transactions only for pinned V3/V4 PositionManager deployments on
+  Ethereum, Base, and Robinhood, refreshes the final LP transaction just before
+  signing, and executes only API-returned bounded approvals.
 
 Gateway mode:
 

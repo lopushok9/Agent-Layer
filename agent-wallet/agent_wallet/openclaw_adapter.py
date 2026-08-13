@@ -751,6 +751,28 @@ class OpenClawWalletAdapter:
                 "quote_fingerprint": provided_fingerprint,
             }
 
+        if asset_type == "evm-uniswap-liquidity":
+            request = payload.get("request") if isinstance(payload.get("request"), dict) else {}
+            existing_pool = request.get("existingPool") if isinstance(request.get("existingPool"), dict) else {}
+            return {
+                "operation": action_label,
+                "network": str(payload.get("network") or getattr(self.backend, "network", "unknown")),
+                "from_address": payload.get("from_address"),
+                "protocol": payload.get("protocol"),
+                "liquidity_action": payload.get("liquidity_action"),
+                "liquidity_protocol": payload.get("liquidity_protocol"),
+                # Intent binds to the action and caller-provided LP scope, not a
+                # per-block transaction hash, adjusted ticks, or calculated amount.
+                "token0_address": request.get("token0Address") or existing_pool.get("token0Address"),
+                "token1_address": request.get("token1Address") or existing_pool.get("token1Address"),
+                "pool_reference": existing_pool.get("poolReference"),
+                "position_token_id": request.get("nftTokenId") or request.get("tokenId") or payload.get("position_token_id"),
+                "independent_token": request.get("independentToken"),
+                "liquidity_percentage_to_decrease": request.get("liquidityPercentageToDecrease"),
+                "slippage_tolerance": request.get("slippageTolerance"),
+                "position_manager": payload.get("position_manager"),
+            }
+
         if asset_type == "evm-morpho-vault":
             return {
                 "operation": action_label,
@@ -1720,6 +1742,35 @@ class OpenClawWalletAdapter:
                         },
                         read_only=True,
                         risk_level="low",
+                    ),
+                )
+                tools.insert(
+                    13,
+                    AgentToolSpec(
+                        name="manage_evm_uniswap_liquidity",
+                        description=(
+                            "Preview, prepare, or execute a Uniswap V3/V4 liquidity action on ethereum, base, or robinhood. "
+                            "Supported actions are create, increase, decrease, and claim_fees. The request is passed to the "
+                            "official Uniswap Liquidity API; execute refreshes the transaction immediately before signing."
+                        ),
+                        input_schema={
+                            "type": "object",
+                            "properties": {
+                                "action": {"type": "string", "enum": ["create", "increase", "decrease", "claim_fees"]},
+                                "protocol": {"type": "string", "enum": ["V3", "V4"]},
+                                "request": {"type": "object", "description": "Uniswap LP API fields excluding walletAddress, chainId, protocol, and simulateTransaction; those are set from the active wallet.", "additionalProperties": True},
+                                "mode": {"type": "string", "enum": ["preview", "prepare", "execute"]},
+                                "purpose": {"type": "string"},
+                                "user_intent": {"type": "boolean"},
+                                "approval_token": {"type": "string"},
+                                "network": {"type": "string", "enum": ["ethereum", "base", "robinhood"]},
+                            },
+                            "required": ["action", "protocol", "request", "mode", "purpose"],
+                            "additionalProperties": False,
+                        },
+                        read_only=False,
+                        requires_explicit_user_intent=True,
+                        risk_level="high",
                     ),
                 )
                 tools.insert(
@@ -5756,6 +5807,91 @@ class OpenClawWalletAdapter:
                         mode="execute",
                     ),
                 )
+
+            if tool_name == "manage_evm_uniswap_liquidity":
+                action = args.get("action")
+                protocol = args.get("protocol")
+                request = args.get("request")
+                mode = args.get("mode")
+                purpose = args.get("purpose")
+                user_intent = args.get("user_intent", False)
+                approval_token = args.get("approval_token")
+                if action not in {"create", "increase", "decrease", "claim_fees"}:
+                    raise WalletBackendError("action must be create, increase, decrease, or claim_fees.")
+                if protocol not in {"V3", "V4"}:
+                    raise WalletBackendError("protocol must be V3 or V4.")
+                if not isinstance(request, dict):
+                    raise WalletBackendError("request must be an object.")
+                if mode not in {"preview", "prepare", "execute"}:
+                    raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
+                if not isinstance(purpose, str) or not purpose.strip():
+                    raise WalletBackendError("purpose is required.")
+                # The caller must not override values that are derived from the
+                # active wallet/network in the WDK layer.
+                forbidden = {"walletAddress", "chainId", "protocol", "simulateTransaction", "signature", "batchPermitData", "v4BatchPermitData", "v3NftPermitData"}
+                overlap = forbidden.intersection(request)
+                if overlap:
+                    raise WalletBackendError(f"request must not set wallet-controlled fields: {', '.join(sorted(overlap))}.")
+                preview_kwargs = {"action": action, "protocol": protocol, "request": dict(request)}
+                if mode == "preview":
+                    preview = await active_backend.preview_uniswap_liquidity(**preview_kwargs)
+                    return AgentToolResult(tool=tool_name, ok=True, data=self._annotate_sensitive_payload(preview, action_label="Uniswap liquidity", mode="preview"))
+                if mode == "prepare":
+                    self._require_prepare_intent(user_intent)
+                    preview = await active_backend.preview_uniswap_liquidity(**preview_kwargs)
+                    return AgentToolResult(tool=tool_name, ok=True, data=self._annotate_sensitive_payload(self._build_prepare_plan(preview_payload=preview, action_label="Uniswap liquidity"), action_label="Uniswap liquidity", mode="prepare"))
+                if isinstance(approval_token, str) and approval_token.strip():
+                    approval_payload = inspect_approval_token(
+                        approval_token,
+                        tool_name=tool_name,
+                        network=str(getattr(active_backend, "network", "unknown")),
+                        require_mainnet_confirmation=self._is_mainnet_for_backend(active_backend),
+                    )
+                    approval_summary = approval_payload.get("binding", {}).get("summary")
+                    if not isinstance(approval_summary, dict):
+                        raise WalletBackendError("approval_token does not match the requested LP operation. Generate a new approval after prepare.")
+                    approval_summary_copy = dict(approval_summary)
+                else:
+                    fresh_preview = await active_backend.preview_uniswap_liquidity(**preview_kwargs)
+                    approval_summary_copy = self._build_confirmation_summary(action_label="Uniswap liquidity", payload=fresh_preview)
+                expected = {
+                    "operation": "Uniswap liquidity",
+                    "network": str(getattr(active_backend, "network", "unknown")),
+                    "liquidity_action": action,
+                    "liquidity_protocol": protocol,
+                }
+                for key, value in expected.items():
+                    if approval_summary_copy.get(key) != value:
+                        raise WalletBackendError("approval_token does not match the requested LP operation. Generate a new approval after prepare.")
+                # An LP intent deliberately does not bind API-calculated ticks,
+                # price, calldata, or quote amounts: those are regenerated just
+                # before broadcast. It must still be scoped to the selected
+                # assets/pool/position so an approval cannot be reused for a
+                # different liquidity position.
+                requested_scope = self._build_confirmation_summary(
+                    action_label="Uniswap liquidity",
+                    payload={
+                        "asset_type": "evm-uniswap-liquidity",
+                        "network": str(getattr(active_backend, "network", "unknown")),
+                        "protocol": "uniswap",
+                        "liquidity_action": action,
+                        "liquidity_protocol": protocol,
+                        "request": preview_kwargs["request"],
+                    },
+                )
+                for key in ("token0_address", "token1_address", "pool_reference", "position_token_id", "independent_token"):
+                    requested_value = requested_scope.get(key)
+                    if requested_value is not None and approval_summary_copy.get(key) != requested_value:
+                        raise WalletBackendError("approval_token does not match the requested LP assets or position. Generate a new approval after prepare.")
+                self._require_execute_approval(
+                    approval_token=approval_token,
+                    tool_name=tool_name,
+                    summary=approval_summary_copy,
+                    action_label="Uniswap liquidity",
+                    backend=active_backend,
+                )
+                result = await active_backend.send_uniswap_liquidity(**preview_kwargs)
+                return AgentToolResult(tool=tool_name, ok=True, data=self._annotate_sensitive_payload(result, action_label="Uniswap liquidity", mode="execute"))
 
             if tool_name == "issue_wallet_approval":
                 from agent_wallet.approval import issue_approval_token

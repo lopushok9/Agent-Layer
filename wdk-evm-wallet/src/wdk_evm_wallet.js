@@ -23,6 +23,28 @@ const DEFAULT_LIFI_SLIPPAGE = 0.005;
 const ALWAYS_DENIED_LIFI_BRIDGES = ["mayan"];
 const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 const UNISWAP_SUPPORTED_CHAIN_IDS = { ethereum: 1, base: 8453, robinhood: 4663 };
+const UNISWAP_LIQUIDITY_ACTIONS = new Set(["create", "increase", "decrease", "claim_fees"]);
+const UNISWAP_LIQUIDITY_PROTOCOLS = new Set(["V3", "V4"]);
+// LP API transactions are accepted only for these official per-chain position
+// managers. Keeping the list here makes the local signer a narrow protocol
+// integration rather than a generic calldata relay.
+const UNISWAP_LIQUIDITY_POSITION_MANAGERS = {
+  ethereum: {
+    V3: "0xc36442b4a4522e871399cd717abdd847ab11fe88",
+    V4: "0xbd216513d74c8cf14cf4747e6aaa6420ff64ee9e",
+  },
+  base: {
+    V3: "0x03a520b32c04bf3beef7beb72e919cf822ed34f1",
+    V4: "0x7c5f5a4bbd8fd63184577525326123b519429bdc",
+  },
+  robinhood: {
+    V3: "0x73991a25c818bf1f1128deaab1492d45638de0d3",
+    V4: "0x58daec3116aae6d93017baaea7749052e8a04fa7",
+  },
+};
+const ERC20_APPROVE_INTERFACE = new Interface([
+  "function approve(address spender,uint256 amount) returns (bool)",
+]);
 // Every executable path is declared here rather than inferred from a Trading
 // API response. A new chain/router version therefore requires an explicit,
 // reviewed allow-list entry before it can receive a signed transaction.
@@ -923,6 +945,31 @@ function assertUniswapSupportedNetwork(network) {
     );
   }
   return chainId;
+}
+
+function normalizeUniswapLiquidityAction(value) {
+  const action = String(value || "").trim().toLowerCase();
+  if (!UNISWAP_LIQUIDITY_ACTIONS.has(action)) {
+    throw new Error("Uniswap liquidity action must be create, increase, decrease, or claim_fees.");
+  }
+  return action;
+}
+
+function normalizeUniswapLiquidityProtocol(value) {
+  const protocol = String(value || "").trim().toUpperCase();
+  if (!UNISWAP_LIQUIDITY_PROTOCOLS.has(protocol)) {
+    throw new Error("Uniswap liquidity protocol must be V3 or V4.");
+  }
+  return protocol;
+}
+
+function getUniswapLiquidityPositionManager(network, protocol) {
+  assertUniswapSupportedNetwork(network);
+  const manager = UNISWAP_LIQUIDITY_POSITION_MANAGERS[network]?.[protocol];
+  if (!manager) {
+    throw new Error(`Uniswap ${protocol} liquidity is not configured for ${network}.`);
+  }
+  return manager;
 }
 
 function getUniswapNetworkExecutionProfile(network) {
@@ -5741,6 +5788,296 @@ export class WdkEvmWalletService {
       );
     }
     return payload;
+  }
+
+  async #uniswapLiquidityApiRequest(action, body) {
+    const normalizedAction = String(action || "").trim().toLowerCase();
+    const headers = { "Content-Type": "application/json", Accept: "application/json" };
+    if (this.config.uniswapLiquidityViaGateway) {
+      const token = String(this.config.providerGatewayToken || "").trim();
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+    } else {
+      if (!this.config.uniswapApiKey) {
+        throw createTaggedError(
+          "UNISWAP_API_KEY is not configured. Set it, or route Uniswap through the provider gateway, to use liquidity operations.",
+          "uniswap_api_key_missing",
+          { provider: "uniswap" }
+        );
+      }
+      headers["x-api-key"] = this.config.uniswapApiKey;
+    }
+    const base = String(this.config.uniswapLiquidityApiBaseUrl).replace(/\/+$/, "");
+    const suffix = this.config.uniswapLiquidityViaGateway ? `/${normalizedAction}` : `/lp/${normalizedAction}`;
+    let response;
+    try {
+      response = await fetch(`${base}${suffix}`, { method: "POST", headers, body: JSON.stringify(body) });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw createTaggedError(`Uniswap liquidity API unavailable: ${message}`, "network_unavailable", {
+        provider: "uniswap",
+        action: normalizedAction,
+      });
+    }
+    let payload;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    if (!response.ok || !payload || typeof payload !== "object") {
+      throw createTaggedError(
+        String(payload?.message || payload?.error || `Uniswap liquidity ${normalizedAction} failed with HTTP ${response.status}.`),
+        "network_unavailable",
+        { provider: "uniswap", action: normalizedAction, httpStatus: response.status }
+      );
+    }
+    return payload;
+  }
+
+  #buildUniswapLiquidityRequest({ action, protocol, address, request }) {
+    const body = { ...(request && typeof request === "object" ? request : {}) };
+    // Caller cannot select identity, chain or simulator behavior. These are set
+    // locally to make every preview/send reproducible through the active wallet.
+    body.walletAddress = address;
+    body.protocol = protocol;
+    body.simulateTransaction = true;
+    delete body.signature;
+    delete body.batchPermitData;
+    delete body.v4BatchPermitData;
+    delete body.v3NftPermitData;
+    if (action === "claim_fees") {
+      delete body.independentToken;
+    }
+    return body;
+  }
+
+  #extractUniswapLiquidityTransaction(payload, action) {
+    const field = action === "create" ? "create" : action === "increase" ? "increase" : action === "decrease" ? "decrease" : "claim";
+    const tx = payload?.[field] || payload?.transaction;
+    if (!tx || typeof tx !== "object") {
+      throw createTaggedError("Uniswap liquidity API returned no executable transaction.", "network_unavailable", {
+        provider: "uniswap",
+        action,
+      });
+    }
+    return tx;
+  }
+
+  async #getUniswapLiquidityApprovals({ runtimeConfig, protocol, action, address, payload }) {
+    if (action !== "create" && action !== "increase") {
+      return [];
+    }
+    const lpTokens = [payload?.token0, payload?.token1]
+      .filter((token) => token && typeof token === "object")
+      // The LP API represents native ETH with the zero-address sentinel. It
+      // cannot have an ERC-20 allowance, so exclude it from check_approval.
+      .filter((token) => !isZeroAddress(String(token.tokenAddress || "")))
+      .map((token) => ({
+        tokenAddress: normalizeAddress(String(token.tokenAddress || ""), "lp token address"),
+        amount: assertPositiveBigIntString(token.amount, "lp token amount").toString(),
+      }));
+    if (!lpTokens.length) {
+      return [];
+    }
+    const expectedTokens = new Set(
+      lpTokens.map((token) => String(token.tokenAddress).toLowerCase())
+    );
+    const approvalPayload = await this.#uniswapLiquidityApiRequest("check_approval", {
+      walletAddress: address,
+      chainId: runtimeConfig.chainId,
+      protocol,
+      lpTokens,
+      action: action.toUpperCase(),
+      // The initial version uses ordinary, bounded approval transactions. This
+      // keeps the send path observable and avoids requiring an extra signature
+      // protocol before LP workflows have seen live use.
+      generatePermitAsTransaction: true,
+    });
+    const transactions = Array.isArray(approvalPayload.transactions) ? approvalPayload.transactions : [];
+    return transactions.map((item, index) => {
+      const raw = item?.transaction;
+      if (!raw || typeof raw !== "object") {
+        throw createTaggedError("Uniswap liquidity approval response is malformed.", "uniswap_liquidity_invalid_approval", { index });
+      }
+      const to = normalizeAddress(String(raw.to || ""), "liquidity approval.to");
+      if (!expectedTokens.has(to.toLowerCase())) {
+        throw createTaggedError("Uniswap liquidity approval is for a token outside this LP request.", "uniswap_liquidity_unexpected_token", { to });
+      }
+      const data = assertNonEmptyString(String(raw.data || ""), "liquidity approval.data");
+      if (parseHexOrDecimalBigInt(raw.value || "0", "liquidity approval.value") !== 0n) {
+        throw createTaggedError("Uniswap liquidity approval must not transfer native value.", "uniswap_liquidity_invalid_approval", { to });
+      }
+      if (raw.chainId !== undefined && Number(raw.chainId) !== runtimeConfig.chainId) {
+        throw createTaggedError("Uniswap liquidity approval has the wrong chain id.", "uniswap_liquidity_chain_mismatch");
+      }
+      if (raw.from && normalizeAddress(String(raw.from), "liquidity approval.from").toLowerCase() !== address.toLowerCase()) {
+        throw createTaggedError("Uniswap liquidity approval sender does not match the active wallet.", "uniswap_liquidity_sender_mismatch");
+      }
+      let decoded;
+      try {
+        decoded = ERC20_APPROVE_INTERFACE.parseTransaction({ data });
+      } catch {
+        decoded = null;
+      }
+      if (!decoded || decoded.name !== "approve") {
+        throw createTaggedError("Uniswap liquidity approval is not a bounded ERC-20 approve call.", "uniswap_liquidity_invalid_approval", { to });
+      }
+      const spender = normalizeAddress(String(decoded.args[0]), "liquidity approval spender").toLowerCase();
+      const amount = BigInt(decoded.args[1]);
+      const positionManager = getUniswapLiquidityPositionManager(runtimeConfig.network, protocol);
+      if (spender !== positionManager && spender !== PERMIT2_ADDRESS.toLowerCase()) {
+        throw createTaggedError("Uniswap liquidity approval has an unexpected spender.", "uniswap_liquidity_unexpected_spender", { spender, positionManager });
+      }
+      if (amount <= 0n || amount >= (2n ** 255n)) {
+        throw createTaggedError("Uniswap liquidity approval must use a bounded amount.", "uniswap_liquidity_unbounded_approval", { spender });
+      }
+      return {
+        tx: { to, data, value: 0n },
+        token: to,
+        spender,
+        amount,
+        action: String(item?.action || action).toUpperCase(),
+      };
+    });
+  }
+
+  #validateUniswapLiquidityTransaction({ runtimeConfig, protocol, address, transaction }) {
+    const to = normalizeAddress(String(transaction.to || ""), "liquidity transaction.to");
+    const expectedManager = getUniswapLiquidityPositionManager(runtimeConfig.network, protocol);
+    if (to.toLowerCase() !== expectedManager) {
+      throw createTaggedError("Uniswap liquidity API returned an unexpected PositionManager.", "uniswap_unexpected_position_manager", {
+        expected: expectedManager,
+        actual: to.toLowerCase(),
+        network: runtimeConfig.network,
+        protocol,
+      });
+    }
+    if (transaction.chainId !== undefined && Number(transaction.chainId) !== runtimeConfig.chainId) {
+      throw createTaggedError("Uniswap liquidity transaction has the wrong chain id.", "uniswap_liquidity_chain_mismatch", {
+        expected: runtimeConfig.chainId,
+        actual: transaction.chainId,
+      });
+    }
+    if (transaction.from && normalizeAddress(String(transaction.from), "liquidity transaction.from").toLowerCase() !== address.toLowerCase()) {
+      throw createTaggedError("Uniswap liquidity transaction sender does not match the active wallet.", "uniswap_liquidity_sender_mismatch");
+    }
+    const data = assertNonEmptyString(String(transaction.data || ""), "liquidity transaction.data");
+    if (!/^0x[0-9a-fA-F]+$/.test(data) || data.length < 10) {
+      throw createTaggedError("Uniswap liquidity transaction calldata is invalid.", "uniswap_liquidity_invalid_calldata");
+    }
+    return { to, data, value: parseHexOrDecimalBigInt(transaction.value || "0", "liquidity transaction.value") };
+  }
+
+  #formatUniswapLiquidityResponse({ runtimeConfig, accountIndex, address, action, protocol, request, payload, transaction, approvals = [], simulation = null }) {
+    const tx = transaction ? {
+      to: transaction.to,
+      value: transaction.value.toString(),
+      dataHash: sha256Hex(transaction.data),
+    } : null;
+    return {
+      network: runtimeConfig.network,
+      chainId: runtimeConfig.chainId,
+      accountIndex,
+      address,
+      protocol: "uniswap",
+      liquidityAction: action,
+      liquidityProtocol: protocol,
+      request,
+      requestId: String(payload?.requestId || "").trim() || null,
+      token0: payload?.token0 || null,
+      token1: payload?.token1 || null,
+      tickLower: payload?.tickLower ?? null,
+      tickUpper: payload?.tickUpper ?? null,
+      adjustedMinPrice: payload?.adjustedMinPrice ?? null,
+      adjustedMaxPrice: payload?.adjustedMaxPrice ?? null,
+      gasFee: payload?.gasFee ?? null,
+      positionTokenId: String(request?.nftTokenId || request?.tokenId || "").trim() || null,
+      positionManager: getUniswapLiquidityPositionManager(runtimeConfig.network, protocol),
+      approvals: approvals.map((approval) => ({
+        token: approval.token,
+        spender: approval.spender,
+        amount: approval.amount.toString(),
+        action: approval.action,
+      })),
+      transaction: tx,
+      simulation,
+      source: "uniswap-liquidity-api",
+    };
+  }
+
+  async quoteUniswapLiquidity({ seedPhrase, address, action, protocol, request, accountIndex = 0, network }) {
+    return this.#withReadableAccount({ seedPhrase, address, accountIndex, network }, async (account, runtimeConfig) => {
+      assertUniswapSupportedNetwork(runtimeConfig.network);
+      const normalizedAction = normalizeUniswapLiquidityAction(action);
+      const normalizedProtocol = normalizeUniswapLiquidityProtocol(protocol);
+      const walletAddress = await account.getAddress();
+      const body = this.#buildUniswapLiquidityRequest({ action: normalizedAction, protocol: normalizedProtocol, address: walletAddress, request });
+      body.chainId = runtimeConfig.chainId;
+      const payload = await this.#uniswapLiquidityApiRequest(normalizedAction, body);
+      const transaction = this.#validateUniswapLiquidityTransaction({
+        runtimeConfig,
+        protocol: normalizedProtocol,
+        address: walletAddress,
+        transaction: this.#extractUniswapLiquidityTransaction(payload, normalizedAction),
+      });
+      const approvals = await this.#getUniswapLiquidityApprovals({ runtimeConfig, protocol: normalizedProtocol, action: normalizedAction, address: walletAddress, payload });
+      const simulation = await this.#simulatePreparedTransaction({ runtimeConfig, from: walletAddress, tx: transaction, operationLabel: "Uniswap liquidity" });
+      return this.#formatUniswapLiquidityResponse({ runtimeConfig, accountIndex, address: walletAddress, action: normalizedAction, protocol: normalizedProtocol, request: body, payload, transaction, approvals, simulation });
+    });
+  }
+
+  async sendUniswapLiquidity({ seedPhrase, action, protocol, request, accountIndex = 0, network }) {
+    return this.#withAccount({ seedPhrase, accountIndex, network }, async (account, runtimeConfig) => {
+      assertUniswapSupportedNetwork(runtimeConfig.network);
+      const normalizedAction = normalizeUniswapLiquidityAction(action);
+      const normalizedProtocol = normalizeUniswapLiquidityProtocol(protocol);
+      const address = await account.getAddress();
+      // Rebuild immediately before signing: price/ticks and calldata can change
+      // while an intent approval is being reviewed.
+      const body = this.#buildUniswapLiquidityRequest({ action: normalizedAction, protocol: normalizedProtocol, address, request });
+      body.chainId = runtimeConfig.chainId;
+      let payload = await this.#uniswapLiquidityApiRequest(normalizedAction, body);
+      let transaction = this.#validateUniswapLiquidityTransaction({
+        runtimeConfig,
+        protocol: normalizedProtocol,
+        address,
+        transaction: this.#extractUniswapLiquidityTransaction(payload, normalizedAction),
+      });
+      const approvals = await this.#getUniswapLiquidityApprovals({ runtimeConfig, protocol: normalizedProtocol, action: normalizedAction, address, payload });
+      const approvalResults = [];
+      for (const approval of approvals) {
+        const approvalSimulation = await this.#simulatePreparedTransaction({ runtimeConfig, from: address, tx: approval.tx, operationLabel: "Uniswap liquidity approval" });
+        this.#assertSimulationSucceeded(approvalSimulation);
+        const approvalResult = await this.#sendBufferedDefiTransaction({ account, runtimeConfig, from: address, tx: approval.tx, operationLabel: "Uniswap liquidity approval" });
+        await this.#waitForTransactionReceipt(runtimeConfig, approvalResult.hash, { operationLabel: "Uniswap liquidity approval", failureCode: "uniswap_liquidity_approval_reverted", timeoutCode: "uniswap_liquidity_approval_timeout" });
+        approvalResults.push({ token: approval.token, spender: approval.spender, amount: approval.amount.toString(), hash: approvalResult.hash });
+      }
+      if (approvals.length) {
+        payload = await this.#uniswapLiquidityApiRequest(normalizedAction, body);
+        transaction = this.#validateUniswapLiquidityTransaction({
+          runtimeConfig,
+          protocol: normalizedProtocol,
+          address,
+          transaction: this.#extractUniswapLiquidityTransaction(payload, normalizedAction),
+        });
+      }
+      const simulation = await this.#simulatePreparedTransaction({ runtimeConfig, from: address, tx: transaction, operationLabel: "Uniswap liquidity" });
+      this.#assertSimulationSucceeded(simulation);
+      const result = await this.#sendBufferedDefiTransaction({ account, runtimeConfig, from: address, tx: transaction, operationLabel: "Uniswap liquidity" });
+      await this.#waitForTransactionReceipt(runtimeConfig, result.hash, {
+        operationLabel: "Uniswap liquidity",
+        failureCode: "uniswap_liquidity_reverted",
+        timeoutCode: "uniswap_liquidity_confirmation_timeout",
+      });
+      return {
+        ...this.#formatUniswapLiquidityResponse({ runtimeConfig, accountIndex, address, action: normalizedAction, protocol: normalizedProtocol, request: body, payload, transaction, approvals, simulation }),
+        result,
+        approvalResults,
+        confirmed: true,
+      };
+    });
   }
 
   async #fetchUniswapQuote({ runtimeConfig, routerProfile, address, swapRequest }) {

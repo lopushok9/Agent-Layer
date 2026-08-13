@@ -29,6 +29,7 @@ const AUTONOMOUS_DEFI_TOOLS = new Set([
   "manage_evm_lido_withdrawal",
   "manage_evm_morpho_market_position",
   "manage_evm_morpho_vault_position",
+  "manage_evm_uniswap_liquidity",
 ]);
 const approvalPreviewCache = new Map();
 const WALLET_TOOL_ONLY_GUIDANCE =
@@ -1994,6 +1995,29 @@ const evmToolDefinitions = [
         network: { type: "string", enum: EVM_CORE_NETWORKS },
       },
       required: ["token_in", "token_out", "amount_in_raw", "mode", "purpose"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "manage_evm_uniswap_liquidity",
+    description: "Preview, prepare, or execute a Uniswap V3/V4 liquidity action on ethereum, base, or robinhood. Supported actions are create, increase, decrease, and claim_fees. The official Liquidity API builds the transaction again immediately before signing, so confirmation is scoped to the LP intent rather than fragile ticks or calldata.",
+    optional: true,
+    parameters: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["create", "increase", "decrease", "claim_fees"] },
+        protocol: { type: "string", enum: ["V3", "V4"] },
+        request: {
+          type: "object",
+          description: "Official Uniswap Liquidity API fields. walletAddress, chainId, protocol, simulateTransaction, and permit/signature fields are controlled by the wallet.",
+          additionalProperties: true,
+        },
+        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
+        purpose: { type: "string" },
+        user_intent: { type: "boolean" },
+        network: { type: "string", enum: EVM_CORE_NETWORKS },
+      },
+      required: ["action", "protocol", "request", "mode", "purpose"],
       additionalProperties: false,
     },
   },

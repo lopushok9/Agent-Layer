@@ -13,6 +13,7 @@ const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 // Universal Router v2.0 on base (must match UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK).
 const BASE_ROUTER = "0x6ff5693b99212da76ad316178a184ab56d299b43";
 const BASE_USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
+const BASE_V4_POSITION_MANAGER = "0x7c5f5a4bbd8fd63184577525326123b519429bdc";
 // Universal Router v2.1.1 on Robinhood Chain.
 const ROBINHOOD_ROUTER = "0x8876789976decbfcbbbe364623c63652db8c0904";
 const ROBINHOOD_SWAP_ROUTER02 = "0xcaf681a66d020601342297493863e78c959e5cb2";
@@ -71,6 +72,7 @@ function createHarness(options = {}) {
   const erc20Token = options.erc20Token ?? BASE_USDC;
   const providerUrl = "http://fake-rpc.local";
   const apiBase = "https://uniswap-test.local/v1";
+  const liquidityApiBase = "https://uniswap-liquidity-test.local";
   const state = {
     allowance: BigInt(options.initialAllowance ?? 0n),
     quoteBodies: [],
@@ -79,6 +81,7 @@ function createHarness(options = {}) {
     signCalls: 0,
     sendCalls: [],
     approveCalls: [],
+    liquidityBodies: [],
   };
 
   const fakeAccount = {
@@ -124,6 +127,26 @@ function createHarness(options = {}) {
 
   globalThis.fetch = async (url, init = {}) => {
     const requestUrl = String(url || "");
+    if (requestUrl.startsWith(liquidityApiBase)) {
+      const body = JSON.parse(String(init.body || "{}"));
+      const action = requestUrl.slice(liquidityApiBase.length + 1).replace(/^lp\//, "");
+      state.liquidityBodies.push({ action, body });
+      const ok = (payload) => ({ ok: true, status: 200, json: async () => payload });
+      if (action === "check_approval") return ok({ transactions: [] });
+      return ok({
+        requestId: `lp-${state.liquidityBodies.length}`,
+        token0: { tokenAddress: BASE_USDC, amount: "1000000" },
+        token1: { tokenAddress: ZERO, amount: "1000000000000000" },
+        tickLower: -100,
+        tickUpper: 100,
+        adjustedMinPrice: "0.9",
+        adjustedMaxPrice: "1.1",
+        create: { to: BASE_V4_POSITION_MANAGER, from: ADDRESS, chainId, data: "0xabcdef01", value: "0" },
+        increase: { to: BASE_V4_POSITION_MANAGER, from: ADDRESS, chainId, data: "0xabcdef01", value: "0" },
+        decrease: { to: BASE_V4_POSITION_MANAGER, from: ADDRESS, chainId, data: "0xabcdef01", value: "0" },
+        claim: { to: BASE_V4_POSITION_MANAGER, from: ADDRESS, chainId, data: "0xabcdef01", value: "0" },
+      });
+    }
     if (requestUrl.startsWith(apiBase)) {
       const body = JSON.parse(String(init.body || "{}"));
       state.lastHeaders = init.headers || {};
@@ -209,6 +232,8 @@ function createHarness(options = {}) {
     network,
     transferMaxFeeWei: null,
     uniswapTradingApiBaseUrl: apiBase,
+    uniswapLiquidityApiBaseUrl: liquidityApiBase,
+    uniswapLiquidityViaGateway: false,
     uniswapApiKey: options.apiKey === undefined ? "test-key" : options.apiKey,
     uniswapViaGateway: Boolean(options.viaGateway),
     providerGatewayToken: options.gatewayToken,
@@ -256,6 +281,44 @@ test("quote: native ETH -> USDC has no permit and CLASSIC routing", async () => 
     assert.equal(body.slippageTolerance, 0.5);
     assert.equal(body.tokenIn, ZERO);
     assert.equal(h.state.lastHeaders["x-erc20eth-enabled"], "true");
+  } finally {
+    h.restore();
+  }
+});
+
+test("liquidity: v4 create refreshes the LP transaction immediately before broadcast", async () => {
+  const h = createHarness();
+  try {
+    const preview = await h.service.quoteUniswapLiquidity({
+      seedPhrase: VALID_MNEMONIC,
+      action: "create",
+      protocol: "V4",
+      request: {
+        existingPool: { token0Address: BASE_USDC, token1Address: ZERO, poolReference: `0x${"1".repeat(64)}` },
+        independentToken: { tokenAddress: BASE_USDC, amount: "1000000" },
+        priceBounds: { minPrice: "0.9", maxPrice: "1.1" },
+      },
+      network: "base",
+    });
+    assert.equal(preview.positionManager, BASE_V4_POSITION_MANAGER);
+    assert.equal(preview.simulation.ok, true);
+    assert.equal(h.state.liquidityBodies[0].action, "create");
+    const result = await h.service.sendUniswapLiquidity({
+      seedPhrase: VALID_MNEMONIC,
+      action: "create",
+      protocol: "V4",
+      request: {
+        existingPool: { token0Address: BASE_USDC, token1Address: ZERO, poolReference: `0x${"1".repeat(64)}` },
+        independentToken: { tokenAddress: BASE_USDC, amount: "1000000" },
+        priceBounds: { minPrice: "0.9", maxPrice: "1.1" },
+      },
+      network: "base",
+    });
+    assert.equal(result.confirmed, true);
+    assert.equal(h.state.sendCalls.length, 1);
+    assert.equal(h.state.sendCalls[0].to.toLowerCase(), BASE_V4_POSITION_MANAGER);
+    assert.equal(h.state.liquidityBodies.filter((entry) => entry.action === "create").length, 2);
+    assert.equal(h.state.liquidityBodies.some((entry) => entry.action === "check_approval"), true);
   } finally {
     h.restore();
   }

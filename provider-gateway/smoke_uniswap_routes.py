@@ -15,6 +15,7 @@ def main() -> None:
         "PROVIDER_GATEWAY_BEARER_TOKEN": os.environ.get("PROVIDER_GATEWAY_BEARER_TOKEN"),
         "UNISWAP_API_KEY": os.environ.get("UNISWAP_API_KEY"),
         "UNISWAP_TRADING_API_BASE_URL": os.environ.get("UNISWAP_TRADING_API_BASE_URL"),
+        "UNISWAP_LIQUIDITY_API_BASE_URL": os.environ.get("UNISWAP_LIQUIDITY_API_BASE_URL"),
         "UNISWAP_ROUTER_VERSION": os.environ.get("UNISWAP_ROUTER_VERSION"),
         "UNISWAP_ROUTER_VERSION_BY_CHAIN": os.environ.get("UNISWAP_ROUTER_VERSION_BY_CHAIN"),
     }
@@ -30,6 +31,8 @@ def main() -> None:
             return 200, {"swap": {"to": "0xrouter", "data": "0xabc", "value": "0x0"}}
         if url.endswith("/order"):
             return 200, {"orderId": "0xorder", "orderStatus": "open"}
+        if url.endswith("/lp/create"):
+            return 200, {"create": {"to": "0xmanager", "data": "0xabcdef01", "value": "0"}}
         raise AssertionError(f"Unexpected POST request: {url}")
 
     try:
@@ -37,6 +40,7 @@ def main() -> None:
         os.environ["PROVIDER_GATEWAY_BEARER_TOKEN"] = "test-token"
         os.environ["UNISWAP_API_KEY"] = "uniswap-test-key"
         os.environ["UNISWAP_TRADING_API_BASE_URL"] = "https://uniswap.example/v1"
+        os.environ["UNISWAP_LIQUIDITY_API_BASE_URL"] = "https://liquidity.example"
         os.environ["UNISWAP_ROUTER_VERSION"] = "2.0"
         os.environ["UNISWAP_ROUTER_VERSION_BY_CHAIN"] = '{"1":"2.0","8453":"2.0","4663":"2.0"}'
 
@@ -116,6 +120,19 @@ def main() -> None:
         assert swap.status_code == 200, swap.text
         assert swap.json()["swap"]["to"] == "0xrouter"
         assert seen["post"]["url"] == "https://uniswap.example/v1/swap"
+
+        # LP actions use a separate fixed upstream base and allow-list; the
+        # wallet supplies all request fields while the gateway owns the API key.
+        liquidity = client.post(
+            "/v1/evm/uniswap/lp/create",
+            headers=headers,
+            json={"walletAddress": "0xabc", "chainId": 4663, "protocol": "V4"},
+        )
+        assert liquidity.status_code == 200, liquidity.text
+        assert liquidity.json()["create"]["to"] == "0xmanager"
+        assert seen["post"]["url"] == "https://liquidity.example/lp/create"
+        assert seen["post"]["headers"]["x-api-key"] == "uniswap-test-key"
+        assert client.post("/v1/evm/uniswap/lp/not-allowed", headers=headers, json={}).status_code == 404
 
         # Machine token via query param is also accepted (matches EVM RPC auth).
         quote_q = client.post(

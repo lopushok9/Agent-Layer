@@ -359,6 +359,13 @@ export function loadConfig(env = process.env) {
       : "https://trade-api.gateway.uniswap.org/v1");
   const uniswapViaGateway =
     Boolean(gatewayBaseTrimmed) && uniswapTradingApiBaseUrl.startsWith(gatewayBaseTrimmed);
+  const uniswapLiquidityApiBaseUrl =
+    String(env.UNISWAP_LIQUIDITY_API_BASE_URL ?? "").trim() ||
+    (gatewayBaseTrimmed
+      ? `${gatewayBaseTrimmed}/v1/evm/uniswap/lp`
+      : "https://liquidity.api.uniswap.org");
+  const uniswapLiquidityViaGateway =
+    Boolean(gatewayBaseTrimmed) && uniswapLiquidityApiBaseUrl.startsWith(gatewayBaseTrimmed);
 
   return {
     host,
@@ -392,6 +399,8 @@ export function loadConfig(env = process.env) {
     lidoReferralAddress: String(env.LIDO_REFERRAL_ADDRESS ?? "").trim(),
     uniswapTradingApiBaseUrl,
     uniswapViaGateway,
+    uniswapLiquidityApiBaseUrl,
+    uniswapLiquidityViaGateway,
     providerGatewayToken,
     uniswapApiKey: String(env.UNISWAP_API_KEY ?? "").trim(),
     uniswapRouterVersion: String(env.UNISWAP_ROUTER_VERSION ?? "").trim() || "2.0",

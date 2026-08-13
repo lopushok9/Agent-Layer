@@ -2028,6 +2028,103 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "source": str(data.get("source") or "wdk-evm-wallet"),
         }
 
+    def _normalize_uniswap_liquidity_payload(
+        self,
+        data: dict[str, Any],
+        *,
+        action: str,
+        protocol: str,
+    ) -> dict[str, Any]:
+        transaction = dict(data.get("transaction") or {})
+        result = dict(data.get("result") or {})
+        request = dict(data.get("request") or {})
+        return {
+            "chain": self.chain,
+            "network": self.network,
+            "asset_type": "evm-uniswap-liquidity",
+            "protocol": str(data.get("protocol") or "uniswap"),
+            "liquidity_action": str(data.get("liquidityAction") or action),
+            "liquidity_protocol": str(data.get("liquidityProtocol") or protocol).upper(),
+            "from_address": str(data.get("address") or "").strip() or None,
+            "request": request,
+            "request_id": str(data.get("requestId") or "").strip() or None,
+            "token0": data.get("token0"),
+            "token1": data.get("token1"),
+            "tick_lower": data.get("tickLower"),
+            "tick_upper": data.get("tickUpper"),
+            "adjusted_min_price": data.get("adjustedMinPrice"),
+            "adjusted_max_price": data.get("adjustedMaxPrice"),
+            "position_token_id": str(data.get("positionTokenId") or "").strip() or None,
+            "position_manager": str(data.get("positionManager") or "").strip() or None,
+            "gas_fee": str(data.get("gasFee")) if data.get("gasFee") is not None else None,
+            "approvals": list(data.get("approvals") or []),
+            "approval_results": list(data.get("approvalResults") or []),
+            "simulation": _normalize_swap_simulation(data.get("simulation")),
+            "transaction": {
+                "to": str(transaction.get("to") or "").strip() or None,
+                "value": str(transaction.get("value") or "0"),
+                "data_hash": str(transaction.get("dataHash") or "").strip() or None,
+            },
+            "hash": result.get("hash"),
+            "result": result,
+            "chain_id": int(data.get("chainId") or 0),
+            "broadcasted": bool(result.get("hash")),
+            "confirmed": bool(data.get("confirmed")),
+            "source": str(data.get("source") or "wdk-evm-wallet"),
+        }
+
+    async def preview_uniswap_liquidity(
+        self,
+        *,
+        action: str,
+        protocol: str,
+        request: dict[str, Any],
+    ) -> dict[str, Any]:
+        if not isinstance(request, dict):
+            raise WalletBackendError("Uniswap liquidity request must be an object.")
+        data = await self.client.post(
+            "/v1/evm/uniswap/liquidity/quote",
+            {
+                "walletId": self.wallet_id,
+                "address": await self.get_address(),
+                "accountIndex": self.account_index,
+                "network": self.network,
+                "action": action,
+                "protocol": protocol,
+                "request": request,
+            },
+        )
+        normalized = self._normalize_uniswap_liquidity_payload(data, action=action, protocol=protocol)
+        normalized["from_address"] = await self.get_address()
+        normalized["execution_supported"] = not self.sign_only
+        return normalized
+
+    async def send_uniswap_liquidity(
+        self,
+        *,
+        action: str,
+        protocol: str,
+        request: dict[str, Any],
+    ) -> dict[str, Any]:
+        if self.sign_only:
+            raise WalletBackendError("wdk_evm_local is configured as sign_only.")
+        if not isinstance(request, dict):
+            raise WalletBackendError("Uniswap liquidity request must be an object.")
+        data = await self.client.post(
+            "/v1/evm/uniswap/liquidity/send",
+            {
+                "walletId": self.wallet_id,
+                "accountIndex": self.account_index,
+                "network": self.network,
+                "action": action,
+                "protocol": protocol,
+                "request": request,
+            },
+        )
+        normalized = self._normalize_uniswap_liquidity_payload(data, action=action, protocol=protocol)
+        normalized["from_address"] = await self.get_address()
+        return normalized
+
     async def preview_evm_lifi_cross_chain_swap(
         self,
         *,

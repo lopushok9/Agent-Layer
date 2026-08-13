@@ -349,6 +349,24 @@ class AgentWalletBackend(ABC):
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Uniswap swaps.")
 
+    async def preview_uniswap_liquidity(
+        self,
+        *,
+        action: str,
+        protocol: str,
+        request: dict[str, Any],
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Uniswap liquidity previews.")
+
+    async def send_uniswap_liquidity(
+        self,
+        *,
+        action: str,
+        protocol: str,
+        request: dict[str, Any],
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Uniswap liquidity operations.")
+
     async def preview_evm_native_transfer(
         self,
         *,

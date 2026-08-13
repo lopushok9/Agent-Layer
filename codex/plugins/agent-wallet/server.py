@@ -69,6 +69,7 @@ AUTONOMOUS_DEFI_TOOLS = {
     "manage_evm_lido_withdrawal",
     "manage_evm_morpho_market_position",
     "manage_evm_morpho_vault_position",
+    "manage_evm_uniswap_liquidity",
 }
 APPROVAL_PREVIEW_TOOL_ALIASES = {
     "x402_pay_request": "x402_preview_request",

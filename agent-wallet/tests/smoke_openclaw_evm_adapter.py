@@ -1203,6 +1203,47 @@ class FakeEvmBackend(AgentWalletBackend):
             "confirmed": False,
         }
 
+    async def preview_uniswap_liquidity(
+        self,
+        *,
+        action: str,
+        protocol: str,
+        request: dict,
+    ) -> dict:
+        managers = {
+            "ethereum": {"V3": "0xc36442b4a4522e871399cd717abdd847ab11fe88", "V4": "0xbd216513d74c8cf14cf4747e6aaa6420ff64ee9e"},
+            "base": {"V3": "0x03a520b32c04bf3beef7beb72e919cf822ed34f1", "V4": "0x7c5f5a4bbd8fd63184577525326123b519429bdc"},
+            "robinhood": {"V3": "0x73991a25c818bf1f1128deaab1492d45638de0d3", "V4": "0x58daec3116aae6d93017baaea7749052e8a04fa7"},
+        }
+        return {
+            "chain": "evm",
+            "network": self.network,
+            "asset_type": "evm-uniswap-liquidity",
+            "protocol": "uniswap",
+            "liquidity_action": action,
+            "liquidity_protocol": protocol,
+            "from_address": await self.get_address(),
+            "request": request,
+            "position_manager": managers[self.network][protocol],
+            "simulation": {"ok": True, "skipped": False, "reason": None, "message": None, "details": None},
+            "transaction": {"to": managers[self.network][protocol], "value": "0", "data_hash": "uniswap-lp-data-hash"},
+            "source": "fake",
+        }
+
+    async def send_uniswap_liquidity(
+        self,
+        *,
+        action: str,
+        protocol: str,
+        request: dict,
+    ) -> dict:
+        return {
+            **await self.preview_uniswap_liquidity(action=action, protocol=protocol, request=request),
+            "hash": "0x" + "f" * 64,
+            "broadcasted": True,
+            "confirmed": True,
+        }
+
     async def preview_evm_swap(
         self,
         *,
@@ -1622,6 +1663,7 @@ async def _main() -> None:
     assert "swap_evm_tokens" in tool_names
     assert "get_uniswap_swap_quote" in tool_names
     assert "swap_evm_uniswap_tokens" in tool_names
+    assert "manage_evm_uniswap_liquidity" in tool_names
     assert "transfer_evm_native" in tool_names
     assert "transfer_evm_token" in tool_names
     assert "transfer_btc" not in tool_names
@@ -1706,6 +1748,51 @@ async def _main() -> None:
     )
     assert robinhood_uniswap_preview.ok is True
     assert robinhood_uniswap_preview.data["network"] == "robinhood"
+
+    lp_request = {
+        "existingPool": {
+            "token0Address": "0x2222222222222222222222222222222222222222",
+            "token1Address": "0x3333333333333333333333333333333333333333",
+            "poolReference": "0x" + "1" * 64,
+        },
+        "independentToken": {"tokenAddress": "0x2222222222222222222222222222222222222222", "amount": "1000000"},
+        "priceBounds": {"minPrice": "0.9", "maxPrice": "1.1"},
+    }
+    lp_preview = await adapter.invoke(
+        "manage_evm_uniswap_liquidity",
+        {
+            "action": "create",
+            "protocol": "V4",
+            "request": lp_request,
+            "mode": "preview",
+            "purpose": "test robinhood uniswap LP preview",
+            "network": "robinhood",
+        },
+    )
+    assert lp_preview.ok is True
+    assert lp_preview.data["position_manager"] == "0x58daec3116aae6d93017baaea7749052e8a04fa7"
+    assert lp_preview.data["confirmation_summary"]["token0_address"] == lp_request["existingPool"]["token0Address"]
+    lp_approval = issue_approval_token(
+        tool_name="manage_evm_uniswap_liquidity",
+        network="robinhood",
+        summary=lp_preview.data["confirmation_summary"],
+        mainnet_confirmed=True,
+        issued_by="test",
+    )
+    lp_execute = await adapter.invoke(
+        "manage_evm_uniswap_liquidity",
+        {
+            "action": "create",
+            "protocol": "V4",
+            "request": lp_request,
+            "mode": "execute",
+            "purpose": "test robinhood uniswap LP execution",
+            "approval_token": lp_approval,
+            "network": "robinhood",
+        },
+    )
+    assert lp_execute.ok is True
+    assert lp_execute.data["hash"].startswith("0x")
 
     rejected_network = await switch_adapter.invoke("set_evm_network", {"network": "polygon"})
     assert rejected_network.ok is False

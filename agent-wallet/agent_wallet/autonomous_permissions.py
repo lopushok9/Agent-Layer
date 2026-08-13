@@ -31,6 +31,7 @@ DEFI_TOOLS = frozenset(
         "manage_evm_lido_withdrawal",
         "manage_evm_morpho_market_position",
         "manage_evm_morpho_vault_position",
+        "manage_evm_uniswap_liquidity",
     }
 )
 DEFI_TOOLS_ISSUER = "autonomous-permission:defi-tools"
