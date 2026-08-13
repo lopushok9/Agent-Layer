@@ -136,7 +136,7 @@ function createHarness(options = {}) {
       return ok({
         requestId: `lp-${state.liquidityBodies.length}`,
         token0: { tokenAddress: BASE_USDC, amount: "1000000" },
-        token1: { tokenAddress: ZERO, amount: "1000000000000000" },
+        token1: { tokenAddress: options.lpToken1Address ?? ZERO, amount: options.lpToken1Amount ?? "1000000000000000" },
         tickLower: -100,
         tickUpper: 100,
         adjustedMinPrice: "0.9",
@@ -319,6 +319,31 @@ test("liquidity: v4 create refreshes the LP transaction immediately before broad
     assert.equal(h.state.sendCalls[0].to.toLowerCase(), BASE_V4_POSITION_MANAGER);
     assert.equal(h.state.liquidityBodies.filter((entry) => entry.action === "create").length, 2);
     assert.equal(h.state.liquidityBodies.some((entry) => entry.action === "check_approval"), true);
+  } finally {
+    h.restore();
+  }
+});
+
+test("liquidity: a zero non-native token amount does not require an approval", async () => {
+  const h = createHarness({
+    lpToken1Address: "0x2222222222222222222222222222222222222222",
+    lpToken1Amount: "0",
+  });
+  try {
+    const preview = await h.service.quoteUniswapLiquidity({
+      seedPhrase: VALID_MNEMONIC,
+      action: "create",
+      protocol: "V4",
+      request: {
+        existingPool: { token0Address: BASE_USDC, token1Address: "0x2222222222222222222222222222222222222222", poolReference: `0x${"1".repeat(64)}` },
+        independentToken: { tokenAddress: BASE_USDC, amount: "1000000" },
+        priceBounds: { minPrice: "0.9", maxPrice: "1.1" },
+      },
+      network: "base",
+    });
+    assert.equal(preview.simulation.ok, true);
+    const approval = h.state.liquidityBodies.find((entry) => entry.action === "check_approval");
+    assert.deepEqual(approval.body.lpTokens, [{ tokenAddress: BASE_USDC, amount: "1000000" }]);
   } finally {
     h.restore();
   }

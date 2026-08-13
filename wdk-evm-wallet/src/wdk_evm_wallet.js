@@ -5874,10 +5874,18 @@ export class WdkEvmWalletService {
       // The LP API represents native ETH with the zero-address sentinel. It
       // cannot have an ERC-20 allowance, so exclude it from check_approval.
       .filter((token) => !isZeroAddress(String(token.tokenAddress || "")))
-      .map((token) => ({
-        tokenAddress: normalizeAddress(String(token.tokenAddress || ""), "lp token address"),
-        amount: assertPositiveBigIntString(token.amount, "lp token amount").toString(),
-      }));
+      .map((token) => {
+        const amount = BigInt(assertNonNegativeBigIntString(token.amount, "lp token amount"));
+        return {
+          tokenAddress: normalizeAddress(String(token.tokenAddress || ""), "lp token address"),
+          amount,
+        };
+      })
+      // Concentrated positions can legitimately be single-sided while the
+      // current price lies outside their selected range. A zero contribution
+      // has no ERC-20 allowance requirement and must not block the LP action.
+      .filter((token) => token.amount > 0n)
+      .map((token) => ({ ...token, amount: token.amount.toString() }));
     if (!lpTokens.length) {
       return [];
     }

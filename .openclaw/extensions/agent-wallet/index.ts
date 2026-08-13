@@ -1979,6 +1979,23 @@ const evmToolDefinitions = [
     },
   },
   {
+    name: "search_uniswap_pairs",
+    description: "Search read-only onchain Uniswap-tradeable pairs by name, ticker, or ERC-20 address. Verify any returned token address independently before quoting or trading.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        token_address: { type: "string" },
+        chain: { type: "string" },
+        dex_id: { type: "string" },
+        all_chains: { type: "boolean" },
+        limit: { type: "integer" },
+        network: { type: "string", enum: EVM_CORE_NETWORKS },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: "swap_evm_uniswap_tokens",
     description: "Preview, prepare, or execute a supported Uniswap path on ethereum, base, or robinhood: CLASSIC, UniswapX orders, or canonical ETH↔WETH wrap/unwrap. ERC-20 paths may use Permit2 EIP-712 or an UniswapX order signature. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
     optional: true,
