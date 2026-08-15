@@ -1751,7 +1751,9 @@ class OpenClawWalletAdapter:
                         description=(
                             "Preview, prepare, or execute a Uniswap V3/V4 liquidity action on ethereum, base, or robinhood. "
                             "Supported actions are create, increase, decrease, and claim_fees. The request is passed to the "
-                            "official Uniswap Liquidity API; execute refreshes the transaction immediately before signing."
+                            "official Uniswap Liquidity API; execute refreshes the transaction immediately before signing. "
+                            "Create requires a user-supplied existingPool.poolReference; increase/decrease/claim_fees require "
+                            "the user-supplied position NFT token id. AgentLayer does not discover or guess either value."
                         ),
                         input_schema={
                             "type": "object",
@@ -5826,13 +5828,49 @@ class OpenClawWalletAdapter:
                     raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
                 if not isinstance(purpose, str) or not purpose.strip():
                     raise WalletBackendError("purpose is required.")
+                normalized_request = dict(request)
+                if action == "create":
+                    existing_pool = normalized_request.get("existingPool")
+                    if not isinstance(existing_pool, dict):
+                        raise WalletBackendError(
+                            "create requires existingPool with token0Address, token1Address, and poolReference. "
+                            "AgentLayer cannot discover or infer a Uniswap poolReference; ask the user for the exact existing pool."
+                        )
+                    missing_pool_fields = [
+                        field
+                        for field in ("token0Address", "token1Address", "poolReference")
+                        if not isinstance(existing_pool.get(field), str) or not existing_pool[field].strip()
+                    ]
+                    if missing_pool_fields:
+                        raise WalletBackendError(
+                            "create existingPool is missing "
+                            f"{', '.join(missing_pool_fields)}. Ask the user for the exact existing Uniswap pool; do not infer it from market search data."
+                        )
+                elif action in {"increase", "decrease"}:
+                    nft_token_id = normalized_request.get("nftTokenId")
+                    if not isinstance(nft_token_id, str) or not nft_token_id.strip().isdigit() or int(nft_token_id.strip()) <= 0:
+                        raise WalletBackendError(
+                            f"{action} requires the user's positive nftTokenId. AgentLayer cannot list or infer Uniswap LP positions."
+                        )
+                    normalized_request["nftTokenId"] = nft_token_id.strip()
+                else:  # claim_fees
+                    token_id = normalized_request.get("tokenId", normalized_request.get("nftTokenId"))
+                    if not isinstance(token_id, str) or not token_id.strip().isdigit() or int(token_id.strip()) <= 0:
+                        raise WalletBackendError(
+                            "claim_fees requires the user's positive tokenId (the LP position NFT id). "
+                            "AgentLayer cannot list or infer Uniswap LP positions."
+                        )
+                    # The Liquidity API names this field tokenId for fee claims;
+                    # accept nftTokenId as the user-facing alias used by other LP actions.
+                    normalized_request["tokenId"] = token_id.strip()
+                    normalized_request.pop("nftTokenId", None)
                 # The caller must not override values that are derived from the
                 # active wallet/network in the WDK layer.
                 forbidden = {"walletAddress", "chainId", "protocol", "simulateTransaction", "signature", "batchPermitData", "v4BatchPermitData", "v3NftPermitData"}
                 overlap = forbidden.intersection(request)
                 if overlap:
                     raise WalletBackendError(f"request must not set wallet-controlled fields: {', '.join(sorted(overlap))}.")
-                preview_kwargs = {"action": action, "protocol": protocol, "request": dict(request)}
+                preview_kwargs = {"action": action, "protocol": protocol, "request": normalized_request}
                 if mode == "preview":
                     preview = await active_backend.preview_uniswap_liquidity(**preview_kwargs)
                     return AgentToolResult(tool=tool_name, ok=True, data=self._annotate_sensitive_payload(preview, action_label="Uniswap liquidity", mode="preview"))

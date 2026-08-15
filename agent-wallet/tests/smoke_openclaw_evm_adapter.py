@@ -1794,6 +1794,41 @@ async def _main() -> None:
     assert lp_execute.ok is True
     assert lp_execute.data["hash"].startswith("0x")
 
+    missing_pool_reference = await adapter.invoke(
+        "manage_evm_uniswap_liquidity",
+        {
+            "action": "create",
+            "protocol": "V4",
+            "request": {
+                "existingPool": {
+                    "token0Address": "0x2222222222222222222222222222222222222222",
+                    "token1Address": "0x3333333333333333333333333333333333333333",
+                },
+                "independentToken": {"tokenAddress": "0x2222222222222222222222222222222222222222", "amount": "1000000"},
+                "priceBounds": {"minPrice": "0.9", "maxPrice": "1.1"},
+            },
+            "mode": "preview",
+            "purpose": "missing LP pool reference",
+            "network": "base",
+        },
+    )
+    assert missing_pool_reference.ok is False
+    assert "poolReference" in str(missing_pool_reference.error)
+
+    missing_position_token_id = await adapter.invoke(
+        "manage_evm_uniswap_liquidity",
+        {
+            "action": "decrease",
+            "protocol": "V4",
+            "request": {"liquidityPercentageToDecrease": 25},
+            "mode": "preview",
+            "purpose": "missing LP position id",
+            "network": "robinhood",
+        },
+    )
+    assert missing_position_token_id.ok is False
+    assert "nftTokenId" in str(missing_position_token_id.error)
+
     rejected_network = await switch_adapter.invoke("set_evm_network", {"network": "polygon"})
     assert rejected_network.ok is False
     assert "EVM network must be" in str(rejected_network.error)

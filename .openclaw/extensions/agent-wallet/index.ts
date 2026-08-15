@@ -2017,7 +2017,7 @@ const evmToolDefinitions = [
   },
   {
     name: "manage_evm_uniswap_liquidity",
-    description: "Preview, prepare, or execute a Uniswap V3/V4 liquidity action on ethereum, base, or robinhood. Supported actions are create, increase, decrease, and claim_fees. The official Liquidity API builds the transaction again immediately before signing, so confirmation is scoped to the LP intent rather than fragile ticks or calldata.",
+    description: "Preview, prepare, or execute a Uniswap V3/V4 liquidity action on ethereum, base, or robinhood. Supported actions are create, increase, decrease, and claim_fees. Create needs a user-supplied existingPool.poolReference; position actions need the user's NFT token id. The wallet does not discover or guess either value. The official Liquidity API builds the transaction again immediately before signing, so confirmation is scoped to the LP intent rather than fragile ticks or calldata.",
     optional: true,
     parameters: {
       type: "object",
