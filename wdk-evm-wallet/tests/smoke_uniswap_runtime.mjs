@@ -14,6 +14,7 @@ const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 const BASE_ROUTER = "0x6ff5693b99212da76ad316178a184ab56d299b43";
 const BASE_USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 const BASE_V4_POSITION_MANAGER = "0x7c5f5a4bbd8fd63184577525326123b519429bdc";
+const BASE_V3_POSITION_MANAGER = "0x03a520b32c04bf3beef7beb72e919cf822ed34f1";
 // Universal Router v2.1.1 on Robinhood Chain.
 const ROBINHOOD_ROUTER = "0x8876789976decbfcbbbe364623c63652db8c0904";
 const ROBINHOOD_SWAP_ROUTER02 = "0xcaf681a66d020601342297493863e78c959e5cb2";
@@ -27,6 +28,8 @@ const NAME_SELECTOR = "0x06fdde03";
 const SYMBOL_SELECTOR = "0x95d89b41";
 const DECIMALS_SELECTOR = "0x313ce567";
 const ALLOWANCE_SELECTOR = "0xdd62ed3e";
+const TOKEN_OF_OWNER_BY_INDEX_SELECTOR = "0x2f745c59";
+const V3_POSITION_SELECTOR = "0x99fbab88";
 
 function encodeAbiString(value) {
   const data = Buffer.from(value, "utf8").toString("hex");
@@ -37,6 +40,32 @@ function encodeAbiString(value) {
 
 function encodeAbiUintWords(values) {
   return `0x${values.map((value) => BigInt(value).toString(16).padStart(64, "0")).join("")}`;
+}
+
+function encodeAbiWord(value) {
+  if (typeof value === "string" && /^0x[0-9a-fA-F]{40}$/.test(value)) {
+    return value.slice(2).padStart(64, "0");
+  }
+  const bits = 256n;
+  const normalized = BigInt(value);
+  return (normalized < 0n ? (1n << bits) + normalized : normalized).toString(16).padStart(64, "0");
+}
+
+function encodeV3PositionFixture() {
+  return `0x${[
+    0n,
+    ZERO,
+    BASE_USDC,
+    "0x2222222222222222222222222222222222222222",
+    500n,
+    -120n,
+    120n,
+    123456n,
+    0n,
+    0n,
+    7n,
+    11n,
+  ].map(encodeAbiWord).join("")}`;
 }
 
 // Mirrors the live Trading API shape: Permit2 AllowanceTransfer (PermitSingle),
@@ -132,6 +161,20 @@ function createHarness(options = {}) {
       const action = requestUrl.slice(liquidityApiBase.length + 1).replace(/^lp\//, "");
       state.liquidityBodies.push({ action, body });
       const ok = (payload) => ({ ok: true, status: 200, json: async () => payload });
+      if (action === "pool_info") {
+        return ok({
+          requestId: "pool-info-request",
+          pageSize: body.pageSize,
+          currentPage: body.currentPage,
+          pools: [{
+            poolReferenceIdentifier: `0x${"1".repeat(64)}`,
+            poolProtocol: body.protocol,
+            tokenAddressA: body.poolParameters?.tokenAddressA || BASE_USDC,
+            tokenAddressB: body.poolParameters?.tokenAddressB || ZERO,
+            chainId: String(chainId),
+          }],
+        });
+      }
       if (action === "check_approval") return ok({ transactions: [] });
       return ok({
         requestId: `lp-${state.liquidityBodies.length}`,
@@ -210,6 +253,12 @@ function createHarness(options = {}) {
     const ok = (result) => ({ ok: true, json: async () => ({ jsonrpc: "2.0", id: 1, result }) });
     if (body.method === "eth_call") {
       const data = String(body.params?.[0]?.data || "");
+      const to = String(body.params?.[0]?.to || "").toLowerCase();
+      if (to === BASE_V3_POSITION_MANAGER) {
+        if (data.startsWith("0x70a08231")) return ok(encodeAbiUintWords([1]));
+        if (data.startsWith(TOKEN_OF_OWNER_BY_INDEX_SELECTOR)) return ok(encodeAbiUintWords([42]));
+        if (data.startsWith(V3_POSITION_SELECTOR)) return ok(encodeV3PositionFixture());
+      }
       if (data === NAME_SELECTOR) return ok(encodeAbiString("USD Coin"));
       if (data === SYMBOL_SELECTOR) return ok(encodeAbiString("USDC"));
       if (data === DECIMALS_SELECTOR) return ok(`0x${(6).toString(16).padStart(64, "0")}`);
@@ -319,6 +368,48 @@ test("liquidity: v4 create refreshes the LP transaction immediately before broad
     assert.equal(h.state.sendCalls[0].to.toLowerCase(), BASE_V4_POSITION_MANAGER);
     assert.equal(h.state.liquidityBodies.filter((entry) => entry.action === "create").length, 2);
     assert.equal(h.state.liquidityBodies.some((entry) => entry.action === "check_approval"), true);
+  } finally {
+    h.restore();
+  }
+});
+
+test("liquidity: pool discovery returns the canonical pool reference without a signer", async () => {
+  const h = createHarness();
+  try {
+    const result = await h.service.getUniswapLiquidityPools({
+      protocol: "V4",
+      poolParameters: { tokenAddressA: BASE_USDC, tokenAddressB: ZERO },
+      network: "base",
+    });
+    assert.equal(result.chainId, 8453);
+    assert.equal(result.protocol, "V4");
+    assert.equal(result.pools[0].poolReferenceIdentifier, `0x${"1".repeat(64)}`);
+    const request = h.state.liquidityBodies.at(-1);
+    assert.equal(request.action, "pool_info");
+    assert.equal(request.body.chainId, 8453);
+    assert.equal(request.body.protocol, "V4");
+  } finally {
+    h.restore();
+  }
+});
+
+test("liquidity: V3 position discovery enumerates only the active wallet's NFTs", async () => {
+  const h = createHarness();
+  try {
+    const result = await h.service.getUniswapLiquidityPositions({
+      seedPhrase: VALID_MNEMONIC,
+      protocol: "V3",
+      network: "base",
+    });
+    assert.equal(result.owner, ADDRESS);
+    assert.equal(result.positionManager, BASE_V3_POSITION_MANAGER);
+    assert.equal(result.totalCount, "1");
+    assert.equal(result.positions[0].tokenId, "42");
+    assert.equal(result.positions[0].fee, 500);
+    assert.equal(result.positions[0].tickLower, -120);
+    assert.equal(result.positions[0].tickUpper, 120);
+    assert.equal(result.positions[0].tokensOwed0, "7");
+    assert.equal(result.positions[0].tokensOwed1, "11");
   } finally {
     h.restore();
   }

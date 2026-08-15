@@ -646,6 +646,18 @@ async function handleRequest(request, response) {
       return sendJson(response, 200, { ok: true, data });
     }
 
+    if (method === "POST" && url.pathname === "/v1/evm/uniswap/liquidity/pools") {
+      const body = await withResolvedNetwork(await readJsonBody(request));
+      const data = await service.getUniswapLiquidityPools(body);
+      return sendJson(response, 200, { ok: true, data });
+    }
+
+    if (method === "POST" && url.pathname === "/v1/evm/uniswap/liquidity/positions") {
+      const body = await withResolvedNetwork(await withResolvedSeedOrAddress(await readJsonBody(request)));
+      const data = await service.getUniswapLiquidityPositions(body);
+      return sendJson(response, 200, { ok: true, data });
+    }
+
     if (method === "POST" && url.pathname === "/v1/evm/uniswap/liquidity/send") {
       const body = await withResolvedNetwork(await withResolvedSeed(await readJsonBody(request)));
       const data = await service.sendUniswapLiquidity(body);

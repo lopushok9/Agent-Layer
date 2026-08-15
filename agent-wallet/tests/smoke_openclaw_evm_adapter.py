@@ -30,6 +30,40 @@ class FakeEvmBackend(AgentWalletBackend):
     async def get_address(self) -> str | None:
         return "0x1111111111111111111111111111111111111111"
 
+    async def get_uniswap_liquidity_pools(
+        self,
+        *,
+        protocol: str,
+        pool_parameters: dict | None = None,
+        pool_references: list[dict] | None = None,
+        page_size: int = 20,
+        current_page: int = 1,
+    ) -> dict:
+        return {
+            "network": self.network,
+            "chainId": {"ethereum": 1, "base": 8453, "robinhood": 4663}[self.network],
+            "protocol": protocol,
+            "pools": [{"poolReferenceIdentifier": "0x" + "1" * 64, "poolProtocol": protocol}],
+            "pool_parameters": pool_parameters,
+            "pool_references": pool_references,
+            "pageSize": page_size,
+            "currentPage": current_page,
+            "source": "fake",
+        }
+
+    async def get_uniswap_liquidity_positions(self, *, protocol: str = "V3", limit: int = 20) -> dict:
+        return {
+            "network": self.network,
+            "protocol": protocol,
+            "owner": await self.get_address(),
+            "totalCount": "1",
+            "returnedCount": 1,
+            "truncated": False,
+            "positions": [{"tokenId": "42", "token0": "0x2222222222222222222222222222222222222222"}],
+            "limit": limit,
+            "source": "fake",
+        }
+
     async def get_balance(self, address: str | None = None) -> dict:
         return {
             "chain": "evm",
@@ -1664,6 +1698,8 @@ async def _main() -> None:
     assert "get_uniswap_swap_quote" in tool_names
     assert "swap_evm_uniswap_tokens" in tool_names
     assert "manage_evm_uniswap_liquidity" in tool_names
+    assert "get_evm_uniswap_pools" in tool_names
+    assert "get_evm_uniswap_positions" in tool_names
     assert "transfer_evm_native" in tool_names
     assert "transfer_evm_token" in tool_names
     assert "transfer_btc" not in tool_names
@@ -1748,6 +1784,34 @@ async def _main() -> None:
     )
     assert robinhood_uniswap_preview.ok is True
     assert robinhood_uniswap_preview.data["network"] == "robinhood"
+
+    pool_lookup = await adapter.invoke(
+        "get_evm_uniswap_pools",
+        {
+            "protocol": "V4",
+            "pool_parameters": {
+                "tokenAddressA": "0x2222222222222222222222222222222222222222",
+                "tokenAddressB": "0x3333333333333333333333333333333333333333",
+            },
+            "network": "robinhood",
+        },
+    )
+    assert pool_lookup.ok is True
+    assert pool_lookup.data["pools"][0]["poolReferenceIdentifier"] == "0x" + "1" * 64
+
+    v3_positions = await adapter.invoke(
+        "get_evm_uniswap_positions",
+        {"protocol": "V3", "limit": 10, "network": "base"},
+    )
+    assert v3_positions.ok is True
+    assert v3_positions.data["positions"][0]["tokenId"] == "42"
+
+    v4_positions = await adapter.invoke(
+        "get_evm_uniswap_positions",
+        {"protocol": "V4", "network": "base"},
+    )
+    assert v4_positions.ok is False
+    assert "not enumerable" in str(v4_positions.error)
 
     lp_request = {
         "existingPool": {

@@ -33,6 +33,8 @@ def main() -> None:
             return 200, {"orderId": "0xorder", "orderStatus": "open"}
         if url.endswith("/lp/create"):
             return 200, {"create": {"to": "0xmanager", "data": "0xabcdef01", "value": "0"}}
+        if url.endswith("/lp/pool_info"):
+            return 200, {"requestId": "pool-request", "pools": [{"poolReferenceIdentifier": "0xpool"}]}
         raise AssertionError(f"Unexpected POST request: {url}")
 
     try:
@@ -69,6 +71,15 @@ def main() -> None:
         assert seen["post"]["headers"]["x-api-key"] == "uniswap-test-key"
         assert seen["post"]["headers"]["x-universal-router-version"] == "2.0"
         assert seen["post"]["json_body"]["amount"] == "100000"
+
+        pool_info = client.post(
+            "/v1/evm/uniswap/lp/pool_info",
+            headers=headers,
+            json={"protocol": "V3", "chainId": 8453, "poolParameters": {"tokenAddressA": "0xa", "tokenAddressB": "0xb"}},
+        )
+        assert pool_info.status_code == 200, pool_info.text
+        assert pool_info.json()["pools"][0]["poolReferenceIdentifier"] == "0xpool"
+        assert seen["post"]["url"] == "https://liquidity.example/lp/pool_info"
 
         # Native-ETH UniswapX mode is forwarded only as a fixed allow-listed header.
         quote_native = client.post(

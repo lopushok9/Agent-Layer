@@ -64,6 +64,8 @@
       "manage_evm_lido_withdrawal",
       "manage_evm_uniswap_liquidity",
       "search_uniswap_pairs",
+      "get_evm_uniswap_pools",
+      "get_evm_uniswap_positions",
       "set_evm_network",
       "set_wallet_backend",
       "sign_wallet_message",

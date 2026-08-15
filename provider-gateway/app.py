@@ -2021,7 +2021,7 @@ async def uniswap_liquidity(request: Request) -> JSONResponse:
     if not _uniswap_configured():
         return _json_error("Uniswap is not configured", 503)
     action = str(request.path_params.get("action") or "").strip().lower()
-    if action not in {"check_approval", "create", "increase", "decrease", "claim_fees"}:
+    if action not in {"check_approval", "create", "increase", "decrease", "claim_fees", "pool_info"}:
         return _json_error("Unsupported Uniswap liquidity action", 404)
     try:
         body = _require_body_dict(await request.json())

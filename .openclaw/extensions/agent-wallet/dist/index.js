@@ -1996,6 +1996,44 @@ const evmToolDefinitions = [
     },
   },
   {
+    name: "get_evm_uniswap_pools",
+    description: "Find existing Uniswap V3/V4 pools through the official Pool Info API on ethereum, base, or robinhood. Returns the canonical poolReferenceIdentifier needed for an LP create request. Read-only: it does not approve, sign, or execute anything.",
+    parameters: {
+      type: "object",
+      properties: {
+        protocol: { type: "string", enum: ["V3", "V4"] },
+        pool_parameters: {
+          type: "object",
+          description: "Official Pool Info API token-pair parameters, such as tokenAddressA, tokenAddressB and optional fee/tickSpacing/hooks.",
+          additionalProperties: true,
+        },
+        pool_references: {
+          type: "array",
+          maxItems: 20,
+          items: { type: "object", additionalProperties: true },
+        },
+        page_size: { type: "integer", minimum: 1, maximum: 20 },
+        current_page: { type: "integer", minimum: 1 },
+        network: { type: "string", enum: EVM_CORE_NETWORKS },
+      },
+      required: ["protocol"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_evm_uniswap_positions",
+    description: "List the active wallet's Uniswap V3 LP NFTs on ethereum, base, or robinhood. Returns token ids, token pair, fee tier, ticks, liquidity, and owed fees. Read-only. V4 is excluded because its PositionManager is not enumerable without a verified indexed source.",
+    parameters: {
+      type: "object",
+      properties: {
+        protocol: { type: "string", enum: ["V3"] },
+        limit: { type: "integer", minimum: 1, maximum: 100 },
+        network: { type: "string", enum: EVM_CORE_NETWORKS },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: "swap_evm_uniswap_tokens",
     description: "Preview, prepare, or execute a supported Uniswap path on ethereum, base, or robinhood: CLASSIC, UniswapX orders, or canonical ETH↔WETH wrap/unwrap. ERC-20 paths may use Permit2 EIP-712 or an UniswapX order signature. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
     optional: true,
@@ -2017,7 +2055,7 @@ const evmToolDefinitions = [
   },
   {
     name: "manage_evm_uniswap_liquidity",
-    description: "Preview, prepare, or execute a Uniswap V3/V4 liquidity action on ethereum, base, or robinhood. Supported actions are create, increase, decrease, and claim_fees. Create needs a user-supplied existingPool.poolReference; position actions need the user's NFT token id. The wallet does not discover or guess either value. The official Liquidity API builds the transaction again immediately before signing, so confirmation is scoped to the LP intent rather than fragile ticks or calldata.",
+    description: "Preview, prepare, or execute a Uniswap V3/V4 liquidity action on ethereum, base, or robinhood. Supported actions are create, increase, decrease, and claim_fees. Create needs existingPool.poolReference and position actions need an NFT token id: use get_evm_uniswap_pools or the V3 get_evm_uniswap_positions scanner to obtain them, never guess. The official Liquidity API builds the transaction again immediately before signing, so confirmation is scoped to the LP intent rather than fragile ticks or calldata.",
     optional: true,
     parameters: {
       type: "object",

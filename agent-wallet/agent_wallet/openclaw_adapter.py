@@ -1747,13 +1747,61 @@ class OpenClawWalletAdapter:
                 tools.insert(
                     13,
                     AgentToolSpec(
+                        name="get_evm_uniswap_pools",
+                        description=(
+                            "Find existing Uniswap V3/V4 pool metadata on ethereum, base, or robinhood using the official "
+                            "Uniswap Pool Info API. Returns the canonical poolReferenceIdentifier required to create liquidity; "
+                            "this is read-only and does not approve, sign, or execute anything."
+                        ),
+                        input_schema={
+                            "type": "object",
+                            "properties": {
+                                "protocol": {"type": "string", "enum": ["V3", "V4"]},
+                                "pool_parameters": {"type": "object", "description": "Official Pool Info API token-pair parameters, such as tokenAddressA, tokenAddressB and optional fee/tickSpacing/hooks.", "additionalProperties": True},
+                                "pool_references": {"type": "array", "maxItems": 20, "items": {"type": "object", "additionalProperties": True}, "description": "One to twenty official Pool Info API pool reference objects."},
+                                "page_size": {"type": "integer", "minimum": 1, "maximum": 20},
+                                "current_page": {"type": "integer", "minimum": 1},
+                                "network": {"type": "string", "enum": ["ethereum", "base", "robinhood"]},
+                            },
+                            "required": ["protocol"],
+                            "additionalProperties": False,
+                        },
+                        read_only=True,
+                        risk_level="low",
+                    ),
+                )
+                tools.insert(
+                    14,
+                    AgentToolSpec(
+                        name="get_evm_uniswap_positions",
+                        description=(
+                            "List read-only Uniswap V3 LP position NFTs owned by the active wallet on ethereum, base, or robinhood. "
+                            "Returns NFT token ids, tokens, fee tier, tick range, liquidity, and currently owed fees. V4 discovery is "
+                            "not exposed until a verified indexed source is configured because V4 PositionManager is not enumerable."
+                        ),
+                        input_schema={
+                            "type": "object",
+                            "properties": {
+                                "protocol": {"type": "string", "enum": ["V3"], "description": "V3 is the currently enumerable, on-chain-supported position scanner."},
+                                "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                                "network": {"type": "string", "enum": ["ethereum", "base", "robinhood"]},
+                            },
+                            "additionalProperties": False,
+                        },
+                        read_only=True,
+                        risk_level="low",
+                    ),
+                )
+                tools.insert(
+                    15,
+                    AgentToolSpec(
                         name="manage_evm_uniswap_liquidity",
                         description=(
                             "Preview, prepare, or execute a Uniswap V3/V4 liquidity action on ethereum, base, or robinhood. "
                             "Supported actions are create, increase, decrease, and claim_fees. The request is passed to the "
                             "official Uniswap Liquidity API; execute refreshes the transaction immediately before signing. "
-                            "Create requires a user-supplied existingPool.poolReference; increase/decrease/claim_fees require "
-                            "the user-supplied position NFT token id. AgentLayer does not discover or guess either value."
+                            "Create requires existingPool.poolReference; increase/decrease/claim_fees require a position NFT token id. "
+                            "Use get_evm_uniswap_pools or get_evm_uniswap_positions to obtain these identifiers; never guess them."
                         ),
                         input_schema={
                             "type": "object",
@@ -5684,6 +5732,46 @@ class OpenClawWalletAdapter:
                 )
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
 
+            if tool_name == "get_evm_uniswap_pools":
+                protocol = args.get("protocol")
+                pool_parameters = args.get("pool_parameters")
+                pool_references = args.get("pool_references")
+                page_size = args.get("page_size", 20)
+                current_page = args.get("current_page", 1)
+                if protocol not in {"V3", "V4"}:
+                    raise WalletBackendError("protocol must be V3 or V4.")
+                if (pool_parameters is None) == (pool_references is None):
+                    raise WalletBackendError("Provide exactly one of pool_parameters or pool_references.")
+                if pool_parameters is not None and not isinstance(pool_parameters, dict):
+                    raise WalletBackendError("pool_parameters must be an object.")
+                if pool_references is not None:
+                    if not isinstance(pool_references, list) or not 1 <= len(pool_references) <= 20:
+                        raise WalletBackendError("pool_references must contain between 1 and 20 objects.")
+                    if any(not isinstance(reference, dict) for reference in pool_references):
+                        raise WalletBackendError("pool_references must contain only objects.")
+                if not isinstance(page_size, int) or not 1 <= page_size <= 20:
+                    raise WalletBackendError("page_size must be an integer between 1 and 20.")
+                if not isinstance(current_page, int) or current_page < 1:
+                    raise WalletBackendError("current_page must be a positive integer.")
+                data = await active_backend.get_uniswap_liquidity_pools(
+                    protocol=protocol,
+                    pool_parameters=pool_parameters,
+                    pool_references=pool_references,
+                    page_size=page_size,
+                    current_page=current_page,
+                )
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_evm_uniswap_positions":
+                protocol = args.get("protocol", "V3")
+                limit = args.get("limit", 20)
+                if protocol != "V3":
+                    raise WalletBackendError("Only V3 position discovery is currently available; V4 PositionManager is not enumerable.")
+                if not isinstance(limit, int) or not 1 <= limit <= 100:
+                    raise WalletBackendError("limit must be an integer between 1 and 100.")
+                data = await active_backend.get_uniswap_liquidity_positions(protocol=protocol, limit=limit)
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
             if tool_name == "swap_evm_uniswap_tokens":
                 token_in = args.get("token_in")
                 token_out = args.get("token_out")
@@ -5834,7 +5922,7 @@ class OpenClawWalletAdapter:
                     if not isinstance(existing_pool, dict):
                         raise WalletBackendError(
                             "create requires existingPool with token0Address, token1Address, and poolReference. "
-                            "AgentLayer cannot discover or infer a Uniswap poolReference; ask the user for the exact existing pool."
+                            "Use get_evm_uniswap_pools to obtain the exact existing pool; do not infer it from market search data."
                         )
                     missing_pool_fields = [
                         field
@@ -5850,7 +5938,7 @@ class OpenClawWalletAdapter:
                     nft_token_id = normalized_request.get("nftTokenId")
                     if not isinstance(nft_token_id, str) or not nft_token_id.strip().isdigit() or int(nft_token_id.strip()) <= 0:
                         raise WalletBackendError(
-                            f"{action} requires the user's positive nftTokenId. AgentLayer cannot list or infer Uniswap LP positions."
+                            f"{action} requires a positive nftTokenId. Use get_evm_uniswap_positions for V3 or request a verified V4 token id; never infer it."
                         )
                     normalized_request["nftTokenId"] = nft_token_id.strip()
                 else:  # claim_fees
@@ -5858,7 +5946,7 @@ class OpenClawWalletAdapter:
                     if not isinstance(token_id, str) or not token_id.strip().isdigit() or int(token_id.strip()) <= 0:
                         raise WalletBackendError(
                             "claim_fees requires the user's positive tokenId (the LP position NFT id). "
-                            "AgentLayer cannot list or infer Uniswap LP positions."
+                            "Use get_evm_uniswap_positions for V3 or request a verified V4 token id; never infer it."
                         )
                     # The Liquidity API names this field tokenId for fee claims;
                     # accept nftTokenId as the user-facing alias used by other LP actions.

@@ -337,6 +337,25 @@ class AgentWalletBackend(ABC):
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Uniswap pair search.")
 
+    async def get_uniswap_liquidity_pools(
+        self,
+        *,
+        protocol: str,
+        pool_parameters: dict[str, Any] | None = None,
+        pool_references: list[dict[str, Any]] | None = None,
+        page_size: int = 20,
+        current_page: int = 1,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Uniswap liquidity pool discovery.")
+
+    async def get_uniswap_liquidity_positions(
+        self,
+        *,
+        protocol: str = "V3",
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support Uniswap liquidity position discovery.")
+
     async def send_uniswap_swap(
         self,
         *,

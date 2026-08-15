@@ -1957,6 +1957,66 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "source": "dexscreener",
         }
 
+    async def get_uniswap_liquidity_pools(
+        self,
+        *,
+        protocol: str,
+        pool_parameters: dict[str, Any] | None = None,
+        pool_references: list[dict[str, Any]] | None = None,
+        page_size: int = 20,
+        current_page: int = 1,
+    ) -> dict[str, Any]:
+        if protocol not in {"V3", "V4"}:
+            raise WalletBackendError("protocol must be V3 or V4.")
+        if (pool_parameters is None) == (pool_references is None):
+            raise WalletBackendError("Provide exactly one of pool_parameters or pool_references.")
+        if pool_parameters is not None and not isinstance(pool_parameters, dict):
+            raise WalletBackendError("pool_parameters must be an object.")
+        if pool_references is not None:
+            if not isinstance(pool_references, list) or not 1 <= len(pool_references) <= 20:
+                raise WalletBackendError("pool_references must contain between 1 and 20 objects.")
+            if any(not isinstance(reference, dict) for reference in pool_references):
+                raise WalletBackendError("pool_references must contain only objects.")
+        if not isinstance(page_size, int) or not 1 <= page_size <= 20:
+            raise WalletBackendError("page_size must be an integer between 1 and 20.")
+        if not isinstance(current_page, int) or current_page < 1:
+            raise WalletBackendError("current_page must be a positive integer.")
+        body: dict[str, Any] = {
+            "network": self.network,
+            "protocol": protocol,
+            "pageSize": page_size,
+            "currentPage": current_page,
+        }
+        if pool_parameters is not None:
+            body["poolParameters"] = pool_parameters
+        else:
+            body["poolReferences"] = pool_references
+        data = await self.client.post("/v1/evm/uniswap/liquidity/pools", body)
+        return dict(data)
+
+    async def get_uniswap_liquidity_positions(
+        self,
+        *,
+        protocol: str = "V3",
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        if protocol not in {"V3", "V4"}:
+            raise WalletBackendError("protocol must be V3 or V4.")
+        if not isinstance(limit, int) or not 1 <= limit <= 100:
+            raise WalletBackendError("limit must be an integer between 1 and 100.")
+        data = await self.client.post(
+            "/v1/evm/uniswap/liquidity/positions",
+            {
+                "walletId": self.wallet_id,
+                "address": await self.get_address(),
+                "accountIndex": self.account_index,
+                "network": self.network,
+                "protocol": protocol,
+                "limit": limit,
+            },
+        )
+        return dict(data)
+
     async def send_uniswap_swap(
         self,
         *,

@@ -45,6 +45,14 @@ const UNISWAP_LIQUIDITY_POSITION_MANAGERS = {
 const ERC20_APPROVE_INTERFACE = new Interface([
   "function approve(address spender,uint256 amount) returns (bool)",
 ]);
+// V3 PositionManager is ERC-721 enumerable, so positions owned by the active
+// wallet can be discovered and then read directly from the canonical contract.
+// V4 deliberately is not enumerable; see getUniswapLiquidityPositions below.
+const UNISWAP_V3_POSITION_MANAGER_INTERFACE = new Interface([
+  "function balanceOf(address owner) view returns (uint256)",
+  "function tokenOfOwnerByIndex(address owner,uint256 index) view returns (uint256)",
+  "function positions(uint256 tokenId) view returns (uint96 nonce,address operator,address token0,address token1,uint24 fee,int24 tickLower,int24 tickUpper,uint128 liquidity,uint256 feeGrowthInside0LastX128,uint256 feeGrowthInside1LastX128,uint128 tokensOwed0,uint128 tokensOwed1)",
+]);
 // Every executable path is declared here rather than inferred from a Trading
 // API response. A new chain/router version therefore requires an explicit,
 // reviewed allow-list entry before it can receive a signed transaction.
@@ -6013,6 +6021,122 @@ export class WdkEvmWalletService {
       simulation,
       source: "uniswap-liquidity-api",
     };
+  }
+
+  async getUniswapLiquidityPools({ protocol, poolParameters, poolReferences, pageSize = 20, currentPage = 1, network }) {
+    const runtimeConfig = this.#resolveRuntimeConfig(network);
+    assertUniswapSupportedNetwork(runtimeConfig.network);
+    const normalizedProtocol = normalizeUniswapLiquidityProtocol(protocol);
+    const hasParameters = poolParameters !== undefined && poolParameters !== null;
+    const hasReferences = poolReferences !== undefined && poolReferences !== null;
+    if (hasParameters === hasReferences) {
+      throw new Error("Provide exactly one of poolParameters or poolReferences.");
+    }
+    const boundedPageSize = Number(pageSize);
+    const normalizedPageSize = Number.isInteger(boundedPageSize) && boundedPageSize > 0
+      ? Math.min(boundedPageSize, 20)
+      : 20;
+    const boundedCurrentPage = Number(currentPage);
+    const normalizedCurrentPage = Number.isInteger(boundedCurrentPage) && boundedCurrentPage > 0
+      ? boundedCurrentPage
+      : 1;
+    const body = {
+      protocol: normalizedProtocol,
+      chainId: runtimeConfig.chainId,
+      pageSize: normalizedPageSize,
+      currentPage: normalizedCurrentPage,
+    };
+    if (hasParameters) {
+      body.poolParameters = assertPlainObject(poolParameters, "poolParameters");
+    } else {
+      if (!Array.isArray(poolReferences) || poolReferences.length === 0 || poolReferences.length > 20) {
+        throw new Error("poolReferences must be an array containing between 1 and 20 references.");
+      }
+      body.poolReferences = poolReferences.map((reference, index) => assertPlainObject(reference, `poolReferences[${index}]`));
+    }
+    const payload = await this.#uniswapLiquidityApiRequest("pool_info", body);
+    return {
+      network: runtimeConfig.network,
+      chainId: runtimeConfig.chainId,
+      protocol: normalizedProtocol,
+      requestId: String(payload?.requestId || "").trim() || null,
+      pools: Array.isArray(payload?.pools) ? payload.pools : [],
+      pageSize: Number(payload?.pageSize ?? normalizedPageSize),
+      currentPage: Number(payload?.currentPage ?? normalizedCurrentPage),
+      source: "uniswap-liquidity-api",
+    };
+  }
+
+  async getUniswapLiquidityPositions({ seedPhrase, address, protocol = "V3", accountIndex = 0, network, limit = 20 }) {
+    return this.#withReadableAccount({ seedPhrase, address, accountIndex, network }, async (account, runtimeConfig) => {
+      assertUniswapSupportedNetwork(runtimeConfig.network);
+      const normalizedProtocol = normalizeUniswapLiquidityProtocol(protocol);
+      if (normalizedProtocol === "V4") {
+        // Uniswap's V4 PositionManager is intentionally not ERC-721 enumerable.
+        // Discovering token IDs requires a chain-specific indexed subgraph, then
+        // on-chain verification. Do not pretend balanceOf/tokenOfOwnerByIndex is
+        // available or ask an RPC provider to scan unbounded transfer history.
+        throw createTaggedError(
+          "Uniswap V4 position discovery requires a configured indexed subgraph; the V4 PositionManager is not ERC-721 enumerable.",
+          "uniswap_v4_position_discovery_unavailable",
+          { network: runtimeConfig.network }
+        );
+      }
+      const owner = await account.getAddress();
+      const positionManager = getUniswapLiquidityPositionManager(runtimeConfig.network, "V3");
+      const rawBalance = await callContract(
+        runtimeConfig.providerUrl,
+        positionManager,
+        UNISWAP_V3_POSITION_MANAGER_INTERFACE,
+        "balanceOf",
+        [owner]
+      );
+      const balance = BigInt(rawBalance[0]);
+      const requestedLimit = Number(limit);
+      const boundedLimit = Number.isInteger(requestedLimit) && requestedLimit > 0 ? Math.min(requestedLimit, 100) : 20;
+      const count = Number(balance > BigInt(boundedLimit) ? BigInt(boundedLimit) : balance);
+      const positions = [];
+      for (let index = 0; index < count; index += 1) {
+        const tokenIdResult = await callContract(
+          runtimeConfig.providerUrl,
+          positionManager,
+          UNISWAP_V3_POSITION_MANAGER_INTERFACE,
+          "tokenOfOwnerByIndex",
+          [owner, index]
+        );
+        const tokenId = BigInt(tokenIdResult[0]);
+        const position = await callContract(
+          runtimeConfig.providerUrl,
+          positionManager,
+          UNISWAP_V3_POSITION_MANAGER_INTERFACE,
+          "positions",
+          [tokenId]
+        );
+        positions.push({
+          tokenId: tokenId.toString(),
+          token0: String(position[2]),
+          token1: String(position[3]),
+          fee: Number(position[4]),
+          tickLower: Number(position[5]),
+          tickUpper: Number(position[6]),
+          liquidity: BigInt(position[7]).toString(),
+          tokensOwed0: BigInt(position[10]).toString(),
+          tokensOwed1: BigInt(position[11]).toString(),
+        });
+      }
+      return {
+        network: runtimeConfig.network,
+        chainId: runtimeConfig.chainId,
+        protocol: "V3",
+        owner,
+        positionManager,
+        totalCount: balance.toString(),
+        returnedCount: positions.length,
+        truncated: balance > BigInt(positions.length),
+        positions,
+        source: "uniswap-v3-position-manager",
+      };
+    });
   }
 
   async quoteUniswapLiquidity({ seedPhrase, address, action, protocol, request, accountIndex = 0, network }) {
