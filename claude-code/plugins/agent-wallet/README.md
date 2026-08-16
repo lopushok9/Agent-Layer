@@ -66,6 +66,8 @@ no-op once the backend is healthy.
   explicit in-command confirmation before enabling the standing permission.
 - `/agentlayer-autonomous-revoke` — disable the combined autonomous permission
   group for Base swaps and supported EVM DeFi tools.
+- `/guide` — walk a new user through what this plugin can do, conversationally
+  (see `AGENTLAYER_AGENT_GUIDE.md` for the source material).
 - `AGENT_WALLET_AUTO_BOOTSTRAP=0` — opt out of the auto-install: the
   `SessionStart` hook then only reminds you to run `/wallet-setup` instead of
   installing the backend itself.
