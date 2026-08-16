@@ -513,6 +513,26 @@ def _pip_install_editable(python_bin: Path, package_root: Path) -> None:
     )
 
 
+def _python_runtime_is_healthy(python_bin: Path) -> bool:
+    """Return whether a reusable venv has the installer dependencies available.
+
+    A shared runtime can be left half-created when an install is interrupted
+    between ``venv`` creation and the editable pip install.  The interpreter
+    itself then exists, but the next update must repair it rather than treating
+    it as a valid cache entry.
+    """
+    try:
+        result = subprocess.run(
+            [str(python_bin), "-c", "import pydantic, pydantic_settings"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0
+
+
 def _ensure_python_runtime(
     venv_path: Path,
     package_root: Path,
@@ -529,9 +549,17 @@ def _ensure_python_runtime(
             created = True
             _bootstrap_venv_pip(python_bin)
             _pip_install_editable(python_bin, package_root)
+        elif not _python_runtime_is_healthy(python_bin):
+            # A prior update may have been interrupted after creating the venv
+            # but before pip finished. Repair the cache in place; release links
+            # continue to point at one verified shared environment.
+            _bootstrap_venv_pip(python_bin)
+            _pip_install_editable(python_bin, package_root)
+            plan["action"] = "repair"
         shared_wrapper = _ensure_python_wrapper(shared_venv_path)
         _replace_with_directory_symlink(venv_path, shared_venv_path)
-        plan["action"] = "create" if created else "reuse"
+        if created:
+            plan["action"] = "create"
         plan["exists"] = True
         return (
             venv_path / shared_wrapper.relative_to(shared_venv_path),
