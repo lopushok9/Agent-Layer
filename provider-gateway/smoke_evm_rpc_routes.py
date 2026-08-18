@@ -21,6 +21,7 @@ def main() -> None:
         "SHARED_EVM_ETHEREUM_RPC_URL": os.environ.get("SHARED_EVM_ETHEREUM_RPC_URL"),
         "SHARED_EVM_BASE_RPC_URL": os.environ.get("SHARED_EVM_BASE_RPC_URL"),
         "SHARED_EVM_ROBINHOOD_RPC_URL": os.environ.get("SHARED_EVM_ROBINHOOD_RPC_URL"),
+        "SHARED_EVM_GOAT_RPC_URL": os.environ.get("SHARED_EVM_GOAT_RPC_URL"),
         "TELEMETRY_DB_PATH": os.environ.get("TELEMETRY_DB_PATH"),
         "RPC_USAGE_FLUSH_INTERVAL_SECONDS": os.environ.get("RPC_USAGE_FLUSH_INTERVAL_SECONDS"),
     }
@@ -51,6 +52,7 @@ def main() -> None:
         os.environ.pop("SHARED_EVM_ETHEREUM_RPC_URL", None)
         os.environ.pop("SHARED_EVM_BASE_RPC_URL", None)
         os.environ.pop("SHARED_EVM_ROBINHOOD_RPC_URL", None)
+        os.environ["SHARED_EVM_GOAT_RPC_URL"] = "https://rpc.goat.network"
         gateway_app.telemetry_store._CONN = None
         gateway_app.telemetry_store._RPC_PENDING.clear()
 
@@ -91,6 +93,14 @@ def main() -> None:
         )
         assert robinhood_allowed.status_code == 200
         assert seen["post"]["url"] == "https://robinhood-mainnet.g.alchemy.com/v2/alchemy-key"
+
+        goat_allowed = client.post(
+            "/v1/evm/rpc/goat?token=test-token",
+            json={"jsonrpc": "2.0", "id": 14, "method": "eth_chainId", "params": []},
+        )
+        assert goat_allowed.status_code == 200
+        assert goat_allowed.json()["result"] == "0x1"
+        assert seen["post"]["url"] == "https://rpc.goat.network"
 
         batch_allowed = client.post(
             "/v1/evm/rpc/ethereum?provider=alchemy&token=test-token",
