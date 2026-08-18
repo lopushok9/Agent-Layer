@@ -41,11 +41,11 @@ See the sections below for exact tool names and parameters.
 2. `get_wallet_address` — the address for the active backend.
 3. `get_wallet_capabilities` — chain, backend, and the safety limits in force.
 4. `set_wallet_backend` (`backend`: solana / evm / ethereum / base /
-   robinhood / btc / bitcoin, optional `network`) — switch backend for this
+   robinhood / goat / btc / bitcoin, optional `network`) — switch backend for this
    session without touching config files.
 5. For EVM specifically: `get_evm_network` shows the effective network and
    which networks support swaps; `set_evm_network` (ethereum / base /
-   robinhood) changes it.
+   robinhood / goat) changes it.
 
 Balance reads (Solana): `get_wallet_balance` / `get_wallet_portfolio` are the
 same enriched payload (native SOL + non-zero SPL accounts + USD pricing via

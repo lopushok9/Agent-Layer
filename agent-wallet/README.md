@@ -383,8 +383,8 @@ For the local EVM backend (`backend=wdk_evm_local`), the lifecycle mirrors the B
 - `agent-wallet` talks to it through a local bearer token loaded from `~/.openclaw/wdk-evm-wallet/local-auth-token`
 - `agent-wallet` stores only a per-user EVM wallet binding under `~/.openclaw/users/<normalized-user-id>/wallets/evm-<network>-agent.json`
 - the runtime can auto-create missing EVM bindings or auto-unlock the local vault during ordinary OpenClaw switching/tool calls when `sealed_keys.json` contains `wdk_evm_wallet_password`
-- supported EVM networks are `ethereum` and `base`
-- OpenClaw-facing EVM tools accept an optional per-call `network` override for `ethereum` or `base`, so the agent can switch between the two mainnet EVM paths without editing host config
+- supported EVM networks are `ethereum`, `base`, `robinhood`, and `goat`
+- OpenClaw-facing EVM core read and transfer tools accept an optional per-call `network` override for those mainnet networks, so the agent can switch without editing host config. GOAT uses BTC as its 18-decimal native gas asset; token discovery is intentionally native-only until a reviewed GOAT indexer is added, while explicit ERC-20 balance and metadata reads remain available.
 - EVM `get_wallet_balance` now returns an enriched portfolio-style payload with native balance, discovered ERC-20 balances, and USD values when token discovery and pricing are available
 - if a requested EVM network binding is missing, `agent-wallet` auto-binds it from the same local wallet when there is exactly one reusable EVM wallet for that user or when `wdkEvmWalletId` is provided explicitly
 - you can manage that binding through `agent_wallet.openclaw_cli`:
@@ -406,7 +406,7 @@ That wrapper:
 - defaults to `http://127.0.0.1:8081`
 - can auto-start `wdk-evm-wallet/run-local.sh` if the local service is not already healthy
 - creates or unlocks the local EVM wallet binding
-- also binds the paired EVM network by default: `ethereum <-> base`
+- also binds the paired EVM network by default: `ethereum <-> base` (GOAT remains an independent EVM network binding)
 - stores the entered EVM vault password into `sealed_keys.json` when `AGENT_WALLET_BOOT_KEY` is available, so later OpenClaw wallet switching can auto-raise the EVM backend without another password prompt
 - patches OpenClaw config to `backend=wdk_evm_local`
 

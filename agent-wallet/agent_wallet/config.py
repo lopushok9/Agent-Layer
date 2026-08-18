@@ -117,19 +117,20 @@ def normalize_evm_network(network: str | None) -> str:
         "eth": "ethereum",
         "eth-mainnet": "ethereum",
         "base-mainnet": "base",
+        "goat-mainnet": "goat",
     }
     normalized = aliases.get(normalized, normalized)
-    if normalized in {"sepolia", "base-sepolia", "base_sepolia"}:
+    if normalized in {"sepolia", "base-sepolia", "base_sepolia", "goat-testnet", "goat-testnet3"}:
         from agent_wallet.wallet_layer.base import WalletBackendError
 
         raise WalletBackendError(
-            "EVM testnets are no longer supported by agent-wallet. Use ethereum, base, or robinhood."
+            "EVM testnets are no longer supported by agent-wallet. Use ethereum, base, robinhood, or goat."
         )
-    if normalized not in {"ethereum", "base", "robinhood"}:
+    if normalized not in {"ethereum", "base", "robinhood", "goat"}:
         from agent_wallet.wallet_layer.base import WalletBackendError
 
         raise WalletBackendError(
-            f"Unsupported EVM network: {normalized}. Use ethereum, base, or robinhood."
+            f"Unsupported EVM network: {normalized}. Use ethereum, base, robinhood, or goat."
         )
     return normalized
 

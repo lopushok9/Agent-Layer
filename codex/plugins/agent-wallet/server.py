@@ -372,6 +372,7 @@ def _normalize_wallet_backend(value: Any) -> str:
         "eth": "wdk_evm_local",
         "base": "wdk_evm_local",
         "robinhood": "wdk_evm_local",
+        "goat": "wdk_evm_local",
         "wdk_evm_local": "wdk_evm_local",
         "wdk-evm-local": "wdk_evm_local",
         "evm_local": "wdk_evm_local",
@@ -385,7 +386,7 @@ def _normalize_wallet_backend(value: Any) -> str:
     }
     backend = aliases.get(normalized, normalized)
     if backend not in BACKENDS:
-        raise RuntimeError("Wallet backend must be solana, evm, ethereum, base, robinhood, btc, or bitcoin.")
+        raise RuntimeError("Wallet backend must be solana, evm, ethereum, base, robinhood, goat, btc, or bitcoin.")
     return backend
 
 
@@ -404,16 +405,17 @@ def _normalize_evm_network(value: Any) -> str:
         "eth": "ethereum",
         "eth-mainnet": "ethereum",
         "base-mainnet": "base",
+        "goat-mainnet": "goat",
     }
     return aliases.get(normalized, normalized)
 
 
 def _normalize_selectable_evm_network(value: Any) -> str:
     network = _normalize_evm_network(value)
-    if network in {"sepolia", "base-sepolia", "base_sepolia"}:
-        raise RuntimeError("EVM testnets are no longer supported. Use ethereum, base, or robinhood.")
-    if network not in {"ethereum", "base", "robinhood"}:
-        raise RuntimeError("EVM network must be 'ethereum', 'base', or 'robinhood'.")
+    if network in {"sepolia", "base-sepolia", "base_sepolia", "goat-testnet", "goat-testnet3"}:
+        raise RuntimeError("EVM testnets are no longer supported. Use ethereum, base, robinhood, or goat.")
+    if network not in {"ethereum", "base", "robinhood", "goat"}:
+        raise RuntimeError("EVM network must be 'ethereum', 'base', 'robinhood', or 'goat'.")
     return network
 
 
@@ -423,6 +425,8 @@ def _implied_evm_network_from_backend_alias(value: Any) -> str | None:
         return "base"
     if normalized == "robinhood":
         return "robinhood"
+    if normalized in {"goat", "goat-mainnet"}:
+        return "goat"
     if normalized in {"ethereum", "eth", "mainnet", "eth-mainnet"}:
         return "ethereum"
     return None
@@ -475,7 +479,7 @@ def _default_backend() -> str:
 
 def _default_evm_network() -> str | None:
     configured = _normalize_evm_network(os.getenv("WDK_EVM_NETWORK"))
-    if configured in {"ethereum", "base", "robinhood"}:
+    if configured in {"ethereum", "base", "robinhood", "goat"}:
         return configured
     return _configured_network_for_backend("wdk_evm_local")
 
@@ -1209,11 +1213,11 @@ def _manual_tool_definitions() -> list[dict[str, Any]]:
                 "properties": {
                     "backend": {
                         "type": "string",
-                        "description": "solana, evm, ethereum, base, robinhood, btc, or bitcoin.",
+                        "description": "solana, evm, ethereum, base, robinhood, goat, btc, or bitcoin.",
                     },
                     "network": {
                         "type": "string",
-                        "description": "Optional network override. Use ethereum, base, or robinhood for EVM.",
+                        "description": "Optional network override. Use ethereum, base, robinhood, or goat for EVM.",
                     },
                     "address": {
                         "type": "string",
@@ -1248,7 +1252,7 @@ def _manual_tool_definitions() -> list[dict[str, Any]]:
                 "properties": {
                     "backend": {
                         "type": "string",
-                        "description": "solana, evm, ethereum, base, robinhood, btc, or bitcoin.",
+                        "description": "solana, evm, ethereum, base, robinhood, goat, btc, or bitcoin.",
                     },
                     "wallet": {
                         "type": "string",
@@ -1266,14 +1270,14 @@ def _manual_tool_definitions() -> list[dict[str, Any]]:
         {
             "name": "set_evm_network",
             "description": (
-                "Set the active EVM network for this Codex MCP session to ethereum, base, or robinhood."
+                "Set the active EVM network for this Codex MCP session to ethereum, base, robinhood, or goat."
             ),
             "input_schema": {
                 "type": "object",
                 "properties": {
                     "network": {
                         "type": "string",
-                        "description": "ethereum, base, or robinhood.",
+                        "description": "ethereum, base, robinhood, or goat.",
                     }
                 },
                 "required": ["network"],

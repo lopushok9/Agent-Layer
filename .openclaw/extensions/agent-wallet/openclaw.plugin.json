@@ -100,7 +100,7 @@
       },
       "network": {
         "type": "string",
-        "description": "Backend network selector. Solana uses mainnet. BTC uses bitcoin. EVM uses ethereum/base."
+        "description": "Backend network selector. Solana uses mainnet. BTC uses bitcoin. EVM uses ethereum/base/robinhood/goat."
       },
       "wdkBtcServiceUrl": {
         "type": "string",

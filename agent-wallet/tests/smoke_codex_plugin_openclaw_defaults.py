@@ -163,6 +163,15 @@ def main() -> None:
         assert robinhood_backend_switch["selected_backend"] == "wdk_evm_local"
         assert robinhood_backend_switch["selected_network"] == "robinhood"
 
+        goat_switch = asyncio.run(module._handle_set_evm_network({"network": "goat"}))
+        assert goat_switch["selected_backend"] == "wdk_evm_local"
+        assert goat_switch["selected_network"] == "goat"
+        assert module._normalize_selectable_evm_network("goat-mainnet") == "goat"
+
+        goat_backend_switch = asyncio.run(module._handle_set_wallet_backend({"backend": "goat"}))
+        assert goat_backend_switch["selected_backend"] == "wdk_evm_local"
+        assert goat_backend_switch["selected_network"] == "goat"
+
     for name, value in previous_env.items():
         if value is None:
             os.environ.pop(name, None)

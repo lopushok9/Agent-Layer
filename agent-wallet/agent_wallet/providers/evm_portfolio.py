@@ -117,6 +117,7 @@ TOKEN_METADATA: dict[str, dict[str, dict[str, Any]]] = {
 }
 
 COINGECKO_IDS = {
+    "BTC": "bitcoin",
     "ETH": "ethereum",
     "WETH": "ethereum",
     "USDC": "usd-coin",
@@ -142,7 +143,7 @@ _PRICE_CACHE: dict[str, tuple[float, float]] = {}
 
 def _normalize_network(network: str) -> str:
     normalized = str(network or "").strip().lower()
-    if normalized not in {"ethereum", "base", "robinhood"}:
+    if normalized not in {"ethereum", "base", "robinhood", "goat"}:
         raise ProviderError("evm-portfolio", f"Unsupported EVM portfolio network: {network}")
     return normalized
 
@@ -207,7 +208,7 @@ async def _gateway_rpc_call(network: str, method: str, params: list[Any]) -> dic
     if not gateway_url:
         raise ProviderError(
             "evm-portfolio",
-            "Provider gateway URL is required for EVM portfolio lookup on ethereum/base/robinhood.",
+            "Provider gateway URL is required for EVM portfolio lookup on supported EVM networks.",
         )
     try:
         response = await client.post(
@@ -230,6 +231,12 @@ async def _gateway_rpc_call(network: str, method: str, params: list[Any]) -> dic
 
 async def fetch_token_balances(address: str, network: str) -> list[dict[str, Any]]:
     normalized_network = _normalize_network(network)
+    # GOAT uses the shared RPC gateway rather than Alchemy. Its upstream does
+    # not provide Alchemy's account-wide ERC-20 index, so return a truthful
+    # native-only portfolio. Explicit per-token balance and metadata tools keep
+    # working through ordinary EVM RPC calls.
+    if normalized_network == "goat":
+        return []
     cache_key = f"{normalized_network}:{address.lower()}"
     cached = _cache_get_token_balances(cache_key)
     if cached is not None:
