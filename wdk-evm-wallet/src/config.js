@@ -27,7 +27,7 @@ function readPackageVersion() {
 
 const PACKAGE_VERSION = readPackageVersion();
 const DEFAULT_PROVIDER_GATEWAY_URL = "https://agent-layer-production.up.railway.app";
-const ENFORCED_GATEWAY_MAINNETS = new Set(["ethereum", "base", "robinhood"]);
+const ENFORCED_GATEWAY_MAINNETS = new Set(["ethereum", "base", "robinhood", "goat"]);
 
 const DEFAULT_NETWORK_PROFILES = {
   ethereum: {
@@ -286,10 +286,14 @@ export function loadConfig(env = process.env) {
   function resolveProviderUrl(networkKey, envValue, fallbackUrl) {
     const direct = String(envValue ?? "").trim();
     if (ENFORCED_GATEWAY_MAINNETS.has(networkKey)) {
+      // GOAT's explicitly allow-listed gateway upstream is the official shared
+      // RPC. The other mainnets are pinned to Alchemy. Do not accept a caller-
+      // supplied upstream URL for any mainnet.
+      const enforcedProvider = networkKey === "goat" ? "shared" : "alchemy";
       const enforcedGatewayUrl = buildGatewayEvmRpcUrl(
         providerGatewayUrl,
         networkKey,
-        "alchemy",
+        enforcedProvider,
         providerGatewayToken
       );
       if (!enforcedGatewayUrl) {

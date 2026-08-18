@@ -46,14 +46,15 @@ test("robinhood-mainnet alias normalizes to robinhood", () => {
   }
 });
 
-test("GOAT mainnet and Testnet3 profiles use the documented fixed RPC endpoints", () => {
+test("GOAT mainnet uses the allow-listed shared gateway and Testnet3 uses its fixed RPC", () => {
   const home = tempHome();
   try {
     const config = loadConfig({ OPENCLAW_HOME: home });
     assert.deepEqual(config.networkProfiles.goat, {
       chainId: 2345,
       nativeSymbol: "BTC",
-      providerUrl: "https://rpc.goat.network",
+      providerUrl:
+        "https://agent-layer-production.up.railway.app/v1/evm/rpc/goat?provider=shared",
     });
     assert.deepEqual(config.networkProfiles["goat-testnet"], {
       chainId: 48816,

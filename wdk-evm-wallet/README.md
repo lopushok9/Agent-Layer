@@ -81,13 +81,14 @@ This service intentionally supports a narrow surface:
 The active network is persistent and can be switched without changing code.
 
 GOAT is an EVM-compatible network whose native transfer and gas asset is BTC
-(18-decimal EVM base units), rather than ETH. The runtime uses the fixed
-official RPC endpoints `https://rpc.goat.network` and
-`https://rpc.testnet3.goat.network`; higher-level callers cannot supply a
-remote URL. Existing generic capabilities — native BTC balance/transfer,
-ERC-20 reads/transfers, fee quotes, and receipts — are available. GOAT bridge,
-DEX, and GOAT Flow/x402 operations remain deliberately out of scope until they
-receive separate protocol-specific safety reviews.
+(18-decimal EVM base units), rather than ETH. Mainnet uses the allow-listed
+provider-gateway `shared` route, whose only GOAT upstream is configured as
+`SHARED_EVM_GOAT_RPC_URL` (normally `https://rpc.goat.network`). Testnet3 uses
+the fixed official endpoint `https://rpc.testnet3.goat.network`. Higher-level
+callers cannot supply a remote URL. Existing generic capabilities — native BTC
+balance/transfer, ERC-20 reads/transfers, fee quotes, and receipts — are
+available. GOAT bridge, DEX, and GOAT Flow/x402 operations remain deliberately
+out of scope until they receive separate protocol-specific safety reviews.
 
 ## API
 
@@ -240,12 +241,12 @@ Gateway mode:
 - `PROVIDER_GATEWAY_URL` defaults to `https://agent-layer-production.up.railway.app`
 - set `PROVIDER_GATEWAY_URL=https://...` only when overriding the hosted default
 - `PROVIDER_GATEWAY_BEARER_TOKEN` is optional and only needed when the gateway is protected
-- `ethereum`, `base`, and `robinhood` mainnet are always routed through the provider gateway raw EVM RPC route
-- those networks are pinned to the gateway `provider=alchemy` path
+- `ethereum`, `base`, and `robinhood` mainnet are always routed through the provider gateway raw EVM RPC route pinned to `provider=alchemy`
+- GOAT mainnet is always routed through the provider gateway raw EVM RPC route pinned to `provider=shared`; configure its only allowed upstream with `SHARED_EVM_GOAT_RPC_URL=https://rpc.goat.network`
 - direct `WDK_EVM_ETHEREUM_RPC_URL` and `WDK_EVM_BASE_RPC_URL` values no longer override mainnet routing
 - `WDK_EVM_SEPOLIA_RPC_URL` and `WDK_EVM_BASE_SEPOLIA_RPC_URL` remain direct per-network testnet overrides
-- GOAT mainnet and Testnet3 use their fixed official public RPC endpoints. The
-  provider gateway is not required for the initial GOAT network path.
+- GOAT Testnet3 uses its fixed official public RPC endpoint. Mainnet requires a
+  gateway deployment that includes the GOAT shared-RPC allowlist.
 
 Local security note:
 
