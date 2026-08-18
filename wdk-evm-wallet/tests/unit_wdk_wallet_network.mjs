@@ -12,6 +12,10 @@ test("assertValidNetwork accepts every supported network plus aliases", () => {
   assert.equal(assertValidNetwork("base-sepolia"), "base-sepolia");
   assert.equal(assertValidNetwork("robinhood"), "robinhood");
   assert.equal(assertValidNetwork("robinhood-mainnet"), "robinhood");
+  assert.equal(assertValidNetwork("goat"), "goat");
+  assert.equal(assertValidNetwork("goat-mainnet"), "goat");
+  assert.equal(assertValidNetwork("goat-testnet"), "goat-testnet");
+  assert.equal(assertValidNetwork("goat-testnet3"), "goat-testnet");
 });
 
 test("assertValidNetwork treats blank input as unset", () => {
@@ -23,6 +27,6 @@ test("assertValidNetwork treats blank input as unset", () => {
 test("assertValidNetwork rejects unsupported networks", () => {
   assert.throws(
     () => assertValidNetwork("polygon"),
-    /ethereum, sepolia, base, base-sepolia, robinhood/
+    /ethereum, sepolia, base, base-sepolia, robinhood, goat, goat-testnet/
   );
 });

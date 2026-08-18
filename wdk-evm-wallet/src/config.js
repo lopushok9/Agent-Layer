@@ -55,6 +55,16 @@ const DEFAULT_NETWORK_PROFILES = {
     providerUrl: "https://rpc.mainnet.chain.robinhood.com",
     nativeSymbol: "ETH",
   },
+  goat: {
+    chainId: 2345,
+    providerUrl: "https://rpc.goat.network",
+    nativeSymbol: "BTC",
+  },
+  "goat-testnet": {
+    chainId: 48816,
+    providerUrl: "https://rpc.testnet3.goat.network",
+    nativeSymbol: "BTC",
+  },
 };
 
 // Robinhood Chain uses the Universal Router 2.1.1 deployment. Keep this
@@ -191,6 +201,8 @@ function normalizeNetworkKey(value) {
     "base-mainnet": "base",
     base_sepolia: "base-sepolia",
     "robinhood-mainnet": "robinhood",
+    "goat-mainnet": "goat",
+    "goat-testnet3": "goat-testnet",
   };
   return aliases[normalized] || normalized;
 }
@@ -252,7 +264,7 @@ export function loadConfig(env = process.env) {
   const network = normalizeNetworkKey(env.WDK_EVM_NETWORK ?? DEFAULTS.network) || DEFAULTS.network;
   if (!Object.hasOwn(DEFAULT_NETWORK_PROFILES, network)) {
     throw new Error(
-      "WDK_EVM_NETWORK must be one of: ethereum, sepolia, base, base-sepolia, robinhood."
+      "WDK_EVM_NETWORK must be one of: ethereum, sepolia, base, base-sepolia, robinhood, goat, goat-testnet."
     );
   }
 
@@ -342,6 +354,21 @@ export function loadConfig(env = process.env) {
         "robinhood",
         env.WDK_EVM_ROBINHOOD_RPC_URL,
         DEFAULT_NETWORK_PROFILES.robinhood.providerUrl
+      ),
+    },
+    // GOAT is an EIP-1559 EVM network that uses BTC (18 decimals) as its
+    // native gas token. Keep the official RPC endpoint fixed in source: host
+    // integrations must never select an arbitrary remote RPC URL.
+    goat: {
+      ...DEFAULT_NETWORK_PROFILES.goat,
+      providerUrl: resolveProviderUrl("goat", "", DEFAULT_NETWORK_PROFILES.goat.providerUrl),
+    },
+    "goat-testnet": {
+      ...DEFAULT_NETWORK_PROFILES["goat-testnet"],
+      providerUrl: resolveProviderUrl(
+        "goat-testnet",
+        "",
+        DEFAULT_NETWORK_PROFILES["goat-testnet"].providerUrl
       ),
     },
   };
