@@ -11,6 +11,13 @@ from agent_wallet.approval import inspect_approval_token, verify_approval_token
 from agent_wallet.autonomous_policy import OperationRequest
 from agent_wallet.exceptions import ProviderError
 from agent_wallet.models import AgentToolResult, AgentToolSpec
+from agent_wallet.networks import (
+    EVM_CORE_MAINNET_CAIP_IDS,
+    EVM_CORE_MAINNETS,
+    EVM_CORE_NETWORK_ALIASES,
+    EVM_CORE_TESTNETS,
+    GOAT_EVM_NETWORK_IDENTIFIERS,
+)
 from agent_wallet.providers import x402
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendError
 
@@ -74,16 +81,7 @@ class OpenClawWalletAdapter:
         if chain == "bitcoin":
             return normalized == "bitcoin"
         if chain == "evm":
-            return normalized in {
-                "ethereum",
-                "base",
-                "robinhood",
-                "goat",
-                "eip155:1",
-                "eip155:8453",
-                "eip155:4663",
-                "eip155:2345",
-            }
+            return normalized in EVM_CORE_MAINNETS | EVM_CORE_MAINNET_CAIP_IDS
         if chain == "solana":
             return normalized in {"mainnet", "solana:5eykt4usfv8p8njdtrepy1vzkqzkvdp"}
         return normalized == "mainnet"
@@ -96,7 +94,7 @@ class OpenClawWalletAdapter:
 
     @staticmethod
     def _is_goat_evm_network(network: Any) -> bool:
-        return str(network or "").strip().lower() in {"goat", "goat-mainnet", "eip155:2345"}
+        return str(network or "").strip().lower() in GOAT_EVM_NETWORK_IDENTIFIERS
 
     def _supports_evm_velora(self) -> bool:
         return str(getattr(self.backend, "chain", "")).strip().lower() == "evm" and self._is_mainnet()
@@ -106,19 +104,12 @@ class OpenClawWalletAdapter:
 
     def _normalize_evm_tool_network(self, value: Any) -> str:
         network = str(value or "").strip().lower()
-        aliases = {
-            "mainnet": "ethereum",
-            "eth": "ethereum",
-            "eth-mainnet": "ethereum",
-            "base-mainnet": "base",
-            "goat-mainnet": "goat",
-        }
-        network = aliases.get(network, network)
-        if network in {"sepolia", "base-sepolia", "base_sepolia", "goat-testnet", "goat-testnet3"}:
+        network = EVM_CORE_NETWORK_ALIASES.get(network, network)
+        if network in EVM_CORE_TESTNETS:
             raise WalletBackendError(
                 "EVM testnets are no longer supported. Use ethereum, base, robinhood, or goat."
             )
-        if network not in {"ethereum", "base", "robinhood", "goat"}:
+        if network not in EVM_CORE_MAINNETS:
             raise WalletBackendError("EVM network must be 'ethereum', 'base', 'robinhood', or 'goat'.")
         return network
 

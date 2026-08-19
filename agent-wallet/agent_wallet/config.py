@@ -7,6 +7,8 @@ from typing import Iterator
 
 from pydantic_settings import BaseSettings
 
+from agent_wallet.networks import EVM_CORE_MAINNETS, EVM_CORE_NETWORK_ALIASES, EVM_CORE_TESTNETS
+
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PROVIDER_GATEWAY_URL = "https://agent-layer-production.up.railway.app"
 
@@ -112,21 +114,14 @@ def normalize_solana_network(network: str | None) -> str:
 def normalize_evm_network(network: str | None) -> str:
     """Canonicalize supported EVM network names and reject testnets."""
     normalized = str(network or "").strip().lower() or "ethereum"
-    aliases = {
-        "mainnet": "ethereum",
-        "eth": "ethereum",
-        "eth-mainnet": "ethereum",
-        "base-mainnet": "base",
-        "goat-mainnet": "goat",
-    }
-    normalized = aliases.get(normalized, normalized)
-    if normalized in {"sepolia", "base-sepolia", "base_sepolia", "goat-testnet", "goat-testnet3"}:
+    normalized = EVM_CORE_NETWORK_ALIASES.get(normalized, normalized)
+    if normalized in EVM_CORE_TESTNETS:
         from agent_wallet.wallet_layer.base import WalletBackendError
 
         raise WalletBackendError(
             "EVM testnets are no longer supported by agent-wallet. Use ethereum, base, robinhood, or goat."
         )
-    if normalized not in {"ethereum", "base", "robinhood", "goat"}:
+    if normalized not in EVM_CORE_MAINNETS:
         from agent_wallet.wallet_layer.base import WalletBackendError
 
         raise WalletBackendError(
