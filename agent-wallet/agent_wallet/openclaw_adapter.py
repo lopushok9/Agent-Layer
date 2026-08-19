@@ -74,7 +74,16 @@ class OpenClawWalletAdapter:
         if chain == "bitcoin":
             return normalized == "bitcoin"
         if chain == "evm":
-            return normalized in {"ethereum", "base", "robinhood", "eip155:1", "eip155:8453", "eip155:4663"}
+            return normalized in {
+                "ethereum",
+                "base",
+                "robinhood",
+                "goat",
+                "eip155:1",
+                "eip155:8453",
+                "eip155:4663",
+                "eip155:2345",
+            }
         if chain == "solana":
             return normalized in {"mainnet", "solana:5eykt4usfv8p8njdtrepy1vzkqzkvdp"}
         return normalized == "mainnet"

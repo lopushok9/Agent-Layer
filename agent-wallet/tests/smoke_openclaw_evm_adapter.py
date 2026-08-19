@@ -1772,6 +1772,39 @@ async def _main() -> None:
     assert goat_balance.data["network"] == "goat"
     assert goat_balance.data["asset"] == "BTC"
 
+    goat_adapter = OpenClawWalletAdapter(FakeEvmBackend().with_network("goat"))
+    goat_transfer_preview = await goat_adapter.invoke(
+        "transfer_evm_native",
+        {
+            "recipient": "0x3333333333333333333333333333333333333333",
+            "amount_wei": "10000000000000000",
+            "mode": "preview",
+            "purpose": "test GOAT mainnet confirmation",
+        },
+    )
+    assert goat_transfer_preview.ok is True
+    assert goat_transfer_preview.data["is_mainnet"] is True
+    assert goat_transfer_preview.data["confirmation_requirements"]["execute_requires_mainnet_confirmed_in_token"] is True
+    goat_unconfirmed_approval = issue_approval_token(
+        tool_name="transfer_evm_native",
+        network="goat",
+        summary=goat_transfer_preview.data["confirmation_summary"],
+        mainnet_confirmed=False,
+        issued_by="test",
+    )
+    goat_unconfirmed_execute = await goat_adapter.invoke(
+        "transfer_evm_native",
+        {
+            "recipient": "0x3333333333333333333333333333333333333333",
+            "amount_wei": "10000000000000000",
+            "mode": "execute",
+            "purpose": "test GOAT mainnet confirmation",
+            "approval_token": goat_unconfirmed_approval,
+        },
+    )
+    assert goat_unconfirmed_execute.ok is False
+    assert "missing explicit mainnet confirmation" in (goat_unconfirmed_execute.error or "")
+
     robinhood_uniswap_quote = await adapter.invoke(
         "get_uniswap_swap_quote",
         {
