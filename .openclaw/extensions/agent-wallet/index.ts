@@ -373,6 +373,10 @@ function networkForBackend(api, backend) {
   }
 }
 
+function isGoatEvmNetwork(network) {
+  return ["goat", "goat-mainnet", "eip155:2345"].includes(String(network || "").trim().toLowerCase());
+}
+
 function effectiveConfigForBackend(api, backend) {
   const config = resolvePluginConfig(api);
   return {
@@ -678,6 +682,15 @@ function registerTool(api, definition) {
       const configOverride = effectiveConfigForBackend(api, activeBackend);
       if (activeBackend === "wdk_evm_local" && effectiveParams.network !== undefined) {
         configOverride.network = normalizeSelectableEvmNetwork(effectiveParams.network);
+      }
+      if (
+        definition.name === "x402_pay_request" &&
+        activeBackend === "wdk_evm_local" &&
+        isGoatEvmNetwork(configOverride.network)
+      ) {
+        throw new Error(
+          "GOAT x402 payments are not enabled in this wallet surface. Use the supported core GOAT wallet operations instead."
+        );
       }
       await attachApprovalForExecute(api, configOverride, userId, definition.name, effectiveParams);
       const executeWalletTool = async () =>

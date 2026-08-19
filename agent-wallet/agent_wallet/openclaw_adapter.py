@@ -94,6 +94,10 @@ class OpenClawWalletAdapter:
     def _is_mainnet_for_backend(self, backend: AgentWalletBackend) -> bool:
         return self._is_mainnet_network(getattr(backend, "network", ""))
 
+    @staticmethod
+    def _is_goat_evm_network(network: Any) -> bool:
+        return str(network or "").strip().lower() in {"goat", "goat-mainnet", "eip155:2345"}
+
     def _supports_evm_velora(self) -> bool:
         return str(getattr(self.backend, "chain", "")).strip().lower() == "evm" and self._is_mainnet()
 
@@ -4335,6 +4339,14 @@ class OpenClawWalletAdapter:
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
 
             if tool_name == "x402_pay_request":
+                if (
+                    str(getattr(active_backend, "chain", "")).strip().lower() == "evm"
+                    and self._is_goat_evm_network(getattr(active_backend, "network", ""))
+                ):
+                    raise WalletBackendError(
+                        "GOAT x402 payments are not enabled in this wallet surface. "
+                        "Use the supported core GOAT wallet operations instead."
+                    )
                 url = args.get("url")
                 method = args.get("method", "GET")
                 headers = args.get("headers")

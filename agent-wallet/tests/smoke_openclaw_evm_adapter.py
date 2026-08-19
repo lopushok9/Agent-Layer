@@ -1805,6 +1805,16 @@ async def _main() -> None:
     assert goat_unconfirmed_execute.ok is False
     assert "missing explicit mainnet confirmation" in (goat_unconfirmed_execute.error or "")
 
+    goat_x402_payment = await goat_adapter.invoke(
+        "x402_pay_request",
+        {
+            "url": "https://paid.example.com/report",
+            "purpose": "test GOAT x402 exclusion",
+        },
+    )
+    assert goat_x402_payment.ok is False
+    assert "GOAT x402 payments are not enabled" in (goat_x402_payment.error or "")
+
     robinhood_uniswap_quote = await adapter.invoke(
         "get_uniswap_swap_quote",
         {
