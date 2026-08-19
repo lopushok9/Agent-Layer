@@ -17,6 +17,7 @@ function createConfig(dataDir) {
         providerUrl: "https://robinhood.example",
         nativeSymbol: "ETH",
       },
+      goat: { chainId: 2345, providerUrl: "https://goat.example", nativeSymbol: "BTC" },
     },
   };
 }
@@ -62,13 +63,28 @@ test("resolveRuntimeConfig returns robinhood's chainId and nativeSymbol", async 
   }
 });
 
+test("GOAT aliases resolve to the BTC-native runtime profile", async () => {
+  const home = tempHome();
+  try {
+    const state = new EvmNetworkState(createConfig(home));
+    await state.setActiveNetwork({ network: "goat-mainnet" });
+    const runtime = await state.resolveRuntimeConfig();
+    assert.equal(runtime.network, "goat");
+    assert.equal(runtime.chainId, 2345);
+    assert.equal(runtime.nativeSymbol, "BTC");
+    assert.equal(runtime.providerUrl, "https://goat.example");
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("setActiveNetwork rejects an unsupported network", async () => {
   const home = tempHome();
   try {
     const state = new EvmNetworkState(createConfig(home));
     await assert.rejects(
       state.setActiveNetwork({ network: "polygon" }),
-      /ethereum, sepolia, base, base-sepolia, robinhood/
+      /ethereum, sepolia, base, base-sepolia, robinhood, goat, goat-testnet/
     );
   } finally {
     fs.rmSync(home, { recursive: true, force: true });

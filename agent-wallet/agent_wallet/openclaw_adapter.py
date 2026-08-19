@@ -11,6 +11,13 @@ from agent_wallet.approval import inspect_approval_token, verify_approval_token
 from agent_wallet.autonomous_policy import OperationRequest
 from agent_wallet.exceptions import ProviderError
 from agent_wallet.models import AgentToolResult, AgentToolSpec
+from agent_wallet.networks import (
+    EVM_CORE_MAINNET_CAIP_IDS,
+    EVM_CORE_MAINNETS,
+    EVM_CORE_NETWORK_ALIASES,
+    EVM_CORE_TESTNETS,
+    GOAT_EVM_NETWORK_IDENTIFIERS,
+)
 from agent_wallet.providers import x402
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendError
 
@@ -74,7 +81,7 @@ class OpenClawWalletAdapter:
         if chain == "bitcoin":
             return normalized == "bitcoin"
         if chain == "evm":
-            return normalized in {"ethereum", "base", "robinhood", "eip155:1", "eip155:8453", "eip155:4663"}
+            return normalized in EVM_CORE_MAINNETS | EVM_CORE_MAINNET_CAIP_IDS
         if chain == "solana":
             return normalized in {"mainnet", "solana:5eykt4usfv8p8njdtrepy1vzkqzkvdp"}
         return normalized == "mainnet"
@@ -85,6 +92,10 @@ class OpenClawWalletAdapter:
     def _is_mainnet_for_backend(self, backend: AgentWalletBackend) -> bool:
         return self._is_mainnet_network(getattr(backend, "network", ""))
 
+    @staticmethod
+    def _is_goat_evm_network(network: Any) -> bool:
+        return str(network or "").strip().lower() in GOAT_EVM_NETWORK_IDENTIFIERS
+
     def _supports_evm_velora(self) -> bool:
         return str(getattr(self.backend, "chain", "")).strip().lower() == "evm" and self._is_mainnet()
 
@@ -93,17 +104,13 @@ class OpenClawWalletAdapter:
 
     def _normalize_evm_tool_network(self, value: Any) -> str:
         network = str(value or "").strip().lower()
-        aliases = {
-            "mainnet": "ethereum",
-            "eth": "ethereum",
-            "eth-mainnet": "ethereum",
-            "base-mainnet": "base",
-        }
-        network = aliases.get(network, network)
-        if network in {"sepolia", "base-sepolia", "base_sepolia"}:
-            raise WalletBackendError("EVM testnets are no longer supported. Use ethereum, base, or robinhood.")
-        if network not in {"ethereum", "base", "robinhood"}:
-            raise WalletBackendError("EVM network must be 'ethereum', 'base', or 'robinhood'.")
+        network = EVM_CORE_NETWORK_ALIASES.get(network, network)
+        if network in EVM_CORE_TESTNETS:
+            raise WalletBackendError(
+                "EVM testnets are no longer supported. Use ethereum, base, robinhood, or goat."
+            )
+        if network not in EVM_CORE_MAINNETS:
+            raise WalletBackendError("EVM network must be 'ethereum', 'base', 'robinhood', or 'goat'.")
         return network
 
     def _resolve_backend_for_args(self, args: dict[str, Any]) -> AgentWalletBackend:
@@ -1229,7 +1236,7 @@ class OpenClawWalletAdapter:
                         "properties": {
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base", "robinhood"],
+                                "enum": ["ethereum", "base", "robinhood", "goat"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -1246,7 +1253,7 @@ class OpenClawWalletAdapter:
                         "properties": {
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base", "robinhood"],
+                                "enum": ["ethereum", "base", "robinhood", "goat"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -1271,7 +1278,7 @@ class OpenClawWalletAdapter:
                             },
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base", "robinhood"],
+                                "enum": ["ethereum", "base", "robinhood", "goat"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -1352,7 +1359,7 @@ class OpenClawWalletAdapter:
                         "properties": {
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base", "robinhood"],
+                                "enum": ["ethereum", "base", "robinhood", "goat"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -1365,7 +1372,7 @@ class OpenClawWalletAdapter:
                     name="set_evm_network",
                     description=(
                         "Select the active EVM network for subsequent wallet tool calls in this "
-                        "runtime session. Use this to switch between ethereum, base, and robinhood instead "
+                        "runtime session. Use this to switch between ethereum, base, robinhood, and goat instead "
                         "of editing code or plugin configuration."
                     ),
                     input_schema={
@@ -1373,7 +1380,7 @@ class OpenClawWalletAdapter:
                         "properties": {
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base", "robinhood"],
+                                "enum": ["ethereum", "base", "robinhood", "goat"],
                                 "description": "EVM network to make active for subsequent calls.",
                             },
                         },
@@ -1395,7 +1402,7 @@ class OpenClawWalletAdapter:
                             },
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base", "robinhood"],
+                                "enum": ["ethereum", "base", "robinhood", "goat"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -1417,7 +1424,7 @@ class OpenClawWalletAdapter:
                             },
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base", "robinhood"],
+                                "enum": ["ethereum", "base", "robinhood", "goat"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -1435,7 +1442,7 @@ class OpenClawWalletAdapter:
                         "properties": {
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base", "robinhood"],
+                                "enum": ["ethereum", "base", "robinhood", "goat"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -1446,7 +1453,10 @@ class OpenClawWalletAdapter:
                 ),
                 AgentToolSpec(
                     name="get_evm_transaction_receipt",
-                    description="Get the transaction receipt for a broadcast EVM transaction hash.",
+                    description=(
+                        "Get the transaction receipt for a broadcast EVM transaction hash. On GOAT, a receipt "
+                        "confirms L2 inclusion; it does not by itself prove Bitcoin-backed finality."
+                    ),
                     input_schema={
                         "type": "object",
                         "properties": {
@@ -1456,7 +1466,7 @@ class OpenClawWalletAdapter:
                             },
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base", "robinhood"],
+                                "enum": ["ethereum", "base", "robinhood", "goat"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -1489,7 +1499,7 @@ class OpenClawWalletAdapter:
                             "approval_token": {"type": "string"},
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base", "robinhood"],
+                                "enum": ["ethereum", "base", "robinhood", "goat"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -1524,7 +1534,7 @@ class OpenClawWalletAdapter:
                             "approval_token": {"type": "string"},
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base", "robinhood"],
+                                "enum": ["ethereum", "base", "robinhood", "goat"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -4320,6 +4330,14 @@ class OpenClawWalletAdapter:
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
 
             if tool_name == "x402_pay_request":
+                if (
+                    str(getattr(active_backend, "chain", "")).strip().lower() == "evm"
+                    and self._is_goat_evm_network(getattr(active_backend, "network", ""))
+                ):
+                    raise WalletBackendError(
+                        "GOAT x402 payments are not enabled in this wallet surface. "
+                        "Use the supported core GOAT wallet operations instead."
+                    )
                 url = args.get("url")
                 method = args.get("method", "GET")
                 headers = args.get("headers")

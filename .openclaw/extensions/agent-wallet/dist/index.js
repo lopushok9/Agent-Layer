@@ -18,7 +18,8 @@ const PREVIEW_BOUND_SWAP_TOOLS = new Set([
   "flash_trade_open_position",
   "flash_trade_close_position",
 ]);
-const EVM_CORE_NETWORKS = ["ethereum", "base", "robinhood"];
+const EVM_CORE_NETWORKS = ["ethereum", "base", "robinhood", "goat"];
+const EVM_UNISWAP_NETWORKS = ["ethereum", "base", "robinhood"];
 const AUTONOMOUS_BASE_SWAP_TOOLS = new Set([
   "swap_evm_tokens",
   "swap_evm_uniswap_tokens",
@@ -205,6 +206,7 @@ function normalizeWalletBackend(value) {
     eth: "wdk_evm_local",
     base: "wdk_evm_local",
     robinhood: "wdk_evm_local",
+    goat: "wdk_evm_local",
     wdk_evm_local: "wdk_evm_local",
     "wdk-evm-local": "wdk_evm_local",
     evm_local: "wdk_evm_local",
@@ -218,7 +220,7 @@ function normalizeWalletBackend(value) {
   };
   const backend = aliases[normalized] || normalized;
   if (!["solana_local", "wdk_evm_local", "wdk_btc_local"].includes(backend)) {
-    throw new Error("Wallet backend must be solana, evm, ethereum, base, robinhood, btc, or bitcoin.");
+    throw new Error("Wallet backend must be solana, evm, ethereum, base, robinhood, goat, btc, or bitcoin.");
   }
   return backend;
 }
@@ -236,17 +238,18 @@ function normalizeEvmNetwork(value) {
     eth: "ethereum",
     "eth-mainnet": "ethereum",
     "base-mainnet": "base",
+    "goat-mainnet": "goat",
   };
   return aliases[normalized] || normalized;
 }
 
 function normalizeSelectableEvmNetwork(value) {
   const network = normalizeEvmNetwork(value);
-  if (["sepolia", "base-sepolia", "base_sepolia"].includes(network)) {
-    throw new Error("EVM testnets are no longer supported. Use ethereum, base, or robinhood.");
+  if (["sepolia", "base-sepolia", "base_sepolia", "goat-testnet", "goat-testnet3"].includes(network)) {
+    throw new Error("EVM testnets are no longer supported. Use ethereum, base, robinhood, or goat.");
   }
   if (!EVM_CORE_NETWORKS.includes(network)) {
-    throw new Error("EVM network must be 'ethereum', 'base', or 'robinhood'.");
+    throw new Error("EVM network must be 'ethereum', 'base', 'robinhood', or 'goat'.");
   }
   return network;
 }
@@ -368,6 +371,10 @@ function networkForBackend(api, backend) {
   } catch {
     return "mainnet";
   }
+}
+
+function isGoatEvmNetwork(network) {
+  return ["goat", "goat-mainnet", "eip155:2345"].includes(String(network || "").trim().toLowerCase());
 }
 
 function effectiveConfigForBackend(api, backend) {
@@ -591,6 +598,8 @@ function registerTool(api, definition) {
         const impliedNetwork =
           ["base", "base-mainnet"].includes(requestedWallet)
             ? "base"
+            : ["goat", "goat-mainnet"].includes(requestedWallet)
+              ? "goat"
             : ["ethereum", "eth", "mainnet", "eth-mainnet"].includes(requestedWallet)
               ? "ethereum"
               : null;
@@ -673,6 +682,15 @@ function registerTool(api, definition) {
       const configOverride = effectiveConfigForBackend(api, activeBackend);
       if (activeBackend === "wdk_evm_local" && effectiveParams.network !== undefined) {
         configOverride.network = normalizeSelectableEvmNetwork(effectiveParams.network);
+      }
+      if (
+        definition.name === "x402_pay_request" &&
+        activeBackend === "wdk_evm_local" &&
+        isGoatEvmNetwork(configOverride.network)
+      ) {
+        throw new Error(
+          "GOAT x402 payments are not enabled in this wallet surface. Use the supported core GOAT wallet operations instead."
+        );
       }
       await attachApprovalForExecute(api, configOverride, userId, definition.name, effectiveParams);
       const executeWalletTool = async () =>
@@ -844,12 +862,12 @@ const walletSessionToolDefinitions = [
       properties: {
         backend: {
           type: "string",
-          enum: ["solana", "sol", "evm", "ethereum", "base", "robinhood", "bitcoin", "btc"],
+          enum: ["solana", "sol", "evm", "ethereum", "base", "robinhood", "goat", "bitcoin", "btc"],
           description: "Wallet backend or common alias to make active.",
         },
         network: {
           type: "string",
-          description: "Optional network for the selected wallet. Examples: mainnet, ethereum, base, robinhood, bitcoin.",
+          description: "Optional network for the selected wallet. Examples: mainnet, ethereum, base, robinhood, goat, bitcoin.",
         },
       },
       required: ["backend"],
@@ -1640,7 +1658,7 @@ const evmToolDefinitions = [
   {
     name: "set_evm_network",
     description:
-      "Select the active EVM network for subsequent wallet tool calls in this OpenClaw plugin session. Use this to switch between ethereum, base, and robinhood instead of editing code or plugin configuration.",
+      "Select the active EVM network for subsequent wallet tool calls in this OpenClaw plugin session. Use this to switch between ethereum, base, robinhood, and goat instead of editing code or plugin configuration.",
     parameters: {
       type: "object",
       properties: {
@@ -1693,7 +1711,7 @@ const evmToolDefinitions = [
   },
   {
     name: "get_evm_transaction_receipt",
-    description: "Get the transaction receipt for a broadcast EVM transaction hash.",
+    description: "Get the transaction receipt for a broadcast EVM transaction hash. On GOAT, a receipt confirms L2 inclusion; it does not by itself prove Bitcoin-backed finality.",
     parameters: {
       type: "object",
       properties: {
@@ -1972,7 +1990,7 @@ const evmToolDefinitions = [
         token_out: { type: "string" },
         amount_in_raw: { type: "string" },
         slippage_bps: { type: "integer" },
-        network: { type: "string", enum: EVM_CORE_NETWORKS },
+        network: { type: "string", enum: EVM_UNISWAP_NETWORKS },
       },
       required: ["token_in", "token_out", "amount_in_raw"],
       additionalProperties: false,
@@ -1990,7 +2008,7 @@ const evmToolDefinitions = [
         dex_id: { type: "string" },
         all_chains: { type: "boolean" },
         limit: { type: "integer" },
-        network: { type: "string", enum: EVM_CORE_NETWORKS },
+        network: { type: "string", enum: EVM_UNISWAP_NETWORKS },
       },
       additionalProperties: false,
     },
@@ -2014,7 +2032,7 @@ const evmToolDefinitions = [
         },
         page_size: { type: "integer", minimum: 1, maximum: 20 },
         current_page: { type: "integer", minimum: 1 },
-        network: { type: "string", enum: EVM_CORE_NETWORKS },
+        network: { type: "string", enum: EVM_UNISWAP_NETWORKS },
       },
       required: ["protocol"],
       additionalProperties: false,
@@ -2028,7 +2046,7 @@ const evmToolDefinitions = [
       properties: {
         protocol: { type: "string", enum: ["V3"] },
         limit: { type: "integer", minimum: 1, maximum: 100 },
-        network: { type: "string", enum: EVM_CORE_NETWORKS },
+        network: { type: "string", enum: EVM_UNISWAP_NETWORKS },
       },
       additionalProperties: false,
     },
@@ -2047,7 +2065,7 @@ const evmToolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        network: { type: "string", enum: EVM_CORE_NETWORKS },
+        network: { type: "string", enum: EVM_UNISWAP_NETWORKS },
       },
       required: ["token_in", "token_out", "amount_in_raw", "mode", "purpose"],
       additionalProperties: false,
@@ -2070,7 +2088,7 @@ const evmToolDefinitions = [
         mode: { type: "string", enum: ["preview", "prepare", "execute"] },
         purpose: { type: "string" },
         user_intent: { type: "boolean" },
-        network: { type: "string", enum: EVM_CORE_NETWORKS },
+        network: { type: "string", enum: EVM_UNISWAP_NETWORKS },
       },
       required: ["action", "protocol", "request", "mode", "purpose"],
       additionalProperties: false,

@@ -37,6 +37,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from agent_wallet.approval import issue_approval_token
+from agent_wallet.networks import AUTONOMOUS_MAINNET_NETWORKS
 from agent_wallet.spending_limits import SpendingConfig, SpendingLedger
 from agent_wallet.wallet_layer.base import WalletBackendError
 
@@ -46,7 +47,7 @@ AUTONOMOUS_ISSUER = "autonomous-policy"
 
 #: Networks treated as "real money" and therefore gated behind
 #: ``allow_mainnet`` regardless of the per-tool allow-list.
-MAINNET_NETWORKS = frozenset({"mainnet", "mainnet-beta", "ethereum", "base", "robinhood", "arbitrum", "optimism", "polygon"})
+MAINNET_NETWORKS = AUTONOMOUS_MAINNET_NETWORKS
 
 TokenIssuer = Callable[..., str]
 

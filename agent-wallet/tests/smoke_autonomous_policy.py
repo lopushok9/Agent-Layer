@@ -95,6 +95,26 @@ def test_gates() -> None:
         _op(network="mainnet")
     ).approved is True
 
+    # GOAT is an EVM mainnet with BTC-denominated value, so it must not be
+    # autonomously executable merely because it appears in allowed_networks.
+    goat_cfg = _base_config(allowed_networks=frozenset({"goat"}), allow_mainnet=False)
+    assert AutonomousPolicyEngine(goat_cfg, token_issuer=_fake_issuer).evaluate(
+        _op(network="goat")
+    ).rule == "allow_mainnet"
+
+    captured_issuer_kwargs: dict = {}
+
+    def capture_goat_issuer(**kwargs) -> str:
+        captured_issuer_kwargs.update(kwargs)
+        return "goat-mainnet-token"
+
+    goat_mainnet_ok = _base_config(allowed_networks=frozenset({"goat"}), allow_mainnet=True)
+    goat_decision = AutonomousPolicyEngine(goat_mainnet_ok, token_issuer=capture_goat_issuer).evaluate(
+        _op(network="goat")
+    )
+    assert goat_decision.approved is True
+    assert captured_issuer_kwargs["mainnet_confirmed"] is True
+
     # Recipient not allow-listed.
     assert AutonomousPolicyEngine(_base_config(), token_issuer=_fake_issuer).evaluate(
         _op(recipient="OtherRecipient99999999999999999999999999999999")

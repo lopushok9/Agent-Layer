@@ -67,6 +67,12 @@ async def _run() -> None:
         )
         assert len(balances) == 1
         assert seen_urls[-1] == "https://gateway.example/v1/evm/rpc/robinhood?provider=alchemy"
+        goat_balances = await evm_portfolio.fetch_token_balances(
+            "0x3333333333333333333333333333333333333333",
+            "goat",
+        )
+        assert goat_balances == []
+        assert seen_urls[-1] == "https://gateway.example/v1/evm/rpc/robinhood?provider=alchemy"
     finally:
         evm_portfolio.get_client = original_get_client
         await client.aclose()

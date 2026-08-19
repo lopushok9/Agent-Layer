@@ -41,7 +41,7 @@ class FakeEvmBackend(AgentWalletBackend):
     ) -> dict:
         return {
             "network": self.network,
-            "chainId": {"ethereum": 1, "base": 8453, "robinhood": 4663}[self.network],
+            "chainId": {"ethereum": 1, "base": 8453, "robinhood": 4663, "goat": 2345}[self.network],
             "protocol": protocol,
             "pools": [{"poolReferenceIdentifier": "0x" + "1" * 64, "poolProtocol": protocol}],
             "pool_parameters": pool_parameters,
@@ -71,7 +71,7 @@ class FakeEvmBackend(AgentWalletBackend):
             "address": address or await self.get_address(),
             "balance_wei": "1230000000000000000",
             "balance_native": "1.23",
-            "asset": "ETH",
+            "asset": "BTC" if self.network == "goat" else "ETH",
             "native_price_usd": "3200",
             "native_value_usd": "3936",
             "tokens": [
@@ -124,17 +124,22 @@ class FakeEvmBackend(AgentWalletBackend):
             "network": self.network,
             "configured_network": self.network,
             "service_active_network": self.network,
-            "available_networks": ["base", "ethereum", "robinhood"],
-            "agent_selectable_networks": ["ethereum", "base", "robinhood"],
+            "available_networks": ["base", "ethereum", "goat", "robinhood"],
+            "agent_selectable_networks": ["ethereum", "base", "robinhood", "goat"],
             "swap_supported_networks": ["ethereum", "base", "robinhood"],
             "network_profiles": {
                 "ethereum": {"chainId": 1, "providerUrl": "https://gateway.example/v1/evm/rpc/ethereum?provider=alchemy"},
                 "base": {"chainId": 8453, "providerUrl": "https://gateway.example/v1/evm/rpc/base?provider=alchemy"},
                 "robinhood": {"chainId": 4663, "providerUrl": "https://gateway.example/v1/evm/rpc/robinhood?provider=alchemy"},
+                "goat": {"chainId": 2345, "providerUrl": "https://gateway.example/v1/evm/rpc/goat?provider=shared"},
             },
             "selected_profile": {
-                "chainId": {"ethereum": 1, "base": 8453, "robinhood": 4663}[self.network],
-                "providerUrl": f"https://gateway.example/v1/evm/rpc/{self.network}?provider=alchemy",
+                "chainId": {"ethereum": 1, "base": 8453, "robinhood": 4663, "goat": 2345}[self.network],
+                "providerUrl": (
+                    f"https://gateway.example/v1/evm/rpc/{self.network}?provider=shared"
+                    if self.network == "goat"
+                    else f"https://gateway.example/v1/evm/rpc/{self.network}?provider=alchemy"
+                ),
             },
             "source": "fake",
         }
@@ -1732,6 +1737,7 @@ async def _main() -> None:
     assert "ethereum" in network_info.data["agent_selectable_networks"]
     assert "base" in network_info.data["agent_selectable_networks"]
     assert "robinhood" in network_info.data["agent_selectable_networks"]
+    assert "goat" in network_info.data["agent_selectable_networks"]
 
     switch_adapter = OpenClawWalletAdapter(FakeEvmBackend())
     switched_network = await switch_adapter.invoke("set_evm_network", {"network": "base"})
@@ -1757,6 +1763,57 @@ async def _main() -> None:
     robinhood_balance = await switch_adapter.invoke("get_wallet_balance", {})
     assert robinhood_balance.ok is True
     assert robinhood_balance.data["network"] == "robinhood"
+
+    goat_network = await switch_adapter.invoke("set_evm_network", {"network": "goat"})
+    assert goat_network.ok is True
+    assert goat_network.data["session_active_network"] == "goat"
+    goat_balance = await switch_adapter.invoke("get_wallet_balance", {})
+    assert goat_balance.ok is True
+    assert goat_balance.data["network"] == "goat"
+    assert goat_balance.data["asset"] == "BTC"
+
+    goat_adapter = OpenClawWalletAdapter(FakeEvmBackend().with_network("goat"))
+    goat_transfer_preview = await goat_adapter.invoke(
+        "transfer_evm_native",
+        {
+            "recipient": "0x3333333333333333333333333333333333333333",
+            "amount_wei": "10000000000000000",
+            "mode": "preview",
+            "purpose": "test GOAT mainnet confirmation",
+        },
+    )
+    assert goat_transfer_preview.ok is True
+    assert goat_transfer_preview.data["is_mainnet"] is True
+    assert goat_transfer_preview.data["confirmation_requirements"]["execute_requires_mainnet_confirmed_in_token"] is True
+    goat_unconfirmed_approval = issue_approval_token(
+        tool_name="transfer_evm_native",
+        network="goat",
+        summary=goat_transfer_preview.data["confirmation_summary"],
+        mainnet_confirmed=False,
+        issued_by="test",
+    )
+    goat_unconfirmed_execute = await goat_adapter.invoke(
+        "transfer_evm_native",
+        {
+            "recipient": "0x3333333333333333333333333333333333333333",
+            "amount_wei": "10000000000000000",
+            "mode": "execute",
+            "purpose": "test GOAT mainnet confirmation",
+            "approval_token": goat_unconfirmed_approval,
+        },
+    )
+    assert goat_unconfirmed_execute.ok is False
+    assert "missing explicit mainnet confirmation" in (goat_unconfirmed_execute.error or "")
+
+    goat_x402_payment = await goat_adapter.invoke(
+        "x402_pay_request",
+        {
+            "url": "https://paid.example.com/report",
+            "purpose": "test GOAT x402 exclusion",
+        },
+    )
+    assert goat_x402_payment.ok is False
+    assert "GOAT x402 payments are not enabled" in (goat_x402_payment.error or "")
 
     robinhood_uniswap_quote = await adapter.invoke(
         "get_uniswap_swap_quote",

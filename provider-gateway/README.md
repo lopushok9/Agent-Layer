@@ -14,7 +14,7 @@ This service is deliberately narrow:
 - shared Jupiter Earn relay
 - shared Flash Trade perps read relay
 - shared Solana RPC gateway with method allowlist
-- shared EVM RPC gateway for ethereum/base/robinhood with method allowlist
+- shared EVM RPC gateway for ethereum/base/robinhood/GOAT with method allowlist
 - no wallet custody
 - no transaction signing
 
@@ -29,7 +29,7 @@ Implemented endpoints:
 - `GET /health` — public health and capability snapshot
 - `GET /v1/status` — authenticated status and provider capabilities
 - `POST /v1/rpc` — authenticated Solana JSON-RPC proxy with method allowlist
-- `POST /v1/evm/rpc/{network}` — authenticated raw EVM JSON-RPC proxy for `ethereum` / `base` / `robinhood`
+- `POST /v1/evm/rpc/{network}` — authenticated raw EVM JSON-RPC proxy for `ethereum` / `base` / `robinhood` / `goat`
 - `GET /v1/bags/trade/quote` — authenticated Bags trade quote
 - `POST /v1/bags/trade/swap` — authenticated Bags swap transaction creation
 - `POST /v1/bags/launch/token-info` — authenticated Bags token metadata creation
@@ -122,7 +122,7 @@ Configure the surfaces you want to expose:
   - `HELIUS_API_KEY`, or
   - `ALCHEMY_API_KEY`
 - shared EVM RPC:
-  - `SHARED_EVM_ETHEREUM_RPC_URL` / `SHARED_EVM_BASE_RPC_URL` / `SHARED_EVM_ROBINHOOD_RPC_URL`, or
+  - `SHARED_EVM_ETHEREUM_RPC_URL` / `SHARED_EVM_BASE_RPC_URL` / `SHARED_EVM_ROBINHOOD_RPC_URL` / `SHARED_EVM_GOAT_RPC_URL`, or
   - `ALCHEMY_ETHEREUM_RPC_URL` / `ALCHEMY_BASE_RPC_URL` / `ALCHEMY_ROBINHOOD_RPC_URL`, or
   - `ALCHEMY_API_KEY`
 - Bags relay:
@@ -194,6 +194,12 @@ curl "http://localhost:8000/v1/evm/rpc/ethereum?provider=alchemy" \
 ```
 
 For machine JSON-RPC clients that cannot set a bearer header, the protected EVM RPC route also accepts `?token=<PROVIDER_GATEWAY_BEARER_TOKEN>`.
+
+GOAT RPC is explicitly configured through `SHARED_EVM_GOAT_RPC_URL` (the
+official default is `https://rpc.goat.network`) and is available only as
+`provider=shared`. It is not an Alchemy route. The same EVM method allowlist
+applies, including reads, fee estimation, and locally signed raw transaction
+broadcasts; this gateway never receives a wallet key.
 
 Bags quote:
 
@@ -286,6 +292,7 @@ Recommended setup:
      - `SHARED_EVM_ETHEREUM_RPC_URL`
      - `SHARED_EVM_BASE_RPC_URL`
      - `SHARED_EVM_ROBINHOOD_RPC_URL`
+     - `SHARED_EVM_GOAT_RPC_URL`
      - `ALCHEMY_ETHEREUM_RPC_URL`
      - `ALCHEMY_BASE_RPC_URL`
      - `ALCHEMY_ROBINHOOD_RPC_URL`
@@ -353,6 +360,7 @@ Example production variable sets:
      - `SHARED_EVM_ETHEREUM_RPC_URL=...`
      - `SHARED_EVM_BASE_RPC_URL=...`
      - `SHARED_EVM_ROBINHOOD_RPC_URL=...`
+     - `SHARED_EVM_GOAT_RPC_URL=https://rpc.goat.network`
      - `ALCHEMY_ETHEREUM_RPC_URL=...`
      - `ALCHEMY_BASE_RPC_URL=...`
      - `ALCHEMY_ROBINHOOD_RPC_URL=...`

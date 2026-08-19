@@ -46,6 +46,39 @@ test("robinhood-mainnet alias normalizes to robinhood", () => {
   }
 });
 
+test("GOAT mainnet uses the allow-listed shared gateway and Testnet3 uses its fixed RPC", () => {
+  const home = tempHome();
+  try {
+    const config = loadConfig({ OPENCLAW_HOME: home });
+    assert.deepEqual(config.networkProfiles.goat, {
+      chainId: 2345,
+      nativeSymbol: "BTC",
+      providerUrl:
+        "https://agent-layer-production.up.railway.app/v1/evm/rpc/goat?provider=shared",
+    });
+    assert.deepEqual(config.networkProfiles["goat-testnet"], {
+      chainId: 48816,
+      nativeSymbol: "BTC",
+      providerUrl: "https://rpc.testnet3.goat.network",
+    });
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("GOAT network aliases normalize to canonical network names", () => {
+  const home = tempHome();
+  try {
+    assert.equal(loadConfig({ OPENCLAW_HOME: home, WDK_EVM_NETWORK: "goat-mainnet" }).network, "goat");
+    assert.equal(
+      loadConfig({ OPENCLAW_HOME: home, WDK_EVM_NETWORK: "goat-testnet3" }).network,
+      "goat-testnet"
+    );
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("per-network Uniswap router versions are parsed and normalized", () => {
   const home = tempHome();
   try {
@@ -59,12 +92,12 @@ test("per-network Uniswap router versions are parsed and normalized", () => {
   }
 });
 
-test("invalid WDK_EVM_NETWORK error message lists robinhood", () => {
+test("invalid WDK_EVM_NETWORK error message lists GOAT", () => {
   const home = tempHome();
   try {
     assert.throws(
       () => loadConfig({ OPENCLAW_HOME: home, WDK_EVM_NETWORK: "polygon" }),
-      /ethereum, sepolia, base, base-sepolia, robinhood/
+      /ethereum, sepolia, base, base-sepolia, robinhood, goat, goat-testnet/
     );
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
