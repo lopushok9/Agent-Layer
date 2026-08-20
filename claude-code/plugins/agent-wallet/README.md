@@ -60,6 +60,9 @@ no-op once the backend is healthy.
 - `/wallet-ethereum` — print the Ethereum EVM wallet overview directly in chat.
 - `/cards` -- issue a Laso Finance prepaid card (US or international), paid
   via x402 from the connected wallet.
+- `/x402` -- discover x402-paid services via CDP Bazaar or Agentic Market
+  (or use a URL you already have), preview the payment terms, and pay from
+  the connected wallet.
 - `/agentlayer-autonomous-approve` — enable high-trust autonomous Base swaps
   (`swap_evm_tokens` / `swap_evm_uniswap_tokens` on Base only) without
   per-transaction approvals. In Claude Code this command now asks for an

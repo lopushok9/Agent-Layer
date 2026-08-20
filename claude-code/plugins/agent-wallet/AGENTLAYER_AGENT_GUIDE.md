@@ -68,6 +68,7 @@ covers only its one exact use case:
 | `/wallet-base` | Print the Base wallet overview, and switch the session's active backend to Base. |
 | `/wallet-ethereum` | Print the Ethereum mainnet wallet overview. |
 | `/cards` | Buy a Laso Finance prepaid card (US or international), paid via x402 from the connected wallet. |
+| `/x402` | Discover x402-paid services via CDP Bazaar or Agentic Market (or use a URL you already have), preview the terms, and pay from the connected wallet. |
 | `/agentlayer-autonomous-approve` | Turn on the full autonomous permission group (see below), with an in-command confirmation step first. |
 | `/agentlayer-autonomous-revoke` | Turn it back off. |
 | `/guide` | Walk a new user through this document conversationally. |

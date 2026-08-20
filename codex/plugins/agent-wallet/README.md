@@ -23,8 +23,10 @@ Primary design rules:
 - auto-managed approval binding for `preview -> execute` write flows
 - bundled Codex skills, including `wallet-sol` for showing the Solana wallet
   portfolio directly in chat, `wallet-base` for showing the Base EVM
-  wallet portfolio and switching the session's active backend to Base, and
-  `cards` for issuing a Laso Finance prepaid card paid via x402
+  wallet portfolio and switching the session's active backend to Base,
+  `cards` for issuing a Laso Finance prepaid card paid via x402, and `x402`
+  for discovering and paying arbitrary x402 services via CDP Bazaar or
+  Agentic Market
 
 ## Runtime requirements
 
@@ -45,6 +47,9 @@ bundled skills:
 - `cards` -- invoke from the slash menu or explicitly as `$cards` to issue a
   Laso Finance prepaid card (US or international), paid via x402 from the
   connected wallet.
+- `x402` -- invoke from the slash menu or explicitly as `$x402` to discover
+  x402-paid services via CDP Bazaar or Agentic Market (or use a URL already
+  given), preview the payment terms, and pay from the connected wallet.
 
 ## Path resolution
 
