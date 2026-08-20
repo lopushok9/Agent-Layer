@@ -19,14 +19,22 @@ tool.
 
 ## Step 1: Resolve what to pay for
 
-- If the user's message already contains an exact URL to call, skip
-  discovery and go straight to Step 2 with that URL (and whatever
-  method/query/body they specified).
-- Otherwise call `x402_search_services` with `query` set to their
-  description (add `max_usd_price`/`network` only if the user mentioned a
-  limit or chain). Leave `discovery_provider` as `auto` unless the user
-  explicitly names CDP Bazaar or Agentic Market — `auto` searches CDP
+If the message that triggered this skill already contains a request beyond
+just "$x402" (e.g. `$x402 check glassnode services for bitcoin analytics`),
+treat that text as the request right away — do not re-ask what the user
+wants only to ignore what they already typed.
+
+- If that text (or the rest of the user's message) already contains an
+  exact URL to call, skip discovery and go straight to Step 2 with that URL
+  (and whatever method/query/body they specified).
+- Else if a description was already given, call `x402_search_services` with
+  `query` set to that text (add `max_usd_price`/`network` only if a limit
+  or chain was mentioned). Leave `discovery_provider` as `auto` unless CDP
+  Bazaar or Agentic Market was named explicitly — `auto` searches CDP
   Bazaar first.
+- Only if the triggering message carried no description or URL at all (a
+  bare `$x402`), ask the user what they want to find or pay for before
+  calling any tool.
 - Present the returned `items` as a numbered text list — name/description,
   price (CDP Bazaar: `accepts[].amount_display`; Agentic Market:
   `endpoints[].pricing`), and network — and wait for the user to pick a
