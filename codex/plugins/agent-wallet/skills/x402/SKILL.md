@@ -36,16 +36,16 @@ wants only to ignore what they already typed.
   bare `$x402`), ask the user what they want to find or pay for before
   calling any tool.
 - Present the top ~10 returned `items` as a compact Markdown table with a
-  leading `#` column, columns `# | Service | Price | Network | Provider`:
+  leading `#` column, columns `# | Service | Price`:
   - Service — CDP Bazaar: `description` (fall back to `resource`'s host +
     path); Agentic Market: `service_name` (fall back to `domain`).
   - Price — CDP Bazaar: `accepts[].amount_display`; Agentic Market:
     `endpoints[].pricing`.
-  - Network — the matching `accepts[]`/`endpoints[].pricing` network.
-  - Provider — `discovery_provider` (`cdp_bazaar` / `agentic_market`).
   - If `count` is higher than what's shown, say so below the table ("14
     total matches, showing the top 10 — ask me to narrow the search for
-    more").
+    more"). Network and provider still surface naturally in Step 2's
+    preview and Step 3's confirm — they're just not repeated in this first
+    table.
 - Wait for the user's reply with a row number, or a request to refine the
   search if none fit.
 - If the chosen item doesn't already carry a directly-callable URL (CDP
