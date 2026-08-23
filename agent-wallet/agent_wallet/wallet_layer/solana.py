@@ -3470,7 +3470,7 @@ class SolanaWalletBackend(AgentWalletBackend):
             status = await solana_rpc.wait_for_confirmation(
                 signature=signature,
                 rpc_url=self.rpc_urls,
-                timeout_seconds=60.0 if source == "kamino" else 20.0,
+                timeout_seconds=60.0,
                 poll_interval_seconds=2.0 if source == "kamino" else 1.0,
             )
             confirmed = status is not None

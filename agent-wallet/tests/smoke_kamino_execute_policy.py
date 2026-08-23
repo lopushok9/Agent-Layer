@@ -47,7 +47,7 @@ async def main() -> None:
         *,
         signature: str,
         rpc_url,
-        timeout_seconds: float = 20.0,
+        timeout_seconds: float = 60.0,
         poll_interval_seconds: float = 1.0,
     ):
         wait_calls.append(
@@ -95,7 +95,7 @@ async def main() -> None:
     assert send_calls[1]["skip_preflight"] is False
     assert wait_calls[0]["timeout_seconds"] == 60.0
     assert wait_calls[0]["poll_interval_seconds"] == 2.0
-    assert wait_calls[1]["timeout_seconds"] == 20.0
+    assert wait_calls[1]["timeout_seconds"] == 60.0
     assert wait_calls[1]["poll_interval_seconds"] == 1.0
 
     print("smoke_kamino_execute_policy: ok")

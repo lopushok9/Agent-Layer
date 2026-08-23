@@ -430,7 +430,7 @@ async def get_signature_status(
 async def wait_for_confirmation(
     signature: str,
     rpc_url: str,
-    timeout_seconds: float = 20.0,
+    timeout_seconds: float = 60.0,
     poll_interval_seconds: float = 1.0,
 ) -> dict[str, Any] | None:
     """Poll signature status until confirmed/finalized or timeout."""
