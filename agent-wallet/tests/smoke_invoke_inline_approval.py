@@ -138,10 +138,10 @@ def check_bridge_single_subprocess_execute() -> None:
 
         config = {"backend": "wdk_evm_local", "network": "base"}
         module._invoke_wallet_tool_blocking(
-            "swap_evm_tokens", dict(config), {"mode": "preview", "network": "base"}
+            "transfer_evm_token", dict(config), {"mode": "preview", "network": "base"}
         )
         module._invoke_wallet_tool_blocking(
-            "swap_evm_tokens", dict(config), {"mode": "execute", "network": "base"}
+            "transfer_evm_token", dict(config), {"mode": "execute", "network": "base"}
         )
 
         issued = [c for c, _ in commands if c == "issue-approval"]
@@ -156,7 +156,22 @@ def check_bridge_single_subprocess_execute() -> None:
 
         summary = _json.loads(summary_json)
         assert summary.get("token_in") == "USDC"
-        assert summary.get("_preview_digest"), "summary must carry the preview digest"
+        assert "_preview_digest" not in summary, (
+            "ordinary EVM transfers must bind to the same confirmation summary "
+            "the wallet adapter verifies"
+        )
+
+        exact_preview_summary = module._approval_summary_for_preview(
+            "swap_solana_tokens", preview_payload["data"]
+        )
+        assert exact_preview_summary.get("_preview_digest"), (
+            "exact-preview tools must retain their preview binding"
+        )
+        intent_preview = dict(preview_payload["data"])
+        intent_preview["mode"] = "intent_preview"
+        assert "_preview_digest" not in module._approval_summary_for_preview(
+            "swap_solana_tokens", intent_preview
+        )
 
 
 def main() -> None:

@@ -1004,14 +1004,23 @@ def _prewarm_resident_read_worker() -> None:
 
 
 def _approval_summary_for_preview(tool_name: str, preview_payload: dict[str, Any]) -> dict[str, Any]:
-    """Build the digest-bound confirmation summary the invoke subprocess will
-    mint an approval token from (in-process, replacing the old standalone
-    issue-approval subprocess round trip)."""
+    """Build the confirmation summary the invoke subprocess mints a token from.
+
+    Only exact-preview tools validate ``_preview_digest`` in the wallet
+    adapter.  Adding that private binding to ordinary transfers and EVM swaps
+    makes their approval token differ from the adapter's execution summary,
+    causing a valid user confirmation to be rejected.
+    """
     summary = preview_payload.get("confirmation_summary")
     if not isinstance(summary, dict):
         raise RuntimeError(f"No confirmation_summary available for {tool_name}.")
     summary_for_token = dict(summary)
-    summary_for_token["_preview_digest"] = _preview_digest(preview_payload)
+    is_solana_swap_intent = (
+        tool_name == "swap_solana_tokens"
+        and str(preview_payload.get("mode") or "") == "intent_preview"
+    )
+    if tool_name in PREVIEW_BOUND_SWAP_TOOLS and not is_solana_swap_intent:
+        summary_for_token["_preview_digest"] = _preview_digest(preview_payload)
     return summary_for_token
 
 
