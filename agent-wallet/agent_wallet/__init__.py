@@ -2,7 +2,7 @@
 
 # Keep in sync with package.json, pyproject.toml, and the npm installer version.
 # scripts/check_release_version.mjs enforces this on release.
-__version__ = "0.1.100"
+__version__ = "0.1.101"
 
 __all__ = [
     "config",
