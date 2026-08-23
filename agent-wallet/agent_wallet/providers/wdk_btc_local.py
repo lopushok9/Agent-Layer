@@ -13,6 +13,9 @@ from agent_wallet.config import resolve_btc_wallet_password, resolve_openclaw_ho
 from agent_wallet.wallet_layer.base import WalletBackendError
 
 LOCAL_WDK_BTC_HOSTS = {"127.0.0.1", "localhost", "::1"}
+# Local wallet calls can decrypt the sealed vault and wait for upstream Bitcoin
+# RPC. Keep their operation timeout aligned with the local EVM wallet client.
+LOCAL_WDK_BTC_TIMEOUT_SECONDS = 60.0
 
 
 def _normalize_base_url(value: str) -> str:
@@ -99,7 +102,7 @@ class WdkBtcLocalClient:
 
     async def post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         async with httpx.AsyncClient(
-            timeout=10.0,
+            timeout=LOCAL_WDK_BTC_TIMEOUT_SECONDS,
             headers=self._headers,
             follow_redirects=False,
             trust_env=False,
@@ -111,7 +114,7 @@ class WdkBtcLocalClient:
 
     async def get(self, path: str) -> dict[str, Any]:
         async with httpx.AsyncClient(
-            timeout=10.0,
+            timeout=LOCAL_WDK_BTC_TIMEOUT_SECONDS,
             headers=self._headers,
             follow_redirects=False,
             trust_env=False,
@@ -121,7 +124,7 @@ class WdkBtcLocalClient:
 
     def post_sync(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         with httpx.Client(
-            timeout=10.0,
+            timeout=LOCAL_WDK_BTC_TIMEOUT_SECONDS,
             headers=self._headers,
             follow_redirects=False,
             trust_env=False,
@@ -133,7 +136,7 @@ class WdkBtcLocalClient:
 
     def get_sync(self, path: str) -> dict[str, Any]:
         with httpx.Client(
-            timeout=10.0,
+            timeout=LOCAL_WDK_BTC_TIMEOUT_SECONDS,
             headers=self._headers,
             follow_redirects=False,
             trust_env=False,

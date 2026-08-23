@@ -13,6 +13,11 @@ from agent_wallet.config import resolve_evm_wallet_password, resolve_openclaw_ho
 from agent_wallet.wallet_layer.base import WalletBackendError
 
 LOCAL_WDK_EVM_HOSTS = {"127.0.0.1", "localhost", "::1"}
+# The local service may decrypt the sealed vault and make several upstream RPC
+# calls for a single wallet operation (for example, token metadata plus a gas
+# quote).  The global HTTP default is deliberately short for ordinary external
+# providers, but it is too short for this local wallet boundary.
+MIN_LOCAL_WDK_EVM_TIMEOUT_SECONDS = 60.0
 LONG_RUNNING_POST_PATHS = {
     "/v1/evm/aave/supply/send",
     "/v1/evm/aave/withdraw/send",
@@ -89,7 +94,7 @@ def _load_local_token() -> str:
 
 def _timeout_for_path(path: str) -> float:
     normalized = str(path or "").strip()
-    base_timeout = float(settings.http_timeout)
+    base_timeout = max(float(settings.http_timeout), MIN_LOCAL_WDK_EVM_TIMEOUT_SECONDS)
     if normalized in LONG_RUNNING_POST_PATHS:
         return max(base_timeout, LONG_RUNNING_SEND_TIMEOUT_SECONDS)
     return base_timeout
@@ -288,7 +293,7 @@ class WdkEvmLocalClient:
     def list_wallets_sync(self) -> list[dict[str, Any]]:
         try:
             with httpx.Client(
-                timeout=float(settings.http_timeout),
+                timeout=_timeout_for_path("/v1/evm/wallets"),
                 headers=self._headers,
                 follow_redirects=False,
                 trust_env=False,

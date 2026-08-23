@@ -10,11 +10,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from _wdk_btc_test_server import FakeWdkBtcWalletServer  # noqa: E402
-from agent_wallet.providers.wdk_btc_local import WdkBtcLocalClient  # noqa: E402
+from agent_wallet.providers.wdk_btc_local import (  # noqa: E402
+    LOCAL_WDK_BTC_TIMEOUT_SECONDS,
+    WdkBtcLocalClient,
+)
 from agent_wallet.wallet_layer.base import WalletBackendError  # noqa: E402
 
 
 def main() -> None:
+    assert LOCAL_WDK_BTC_TIMEOUT_SECONDS >= 60.0
     temp_home = Path("/tmp/openclaw-btc-local-security")
     if temp_home.exists():
         shutil.rmtree(temp_home)

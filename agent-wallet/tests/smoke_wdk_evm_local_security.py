@@ -173,6 +173,12 @@ def main() -> None:
     assert _timeout_for_path("/v1/evm/uniswap/swap/send") >= 120.0
     assert _timeout_for_path("/v1/evm/uniswap/swap/quote") >= 120.0
     assert _timeout_for_path("/v1/evm/lifi/quote") >= 120.0
+    # Every local wallet operation shares a 60s floor.  A quote can decrypt
+    # the vault and fan out to several RPC calls, while listing wallets used to
+    # bypass the shared timeout helper entirely.
+    assert _timeout_for_path("/v1/evm/token-transfer/quote") >= 60.0
+    assert _timeout_for_path("/v1/evm/wallets") >= 60.0
+    assert _timeout_for_path("/v1/evm/balance/get") >= 60.0
 
     print("smoke_wdk_evm_local_security: ok")
 
