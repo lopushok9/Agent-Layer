@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import test from "node:test";
 
+import {
+  createConnectorHttpHandler,
+  defineReadOnlyConnector,
+} from "@agentlayer.tech/connector-sdk";
 import { runConformance } from "../dist/index.js";
 
 const manifest = JSON.parse(
@@ -85,4 +90,27 @@ test("fails when a declared tool has no fixture", async () => {
   });
   assert.equal(report.ok, false);
   assert.equal(report.checks.find((check) => check.name === "fixture_coverage")?.ok, false);
+});
+
+test("passes against the real SDK HTTP wire contract", async (context) => {
+  const connector = defineReadOnlyConnector({
+    manifest,
+    handlers: { get_pools: () => ({ pools: [] }) },
+  });
+  const handler = createConnectorHttpHandler(connector);
+  const server = createServer((request, response_) => void handler(request, response_));
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  context.after(() => new Promise((resolve) => server.close(resolve)));
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+
+  const report = await runConformance({
+    manifest,
+    fixture,
+    endpoint: `http://127.0.0.1:${address.port}`,
+  });
+  assert.equal(report.ok, true, JSON.stringify(report.checks));
 });

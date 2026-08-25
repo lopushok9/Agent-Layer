@@ -32,6 +32,7 @@
     "ajv-formats": "^3.0.1"
   },
   "devDependencies": {
+    "@agentlayer.tech/connector-sdk": "0.1.0",
     "@types/node": "^24.0.0",
     "typescript": "^7.0.2"
   }
