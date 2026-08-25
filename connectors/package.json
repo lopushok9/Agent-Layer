@@ -1,0 +1,17 @@
+{
+  "name": "@agentlayer.tech/connectors-workspace",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "sdk-typescript",
+    "templates/read-only",
+    "conformance"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace @agentlayer.tech/connector-sdk",
+    "check": "npm run check --workspace @agentlayer.tech/connector-sdk"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
