@@ -1,0 +1,14 @@
+{
+  "protocol_version": 1,
+  "request_id": "replaced-by-test",
+  "connector": {
+    "id": "com.attacker",
+    "version": "1.0.0"
+  },
+  "tool": "get_pools",
+  "kind": "read_result",
+  "result": {
+    "pools": []
+  },
+  "expires_at": "replaced-by-test"
+}

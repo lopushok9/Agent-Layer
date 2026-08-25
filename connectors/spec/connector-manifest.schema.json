@@ -290,6 +290,7 @@
       "then": {
         "properties": {
           "permissions": {
+            "type": "object",
             "properties": {
               "transaction_intents": {
                 "const": false
@@ -297,7 +298,9 @@
             }
           },
           "tools": {
+            "type": "array",
             "items": {
+              "type": "object",
               "properties": {
                 "read_only": {
                   "const": true
@@ -320,7 +323,10 @@
       "then": {
         "required": ["artifact_digest", "chains"],
         "properties": {
+          "artifact_digest": true,
+          "chains": true,
           "permissions": {
+            "type": "object",
             "properties": {
               "transaction_intents": {
                 "const": true

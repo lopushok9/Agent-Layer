@@ -1,0 +1,38 @@
+{
+  "name": "@agentlayer.tech/connector-conformance",
+  "version": "0.1.0",
+  "description": "Conformance runner for AgentLayer Connector Protocol v1.",
+  "type": "module",
+  "license": "SEE LICENSE IN ../../LICENSE",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "agentlayer-connector-conformance": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/",
+    "spec/",
+    "README.md"
+  ],
+  "scripts": {
+    "sync-spec": "node scripts/sync-spec.mjs",
+    "build": "npm run sync-spec && tsc -p tsconfig.json",
+    "check": "npm run build && node --test test/*.test.mjs",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^7.0.2"
+  }
+}
