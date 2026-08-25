@@ -74,6 +74,12 @@ def main() -> None:
         listed = _run(package_root, env, "list")
         assert [item["id"] for item in listed["connectors"]] == ["com.example.discovery"]
 
+        tools = _run(package_root, env, "tools")
+        assert [item["name"] for item in tools["tools"]] == [
+            "connector__com_example_discovery__search"
+        ]
+        assert tools["tools"][0]["read_only"] is True
+
         doctor = _run(package_root, env, "doctor")
         assert doctor["ok"] is True
         assert doctor["checks"][0]["ok"] is True
@@ -105,4 +111,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

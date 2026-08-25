@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from agent_wallet.connectors.catalog import enabled_connector_tools
 from agent_wallet.connectors.manifest import ConnectorManifestError
 from agent_wallet.connectors.registry import ConnectorRegistry, ConnectorRegistryError
 
@@ -43,6 +44,7 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("list", help="List locally installed connectors.")
+    subparsers.add_parser("tools", help="List enabled read-only connector tools for host registration.")
 
     info = subparsers.add_parser("info", help="Show one installed connector.")
     info.add_argument("connector_id")
@@ -109,6 +111,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "list":
             _print({"ok": True, "connectors": registry.list()})
             return 0
+        if args.command == "tools":
+            _print({"ok": True, "tools": enabled_connector_tools(registry, include_write=False)})
+            return 0
         if args.command == "info":
             _print({"ok": True, "connector": registry.describe(args.connector_id)})
             return 0
@@ -153,4 +158,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
