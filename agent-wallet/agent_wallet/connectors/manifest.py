@@ -160,6 +160,13 @@ def validate_connector_manifest(payload: Any) -> dict[str, Any]:
     if transport.get("type") != "https":
         raise ConnectorManifestError("transport.type must be https.")
     _require_https_url(transport.get("url"), "transport.url")
+    timeout_ms = transport.get("timeout_ms", 10000)
+    if (
+        not isinstance(timeout_ms, int)
+        or isinstance(timeout_ms, bool)
+        or not 100 <= timeout_ms <= 30000
+    ):
+        raise ConnectorManifestError("transport.timeout_ms must be an integer from 100 to 30000.")
 
     digest = manifest.get("artifact_digest")
     if digest is not None and (
@@ -183,4 +190,3 @@ def connector_tool_name(connector_id: str, tool_name: str) -> str:
         raise ConnectorManifestError("tool name has an invalid format.")
     normalized_id = re.sub(r"[^a-z0-9]+", "_", connector_id).strip("_")
     return f"connector__{normalized_id}__{tool_name}"
-

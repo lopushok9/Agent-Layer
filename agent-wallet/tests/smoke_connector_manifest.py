@@ -85,6 +85,10 @@ def main() -> None:
     _expect_invalid(bad, "must be an HTTPS URL")
 
     bad = copy.deepcopy(original)
+    bad["transport"]["timeout_ms"] = 60000
+    _expect_invalid(bad, "timeout_ms")
+
+    bad = copy.deepcopy(original)
     bad["permissions"]["network_hosts"] = ["https://api.example.com"]
     _expect_invalid(bad, "must be a hostname")
 
@@ -97,4 +101,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
