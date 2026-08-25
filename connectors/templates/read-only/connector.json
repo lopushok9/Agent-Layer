@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "id": "com.example.defi-markets",
+  "name": "Example DeFi Markets",
+  "version": "1.0.0",
+  "publisher": {
+    "id": "example",
+    "name": "Example Publisher",
+    "url": "https://example.com"
+  },
+  "agentlayer": {
+    "protocol_version": 1,
+    "runtime_range": ">=0.1.101"
+  },
+  "trust": "community_read_only",
+  "transport": {
+    "type": "https",
+    "url": "https://replace-me.up.railway.app",
+    "timeout_ms": 10000
+  },
+  "permissions": {
+    "wallet_address": false,
+    "transaction_intents": false,
+    "network_hosts": ["api.example.com"]
+  },
+  "tools": [
+    {
+      "name": "get_pools",
+      "description": "List public DeFi pools from the configured upstream API.",
+      "read_only": true,
+      "risk_level": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "chain": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 50 }
+        },
+        "required": ["chain"],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "pools": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "symbol": { "type": "string" },
+                "apy": { "type": ["number", "null"] },
+                "tvl_usd": { "type": ["number", "null"] }
+              },
+              "required": ["id", "symbol", "apy", "tvl_usd"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["pools"],
+        "additionalProperties": false
+      }
+    }
+  ]
+}
