@@ -1,3 +1,12 @@
+export { defineReadOnlyConnector } from "./connector.js";
+export { ConnectorSdkError } from "./errors.js";
+export {
+  createConnectorHttpHandler,
+  startConnectorServer,
+  type ConnectorHttpOptions,
+  type StartConnectorServerOptions,
+} from "./http.js";
+
 export type {
   ConnectorIdentity,
   ConnectorInvocationContext,

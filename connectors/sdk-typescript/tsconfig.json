@@ -11,7 +11,10 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
     "verbatimModuleSyntax": true,
+    "types": ["node"],
     "skipLibCheck": true
   },
   "include": ["src/**/*.ts"]
