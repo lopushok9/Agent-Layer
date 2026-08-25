@@ -45,11 +45,10 @@ A connector never receives:
 
 ```text
 connectors/
-├── spec/          # Public versioned protocol and JSON Schemas
-├── sdk-typescript # TypeScript SDK (planned)
-├── conformance/   # Cross-implementation contract tests (planned)
-├── templates/     # Developer starter templates (planned)
-└── examples/      # Reference read-only connectors (planned)
+├── spec/                    # Public versioned protocol and JSON Schemas
+├── sdk-typescript/          # Read-only TypeScript SDK
+├── conformance/             # Endpoint and manifest contract tests
+└── templates/read-only/     # Railway-compatible starter connector
 ```
 
 The hosted control plane and execution services belong in the separate
@@ -123,3 +122,14 @@ and returns a short-lived `read_result` matching the tool's `output_schema`.
 Community connector output is always marked as untrusted external data. It
 must never contain unsigned transactions, calldata, payment requests, or other
 write intents.
+
+## Build a connector
+
+Start with the [developer guide](DEVELOPER_GUIDE.md). The TypeScript SDK,
+Railway starter, and conformance runner are developed as an npm workspace:
+
+```bash
+cd connectors
+npm install
+npm run check
+```
