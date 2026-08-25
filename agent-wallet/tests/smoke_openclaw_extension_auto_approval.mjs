@@ -40,8 +40,8 @@ function parseCliArgs(args) {
 async function main() {
   let source = fs.readFileSync(SOURCE, "utf8");
   source = source.replace(
-    'import { execFile } from "node:child_process";',
-    "const execFile = globalThis.__TEST_EXEC_FILE__;"
+    'import { execFile, execFileSync } from "node:child_process";',
+    "const execFile = globalThis.__TEST_EXEC_FILE__; const execFileSync = globalThis.__TEST_EXEC_FILE_SYNC__;"
   );
   source = source.replace(
     "const execFileAsync = promisify(execFile);",
@@ -304,6 +304,7 @@ async function main() {
       .then(({ stdout, stderr }) => callback(null, stdout, stderr))
       .catch((error) => callback(error));
   };
+  globalThis.__TEST_EXEC_FILE_SYNC__ = () => JSON.stringify({ ok: true, tools: [] });
 
   const moduleUrl = `data:text/javascript;charset=utf-8,${encodeURIComponent(source)}`;
   const mod = await import(moduleUrl);
@@ -489,6 +490,7 @@ async function main() {
   );
 
   delete globalThis.__TEST_EXEC_FILE__;
+  delete globalThis.__TEST_EXEC_FILE_SYNC__;
   delete globalThis.__TEST_EXEC_FILE_ASYNC__;
   console.log("smoke_openclaw_extension_auto_approval: ok");
 }

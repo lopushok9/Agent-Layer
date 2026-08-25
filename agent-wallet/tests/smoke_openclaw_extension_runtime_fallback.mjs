@@ -26,8 +26,8 @@ async function main() {
 
   let source = fs.readFileSync(SOURCE, "utf8");
   source = source.replace(
-    'import { execFile } from "node:child_process";',
-    "const execFile = globalThis.__TEST_EXEC_FILE__;"
+    'import { execFile, execFileSync } from "node:child_process";',
+    "const execFile = globalThis.__TEST_EXEC_FILE__; const execFileSync = globalThis.__TEST_EXEC_FILE_SYNC__;"
   );
   source = source.replace(
     "const execFileAsync = promisify(execFile);",
@@ -53,6 +53,24 @@ async function main() {
       .then(({ stdout, stderr }) => callback(null, stdout, stderr))
       .catch((error) => callback(error));
   };
+  globalThis.__TEST_EXEC_FILE_SYNC__ = () =>
+    JSON.stringify({
+      ok: true,
+      tools: [
+        {
+          name: "connector__com_example_markets__search",
+          description: "Search external markets.",
+          read_only: true,
+          input_schema: { type: "object", additionalProperties: false },
+        },
+        {
+          name: "connector__com_example_markets__write",
+          description: "Must not be registered.",
+          read_only: false,
+          input_schema: { type: "object" },
+        },
+      ],
+    });
 
   try {
     const moduleUrl = `data:text/javascript;charset=utf-8,${encodeURIComponent(source)}`;
@@ -84,6 +102,15 @@ async function main() {
     register(api);
     const capabilitiesTool = tools.find((tool) => tool.name === "get_wallet_capabilities");
     assert.ok(capabilitiesTool, "get_wallet_capabilities tool should be registered");
+    assert.ok(
+      tools.find((tool) => tool.name === "connector__com_example_markets__search"),
+      "enabled read-only connector tool should be registered"
+    );
+    assert.equal(
+      tools.some((tool) => tool.name === "connector__com_example_markets__write"),
+      false,
+      "write-capable connector tool must be withheld"
+    );
 
     await capabilitiesTool.execute("1", {});
 
@@ -101,6 +128,7 @@ async function main() {
       process.env.OPENCLAW_HOME = previousOpenclawHome;
     }
     delete globalThis.__TEST_EXEC_FILE__;
+    delete globalThis.__TEST_EXEC_FILE_SYNC__;
     delete globalThis.__TEST_EXEC_FILE_ASYNC__;
     fs.rmSync(tempHome, { recursive: true, force: true });
   }
