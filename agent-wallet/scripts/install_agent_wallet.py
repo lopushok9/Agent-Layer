@@ -523,7 +523,7 @@ def _python_runtime_is_healthy(python_bin: Path) -> bool:
     """
     try:
         result = subprocess.run(
-            [str(python_bin), "-c", "import pydantic, pydantic_settings"],
+            [str(python_bin), "-c", "import jsonschema, pydantic, pydantic_settings"],
             capture_output=True,
             text=True,
             check=False,
