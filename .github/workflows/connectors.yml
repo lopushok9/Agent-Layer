@@ -1,0 +1,125 @@
+name: connectors
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/connectors.yml"
+      - "connectors/**"
+      - "connector-platform/**"
+      - "agent-wallet/agent_wallet/connector_cli.py"
+      - "agent-wallet/agent_wallet/connectors/**"
+      - "agent-wallet/agent_wallet/openclaw_adapter.py"
+      - "agent-wallet/tests/smoke_connector*.py"
+      - ".openclaw/extensions/agent-wallet/**"
+      - "codex/plugins/agent-wallet/**"
+      - "bin/openclaw-agent-wallet.mjs"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/connectors.yml"
+      - "connectors/**"
+      - "connector-platform/**"
+      - "agent-wallet/agent_wallet/connector_cli.py"
+      - "agent-wallet/agent_wallet/connectors/**"
+      - "agent-wallet/agent_wallet/openclaw_adapter.py"
+      - "agent-wallet/tests/smoke_connector*.py"
+      - ".openclaw/extensions/agent-wallet/**"
+      - "codex/plugins/agent-wallet/**"
+      - "bin/openclaw-agent-wallet.mjs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: connectors-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  packages:
+    name: connector packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: connectors/package-lock.json
+
+      - name: Install connector workspace
+        working-directory: connectors
+        run: npm ci
+
+      - name: Test SDK, template, and conformance suite
+        working-directory: connectors
+        run: npm run check
+
+      - name: Test reproducible external package install
+        working-directory: connectors
+        run: npm run check:pack
+
+      - name: Build read-only template image
+        run: docker build --file connectors/templates/read-only/Dockerfile .
+
+  wallet:
+    name: connector wallet boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: agent-wallet/requirements.txt
+
+      - name: Install wallet runtime
+        run: python -m pip install -e agent-wallet
+
+      - name: Test connector manifest and registry
+        run: |
+          python agent-wallet/tests/smoke_connector_manifest.py
+          python agent-wallet/tests/smoke_connector_registry.py
+          python agent-wallet/tests/smoke_connector_catalog.py
+
+      - name: Test connector invocation boundary
+        run: |
+          python agent-wallet/tests/smoke_connector_read_client.py
+          python agent-wallet/tests/smoke_connector_evm_intent_policy.py
+
+      - name: Test connector lifecycle CLI
+        run: |
+          python agent-wallet/tests/smoke_connector_cli.py
+          python agent-wallet/tests/smoke_connector_npm_cli.py
+
+      - name: Test host connector registration
+        run: |
+          python agent-wallet/tests/smoke_connector_openclaw_adapter.py
+          python agent-wallet/tests/smoke_codex_connector_tools.py
+
+  gateway:
+    name: connector gateway
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Test connector gateway
+        working-directory: connector-platform/gateway
+        run: npm run check
+
+      - name: Build connector gateway image
+        run: docker build connector-platform/gateway
