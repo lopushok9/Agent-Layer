@@ -37,6 +37,15 @@ The beta may be published only when:
 8. npm beta packages are published with reproducible contents.
 9. Stable publication uses GitHub OIDC trusted publishing and provenance.
 
+## Beta evidence
+
+As of 2026-08-27, gates 1–7 are evidenced by the repository checks and the
+isolated Railway reference deployment at
+`https://reference-crypto-data-production.up.railway.app`: live conformance,
+wallet-runtime invocation, OpenClaw invocation, and discovery by Codex, Claude
+Code, and Hermes have passed. Gate 8 remains pending the first manual npm beta
+publication; gate 9 applies to subsequent stable publication.
+
 ## Compatibility policy
 
 Protocol v1 required fields and security semantics are frozen. Additive

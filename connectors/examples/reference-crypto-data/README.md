@@ -18,15 +18,30 @@ npm run build --workspace @agentlayer.tech/reference-crypto-data-connector --pre
 npm run start --workspace @agentlayer.tech/reference-crypto-data-connector --prefix connectors
 ```
 
-Before publishing its manifest, replace `transport.url` with the final HTTPS
-deployment and run the conformance suite against that exact endpoint.
+The reviewed beta deployment is available at
+`https://reference-crypto-data-production.up.railway.app`. Its manifest is
+already pinned to that exact HTTPS endpoint. Re-run its live conformance check
+after any immutable version release:
+
+```bash
+cd connectors
+node conformance/dist/cli.js \
+  --manifest examples/reference-crypto-data/connector.json \
+  --fixture examples/reference-crypto-data/conformance.json \
+  --endpoint https://reference-crypto-data-production.up.railway.app
+```
 
 ## Railway deployment
 
 Deploy this directory as one stateless service in a new, isolated Railway
-project. Point the service at `railway.toml` while keeping the repository root
-as the build context. The service needs no variables, volume, database, wallet
-material, or connection to the AgentLayer provider gateway.
+project. Keep the repository root as the Docker build context and point the
+service Dockerfile at
+`connectors/examples/reference-crypto-data/Dockerfile` (for a root deployment,
+set Railway's `RAILWAY_DOCKERFILE_PATH` service variable to that value).
+Configure the Railway deployment health-check path as `/healthz` with a
+10-second timeout and an `ON_FAILURE` restart policy. The service needs no
+application variables, volume, database, wallet material, or connection to the
+AgentLayer provider gateway.
 
 After Railway generates the public domain:
 
