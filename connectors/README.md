@@ -134,3 +134,6 @@ cd connectors
 npm install
 npm run check
 ```
+
+Maintainer publication and npm trusted-publisher setup are documented in
+[`RELEASING.md`](RELEASING.md).
