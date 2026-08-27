@@ -1,0 +1,110 @@
+---
+title: Build a Read-Only Connector
+description: Publish a community crypto, DeFi, or agent-service connector for AgentLayer.
+---
+
+# Build a Read-Only Connector
+
+Community connectors are the open extension layer for AgentLayer. Use them to
+offer public DeFi data, analytics, protocol discovery, x402 service metadata,
+or agent marketplace data.
+
+They are intentionally read-only. A community connector cannot prepare a
+transaction, request payment, sign, or broadcast on behalf of a wallet.
+
+## What you build
+
+Your connector has three pieces:
+
+- a versioned `connector.json` manifest
+- a public HTTPS service that exposes `GET /healthz` and `POST /invoke`
+- a conformance fixture with valid arguments for every declared tool
+
+The manifest is a public contract. A published `(id, version)` is immutable:
+changing its code, endpoint behavior, schemas, permissions, or artifact
+requires a new version.
+
+## Start from the SDK
+
+The TypeScript SDK gives a connector strict manifest, input, and output
+validation. It deliberately includes no wallet, signer, approval, transaction,
+or broadcast API.
+
+```bash
+npm install @agentlayer.tech/connector-sdk@beta
+```
+
+Use the Railway-compatible starter as the reference implementation:
+
+```text
+connectors/templates/read-only
+```
+
+The SDK requires Node.js 24 or later.
+
+## Define a narrow manifest
+
+Use a stable reverse-domain ID and declare only the permissions your connector
+actually needs:
+
+```json
+{
+  "id": "com.publisher.protocol",
+  "version": "1.0.0",
+  "trust": "community_read_only",
+  "transaction_intents": false,
+  "permissions": {
+    "network_hosts": ["api.publisher.example"]
+  }
+}
+```
+
+For every tool, define strict JSON Schemas for inputs and outputs. Prefer
+bounded arrays, maximum string lengths, explicit required fields, and
+`additionalProperties: false`. Normalize upstream responses instead of passing
+arbitrary provider payloads directly to an agent.
+
+Never include secrets or upstream API keys in `connector.json`. Store them as
+service variables in your deployment environment.
+
+## Deploy an isolated service
+
+Host the connector as its own Railway project or an equivalent isolated public
+HTTPS service. Keep its environment variables, volumes, identities, and
+internal network separate from AgentLayer wallet and execution services.
+
+Before publishing the manifest version, make sure `GET /healthz` returns its
+exact manifest identity and that `transport.url` points to the final HTTPS
+domain.
+
+## Validate before sharing
+
+Run the conformance suite against the live endpoint:
+
+```bash
+npx @agentlayer.tech/connector-conformance@beta \
+  --manifest ./connector.json \
+  --fixture ./conformance.json \
+  --endpoint https://your-connector.example
+```
+
+The suite checks the manifest, declared-tool coverage, health identity,
+arguments, response schemas, TTL, and rejection behavior. Passing conformance
+means the endpoint follows the read-only protocol; it does not make the
+connector verified.
+
+## Test the user flow
+
+Install the final manifest in a clean local AgentLayer setup:
+
+```bash
+wallet connectors inspect ./connector.json
+wallet connectors install ./connector.json --enable --yes
+wallet connectors doctor
+```
+
+Restart a supported host and invoke every tool. A connector should return only
+short-lived structured results matching its declared output schema.
+
+For the complete Protocol v1 contract, see
+[`connectors/spec/connector-protocol.md`](https://github.com/lopushok9/Agent-Layer/blob/main/connectors/spec/connector-protocol.md).

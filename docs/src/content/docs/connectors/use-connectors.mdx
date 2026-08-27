@@ -1,0 +1,84 @@
+---
+title: Use Connectors
+description: Inspect, enable, disable, and troubleshoot optional AgentLayer connectors.
+---
+
+# Use Connectors
+
+Connectors are optional. You install and enable them locally, then restart the
+agent host so it can rebuild its tool catalog.
+
+## Inspect before enabling
+
+Always inspect a manifest before installing it. This shows the connector's
+identity, version, publisher, endpoint, permissions, and tools.
+
+```bash
+wallet connectors inspect ./connector.json
+```
+
+Review the following carefully:
+
+- publisher identity and connector ID
+- public HTTPS endpoint
+- requested network hosts
+- trust class and whether transaction intents are declared
+- each tool's purpose and input/output schema
+
+Do not install a manifest received from an untrusted source merely because its
+name resembles a known protocol.
+
+## Install and enable
+
+Install the inspected manifest and enable the exact version:
+
+```bash
+wallet connectors install ./connector.json --enable --yes
+wallet connectors list
+```
+
+Restart OpenClaw, Codex, Claude Code, or Hermes after the change. Enabled
+read-only tools will then be available to the host.
+
+## See installed tools and diagnose a connector
+
+```bash
+wallet connectors tools
+wallet connectors info com.example.protocol
+wallet connectors doctor
+```
+
+`doctor` checks the local registry and the connector configuration. If an
+endpoint, schema, identity, or response no longer matches the pinned manifest,
+AgentLayer rejects the connector response rather than passing it through to the
+agent.
+
+## Disable or remove
+
+Disable a connector whenever you no longer want its tools available:
+
+```bash
+wallet connectors disable com.example.protocol
+```
+
+Disabling preserves the pinned manifest. To delete that installed version, it
+must first be disabled:
+
+```bash
+wallet connectors remove com.example.protocol --version 1.0.0 --yes
+```
+
+Restart the host after enabling or disabling a connector.
+
+## Local registry and privacy
+
+Connector registry state is stored locally under:
+
+```text
+$OPENCLAW_HOME/agent-wallet-runtime/connectors
+```
+
+The registry holds connector metadata and pinned manifests, not wallet keys or
+credentials. A connector receives wallet address context only when its manifest
+explicitly allows it.
+

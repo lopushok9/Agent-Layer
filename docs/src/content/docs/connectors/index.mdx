@@ -1,0 +1,63 @@
+---
+title: Connectors
+description: Optional crypto, DeFi, and agent-service capabilities for AgentLayer.
+---
+
+# Connectors
+
+Connectors let you add optional capabilities to AgentLayer without adding every
+protocol or service to the wallet itself.
+
+They can bring an agent structured crypto and DeFi data, protocol analytics,
+marketplace discovery, x402 service metadata, and other agent-native services.
+You decide which connectors are available to your local agent, and can disable
+them at any time.
+
+Existing first-party wallet integrations — including Aave, Kamino, and Morpho —
+remain built into the wallet. They do not move to, or depend on, Connectors.
+
+## How a connector works
+
+A connector is a versioned manifest plus a remote HTTPS service:
+
+1. You inspect its publisher, endpoint, permissions, and declared tools.
+2. AgentLayer stores that exact manifest version in a local registry.
+3. You explicitly enable it.
+4. After restarting your agent host, its tools are discovered alongside the
+   wallet's built-in tools.
+
+The connector service runs remotely. AgentLayer does **not** download or run
+arbitrary publisher code on your machine.
+
+## Connector types
+
+| Type | Hosting | What it can do |
+| --- | --- | --- |
+| `community_read_only` | Hosted by the publisher | Return structured external data. |
+| `verified_read_only` | Reviewed identity and artifact | Return structured external data. |
+| `verified_write` | Immutable, isolated AgentLayer deployment | Prepare unsigned transaction intents for local verification. |
+
+Community connectors are always read-only. Their data remains external and
+untrusted: it can inform an agent, but it cannot authorize movement of funds.
+
+Write-capable integrations have a different security boundary. A connector may
+only prepare an unsigned intent; the local wallet owns validation, simulation,
+preview, approval, signing, and broadcast. No connector gets direct signing
+access.
+
+```text
+connector → unsigned intent → local validation → simulation
+          → preview → user confirmation → local signing → broadcast
+```
+
+## What connectors never receive
+
+- private keys, seed phrases, or wallet files
+- signer objects
+- the AgentLayer boot key
+- approval secrets or approval tokens
+
+Read [Use Connectors](/connectors/use-connectors/) to manage connectors through
+the CLI, or [Build a Read-Only Connector](/connectors/build-read-only/) to
+publish a community connector.
+

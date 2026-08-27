@@ -31,6 +31,14 @@ export default defineConfig({
           ]
         },
         {
+          label: "Connectors",
+          items: [
+            { label: "Overview", slug: "connectors" },
+            { label: "Use Connectors", slug: "connectors/use-connectors" },
+            { label: "Build a Read-Only Connector", slug: "connectors/build-read-only" }
+          ]
+        },
+        {
           label: "Infrastructure",
           items: [
             { label: "Provider Gateway", slug: "infrastructure/provider-gateway" },
