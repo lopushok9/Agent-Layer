@@ -10,12 +10,17 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import httpcore
 import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agent_wallet.connectors.catalog import enabled_connector_tools  # noqa: E402
-from agent_wallet.connectors.client import ConnectorInvocationError, ConnectorReadClient  # noqa: E402
+from agent_wallet.connectors.client import (  # noqa: E402
+    ConnectorInvocationError,
+    ConnectorReadClient,
+    _PinnedPublicNetworkBackend,
+)
 from agent_wallet.connectors.registry import ConnectorRegistry  # noqa: E402
 
 
@@ -141,6 +146,41 @@ async def _run() -> None:
         finally:
             await private_client._http_client.aclose()  # test-owned client
 
+        class RecordingBackend(httpcore.AsyncNetworkBackend):
+            def __init__(self) -> None:
+                self.connected_hosts: list[str] = []
+
+            async def connect_tcp(self, host, port, **kwargs):
+                self.connected_hosts.append(host)
+                return object()
+
+            async def connect_unix_socket(self, path, **kwargs):
+                raise AssertionError("Unix socket connection must not be attempted")
+
+            async def sleep(self, seconds):
+                return None
+
+        recording_backend = RecordingBackend()
+        pinned_backend = _PinnedPublicNetworkBackend(
+            lambda hostname: ["93.184.216.34"],
+            network_backend=recording_backend,
+        )
+        await pinned_backend.connect_tcp("connector.example.com", 443)
+        assert recording_backend.connected_hosts == ["93.184.216.34"]
+
+        blocked_backend = RecordingBackend()
+        rebinding_guard = _PinnedPublicNetworkBackend(
+            lambda hostname: ["127.0.0.1"],
+            network_backend=blocked_backend,
+        )
+        try:
+            await rebinding_guard.connect_tcp("connector.example.com", 443)
+        except ConnectorInvocationError as exc:
+            assert "non-public address" in str(exc)
+        else:
+            raise AssertionError("connect-time private destination should fail")
+        assert blocked_backend.connected_hosts == []
+
         print("smoke_connector_read_client: ok")
     finally:
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -152,4 +192,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

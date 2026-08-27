@@ -11,6 +11,7 @@ from typing import Any, Callable, Iterable
 from urllib.parse import urlparse
 
 import httpx
+import httpcore
 from jsonschema import Draft202012Validator, SchemaError, ValidationError
 
 from agent_wallet.connectors.catalog import resolve_connector_tool
@@ -34,13 +35,17 @@ def _default_resolver(hostname: str) -> list[str]:
     return sorted({str(record[4][0]) for record in records})
 
 
-def _assert_public_endpoint(url: str, resolver: Resolver) -> None:
+def _validate_endpoint_url(url: str) -> str:
     parsed = urlparse(url)
     hostname = str(parsed.hostname or "").lower()
     if parsed.scheme != "https" or not hostname or parsed.username or parsed.password:
         raise ConnectorInvocationError("Connector endpoint must be public HTTPS without credentials.")
     if hostname == "localhost" or hostname.endswith(".localhost") or hostname.endswith(".local"):
         raise ConnectorInvocationError("Connector endpoint cannot use a local hostname.")
+    return hostname
+
+
+def _resolve_public_addresses(hostname: str, resolver: Resolver) -> list[str]:
     addresses = list(resolver(hostname))
     if not addresses:
         raise ConnectorInvocationError("Connector endpoint did not resolve to an address.")
@@ -53,6 +58,69 @@ def _assert_public_endpoint(url: str, resolver: Resolver) -> None:
             raise ConnectorInvocationError(
                 f"Connector endpoint resolved to a non-public address: {raw_address}."
             )
+    return addresses
+
+
+def _assert_public_endpoint(url: str, resolver: Resolver) -> None:
+    """Validate mocked/injected clients that do not use the pinned transport."""
+
+    _resolve_public_addresses(_validate_endpoint_url(url), resolver)
+
+
+class _PinnedPublicNetworkBackend(httpcore.AsyncNetworkBackend):
+    """Resolve and validate at connect time, then open TCP to the validated IP.
+
+    HTTP Core retains the original origin hostname and therefore still uses it
+    for TLS SNI and certificate verification. Only the TCP destination is
+    replaced, closing the DNS-validation-to-connect race.
+    """
+
+    def __init__(
+        self,
+        resolver: Resolver,
+        network_backend: httpcore.AsyncNetworkBackend | None = None,
+    ) -> None:
+        self._resolver = resolver
+        self._network_backend = network_backend or httpcore.AnyIOBackend()
+
+    async def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: Iterable[tuple[int, int, int | bytes]] | None = None,
+    ) -> httpcore.AsyncNetworkStream:
+        addresses = _resolve_public_addresses(host.lower(), self._resolver)
+        return await self._network_backend.connect_tcp(
+            addresses[0],
+            port,
+            timeout=timeout,
+            local_address=local_address,
+            socket_options=socket_options,
+        )
+
+    async def connect_unix_socket(
+        self,
+        path: str,
+        timeout: float | None = None,
+        socket_options: Iterable[tuple[int, int, int | bytes]] | None = None,
+    ) -> httpcore.AsyncNetworkStream:
+        raise ConnectorInvocationError("Connector Unix socket transport is not allowed.")
+
+    async def sleep(self, seconds: float) -> None:
+        await self._network_backend.sleep(seconds)
+
+
+class _PinnedPublicAsyncTransport(httpx.AsyncHTTPTransport):
+    """HTTPX transport whose connection pool uses connect-time DNS pinning."""
+
+    def __init__(self, resolver: Resolver) -> None:
+        super().__init__(retries=0)
+        self._pool = httpcore.AsyncConnectionPool(
+            retries=0,
+            network_backend=_PinnedPublicNetworkBackend(resolver),
+        )
 
 
 def _parse_expiry(value: Any) -> datetime:
@@ -116,7 +184,9 @@ class ConnectorReadClient:
         manifest = self.registry.load_manifest(connector_id, connector_version)
         transport = manifest["transport"]
         base_url = str(transport["url"]).rstrip("/")
-        _assert_public_endpoint(base_url, self._resolver)
+        _validate_endpoint_url(base_url)
+        if self._http_client is not None:
+            _assert_public_endpoint(base_url, self._resolver)
         request_id = str(uuid.uuid4())
 
         safe_context: dict[str, Any] = {}
@@ -149,7 +219,9 @@ class ConnectorReadClient:
 
         owns_client = self._http_client is None
         client = self._http_client or httpx.AsyncClient(
+            transport=_PinnedPublicAsyncTransport(self._resolver),
             follow_redirects=False,
+            trust_env=False,
             headers={"Accept": "application/json", "Content-Type": "application/json"},
         )
         try:
@@ -205,4 +277,3 @@ class ConnectorReadClient:
             "result": result,
             "expires_at": payload["expires_at"],
         }
-
