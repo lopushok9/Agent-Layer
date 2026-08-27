@@ -1,0 +1,101 @@
+name: publish connector packages
+
+on:
+  push:
+    tags:
+      - "connectors-v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: connector-packages-npm-release
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: verify connector release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      npm_tag: ${{ steps.version.outputs.npm_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: connectors/package-lock.json
+
+      - name: Validate tag and package versions
+        id: version
+        working-directory: connectors
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node --input-type=module - <<'JS'
+          import { appendFileSync, readFileSync } from "node:fs";
+
+          const sdk = JSON.parse(readFileSync("sdk-typescript/package.json", "utf8"));
+          const conformance = JSON.parse(readFileSync("conformance/package.json", "utf8"));
+          if (sdk.version !== conformance.version) {
+            throw new Error(`Package versions differ: ${sdk.version} != ${conformance.version}`);
+          }
+          const expectedTag = `connectors-v${sdk.version}`;
+          if (process.env.RELEASE_TAG !== expectedTag) {
+            throw new Error(`Release tag must be ${expectedTag}`);
+          }
+          const npmTag = sdk.version.includes("-") ? "beta" : "latest";
+          appendFileSync(process.env.GITHUB_OUTPUT, `version=${sdk.version}\nnpm_tag=${npmTag}\n`);
+          JS
+
+      - name: Install connector workspace
+        run: npm ci
+        working-directory: connectors
+
+      - name: Test packages and packed consumer
+        working-directory: connectors
+        run: |
+          npm run check
+          npm run check:pack
+
+  publish-sdk:
+    name: publish connector SDK
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: npm-connectors
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Publish immutable SDK package
+        working-directory: connectors/sdk-typescript
+        run: npm publish --access public --provenance --tag "${{ needs.verify.outputs.npm_tag }}"
+
+  publish-conformance:
+    name: publish connector conformance
+    needs:
+      - verify
+      - publish-sdk
+    runs-on: ubuntu-latest
+    environment: npm-connectors
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Publish immutable conformance package
+        working-directory: connectors/conformance
+        run: npm publish --access public --provenance --tag "${{ needs.verify.outputs.npm_tag }}"

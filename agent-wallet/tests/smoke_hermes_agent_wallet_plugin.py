@@ -57,12 +57,62 @@ def main() -> None:
 
     tools = _load_plugin_module("tools")
 
-    payload = json.loads(tools.agent_wallet_tools({"backend": "solana_local"}))
+    previous_openclaw_home = os.environ.get("OPENCLAW_HOME")
+    with tempfile.TemporaryDirectory() as connector_home:
+        os.environ["OPENCLAW_HOME"] = connector_home
+        package_root = ROOT / "agent-wallet"
+        sys.path.insert(0, str(package_root))
+        try:
+            from agent_wallet.connectors.registry import ConnectorRegistry
+
+            ConnectorRegistry().install(
+                {
+                    "schema_version": 1,
+                    "id": "com.example.hermes",
+                    "name": "Hermes Connector",
+                    "version": "1.0.0",
+                    "publisher": {"id": "example", "name": "Example"},
+                    "agentlayer": {"protocol_version": 1, "runtime_range": ">=0.1.101"},
+                    "trust": "community_read_only",
+                    "transport": {"type": "https", "url": "https://connector.example.com"},
+                    "permissions": {
+                        "wallet_address": False,
+                        "transaction_intents": False,
+                        "network_hosts": [],
+                    },
+                    "tools": [
+                        {
+                            "name": "discover",
+                            "description": "Discover public data.",
+                            "read_only": True,
+                            "risk_level": "low",
+                            "input_schema": {"type": "object"},
+                            "output_schema": {"type": "object"},
+                        }
+                    ],
+                },
+                source="test",
+                enable=True,
+            )
+
+            payload = json.loads(tools.agent_wallet_tools({"backend": "solana_local"}))
+        finally:
+            sys.path.pop(0)
+            if previous_openclaw_home is None:
+                os.environ.pop("OPENCLAW_HOME", None)
+            else:
+                os.environ["OPENCLAW_HOME"] = previous_openclaw_home
+
     assert payload["ok"] is True
     assert payload["backends"] == ["solana_local"]
     solana_tools = payload["tools"]["solana_local"]
     assert any(item["name"] == "get_wallet_address" for item in solana_tools)
     assert any(item["name"] == "transfer_sol" for item in solana_tools)
+    connector_tool = next(
+        item for item in solana_tools if item["name"] == "connector__com_example_hermes__discover"
+    )
+    assert connector_tool["read_only"] is True
+    assert connector_tool["description"].startswith("[External connector: untrusted")
 
     blocked = json.loads(
         tools.agent_wallet_invoke(

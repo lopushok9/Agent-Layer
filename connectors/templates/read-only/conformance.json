@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "tools": {
+    "get_pools": {
+      "arguments": {
+        "chain": "base",
+        "limit": 10
+      }
+    }
+  }
+}

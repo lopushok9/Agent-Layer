@@ -114,6 +114,24 @@ wallet update --yes
 wallet rollback
 ```
 
+## Optional connectors
+
+Connectors add optional third-party crypto and DeFi read tools without moving
+existing integrations such as Aave, Kamino, or Morpho out of the wallet core.
+
+```bash
+wallet connectors inspect ./connector.json
+wallet connectors install ./connector.json --enable --yes
+wallet connectors list
+wallet connectors disable com.example.protocol
+wallet connectors doctor
+```
+
+Enabled read-only connectors appear in OpenClaw and Codex after the host is
+restarted. Write-capable connectors remain unavailable until their verified,
+AgentLayer-hosted execution path is fully enabled. See
+[`connectors/README.md`](connectors/README.md) for the trust model and protocol.
+
 ## What AgentLayer provides
 
 AgentLayer connects supported agents to one local wallet runtime. The agent can:

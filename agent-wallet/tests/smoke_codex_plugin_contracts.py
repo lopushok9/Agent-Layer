@@ -36,6 +36,7 @@ def main() -> None:
     package_json = json.loads((repo_root / "package.json").read_text(encoding="utf-8"))
     files = package_json.get("files", [])
     assert "codex/plugins/agent-wallet/" in files
+    assert "connectors/" in files
 
     print("smoke_codex_plugin_contracts: ok")
 

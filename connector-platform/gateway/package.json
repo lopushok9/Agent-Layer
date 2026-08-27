@@ -1,0 +1,13 @@
+{
+  "name": "@agentlayer.tech/connector-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "check": "node --check src/gateway.mjs && node --check src/server.mjs && node --test test/gateway.test.mjs"
+  }
+}

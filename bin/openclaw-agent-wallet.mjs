@@ -48,6 +48,7 @@ Usage:
   openclaw-agent-wallet status
   openclaw-agent-wallet rollback [--to <version>]
   openclaw-agent-wallet doctor
+  openclaw-agent-wallet connectors <command>
   openclaw-agent-wallet --version
 
 Common install options:
@@ -73,6 +74,9 @@ Examples:
   npx @agentlayer.tech/wallet update --yes
   npx @agentlayer.tech/wallet update --yes --dry-run
   npx @agentlayer.tech/wallet status
+  wallet connectors list
+  wallet connectors inspect ./connector.json
+  wallet connectors install ./connector.json --enable --yes
 
 The installer writes a versioned runtime under:
   ~/.openclaw/agent-wallet-runtime/releases/<version>
@@ -2953,6 +2957,36 @@ function repairInstalledEditorIntegrations(env = process.env, names = null) {
   return hostIntegrations(env).refreshAll(names);
 }
 
+function runConnectorsCommand(args, env = process.env) {
+  const activeRoot = resolvedCurrentRuntimeRoot(env);
+  const runtimeRoot = activeRoot && fs.existsSync(path.join(activeRoot, "agent-wallet", "agent_wallet"))
+    ? activeRoot
+    : packageRoot;
+  const walletRoot = path.join(runtimeRoot, "agent-wallet");
+  const pythonBin = resolveVenvPython(runtimeRoot) || resolveAgentWalletPython(walletRoot);
+  const pythonPath = String(env.PYTHONPATH || "").trim();
+  const childEnv = {
+    ...env,
+    PYTHONPATH: pythonPath ? `${walletRoot}${path.delimiter}${pythonPath}` : walletRoot,
+  };
+  const result = spawnSync(
+    pythonBin,
+    ["-m", "agent_wallet.connector_cli", ...args],
+    {
+      cwd: walletRoot,
+      env: childEnv,
+      encoding: "utf8",
+    },
+  );
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  if (result.error) {
+    console.error(JSON.stringify({ ok: false, error: result.error.message }));
+    return 1;
+  }
+  return result.status ?? 1;
+}
+
 const args = process.argv.slice(2);
 const command = args[0] || "install";
 
@@ -2985,6 +3019,10 @@ if (command === "--self-verify") {
 
 if (command === "status") {
   process.exit(runStatus(args.slice(1)));
+}
+
+if (command === "connectors") {
+  process.exit(runConnectorsCommand(args.slice(1)));
 }
 
 if (command === "detect") {
