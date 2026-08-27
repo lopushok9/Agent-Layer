@@ -108,6 +108,8 @@ jobs:
         run: |
           python agent-wallet/tests/smoke_connector_openclaw_adapter.py
           python agent-wallet/tests/smoke_codex_connector_tools.py
+          python agent-wallet/tests/smoke_hermes_agent_wallet_plugin.py
+          python agent-wallet/tests/smoke_run_mcp_resolution.py
 
   gateway:
     name: connector gateway
