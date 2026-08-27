@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "tools": {
+    "get_spot_price": {
+      "arguments": { "base": "BTC", "quote": "USD" }
+    },
+    "get_asset_metadata": {
+      "arguments": { "asset": "BTC" }
+    }
+  }
+}

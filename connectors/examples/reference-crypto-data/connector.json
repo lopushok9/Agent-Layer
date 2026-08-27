@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "id": "tech.agentlayer.crypto-data",
+  "name": "AgentLayer Crypto Data Reference",
+  "version": "0.1.0-beta.1",
+  "publisher": {
+    "id": "agentlayer",
+    "name": "AgentLayer",
+    "url": "https://agentlayer.tech"
+  },
+  "agentlayer": {
+    "protocol_version": 1,
+    "runtime_range": ">=0.1.101"
+  },
+  "trust": "community_read_only",
+  "transport": {
+    "type": "https",
+    "url": "https://reference-crypto-data.up.railway.app",
+    "timeout_ms": 10000
+  },
+  "permissions": {
+    "wallet_address": false,
+    "transaction_intents": false,
+    "network_hosts": ["api.exchange.coinbase.com"]
+  },
+  "tools": [
+    {
+      "name": "get_spot_price",
+      "description": "Get a public spot ticker snapshot for a crypto/fiat or crypto/crypto product.",
+      "read_only": true,
+      "risk_level": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "base": { "type": "string", "pattern": "^[A-Za-z0-9]{2,12}$" },
+          "quote": { "type": "string", "pattern": "^[A-Za-z0-9]{2,12}$" }
+        },
+        "required": ["base", "quote"],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "product_id": { "type": "string", "minLength": 5, "maxLength": 25 },
+          "base_currency": { "type": "string", "minLength": 2, "maxLength": 12 },
+          "quote_currency": { "type": "string", "minLength": 2, "maxLength": 12 },
+          "price": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "bid": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "ask": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "last_size": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "volume_24h": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "observed_at": { "type": "string", "minLength": 10, "maxLength": 64 },
+          "source": { "const": "coinbase_exchange" }
+        },
+        "required": [
+          "product_id", "base_currency", "quote_currency", "price", "bid", "ask",
+          "last_size", "volume_24h", "observed_at", "source"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "get_asset_metadata",
+      "description": "Get public metadata and network status for a currency code.",
+      "read_only": true,
+      "risk_level": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "asset": { "type": "string", "pattern": "^[A-Za-z0-9]{2,12}$" }
+        },
+        "required": ["asset"],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "asset": { "type": "string", "minLength": 2, "maxLength": 12 },
+          "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "status": { "type": "string", "minLength": 1, "maxLength": 40 },
+          "type": { "type": ["string", "null"], "maxLength": 40 },
+          "min_size": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "max_precision": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "default_network": { "type": ["string", "null"], "maxLength": 80 },
+          "source": { "const": "coinbase_exchange" }
+        },
+        "required": [
+          "asset", "name", "status", "type", "min_size", "max_precision",
+          "default_network", "source"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

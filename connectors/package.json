@@ -5,11 +5,12 @@
   "workspaces": [
     "sdk-typescript",
     "templates/read-only",
-    "conformance"
+    "conformance",
+    "examples/reference-crypto-data"
   ],
   "scripts": {
-    "build": "npm run build --workspace @agentlayer.tech/connector-sdk && npm run build --workspace @agentlayer.tech/read-only-connector-template && npm run build --workspace @agentlayer.tech/connector-conformance",
-    "check": "npm run check --workspace @agentlayer.tech/connector-sdk && npm run check --workspace @agentlayer.tech/read-only-connector-template && npm run check --workspace @agentlayer.tech/connector-conformance",
+    "build": "npm run build --workspace @agentlayer.tech/connector-sdk && npm run build --workspace @agentlayer.tech/read-only-connector-template && npm run build --workspace @agentlayer.tech/connector-conformance && npm run build --workspace @agentlayer.tech/reference-crypto-data-connector",
+    "check": "npm run check --workspace @agentlayer.tech/connector-sdk && npm run check --workspace @agentlayer.tech/read-only-connector-template && npm run check --workspace @agentlayer.tech/connector-conformance && npm run check --workspace @agentlayer.tech/reference-crypto-data-connector",
     "check:pack": "node scripts/smoke-packed-packages.mjs"
   },
   "engines": {
