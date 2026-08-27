@@ -15,7 +15,7 @@
   "trust": "community_read_only",
   "transport": {
     "type": "https",
-    "url": "https://reference-crypto-data.up.railway.app",
+    "url": "https://reference-crypto-data-production.up.railway.app",
     "timeout_ms": 10000
   },
   "permissions": {
