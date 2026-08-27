@@ -65,6 +65,9 @@ jobs:
       - name: Build read-only template image
         run: docker build --file connectors/templates/read-only/Dockerfile .
 
+      - name: Build reference crypto-data image
+        run: docker build --file connectors/examples/reference-crypto-data/Dockerfile .
+
   wallet:
     name: connector wallet boundary
     runs-on: ubuntu-latest

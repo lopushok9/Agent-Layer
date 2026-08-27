@@ -20,3 +20,17 @@ npm run start --workspace @agentlayer.tech/reference-crypto-data-connector --pre
 
 Before publishing its manifest, replace `transport.url` with the final HTTPS
 deployment and run the conformance suite against that exact endpoint.
+
+## Railway deployment
+
+Deploy this directory as one stateless service in a new, isolated Railway
+project. Point the service at `railway.toml` while keeping the repository root
+as the build context. The service needs no variables, volume, database, wallet
+material, or connection to the AgentLayer provider gateway.
+
+After Railway generates the public domain:
+
+1. update `connector.json` to that exact HTTPS URL;
+2. redeploy the immutable manifest version;
+3. run both live conformance and wallet invocation tests;
+4. install the reviewed manifest with `wallet connectors install ... --enable --yes`.
