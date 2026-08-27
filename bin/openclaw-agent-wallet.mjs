@@ -75,7 +75,8 @@ Examples:
   npx @agentlayer.tech/wallet update --yes --dry-run
   npx @agentlayer.tech/wallet status
   wallet connectors list
-  wallet connectors install ./connector.json --enable
+  wallet connectors inspect ./connector.json
+  wallet connectors install ./connector.json --enable --yes
 
 The installer writes a versioned runtime under:
   ~/.openclaw/agent-wallet-runtime/releases/<version>

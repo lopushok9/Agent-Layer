@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_wallet.connectors.catalog import enabled_connector_tools
-from agent_wallet.connectors.manifest import ConnectorManifestError
+from agent_wallet.connectors.manifest import ConnectorManifestError, validate_connector_manifest
 from agent_wallet.connectors.registry import ConnectorRegistry, ConnectorRegistryError
 
 
@@ -39,6 +39,24 @@ def _load_manifest_file(value: str) -> tuple[dict[str, Any], str]:
     return payload, str(path)
 
 
+def _permission_review(manifest_payload: dict[str, Any]) -> dict[str, Any]:
+    manifest = validate_connector_manifest(manifest_payload)
+    permissions = manifest["permissions"]
+    warnings = ["Connector responses are untrusted external data."]
+    if permissions["wallet_address"]:
+        warnings.append("The connector may receive the active public wallet address.")
+    return {
+        "id": manifest["id"],
+        "version": manifest["version"],
+        "publisher": manifest["publisher"],
+        "trust": manifest["trust"],
+        "endpoint": manifest["transport"]["url"],
+        "permissions": permissions,
+        "tools": [tool["name"] for tool in manifest["tools"]],
+        "warnings": warnings,
+    }
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="wallet connectors")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -49,13 +67,18 @@ def _build_parser() -> argparse.ArgumentParser:
     info = subparsers.add_parser("info", help="Show one installed connector.")
     info.add_argument("connector_id")
 
+    inspect = subparsers.add_parser("inspect", help="Review a manifest before installation.")
+    inspect.add_argument("manifest", help="Path to a connector manifest JSON file.")
+
     install = subparsers.add_parser("install", help="Install an immutable connector manifest.")
     install.add_argument("manifest", help="Path to a connector manifest JSON file.")
     install.add_argument("--enable", action="store_true", help="Enable this exact version.")
+    install.add_argument("--yes", action="store_true", help="Confirm permissions when enabling.")
 
     enable = subparsers.add_parser("enable", help="Enable an installed connector version.")
     enable.add_argument("connector_id")
     enable.add_argument("--version", default=None)
+    enable.add_argument("--yes", action="store_true", help="Confirm the installed permissions.")
 
     disable = subparsers.add_parser("disable", help="Disable an installed connector.")
     disable.add_argument("connector_id")
@@ -117,12 +140,27 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "info":
             _print({"ok": True, "connector": registry.describe(args.connector_id)})
             return 0
+        if args.command == "inspect":
+            manifest, source = _load_manifest_file(args.manifest)
+            _print({"ok": True, "source": source, "review": _permission_review(manifest)})
+            return 0
         if args.command == "install":
             manifest, source = _load_manifest_file(args.manifest)
+            review = _permission_review(manifest)
+            if args.enable and not args.yes:
+                raise ConnectorRegistryError(
+                    "install --enable requires --yes after reviewing connector permissions "
+                    "with `wallet connectors inspect <manifest>`."
+                )
             connector = registry.install(manifest, source=source, enable=bool(args.enable))
-            _print({"ok": True, "connector": connector})
+            _print({"ok": True, "connector": connector, "review": review})
             return 0
         if args.command == "enable":
+            if not args.yes:
+                raise ConnectorRegistryError(
+                    "enable requires --yes after reviewing the installed connector with "
+                    "`wallet connectors info <connector_id>`."
+                )
             connector = registry.enable(args.connector_id, version=args.version)
             _print({"ok": True, "connector": connector})
             return 0

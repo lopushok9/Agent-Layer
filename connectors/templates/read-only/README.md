@@ -24,7 +24,8 @@ After deployment, replace `transport.url`, run the conformance suite, then
 install the manifest locally with:
 
 ```bash
-wallet connectors install ./connector.json --enable
+wallet connectors inspect ./connector.json
+wallet connectors install ./connector.json --enable --yes
 ```
 
 Never put upstream credentials in `connector.json`. Configure them as Railway

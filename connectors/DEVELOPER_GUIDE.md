@@ -114,7 +114,8 @@ Install and enable the final manifest, then restart the agent host so its tool
 catalog is rebuilt:
 
 ```bash
-wallet connectors install ./connector.json --enable
+wallet connectors inspect ./connector.json
+wallet connectors install ./connector.json --enable --yes
 wallet connectors doctor
 wallet connectors list
 ```

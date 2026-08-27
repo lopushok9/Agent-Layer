@@ -91,7 +91,8 @@ enabled yet.
 Install and enable a connector manifest:
 
 ```bash
-wallet connectors install ./connector.json --enable
+wallet connectors inspect ./connector.json
+wallet connectors install ./connector.json --enable --yes
 wallet connectors list
 wallet connectors info com.example.protocol
 wallet connectors doctor

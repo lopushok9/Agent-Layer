@@ -68,8 +68,31 @@ def main() -> None:
         env["OPENCLAW_HOME"] = str(temp_root / "home")
         env["PYTHONPATH"] = str(package_root)
 
-        installed = _run(package_root, env, "install", str(manifest_path), "--enable")
+        review = _run(package_root, env, "inspect", str(manifest_path))["review"]
+        assert review["permissions"]["wallet_address"] is False
+        assert review["tools"] == ["search"]
+
+        unconfirmed = _run(
+            package_root,
+            env,
+            "install",
+            str(manifest_path),
+            "--enable",
+            ok=False,
+        )
+        assert "requires --yes" in unconfirmed["error"]
+        assert _run(package_root, env, "list")["connectors"] == []
+
+        installed = _run(
+            package_root,
+            env,
+            "install",
+            str(manifest_path),
+            "--enable",
+            "--yes",
+        )
         assert installed["connector"]["enabled"] is True
+        assert installed["review"] == review
 
         listed = _run(package_root, env, "list")
         assert [item["id"] for item in listed["connectors"]] == ["com.example.discovery"]
@@ -93,6 +116,16 @@ def main() -> None:
         )
         assert "requires --yes" in rejected["error"]
 
+        _run(package_root, env, "disable", "com.example.discovery")
+        enable_rejected = _run(
+            package_root,
+            env,
+            "enable",
+            "com.example.discovery",
+            ok=False,
+        )
+        assert "requires --yes" in enable_rejected["error"]
+        _run(package_root, env, "enable", "com.example.discovery", "--yes")
         _run(package_root, env, "disable", "com.example.discovery")
         removed = _run(
             package_root,

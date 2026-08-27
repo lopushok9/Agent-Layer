@@ -120,7 +120,8 @@ Connectors add optional third-party crypto and DeFi read tools without moving
 existing integrations such as Aave, Kamino, or Morpho out of the wallet core.
 
 ```bash
-wallet connectors install ./connector.json --enable
+wallet connectors inspect ./connector.json
+wallet connectors install ./connector.json --enable --yes
 wallet connectors list
 wallet connectors disable com.example.protocol
 wallet connectors doctor

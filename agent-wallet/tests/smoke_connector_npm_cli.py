@@ -65,7 +65,9 @@ def main() -> None:
         env["OPENCLAW_HOME"] = str(temp_root / "home")
         env["AGENT_WALLET_PYTHON"] = sys.executable
 
-        installed = _run(cli, env, "install", str(manifest_path), "--enable")
+        review = _run(cli, env, "inspect", str(manifest_path))
+        assert review["review"]["tools"] == ["search"]
+        installed = _run(cli, env, "install", str(manifest_path), "--enable", "--yes")
         assert installed["connector"]["enabled"] is True
         listed = _run(cli, env, "list")
         assert listed["connectors"][0]["id"] == "com.example.npm"
@@ -79,4 +81,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
