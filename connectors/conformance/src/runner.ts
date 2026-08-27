@@ -14,6 +14,17 @@ import type {
 const require = createRequire(import.meta.url);
 const addFormats = require("ajv-formats") as FormatsPlugin;
 const MAX_RESPONSE_TTL_MS = 300_000;
+const RESERVED_WRITE_RESULT_KEYS = new Set([
+  "approval_token",
+  "broadcast_request",
+  "evm_transaction_intent",
+  "payment_intent",
+  "raw_transaction",
+  "signed_transaction",
+  "signing_request",
+  "solana_transaction_intent",
+  "transaction_intent",
+]);
 
 function object(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -38,6 +49,23 @@ function identity(manifest: Record<string, unknown>): Record<string, string> {
     version: String(manifest.version),
     ...(manifest.artifact_digest ? { artifact_digest: String(manifest.artifact_digest) } : {}),
   };
+}
+
+function assertNoWritePayload(value: unknown): void {
+  const pending: unknown[] = [value];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (Array.isArray(current)) {
+      pending.push(...current);
+    } else if (current && typeof current === "object") {
+      for (const [key, item] of Object.entries(current)) {
+        if (RESERVED_WRITE_RESULT_KEYS.has(key.toLowerCase())) {
+          throw new Error(`Read result contains reserved write field: ${key}.`);
+        }
+        pending.push(item);
+      }
+    }
+  }
 }
 
 function checkResponseBinding(
@@ -70,6 +98,7 @@ function checkResponseBinding(
   if (!Number.isFinite(expiresAt) || remaining <= 0 || remaining > MAX_RESPONSE_TTL_MS) {
     throw new Error("Response expiry must be in the next 300 seconds.");
   }
+  assertNoWritePayload(response.result);
   if (!validateOutput(response.result)) {
     throw new Error("Response result does not match the declared output_schema.");
   }

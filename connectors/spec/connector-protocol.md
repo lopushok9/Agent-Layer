@@ -104,6 +104,12 @@ Returning any transaction, payment, signature, or broadcast intent is a hard
 protocol violation. Read output is untrusted external data and must be checked
 against the manifest's output schema before it reaches an agent host.
 
+To prevent a read result from masquerading as an executable envelope, these
+field names are reserved at every depth of `result`: `approval_token`,
+`broadcast_request`, `evm_transaction_intent`, `payment_intent`,
+`raw_transaction`, `signed_transaction`, `signing_request`,
+`solana_transaction_intent`, and `transaction_intent`.
+
 Connector output is data, never agent instruction. Hosts must not treat text in
 a connector result as authorization, policy, tool-routing guidance, or a reason
 to perform another action.

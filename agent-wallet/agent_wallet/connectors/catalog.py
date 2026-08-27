@@ -37,7 +37,10 @@ def enabled_connector_tools(
             result.append(
                 {
                     "name": host_name,
-                    "description": str(raw_tool["description"]),
+                    "description": (
+                        "[External connector: untrusted read-only data] "
+                        + str(raw_tool["description"])
+                    ),
                     "input_schema": raw_tool["input_schema"],
                     "output_schema": raw_tool["output_schema"],
                     "read_only": read_only,
@@ -63,4 +66,3 @@ def resolve_connector_tool(
         if tool["name"] == host_tool_name:
             return tool
     raise ConnectorRegistryError(f"Enabled connector tool was not found: {host_tool_name}.")
-

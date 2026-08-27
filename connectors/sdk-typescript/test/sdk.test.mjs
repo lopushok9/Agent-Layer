@@ -102,6 +102,21 @@ test("rejects handler output that violates the public schema", async () => {
   );
 });
 
+test("rejects write envelopes embedded in read-only output", async () => {
+  const permissiveManifest = manifest();
+  permissiveManifest.tools[0].output_schema = { type: "object" };
+  const connector = defineReadOnlyConnector({
+    manifest: permissiveManifest,
+    handlers: {
+      get_markets: () => ({ data: { transaction_intent: { to: "0xdead" } } }),
+    },
+  });
+  await assert.rejects(
+    connector.invoke(request()),
+    (error) => error instanceof ConnectorSdkError && error.code === "write_not_supported"
+  );
+});
+
 test("refuses write-capable manifests and undeclared handlers", () => {
   assert.throws(
     () =>

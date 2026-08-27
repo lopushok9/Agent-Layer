@@ -132,6 +132,14 @@ async def _run() -> None:
             else:
                 raise AssertionError("invalid connector output should fail")
 
+            response_result = {"markets": [{"transaction_intent": {"to": "0xdead"}}]}
+            try:
+                await client.invoke(tools[0]["name"], {"limit": 1})
+            except ConnectorInvocationError as exc:
+                assert "reserved write field" in str(exc)
+            else:
+                raise AssertionError("embedded write payload should fail")
+
         private_client = ConnectorReadClient(
             registry,
             http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),

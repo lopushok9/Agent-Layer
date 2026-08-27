@@ -16,6 +16,17 @@ import type {
 
 const TOOL_NAME_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
 const MAX_RESPONSE_TTL_SECONDS = 300;
+const RESERVED_WRITE_RESULT_KEYS = new Set([
+  "approval_token",
+  "broadcast_request",
+  "evm_transaction_intent",
+  "payment_intent",
+  "raw_transaction",
+  "signed_transaction",
+  "signing_request",
+  "solana_transaction_intent",
+  "transaction_intent",
+]);
 const READ_ONLY_TRUST = new Set([
   "community_read_only",
   "verified_read_only",
@@ -47,6 +58,9 @@ function assertJsonValue(value: unknown, path = "result"): asserts value is Json
   }
   if (typeof value === "object") {
     for (const [key, item] of Object.entries(value)) {
+      if (RESERVED_WRITE_RESULT_KEYS.has(key.toLowerCase())) {
+        fail("write_not_supported", `${path} contains reserved write field: ${key}.`, 500);
+      }
       assertJsonValue(item, `${path}.${key}`);
     }
     return;

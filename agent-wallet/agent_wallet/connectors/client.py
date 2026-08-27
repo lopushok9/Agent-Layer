@@ -20,6 +20,19 @@ from agent_wallet.connectors.registry import ConnectorRegistry
 
 MAX_CONNECTOR_RESPONSE_BYTES = 1024 * 1024
 MAX_RESPONSE_LIFETIME_SECONDS = 300
+RESERVED_WRITE_RESULT_KEYS = frozenset(
+    {
+        "approval_token",
+        "broadcast_request",
+        "evm_transaction_intent",
+        "payment_intent",
+        "raw_transaction",
+        "signed_transaction",
+        "signing_request",
+        "solana_transaction_intent",
+        "transaction_intent",
+    }
+)
 Resolver = Callable[[str], Iterable[str]]
 
 
@@ -151,6 +164,21 @@ def _validate_json(instance: Any, schema: dict[str, Any], *, label: str) -> None
         raise ConnectorInvocationError(f"Connector {label} does not match its schema: {exc.message}") from exc
 
 
+def _reject_embedded_write_payload(result: Any) -> None:
+    pending = [result]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if str(key).lower() in RESERVED_WRITE_RESULT_KEYS:
+                    raise ConnectorInvocationError(
+                        f"Read-only connector result contains reserved write field: {key}."
+                    )
+                pending.append(item)
+        elif isinstance(value, list):
+            pending.extend(value)
+
+
 class ConnectorReadClient:
     """Invoke enabled read-only connector tools with strict identity binding."""
 
@@ -268,6 +296,7 @@ class ConnectorReadClient:
             raise ConnectorInvocationError("Read-only connector returned a non-read result.")
         _parse_expiry(payload.get("expires_at"))
         result = payload.get("result")
+        _reject_embedded_write_payload(result)
         _validate_json(result, tool["output_schema"], label="tool output")
         return {
             "connector_id": connector_id,

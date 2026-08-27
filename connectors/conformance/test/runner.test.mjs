@@ -81,6 +81,29 @@ test("reports response identity drift", async () => {
   assert.equal(report.checks.find((check) => check.name === "tool:get_pools:invoke")?.ok, false);
 });
 
+test("reports write envelopes embedded in read-only output", async () => {
+  const permissiveManifest = structuredClone(manifest);
+  permissiveManifest.tools[0].output_schema = { type: "object" };
+  const report = await runConformance({
+    manifest: permissiveManifest,
+    fixture,
+    endpoint: "https://connector.example.com",
+    fetchImpl: async (url, options = {}) => {
+      const result = await conformingFetch(url, options);
+      if (!String(url).endsWith("/invoke") || result.status !== 200) return result;
+      const payload = await result.json();
+      return response(200, {
+        ...payload,
+        result: { data: { payment_intent: { amount: "1" } } },
+      });
+    },
+  });
+  assert.equal(report.ok, false);
+  const invoke = report.checks.find((check) => check.name === "tool:get_pools:invoke");
+  assert.equal(invoke?.ok, false);
+  assert.match(invoke?.error ?? "", /reserved write field/);
+});
+
 test("fails when a declared tool has no fixture", async () => {
   const report = await runConformance({
     manifest,
