@@ -61,6 +61,18 @@ test("passes a conforming read-only endpoint", async () => {
   assert.ok(report.checks.length >= 6);
 });
 
+test("rejects public plaintext HTTP endpoints", async () => {
+  await assert.rejects(
+    runConformance({
+      manifest,
+      fixture,
+      endpoint: "http://connector.example.com",
+      fetchImpl: conformingFetch,
+    }),
+    /must use HTTPS/
+  );
+});
+
 test("reports response identity drift", async () => {
   const report = await runConformance({
     manifest,

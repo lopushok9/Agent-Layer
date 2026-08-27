@@ -14,6 +14,7 @@ import type {
 const require = createRequire(import.meta.url);
 const addFormats = require("ajv-formats") as FormatsPlugin;
 const MAX_RESPONSE_TTL_MS = 300_000;
+const MAX_RESPONSE_BYTES = 1024 * 1024;
 const RESERVED_WRITE_RESULT_KEYS = new Set([
   "approval_token",
   "broadcast_request",
@@ -30,6 +31,36 @@ function object(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+async function readJsonResponse(response: Response): Promise<unknown> {
+  const contentType = String(response.headers.get("content-type") ?? "").toLowerCase();
+  if (!contentType.startsWith("application/json")) {
+    throw new Error("Response Content-Type must be application/json.");
+  }
+  const contentLength = Number(response.headers.get("content-length") ?? 0);
+  if (Number.isFinite(contentLength) && contentLength > MAX_RESPONSE_BYTES) {
+    throw new Error("Response exceeds the 1 MiB protocol limit.");
+  }
+  if (!response.body) throw new Error("Response body is missing.");
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_RESPONSE_BYTES) {
+      await reader.cancel();
+      throw new Error("Response exceeds the 1 MiB protocol limit.");
+    }
+    chunks.push(value);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    throw new Error("Response body is not valid JSON.");
+  }
 }
 
 async function defaultManifestSchema(): Promise<Record<string, unknown>> {
@@ -123,7 +154,18 @@ export async function runConformance(options: ConformanceOptions): Promise<Confo
   const endpoint = String(
     options.endpoint ?? object(options.manifest.transport)?.url ?? ""
   ).replace(/\/$/, "");
-  if (!/^https?:\/\//.test(endpoint)) throw new Error("A connector endpoint URL is required.");
+  let endpointUrl: URL;
+  try {
+    endpointUrl = new URL(endpoint);
+  } catch {
+    throw new Error("A connector endpoint URL is required.");
+  }
+  const localHttp =
+    endpointUrl.protocol === "http:" &&
+    ["127.0.0.1", "::1", "localhost"].includes(endpointUrl.hostname);
+  if (endpointUrl.protocol !== "https:" && !localHttp) {
+    throw new Error("Connector endpoints must use HTTPS; HTTP is allowed only for loopback tests.");
+  }
   const timeoutMs = options.timeoutMs ?? 10_000;
   const fetchImpl = options.fetchImpl ?? fetch;
   const checks: ConformanceCheck[] = [];
@@ -166,7 +208,7 @@ export async function runConformance(options: ConformanceOptions): Promise<Confo
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (response.status !== 200) throw new Error(`Health endpoint returned HTTP ${response.status}.`);
-    const payload = object(await response.json());
+    const payload = object(await readJsonResponse(response));
     const connector = object(payload?.connector);
     if (
       payload?.ok !== true ||
@@ -207,7 +249,13 @@ export async function runConformance(options: ConformanceOptions): Promise<Confo
         timeoutMs
       );
       if (response.status !== 200) throw new Error(`Invoke returned HTTP ${response.status}.`);
-      checkResponseBinding(await response.json(), options.manifest, requestId, toolName, validateOutput);
+      checkResponseBinding(
+        await readJsonResponse(response),
+        options.manifest,
+        requestId,
+        toolName,
+        validateOutput
+      );
     });
   }
 

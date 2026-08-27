@@ -94,6 +94,9 @@ tool name, expiry, and one result kind:
 }
 ```
 
+The complete encoded response body must not exceed 1 MiB and must use
+`Content-Type: application/json`.
+
 Write-capable responses use `evm_transaction_intent` or
 `solana_transaction_intent`. They remain unsigned and unbroadcasted.
 

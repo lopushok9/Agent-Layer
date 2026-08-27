@@ -117,6 +117,19 @@ test("rejects write envelopes embedded in read-only output", async () => {
   );
 });
 
+test("rejects a response larger than the wallet protocol limit", async () => {
+  const permissiveManifest = manifest();
+  permissiveManifest.tools[0].output_schema = { type: "object" };
+  const connector = defineReadOnlyConnector({
+    manifest: permissiveManifest,
+    handlers: { get_markets: () => ({ data: "x".repeat(1024 * 1024) }) },
+  });
+  await assert.rejects(
+    connector.invoke(request()),
+    (error) => error instanceof ConnectorSdkError && error.code === "response_too_large"
+  );
+});
+
 test("refuses write-capable manifests and undeclared handlers", () => {
   assert.throws(
     () =>

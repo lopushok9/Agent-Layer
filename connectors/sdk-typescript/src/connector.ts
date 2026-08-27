@@ -15,6 +15,7 @@ import type {
 } from "./types.js";
 
 const TOOL_NAME_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
+const MAX_RESPONSE_BYTES = 1024 * 1024;
 const MAX_RESPONSE_TTL_SECONDS = 300;
 const RESERVED_WRITE_RESULT_KEYS = new Set([
   "approval_token",
@@ -185,7 +186,7 @@ export function defineReadOnlyConnector(
         version: manifest.version,
         ...(manifest.artifact_digest ? { artifact_digest: manifest.artifact_digest } : {}),
       };
-      return {
+      const response: ConnectorReadResponse = {
         protocol_version: 1,
         request_id: request.request_id,
         connector,
@@ -194,6 +195,10 @@ export function defineReadOnlyConnector(
         result,
         expires_at: new Date(Date.now() + ttlSeconds * 1000).toISOString(),
       };
+      if (Buffer.byteLength(JSON.stringify(response)) > MAX_RESPONSE_BYTES) {
+        fail("response_too_large", "Connector response exceeds the 1 MiB protocol limit.", 500);
+      }
+      return response;
     },
   });
 }

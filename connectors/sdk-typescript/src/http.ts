@@ -4,6 +4,7 @@ import { ConnectorSdkError } from "./errors.js";
 import type { ConnectorInvocationRequest, ReadOnlyConnector } from "./types.js";
 
 const DEFAULT_MAX_BODY_BYTES = 1024 * 1024;
+const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 
 export interface ConnectorHttpOptions {
   maxBodyBytes?: number;
@@ -101,6 +102,9 @@ export async function startConnectorServer(
     throw new ConnectorSdkError("invalid_http_options", "port must be between 1 and 65535.");
   }
   const server = createServer((request, response) => void handler(request, response));
+  server.requestTimeout = DEFAULT_REQUEST_TIMEOUT_MS;
+  server.headersTimeout = 10_000;
+  server.keepAliveTimeout = 5_000;
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, host, () => {
