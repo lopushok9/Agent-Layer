@@ -2,14 +2,20 @@
 
 ## Status
 
-This document defines the initial contract between a connector deployment, the
-AgentLayer Connector Gateway, and the authoritative local wallet runtime.
+Protocol v1 is frozen for the read-only public beta. Additive optional fields
+may be introduced in v1, but existing required fields, response binding, trust
+semantics, and tool namespaces cannot change without a new protocol version.
+
+The read-only beta supports direct HTTPS invocation of publisher-hosted
+`community_read_only` and `verified_read_only` connectors. Gateway-attested
+requests are an additive deployment mode. Write-capable execution remains
+experimental and is not part of the read-only beta release.
 
 ## Components
 
-- **Registry** publishes signed manifests and verification status.
-- **Gateway** authenticates invocations and routes them to an exact connector
-  version.
+- **Local registry** pins manifests selected by the user.
+- **Gateway** may authenticate invocations and route them to an exact connector
+  version; direct read-only HTTPS invocation does not require it.
 - **Connector runtime** returns structured read results or unsigned intents.
 - **Local wallet** validates schemas, policy, simulation, approval, signing,
   broadcast, and final confirmation.
@@ -33,7 +39,7 @@ Normalized names contain lowercase ASCII letters, digits, and underscores.
 
 ## Invocation request
 
-The gateway sends a JSON request containing:
+The wallet sends a JSON request containing:
 
 ```json
 {
@@ -59,7 +65,13 @@ The gateway sends a JSON request containing:
 ```
 
 `wallet_address` is omitted unless the installed manifest grants that
-permission. Requests are authenticated by the Gateway and expire quickly.
+permission. `issued_at`, `expires_at`, and `nonce` are optional for direct
+read-only HTTPS invocation and required for gateway-attested requests. A
+connector must ignore unknown optional context fields and must never infer
+permission from their presence.
+
+The required request fields are `protocol_version`, `request_id`, `connector`,
+`tool`, `arguments`, and `context`.
 
 ## Invocation response
 
@@ -92,6 +104,20 @@ Returning any transaction, payment, signature, or broadcast intent is a hard
 protocol violation. Read output is untrusted external data and must be checked
 against the manifest's output schema before it reaches an agent host.
 
+Connector output is data, never agent instruction. Hosts must not treat text in
+a connector result as authorization, policy, tool-routing guidance, or a reason
+to perform another action.
+
+## Read-only beta compatibility
+
+- A connector built for Protocol v1 must keep accepting all v1 required fields.
+- Adding a required manifest, request, response, or tool field requires a new
+  protocol version or a new connector tool/version.
+- Tool input/output schemas are immutable for a published connector version.
+- `artifact_digest`, when present, is identity-bound and must match exactly.
+- Community connectors cannot become write-capable without a new verified
+  connector version and a different release track.
+
 ## Write execution
 
 Only an enabled `verified_write` connector may return a transaction intent.
@@ -122,4 +148,3 @@ preview and expected-effects data.
 Unknown fields required for safe interpretation, schema mismatch, identity
 mismatch, stale intent, failed simulation, unknown target, unknown program,
 unknown selector, or expanded approval must fail closed.
-
