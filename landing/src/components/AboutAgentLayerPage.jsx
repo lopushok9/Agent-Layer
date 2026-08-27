@@ -32,6 +32,7 @@ export const AboutAgentLayerPage = ({ onInstallClick }) => {
 
         <nav className="ab-nav">
           <a href="/wallet" className="ab-nav-item">Wallet</a>
+          <a href="/connectors" className="ab-nav-item">Connectors</a>
           <a href="/use-cases" className="ab-nav-item">Use Cases</a>
           <a href="/skill.md" className="ab-nav-item">For LLMs</a>
           <a href="/for-investors" className="ab-nav-item">For Investors</a>

@@ -34,6 +34,7 @@ export const UseCasesPage = ({ onInstallClick }) => {
 
         <nav className="uc-nav">
           <a href="/wallet" className="uc-nav-item">Wallet</a>
+          <a href="/connectors" className="uc-nav-item">Connectors</a>
           <a href="/use-cases" className="uc-nav-item uc-nav-active">Use Cases</a>
           <a href="/skill.md" className="uc-nav-item">For LLMs</a>
           <a href="/for-investors" className="uc-nav-item">For Investors</a>

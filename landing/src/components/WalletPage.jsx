@@ -27,6 +27,7 @@ export const WalletPage = ({ onInstallClick }) => {
 
         <nav className="wp-nav">
           <a href="/wallet" className="wp-nav-item wp-nav-active">Wallet</a>
+          <a href="/connectors" className="wp-nav-item">Connectors</a>
           <a href="/use-cases" className="wp-nav-item">Use Cases</a>
           <a href="/skill.md" className="wp-nav-item">For LLMs</a>
           <a href="/for-investors" className="wp-nav-item">For Investors</a>

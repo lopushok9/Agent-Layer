@@ -16,6 +16,7 @@ export const HowToUsePage = ({ onInstallClick }) => {
 
         <nav className="htu-nav">
           <a href="/wallet" className="htu-nav-item">Wallet</a>
+          <a href="/connectors" className="htu-nav-item">Connectors</a>
           <a href="/use-cases" className="htu-nav-item">Use Cases</a>
           <a href="/skill.md" className="htu-nav-item">For LLMs</a>
           <a href="/for-investors" className="htu-nav-item">For Investors</a>

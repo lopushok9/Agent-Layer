@@ -259,6 +259,7 @@ export const Interface = ({ onInstallClick }) => {
 
                 <nav className="nav desktop-only">
                     <a href="/wallet" className="nav-item">Wallet</a>
+                    <a href="/connectors" className="nav-item">Connectors</a>
                     <a href="/use-cases" className="nav-item">Use Cases</a>
                     <a href="/skill.md" className="nav-item">For LLMs</a>
                     <a href="/for-investors" className="nav-item">For Investors</a>
@@ -304,6 +305,7 @@ export const Interface = ({ onInstallClick }) => {
                 <div className="mobile-menu-content">
                     <nav className="mobile-nav-list">
                         <a href="/wallet" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>Wallet</a>
+                        <a href="/connectors" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>Connectors</a>
                         <a href="/use-cases" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>Use Cases</a>
                         <a href="/skill.md" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>For LLMs</a>
                         <a href="/for-investors" className="mobile-nav-link" onClick={() => setMobileMenuOpen(false)}>For Investors</a>

@@ -14,6 +14,7 @@ export const ForInvestorsPage = ({ onInstallClick }) => {
 
         <nav className="fi-nav">
           <a href="/wallet" className="fi-nav-item">Wallet</a>
+          <a href="/connectors" className="fi-nav-item">Connectors</a>
           <a href="/use-cases" className="fi-nav-item">Use Cases</a>
           <a href="/skill.md" className="fi-nav-item">For LLMs</a>
           <a href="/for-investors" className="fi-nav-item fi-nav-active">For Investors</a>

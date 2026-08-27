@@ -37,6 +37,7 @@ export const TermsPage = ({ onInstallClick }) => {
 
         <nav className="tm-nav">
           <a href="/wallet" className="tm-nav-item">Wallet</a>
+          <a href="/connectors" className="tm-nav-item">Connectors</a>
           <a href="/use-cases" className="tm-nav-item">Use Cases</a>
           <a href="/skill.md" className="tm-nav-item">For LLMs</a>
           <a href="/about" className="tm-nav-item">About</a>

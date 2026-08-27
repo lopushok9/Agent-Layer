@@ -4,6 +4,7 @@ import { Interface } from './components/Interface'
 import { InstallModal } from './components/InstallModal'
 import { ProductPage } from './components/ProductPage'
 import { WalletPage } from './components/WalletPage'
+import { ConnectorsPage } from './components/ConnectorsPage'
 import { UseCasesPage } from './components/UseCasesPage'
 import { HowToUsePage } from './components/HowToUsePage'
 import { AboutAgentLayerPage } from './components/AboutAgentLayerPage'
@@ -124,6 +125,7 @@ function App({ initialPage, initialPath, suppressNavigation = false }) {
   return (
     <>
       {page === 'wallet' && <WalletPage onInstallClick={() => setInstallModalOpen(true)} />}
+      {page === 'connectors' && <ConnectorsPage onInstallClick={() => setInstallModalOpen(true)} />}
       {page === 'product' && <ProductPage onInstallClick={() => setInstallModalOpen(true)} />}
       {page === 'use-cases' && <UseCasesPage onInstallClick={() => setInstallModalOpen(true)} />}
       {page === 'how-to-use' && <HowToUsePage onInstallClick={() => setInstallModalOpen(true)} />}

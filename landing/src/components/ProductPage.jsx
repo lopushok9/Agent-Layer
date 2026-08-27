@@ -47,6 +47,7 @@ export const ProductPage = ({ onInstallClick }) => {
 
         <nav className="pp-nav">
           <a href="/wallet" className="pp-nav-item">Wallet</a>
+          <a href="/connectors" className="pp-nav-item">Connectors</a>
           <a href="/use-cases" className="pp-nav-item">Use Cases</a>
           <a href="/skill.md" className="pp-nav-item">For LLMs</a>
           <a href="/for-investors" className="pp-nav-item">For Investors</a>

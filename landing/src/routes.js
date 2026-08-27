@@ -13,6 +13,11 @@ export const ROUTES = {
     title: 'AgentLayer Wallet | One Wallet, Every Framework',
     description: 'A universal wallet for Claude Code, OpenClaw, Codex and Hermes. Private keys stay on your own machine, inside the system Keychain.',
   },
+  connectors: {
+    path: '/connectors',
+    title: 'AgentLayer Connectors | Optional Tools for Your Agent',
+    description: 'Connect optional read-only crypto, DeFi, and agent-service tools to AgentLayer locally. Review every connector before enabling it.',
+  },
   product: {
     path: '/mcp',
     title: 'AgentLayer MCP | Infrastructure for Agentic Finance',
@@ -61,7 +66,7 @@ export const PRERENDER_PATHS = PRERENDER_PAGES.map((page) => ROUTES[page].path)
 // belongs in the sitemap. Excluded: mcp and how-to-use, which are no longer
 // linked from anywhere. Onboard is included now that the home page promotes
 // it as the entry point for the welcome bonus.
-export const SITEMAP_PAGES = ['home', 'wallet', 'use-cases', 'for-investors', 'about', 'terms', 'onboard']
+export const SITEMAP_PAGES = ['home', 'wallet', 'connectors', 'use-cases', 'for-investors', 'about', 'terms', 'onboard']
 export const SITEMAP_PATHS = SITEMAP_PAGES.map((page) => ROUTES[page].path)
 
 export const LEGACY_HASH_REDIRECTS = {
