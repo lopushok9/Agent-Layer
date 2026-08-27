@@ -3,7 +3,7 @@
 Run Protocol v1 contract checks against a deployed read-only connector:
 
 ```bash
-npx @agentlayer.tech/connector-conformance \
+npx @agentlayer.tech/connector-conformance@beta \
   --manifest ./connector.json \
   --fixture ./conformance.json \
   --endpoint https://your-connector.up.railway.app

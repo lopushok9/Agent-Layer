@@ -6,7 +6,7 @@ The initial SDK supports read-only connectors only. It does not expose wallet
 signing, transaction execution, approval tokens, or private wallet material.
 
 ```bash
-npm install @agentlayer.tech/connector-sdk
+npm install @agentlayer.tech/connector-sdk@beta
 ```
 
 Node.js 24 or newer is required.

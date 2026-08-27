@@ -1,9 +1,22 @@
 {
   "name": "@agentlayer.tech/connector-sdk",
-  "version": "0.1.0",
+  "version": "0.1.0-beta.1",
   "description": "TypeScript SDK for building AgentLayer read-only connectors.",
   "type": "module",
-  "license": "SEE LICENSE IN ../../LICENSE",
+  "license": "SEE LICENSE IN LICENSE",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lopushok9/Agent-Layer.git",
+    "directory": "connectors/sdk-typescript"
+  },
+  "homepage": "https://github.com/lopushok9/Agent-Layer/tree/main/connectors/sdk-typescript#readme",
+  "bugs": {
+    "url": "https://github.com/lopushok9/Agent-Layer/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
   "engines": {
     "node": ">=24"
   },
@@ -16,12 +29,14 @@
   "types": "./dist/index.d.ts",
   "files": [
     "dist/",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
+    "sync-license": "node scripts/sync-license.mjs",
     "build": "tsc -p tsconfig.json",
     "check": "npm run build && node --test test/*.test.mjs",
-    "prepack": "npm run build"
+    "prepack": "npm run sync-license && npm run build"
   },
   "dependencies": {
     "ajv": "^8.20.0",

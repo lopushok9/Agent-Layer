@@ -9,7 +9,8 @@
   ],
   "scripts": {
     "build": "npm run build --workspace @agentlayer.tech/connector-sdk && npm run build --workspace @agentlayer.tech/read-only-connector-template && npm run build --workspace @agentlayer.tech/connector-conformance",
-    "check": "npm run check --workspace @agentlayer.tech/connector-sdk && npm run check --workspace @agentlayer.tech/read-only-connector-template && npm run check --workspace @agentlayer.tech/connector-conformance"
+    "check": "npm run check --workspace @agentlayer.tech/connector-sdk && npm run check --workspace @agentlayer.tech/read-only-connector-template && npm run check --workspace @agentlayer.tech/connector-conformance",
+    "check:pack": "node scripts/smoke-packed-packages.mjs"
   },
   "engines": {
     "node": ">=24"

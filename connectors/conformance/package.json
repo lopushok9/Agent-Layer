@@ -1,9 +1,22 @@
 {
   "name": "@agentlayer.tech/connector-conformance",
-  "version": "0.1.0",
+  "version": "0.1.0-beta.1",
   "description": "Conformance runner for AgentLayer Connector Protocol v1.",
   "type": "module",
-  "license": "SEE LICENSE IN ../../LICENSE",
+  "license": "SEE LICENSE IN LICENSE",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lopushok9/Agent-Layer.git",
+    "directory": "connectors/conformance"
+  },
+  "homepage": "https://github.com/lopushok9/Agent-Layer/tree/main/connectors/conformance#readme",
+  "bugs": {
+    "url": "https://github.com/lopushok9/Agent-Layer/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
   "engines": {
     "node": ">=24"
   },
@@ -19,20 +32,22 @@
   "files": [
     "dist/",
     "spec/",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
+    "sync-license": "node scripts/sync-license.mjs",
     "sync-spec": "node scripts/sync-spec.mjs",
     "build": "npm run sync-spec && tsc -p tsconfig.json",
     "check": "npm run build && node --test test/*.test.mjs",
-    "prepack": "npm run build"
+    "prepack": "npm run sync-license && npm run build"
   },
   "dependencies": {
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1"
   },
   "devDependencies": {
-    "@agentlayer.tech/connector-sdk": "0.1.0",
+    "@agentlayer.tech/connector-sdk": "0.1.0-beta.1",
     "@types/node": "^24.0.0",
     "typescript": "^7.0.2"
   }
