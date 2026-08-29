@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from agent_wallet.bootstrap import ensure_solana_wallet_ready, ensure_wallet_pin
 from agent_wallet.encrypted_storage import load_wallet_secret_material
 from agent_wallet.config import (
     normalize_btc_network,
+    normalize_evm_network,
     normalize_solana_network,
     resolve_runtime_solana_rpc_config,
     resolve_runtime_solana_swap_config,
@@ -18,6 +20,15 @@ from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendErro
 from agent_wallet.wallet_layer.wdk_evm import WdkEvmLocalWalletBackend
 from agent_wallet.wallet_layer.solana import SolanaLocalKeypairSigner, SolanaWalletBackend
 from agent_wallet.wallet_layer.wdk_btc import WdkBtcLocalWalletBackend
+
+
+def _evm_autostart_disabled() -> bool:
+    return os.getenv("AGENT_WALLET_EVM_DISABLE_AUTOSTART", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def _load_keypair_material() -> str | None:
@@ -91,10 +102,20 @@ def create_wallet_backend() -> AgentWalletBackend | None:
         )
 
     if backend in {"wdk_evm_local", "wdk-evm-local", "evm_local", "evm-local"}:
+        evm_network = normalize_evm_network(settings.solana_network)
+        if not _evm_autostart_disabled():
+            # Single-agent hosts (Claude Code/Codex) talked to the daemon over
+            # a bare HTTP client with no health check, so an unreachable or
+            # stale daemon surfaced as an opaque connection error instead of
+            # self-healing the way the multi-user OpenClaw path already does.
+            # Reuse that same recovery here instead of duplicating it.
+            from agent_wallet.evm_user_wallets import ensure_local_evm_service_ready
+
+            ensure_local_evm_service_ready(settings.wdk_evm_service_url, evm_network)
         return WdkEvmLocalWalletBackend(
             service_url=settings.wdk_evm_service_url,
             wallet_id=settings.wdk_evm_wallet_id,
-            network=settings.solana_network,
+            network=evm_network,
             account_index=settings.wdk_evm_account_index,
             sign_only=settings.agent_wallet_sign_only,
         )

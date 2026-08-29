@@ -502,6 +502,25 @@ def _auto_start_local_service(service_url: str, network: str) -> None:
     )
 
 
+def ensure_local_evm_service_ready(service_url: str, network: str) -> None:
+    """Public entry point for callers outside the OpenClaw user-wallet flow.
+
+    Thin wrapper around `_auto_start_local_service`, which was previously only
+    reachable through `ensure_user_evm_wallet_ready`/`resolve_user_evm_wallet_binding`
+    (the multi-user OpenClaw gateway/Hermes path). The single-agent factory
+    (`wallet_layer.factory.create_wallet_backend`) has no user_id and doesn't
+    need one — the underlying ownership/health checks are already keyed off
+    `service_url`/`OPENCLAW_HOME`, not the caller's user. Exposing this lets
+    both paths share one recovery implementation instead of drifting apart.
+
+    Raises `WalletBackendError` for anything the auto-start/eviction logic
+    can't resolve on its own (e.g. a foreign-home daemon occupying the port);
+    callers should let that surface as a clear tool error rather than a raw
+    connection failure.
+    """
+    _auto_start_local_service(service_url, network)
+
+
 def _resolve_user_evm_wallet_dir(user_id: str) -> Path:
     return resolve_openclaw_home() / "users" / normalize_user_id(user_id) / "wallets"
 
