@@ -5,9 +5,45 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
+import socket
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
+
+
+def _free_tcp_port() -> int:
+    """Return a port free at call time, for an isolated wdk-evm-wallet daemon.
+
+    The installer's EVM onboarding defaults to 127.0.0.1:8081 — the same port
+    a real, already-running wdk-evm-wallet daemon uses. Without an explicit
+    override, this smoke test starts its own daemon on that shared port,
+    leaving a stray process (with this test's temp OPENCLAW_HOME as its
+    dataDir) squatting :8081 once the test exits. Every non-dry-run installer
+    invocation that can reach EVM onboarding must be pinned to a port from
+    this helper instead.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def _stop_daemon_on_port(port: int) -> None:
+    """Best-effort teardown for a daemon this test may have auto-started."""
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as response:
+            health = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, ValueError, OSError):
+        return
+    pid = health.get("pid")
+    if not isinstance(pid, int) or pid <= 0:
+        return
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        pass
 
 
 def main() -> None:
@@ -198,37 +234,49 @@ def main() -> None:
     solana_env["AGENT_WALLET_BOOT_KEY"] = "test-boot-key-for-solana-installer"
     solana_env["AGENT_WALLET_MASTER_KEY"] = "test-master-key-for-solana-installer"
     solana_env["AGENT_WALLET_APPROVAL_SECRET"] = "test-approval-secret-for-solana-installer"
-    solana_install = subprocess.run(
-        [
-            sys.executable,
-            str(script),
-            "--config-path",
-            str(solana_root / "openclaw.json"),
-            "--env-path",
-            str(solana_root / ".env"),
-            "--runtime-root",
-            str(solana_root / "agent-wallet-runtime" / "current"),
-            "--skip-python-setup",
-            "--skip-node-setup",
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
-        env=solana_env,
-    )
-    solana_payload = json.loads(solana_install.stdout)
-    assert solana_payload["configured"] is True
-    assert solana_payload["pending_env"] == []
-    assert solana_payload["solana_wallet"]["network"] == "mainnet"
-    assert solana_payload["solana_wallet"]["created_now"] is True
-    assert solana_payload["solana_wallet"]["storage_format"] == "encrypted"
-    assert Path(solana_payload["solana_wallet"]["wallet_path"]).exists()
-    assert Path(f"{solana_payload['solana_wallet']['wallet_path']}.pin.json").exists()
-    solana_config = json.loads((solana_root / "openclaw.json").read_text(encoding="utf-8"))
-    assert solana_config["plugins"]["entries"]["agent-wallet"]["config"]["network"] == "mainnet"
-    assert "test-master-key-for-solana-installer" not in solana_install.stdout
-    assert "test-approval-secret-for-solana-installer" not in solana_install.stdout
-    assert "test-boot-key-for-solana-installer" not in solana_install.stdout
+    # This is the one non-dry-run call in this test with a backend that isn't
+    # "none", so it's the one that reaches EVM onboarding and auto-starts a
+    # wdk-evm-wallet daemon. Pin it off the real default port (see
+    # _free_tcp_port) and tear it down below regardless of outcome, so this
+    # test can never leave a daemon squatting :8081 for a real session to
+    # collide with later.
+    wdk_evm_port = _free_tcp_port()
+    try:
+        solana_install = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "--config-path",
+                str(solana_root / "openclaw.json"),
+                "--env-path",
+                str(solana_root / ".env"),
+                "--runtime-root",
+                str(solana_root / "agent-wallet-runtime" / "current"),
+                "--wdk-evm-service-url",
+                f"http://127.0.0.1:{wdk_evm_port}",
+                "--skip-python-setup",
+                "--skip-node-setup",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            env=solana_env,
+        )
+        solana_payload = json.loads(solana_install.stdout)
+        assert solana_payload["configured"] is True
+        assert solana_payload["pending_env"] == []
+        assert solana_payload["solana_wallet"]["network"] == "mainnet"
+        assert solana_payload["solana_wallet"]["created_now"] is True
+        assert solana_payload["solana_wallet"]["storage_format"] == "encrypted"
+        assert Path(solana_payload["solana_wallet"]["wallet_path"]).exists()
+        assert Path(f"{solana_payload['solana_wallet']['wallet_path']}.pin.json").exists()
+        solana_config = json.loads((solana_root / "openclaw.json").read_text(encoding="utf-8"))
+        assert solana_config["plugins"]["entries"]["agent-wallet"]["config"]["network"] == "mainnet"
+        assert "test-master-key-for-solana-installer" not in solana_install.stdout
+        assert "test-approval-secret-for-solana-installer" not in solana_install.stdout
+        assert "test-boot-key-for-solana-installer" not in solana_install.stdout
+    finally:
+        _stop_daemon_on_port(wdk_evm_port)
 
     print("smoke_install_agent_wallet: ok")
 
