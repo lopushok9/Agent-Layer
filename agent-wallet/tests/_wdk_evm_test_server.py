@@ -4,12 +4,27 @@ from __future__ import annotations
 
 import json
 import os
+import socket as socket_module
+import socketserver
 import threading
 import time
 from contextlib import AbstractContextManager
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+
+
+class _ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
+    address_family = socket_module.AF_UNIX
+
+    def server_bind(self) -> None:
+        # HTTPServer.server_bind() does `host, port = self.server_address[:2]`
+        # to fill in server_name/server_port for the Host header — that
+        # assumes a (host, port) tuple, which a unix socket path isn't.
+        # Bind at the plain TCPServer level and stub in placeholders instead.
+        socketserver.TCPServer.server_bind(self)
+        self.server_name = "localhost"
+        self.server_port = 0
 
 
 def _default_service_version() -> str:
@@ -29,6 +44,7 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
         network: str = "ethereum",
         host: str = "127.0.0.1",
         port: int = 0,
+        socket_path: str | None = None,
         auth_token: str = "test-local-evm-token",
         health_data_dir: str | None = None,
         error_responses: dict[str, dict[str, Any]] | None = None,
@@ -40,6 +56,7 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
         self.network = network
         self.host = host
         self.port = int(port)
+        self.socket_path = str(socket_path or "").strip() or None
         self.auth_token = str(auth_token).strip()
         self.health_data_dir = str(health_data_dir or "").strip() or None
         self.version = str(version or _default_service_version()).strip()
@@ -795,7 +812,14 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
 
                 self._send(404, {"ok": False, "error": "Not Found"})
 
-        self._server = ThreadingHTTPServer((self.host, self.port), Handler)
+        if self.socket_path:
+            socket_file = Path(self.socket_path)
+            socket_file.parent.mkdir(parents=True, exist_ok=True)
+            if socket_file.exists():
+                socket_file.unlink()
+            self._server = _ThreadingUnixHTTPServer(self.socket_path, Handler)
+        else:
+            self._server = ThreadingHTTPServer((self.host, self.port), Handler)
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
         return self
