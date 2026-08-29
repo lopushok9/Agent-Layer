@@ -20,6 +20,7 @@ from agent_wallet.config import (
     resolve_boot_key,
     resolve_evm_wallet_password,
     resolve_openclaw_home,
+    resolve_wdk_evm_service_url,
     settings,
 )
 from agent_wallet.file_ops import atomic_write_text
@@ -37,7 +38,7 @@ def _normalize_evm_network(value: str | None) -> str:
 
 
 def _resolve_service_url(service_url: str | None = None) -> str:
-    effective = (service_url or settings.wdk_evm_service_url).strip()
+    effective = (service_url or resolve_wdk_evm_service_url()).strip()
     if not effective:
         raise WalletBackendError("wdk_evm_service_url is required for EVM wallet host operations.")
     return effective

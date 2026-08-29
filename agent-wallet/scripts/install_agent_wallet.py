@@ -190,7 +190,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--extension-path", default=str(_extension_path()))
     parser.add_argument("--wdk-btc-root", default=str(_default_wdk_btc_root()))
     parser.add_argument("--wdk-evm-root", default=str(_default_wdk_evm_root()))
-    parser.add_argument("--wdk-evm-service-url", default=EVM_DEFAULT_SERVICE_URL)
+    parser.add_argument("--wdk-evm-service-url", default=_default_evm_service_url())
     parser.add_argument("--runtime-root", default=str(_default_runtime_root()))
     parser.add_argument("--npm-bin", default=_default_npm_bin())
     parser.add_argument("--plugin-id", default="agent-wallet")
@@ -735,8 +735,8 @@ def _build_next_steps(
     command.extend(["--package-root", str(effective_package_root)])
     command.extend(["--python-bin", str(python_bin)])
     if _is_evm_backend(args.backend):
-        service_url = str(getattr(args, "wdk_evm_service_url", "") or EVM_DEFAULT_SERVICE_URL).strip()
-        command.extend(["--wdk-evm-service-url", service_url or EVM_DEFAULT_SERVICE_URL])
+        service_url = str(getattr(args, "wdk_evm_service_url", "") or _default_evm_service_url()).strip()
+        command.extend(["--wdk-evm-service-url", service_url or _default_evm_service_url()])
     return command
 
 
@@ -753,7 +753,17 @@ def _is_evm_backend(backend: str) -> bool:
     }
 
 
-EVM_DEFAULT_SERVICE_URL = "http://127.0.0.1:8081"
+def _default_evm_service_url() -> str:
+    # This installer script runs standalone (before the agent_wallet package is
+    # necessarily importable in the current interpreter), so make sure the
+    # package root is on sys.path before importing it -- mirrors the pattern
+    # used by bootstrap_openclaw_evm.py and manage_openclaw_evm_wallet.py.
+    package_root = str(_package_root())
+    if package_root not in sys.path:
+        sys.path.insert(0, package_root)
+    from agent_wallet.config import resolve_wdk_evm_service_url
+
+    return resolve_wdk_evm_service_url()
 
 
 def _build_evm_onboard_config(args: argparse.Namespace) -> dict[str, object]:
@@ -764,12 +774,12 @@ def _build_evm_onboard_config(args: argparse.Namespace) -> dict[str, object]:
     network = args.network.strip().lower() if _is_evm_backend(args.backend) else "base"
     if network not in {"base", "ethereum"}:
         network = "base"
-    service_url = str(getattr(args, "wdk_evm_service_url", "") or EVM_DEFAULT_SERVICE_URL).strip()
+    service_url = str(getattr(args, "wdk_evm_service_url", "") or _default_evm_service_url()).strip()
     return {
         "backend": "wdk_evm_local",
         "network": network,
         "signOnly": bool(args.sign_only),
-        "wdkEvmServiceUrl": service_url or EVM_DEFAULT_SERVICE_URL,
+        "wdkEvmServiceUrl": service_url or _default_evm_service_url(),
     }
 
 

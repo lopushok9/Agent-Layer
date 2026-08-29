@@ -24,6 +24,12 @@ def _default_config_path() -> Path:
     return Path(os.path.expanduser("~/.openclaw/openclaw.json"))
 
 
+def _default_service_url() -> str:
+    from agent_wallet.config import resolve_wdk_evm_service_url
+
+    return resolve_wdk_evm_service_url()
+
+
 def _default_user_id() -> str:
     return f"{os.getenv('USER', 'openclaw-user')}-local"
 
@@ -54,7 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--plugin-id", default="agent-wallet")
     parser.add_argument("--user-id", default=_default_user_id())
     parser.add_argument("--network", default="base")
-    parser.add_argument("--service-url", default="http://127.0.0.1:8081")
+    parser.add_argument("--service-url", default=_default_service_url())
     parser.add_argument("--wdk-wallet-root", default=str(_repo_root() / "wdk-evm-wallet"))
     parser.add_argument("--label", default="Agent EVM Wallet")
     parser.add_argument("--account-index", type=int, default=0)

@@ -15,7 +15,10 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
-from agent_wallet.config import normalize_evm_network, settings  # noqa: E402
+from agent_wallet.config import (  # noqa: E402
+    normalize_evm_network,
+    resolve_wdk_evm_service_url,
+)
 from agent_wallet.evm_user_wallets import (  # noqa: E402
     bind_user_evm_wallet,
     create_user_evm_wallet,
@@ -95,7 +98,7 @@ def _service_health(service_url: str | None) -> dict[str, object]:
 
 
 def _status_payload(user_id: str | None, network: str | None, service_url: str | None) -> dict[str, object]:
-    target_service_url = str(service_url or settings.wdk_evm_service_url).strip() or None
+    target_service_url = str(service_url or resolve_wdk_evm_service_url()).strip() or None
     payload: dict[str, object] = {
         "ok": True,
         "network": _normalize_network(network or "ethereum"),

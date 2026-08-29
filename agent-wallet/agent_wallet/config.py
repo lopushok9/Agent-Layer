@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     wdk_btc_service_url: str = "http://127.0.0.1:8080"
     wdk_btc_wallet_id: str = ""
     wdk_btc_account_index: int = 0
-    wdk_evm_service_url: str = "http://127.0.0.1:8081"
+    wdk_evm_service_url: str = ""
     wdk_evm_wallet_id: str = ""
     wdk_evm_account_index: int = 0
 
@@ -198,6 +198,20 @@ def resolve_openclaw_home() -> Path:
     """Resolve the default OpenClaw home directory for plugin state."""
     raw = os.getenv("OPENCLAW_HOME", "~/.openclaw")
     return Path(raw).expanduser()
+
+
+def resolve_wdk_evm_service_url() -> str:
+    """Resolve the wdk-evm-wallet service URL, unix-socket by default.
+
+    An explicit WDK_EVM_SERVICE_URL/settings value always wins, whatever
+    transport it names (http:// for an explicit TCP deployment, unix:// for
+    a non-default socket path). Otherwise this is a per-OPENCLAW_HOME unix
+    socket — see docs/superpowers/specs/2026-08-30-evm-wallet-unix-socket-transport-design.md.
+    """
+    explicit = settings.wdk_evm_service_url.strip()
+    if explicit:
+        return explicit
+    return f"unix://{resolve_openclaw_home() / 'wdk-evm-wallet' / 'daemon.sock'}"
 
 
 def default_solana_wallet_path(network: str) -> Path:

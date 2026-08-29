@@ -8,7 +8,12 @@ from typing import Any
 from agent_wallet.approval import issue_approval_token
 from agent_wallet.boot_key_migration import migrate_boot_key_to_keystore
 from agent_wallet.btc_user_wallets import get_user_btc_wallet_binding
-from agent_wallet.config import normalize_btc_network, normalize_evm_network, settings
+from agent_wallet.config import (
+    normalize_btc_network,
+    normalize_evm_network,
+    resolve_wdk_evm_service_url,
+    settings,
+)
 from agent_wallet.evm_user_wallets import ensure_user_evm_wallet_ready
 from agent_wallet.models import OpenClawWalletSessionMetadata
 from agent_wallet.openclaw_adapter import OpenClawWalletAdapter
@@ -181,7 +186,7 @@ def onboard_openclaw_user_wallet(
         )
 
     if backend_name in {"wdk_evm_local", "wdk-evm-local", "evm_local", "evm-local"}:
-        service_url = str(wdk_evm_service_url or settings.wdk_evm_service_url).strip()
+        service_url = str(wdk_evm_service_url or resolve_wdk_evm_service_url()).strip()
         account_index = (
             settings.wdk_evm_account_index
             if wdk_evm_account_index is None

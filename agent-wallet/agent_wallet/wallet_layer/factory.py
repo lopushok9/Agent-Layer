@@ -14,6 +14,7 @@ from agent_wallet.config import (
     resolve_runtime_solana_rpc_config,
     resolve_runtime_solana_swap_config,
     resolve_solana_private_key,
+    resolve_wdk_evm_service_url,
     settings,
 )
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendError
@@ -103,6 +104,7 @@ def create_wallet_backend() -> AgentWalletBackend | None:
 
     if backend in {"wdk_evm_local", "wdk-evm-local", "evm_local", "evm-local"}:
         evm_network = normalize_evm_network(settings.solana_network)
+        service_url = resolve_wdk_evm_service_url()
         if not _evm_autostart_disabled():
             # Single-agent hosts (Claude Code/Codex) talked to the daemon over
             # a bare HTTP client with no health check, so an unreachable or
@@ -111,9 +113,9 @@ def create_wallet_backend() -> AgentWalletBackend | None:
             # Reuse that same recovery here instead of duplicating it.
             from agent_wallet.evm_user_wallets import ensure_local_evm_service_ready
 
-            ensure_local_evm_service_ready(settings.wdk_evm_service_url, evm_network)
+            ensure_local_evm_service_ready(service_url, evm_network)
         return WdkEvmLocalWalletBackend(
-            service_url=settings.wdk_evm_service_url,
+            service_url=service_url,
             wallet_id=settings.wdk_evm_wallet_id,
             network=evm_network,
             account_index=settings.wdk_evm_account_index,
