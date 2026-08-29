@@ -65,9 +65,34 @@ def _normalize_base_url(value: str) -> str:
     if not text:
         raise WalletBackendError("WDK EVM service URL is not configured.")
     parsed = urlparse(text)
+    if parsed.scheme == "unix":
+        if not parsed.path:
+            raise WalletBackendError("WDK EVM unix socket URL must include a path.")
+        return text
     if parsed.scheme not in {"http", "https"} or parsed.hostname not in LOCAL_WDK_EVM_HOSTS:
         raise WalletBackendError("WDK EVM service URL must point to a localhost HTTP endpoint.")
     return text.rstrip("/")
+
+
+def _httpx_target(base_url: str, path: str) -> tuple[str, dict[str, Any]]:
+    """Return (url, extra_httpx_client_kwargs) for either transport."""
+    parsed = urlparse(base_url)
+    if parsed.scheme == "unix":
+        return (
+            f"http://wdk-evm-wallet.local{path}",
+            {"transport": httpx.HTTPTransport(uds=parsed.path)},
+        )
+    return (f"{base_url}{path}", {})
+
+
+def _async_httpx_target(base_url: str, path: str) -> tuple[str, dict[str, Any]]:
+    parsed = urlparse(base_url)
+    if parsed.scheme == "unix":
+        return (
+            f"http://wdk-evm-wallet.local{path}",
+            {"transport": httpx.AsyncHTTPTransport(uds=parsed.path)},
+        )
+    return (f"{base_url}{path}", {})
 
 
 def _resolve_local_token_path() -> Path:
@@ -195,16 +220,16 @@ class WdkEvmLocalClient:
         return {**payload, "password": password}
 
     async def post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        url, transport_kwargs = _async_httpx_target(self.base_url, path)
         try:
             async with httpx.AsyncClient(
                 timeout=_timeout_for_path(path),
                 headers=self._headers,
                 follow_redirects=False,
                 trust_env=False,
+                **transport_kwargs,
             ) as client:
-                response = await client.post(
-                    f"{self.base_url}{path}", json=self._with_credentials(payload)
-                )
+                response = await client.post(url, json=self._with_credentials(payload))
         except httpx.TimeoutException as exc:
             raise WalletBackendError(
                 "wdk-evm-wallet request timed out.",
@@ -220,14 +245,16 @@ class WdkEvmLocalClient:
         return _unwrap_payload(response)
 
     async def get(self, path: str) -> dict[str, Any]:
+        url, transport_kwargs = _async_httpx_target(self.base_url, path)
         try:
             async with httpx.AsyncClient(
                 timeout=_timeout_for_path(path),
                 headers=self._headers,
                 follow_redirects=False,
                 trust_env=False,
+                **transport_kwargs,
             ) as client:
-                response = await client.get(f"{self.base_url}{path}")
+                response = await client.get(url)
         except httpx.TimeoutException as exc:
             raise WalletBackendError(
                 "wdk-evm-wallet request timed out.",
@@ -243,16 +270,16 @@ class WdkEvmLocalClient:
         return _unwrap_payload(response)
 
     def post_sync(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        url, transport_kwargs = _httpx_target(self.base_url, path)
         try:
             with httpx.Client(
                 timeout=_timeout_for_path(path),
                 headers=self._headers,
                 follow_redirects=False,
                 trust_env=False,
+                **transport_kwargs,
             ) as client:
-                response = client.post(
-                    f"{self.base_url}{path}", json=self._with_credentials(payload)
-                )
+                response = client.post(url, json=self._with_credentials(payload))
         except httpx.TimeoutException as exc:
             raise WalletBackendError(
                 "wdk-evm-wallet request timed out.",
@@ -268,14 +295,16 @@ class WdkEvmLocalClient:
         return _unwrap_payload(response)
 
     def get_sync(self, path: str) -> dict[str, Any]:
+        url, transport_kwargs = _httpx_target(self.base_url, path)
         try:
             with httpx.Client(
                 timeout=_timeout_for_path(path),
                 headers=self._headers,
                 follow_redirects=False,
                 trust_env=False,
+                **transport_kwargs,
             ) as client:
-                response = client.get(f"{self.base_url}{path}")
+                response = client.get(url)
         except httpx.TimeoutException as exc:
             raise WalletBackendError(
                 "wdk-evm-wallet request timed out.",
@@ -291,14 +320,16 @@ class WdkEvmLocalClient:
         return _unwrap_payload(response)
 
     def list_wallets_sync(self) -> list[dict[str, Any]]:
+        url, transport_kwargs = _httpx_target(self.base_url, "/v1/evm/wallets")
         try:
             with httpx.Client(
                 timeout=_timeout_for_path("/v1/evm/wallets"),
                 headers=self._headers,
                 follow_redirects=False,
                 trust_env=False,
+                **transport_kwargs,
             ) as client:
-                response = client.get(f"{self.base_url}/v1/evm/wallets")
+                response = client.get(url)
         except httpx.TimeoutException as exc:
             raise WalletBackendError(
                 "wdk-evm-wallet request timed out.",
