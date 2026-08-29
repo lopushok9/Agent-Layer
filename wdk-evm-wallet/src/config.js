@@ -8,6 +8,7 @@ const DEFAULTS = {
   port: 8081,
   network: "sepolia",
   unlockTimeoutSeconds: 0,
+  transport: "socket",
 };
 
 // Read this package's version once at module load. Surfaced via /health so the
@@ -272,6 +273,12 @@ export function loadConfig(env = process.env) {
   const dataDir =
     String(env.WDK_EVM_DATA_DIR ?? "").trim() ||
     path.join(openClawHome, "wdk-evm-wallet");
+  const transport = String(env.WDK_EVM_TRANSPORT ?? DEFAULTS.transport).trim().toLowerCase() || DEFAULTS.transport;
+  if (transport !== "socket" && transport !== "tcp") {
+    throw new Error('WDK_EVM_TRANSPORT must be "socket" or "tcp".');
+  }
+  const socketPath =
+    String(env.WDK_EVM_SOCKET_PATH ?? "").trim() || path.join(dataDir, "daemon.sock");
   const authTokenPath =
     String(env.WDK_EVM_LOCAL_TOKEN_PATH ?? "").trim() ||
     path.join(openClawHome, "wdk-evm-wallet", "local-auth-token");
@@ -450,5 +457,7 @@ export function loadConfig(env = process.env) {
     ),
     version: PACKAGE_VERSION,
     networkProfiles,
+    transport,
+    socketPath,
   };
 }

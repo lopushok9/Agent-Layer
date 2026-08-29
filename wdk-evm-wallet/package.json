@@ -19,7 +19,8 @@
     "test:shutdown": "node --test tests/shutdown.test.mjs",
     "test:network-config": "node --test tests/unit_network_config.mjs",
     "test:network-state": "node --test tests/unit_network_state.mjs",
-    "test:wallet-network": "node --test tests/unit_wdk_wallet_network.mjs"
+    "test:wallet-network": "node --test tests/unit_wdk_wallet_network.mjs",
+    "test:socket-transport": "node --test tests/unit_socket_transport.mjs"
   },
   "dependencies": {
     "@morpho-org/morpho-sdk": "^3.2.0",
