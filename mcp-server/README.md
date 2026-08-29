@@ -8,7 +8,7 @@
     }                                                                                                                                                         
   }
 
-MCP server for crypto analytics + headless wallet ops (Turnkey) — prices, DeFi yields/TVL, on-chain data, sentiment, gas prices, wallet management.
+MCP server for crypto analytics — prices, DeFi yields/TVL, on-chain data, sentiment, gas prices.
 
 **100% free-tier APIs.** No paid subscriptions required.
 
@@ -41,15 +41,6 @@ The server starts in stdio mode (standard MCP transport).
 | `get_token_transfers` | ERC-20 transfers (requires explorer key) |
 | `get_transaction_history` | Transaction history (requires explorer key) |
 | `get_gas_prices` | Gas prices (slow/standard/fast) per chain |
-| `turnkey_status` | Check Turnkey CLI + config readiness |
-| `turnkey_create_wallet` | Create Turnkey wallet |
-| `turnkey_create_ethereum_account` | Create ETH account in Turnkey wallet |
-| `turnkey_list_accounts` | List wallet accounts |
-| `turnkey_sign_transaction` | Sign unsigned ETH transaction |
-| `turnkey_list_activities` | List organization activities (including pending consensus) |
-| `turnkey_get_activity` | Get a specific activity by ID |
-| `turnkey_approve_activity` | Approve activity by activity ID or fingerprint |
-| `turnkey_reject_activity` | Reject activity by activity ID or fingerprint |
 
 ## Free APIs Used
 
@@ -97,42 +88,6 @@ JUPITER_API_URL=https://api.jup.ag
 ```
 
 Use `get_solana_token_prices` for explicit Solana token lookups, or pass Solana mint addresses into `get_crypto_prices`.
-
-### Turnkey (VPS/headless wallet backend)
-
-Install Turnkey CLI (binary):
-
-```bash
-curl -fsSL -o /usr/local/bin/turnkey \
-  https://github.com/tkhq/tkcli/releases/download/v1.1.5/turnkey.linux-x86_64
-chmod +x /usr/local/bin/turnkey
-```
-
-Configure `.env`:
-
-```bash
-TURNKEY_ENABLED=true
-TURNKEY_CLI_PATH=turnkey
-TURNKEY_ORGANIZATION_ID=...
-TURNKEY_KEY_NAME=default
-TURNKEY_ENCRYPTION_KEY_NAME=default
-# optional:
-# TURNKEY_KEYS_FOLDER=/path/to/.config/turnkey/keys
-# TURNKEY_ENCRYPTION_KEYS_FOLDER=/path/to/.config/turnkey/encryption-keys
-```
-
-For Railway/container deployments with ephemeral filesystem, provide key material via env vars:
-
-```bash
-TURNKEY_API_PUBLIC_KEY="04ab12cd... (hex)"
-TURNKEY_API_PRIVATE_KEY="9f8e7d... (hex)"
-TURNKEY_ENCRYPTION_PUBLIC_KEY="04de34fa... (hex)"
-TURNKEY_ENCRYPTION_PRIVATE_KEY="7c6b5a... (hex)"
-```
-
-The server will write them to `/tmp/turnkey/...` at runtime and pass proper folders to `turnkey` CLI.
-
-Important: these values must be raw hex keys expected by `tkcli` key files (optionally `0x`-prefixed), not PEM blocks.
 
 If `agent-wallet` is deployed in the same Railway service or process environment, it can reuse the same `ALCHEMY_API_KEY` already configured here. In that case you do not need to set `SOLANA_RPC_URL` manually for the wallet runtime unless you want a custom primary/failover list.
 
