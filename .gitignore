@@ -85,6 +85,9 @@ BOOT_KEY_KEYCHAIN_ARCHITECTURE.md
 # Local security planning docs (internal mechanics — not for the public repo)
 docs/superpowers/
 
+# Subagent-driven-development scratch workspace (ledgers, briefs, reports)
+.superpowers/
+
 # Local npm cache (sandbox installs)
 npm-cache/
 
