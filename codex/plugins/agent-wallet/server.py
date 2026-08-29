@@ -13,8 +13,10 @@ import selectors
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
+from contextlib import suppress
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -120,6 +122,50 @@ def _repo_relative_package_root() -> Path:
 
 def _openclaw_home() -> Path:
     return Path(os.getenv("OPENCLAW_HOME", "~/.openclaw")).expanduser().resolve()
+
+
+def _session_defaults_path() -> Path:
+    return _openclaw_home() / "agent-wallet" / "session-defaults.json"
+
+
+def _read_session_defaults() -> dict[str, Any]:
+    try:
+        payload = json.loads(_session_defaults_path().read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _write_session_default(key: str, value: str) -> None:
+    """Remember a wallet/network switch so the next MCP session starts there.
+
+    set_wallet_backend/set_evm_network previously only mutated this process's
+    module globals ("session_override_active"/"config_file_changed: False" by
+    design) — every new session went back to the static openclaw.json/env
+    default. This is the one persisted side effect: a small, agent-wallet-
+    owned file, separate from the shared openclaw.json so a write here can
+    never clobber unrelated host config. Best-effort — a write failure must
+    never break the tool call that triggered it.
+    """
+    path = _session_defaults_path()
+    try:
+        data = _read_session_defaults()
+        data[key] = value
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, temp_path = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(json.dumps(data, indent=2, sort_keys=True) + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(temp_path, 0o600)
+            os.replace(temp_path, path)
+        except Exception:
+            with suppress(FileNotFoundError):
+                os.unlink(temp_path)
+            raise
+    except OSError:
+        pass
 
 
 @lru_cache(maxsize=1)
@@ -469,9 +515,18 @@ def _normalize_btc_network(value: Any) -> str | None:
 
 
 def _default_backend() -> str:
+    # Precedence: explicit env override > last backend the user actually
+    # picked via set_wallet_backend/set_evm_network in some previous session
+    # > the host's static openclaw.json config > the hardcoded fallback.
+    session_default = _read_session_defaults().get("backend")
+    try:
+        normalized_session_default = _normalize_wallet_backend(session_default) if session_default else None
+    except RuntimeError:
+        normalized_session_default = None
     return _normalize_wallet_backend(
         os.getenv("AGENT_WALLET_BACKEND")
         or os.getenv("OPENCLAW_AGENT_WALLET_BACKEND")
+        or normalized_session_default
         or _configured_backend()
         or "solana_local"
     )
@@ -481,6 +536,12 @@ def _default_evm_network() -> str | None:
     configured = _normalize_evm_network(os.getenv("WDK_EVM_NETWORK"))
     if configured in {"ethereum", "base", "robinhood", "goat"}:
         return configured
+    session_default = _read_session_defaults().get("evm_network")
+    if session_default:
+        try:
+            return _normalize_selectable_evm_network(session_default)
+        except RuntimeError:
+            pass
     return _configured_network_for_backend("wdk_evm_local")
 
 
@@ -1381,6 +1442,9 @@ async def _handle_set_wallet_backend(params: dict[str, Any]) -> dict[str, Any]:
     else:
         selected_solana_network = resolved_network
     selected_wallet_backend = backend
+    _write_session_default("backend", backend)
+    if backend == "wdk_evm_local":
+        _write_session_default("evm_network", resolved_network)
     return {
         "selected_backend": backend,
         "selected_wallet": _backend_label(backend),
@@ -1388,9 +1452,11 @@ async def _handle_set_wallet_backend(params: dict[str, Any]) -> dict[str, Any]:
         "configured_backend": _default_backend(),
         "session_override_active": True,
         "config_file_changed": False,
+        "remembered_as_default": True,
         "usage": (
-            "Subsequent wallet calls in this Codex MCP session use this wallet backend by "
-            "default. The runtime startup config remains unchanged."
+            "Wallet calls in this session use this backend by default, and the next MCP "
+            "session starts here too. openclaw.json/env config is unchanged; use those for "
+            "a fixed deployment-wide default instead."
         ),
         "data": payload.get("data", {}),
     }
@@ -1407,15 +1473,19 @@ async def _handle_set_evm_network(params: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError(str(payload.get("error") or "set_evm_network failed"))
     selected_wallet_backend = "wdk_evm_local"
     selected_evm_network = network
+    _write_session_default("backend", "wdk_evm_local")
+    _write_session_default("evm_network", network)
     return {
         "selected_backend": "wdk_evm_local",
         "selected_wallet": "evm",
         "selected_network": network,
         "session_active_network": network,
         "session_override_active": True,
+        "remembered_as_default": True,
         "usage": (
-            "Subsequent EVM wallet calls in this Codex MCP session use this network by default. "
-            "You can still override a single EVM call with its network parameter."
+            "EVM wallet calls in this session use this network by default, and the next MCP "
+            "session starts here too. You can still override a single call with its network "
+            "parameter."
         ),
         "data": payload.get("data", {}),
     }
