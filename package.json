@@ -1,6 +1,6 @@
 {
   "name": "@agentlayer.tech/wallet",
-  "version": "0.1.102",
+  "version": "0.1.103",
   "description": "Universal AgentLayer wallet installer for OpenClaw, Codex, Claude Code, and Hermes.",
   "type": "module",
   "repository": {

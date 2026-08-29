@@ -2,6 +2,7 @@
 description: Show the connected EVM wallet overview for the current/default EVM network directly in chat.
 allowed-tools: mcp__agent_wallet__get_wallet_overview
 disable-model-invocation: true
+user-invocable: false
 ---
 
 Show the connected EVM wallet overview directly in chat.

@@ -1,6 +1,7 @@
 ---
 description: Install or repair the AgentLayer wallet backend runtime without leaving Claude Code.
 allowed-tools: Bash(sh:*), Bash(npx:*)
+user-invocable: false
 ---
 
 Install (or repair) the AgentLayer wallet backend that this plugin bridges to.

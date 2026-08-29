@@ -5,9 +5,12 @@
     "name": "AgentLayer",
     "url": "https://github.com/lopushok9/Agent-Layer"
   },
+  "renames": {
+    "agent-wallet": "wallet"
+  },
   "plugins": [
     {
-      "name": "agent-wallet",
+      "name": "wallet",
       "displayName": "Agent Wallet",
       "description": "Bridge to the local AgentLayer wallet runtime (Solana, Bitcoin, EVM). Installs and connects the backend runtime on first use.",
       "category": "development",
