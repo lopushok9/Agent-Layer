@@ -751,7 +751,6 @@ class SolanaWalletBackend(AgentWalletBackend):
             "source": "lifi",
         }
 
-    @staticmethod
     async def preview_solana_lifi_cross_chain_swap(
         self,
         *,
