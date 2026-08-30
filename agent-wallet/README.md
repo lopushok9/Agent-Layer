@@ -403,14 +403,19 @@ sh agent-wallet/scripts/setup_evm_wallet.sh
 That wrapper:
 
 - prompts for `user-id` and EVM network when run interactively
-- defaults to `http://127.0.0.1:8081`
+- defaults to a per-install unix socket at `~/.openclaw/wdk-evm-wallet/daemon.sock`
+  (or wherever `OPENCLAW_HOME` points); set `WDK_EVM_SERVICE_URL` to override
+  with an explicit `unix://` or `http://` URL for either transport
 - can auto-start `wdk-evm-wallet/run-local.sh` if the local service is not already healthy
 - creates or unlocks the local EVM wallet binding
 - also binds the paired EVM network by default: `ethereum <-> base` (GOAT remains an independent EVM network binding)
 - stores the entered EVM vault password into `sealed_keys.json` when `AGENT_WALLET_BOOT_KEY` is available, so later OpenClaw wallet switching can auto-raise the EVM backend without another password prompt
 - patches OpenClaw config to `backend=wdk_evm_local`
 
-Example host-side EVM wallet creation:
+Example host-side EVM wallet creation (explicit TCP `wdkEvmServiceUrl` override —
+TCP mode is an opt-in for advanced/remote deployments via `WDK_EVM_TRANSPORT=tcp`
+on the `wdk-evm-wallet` side, and no longer gets the same protection against a
+foreign daemon sharing the port that the unix-socket default gets by construction):
 
 ```bash
 printf '%s\n' 'your-local-evm-password' | \

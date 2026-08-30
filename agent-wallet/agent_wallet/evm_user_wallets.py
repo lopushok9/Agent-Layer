@@ -289,11 +289,11 @@ def _auto_start_local_service(service_url: str, network: str) -> None:
     health = _service_health(service_url)
     if health is not None:
         # Already running. The daemon loads code once at boot (no hot-reload), so a
-        # long-running process keeps serving stale code after a release. It can also
-        # keep serving the wrong local vault after a temp/smoke install left another
-        # daemon on the shared localhost port. Restart only when the local daemon no
-        # longer matches the expected launcher version or expected dataDir. Remote
-        # (non-local) healthy services we don't manage are left untouched.
+        # long-running process keeps serving stale code after a release. Restart
+        # only when the local daemon no longer matches the expected launcher
+        # version — its socket path is scoped to this dataDir, so nothing foreign
+        # can answer here. Remote (non-local) healthy services we don't manage are
+        # left untouched.
         if not _is_local_service_url(service_url):
             return
         if not _should_restart_local_service(health, wallet_root=wallet_root):

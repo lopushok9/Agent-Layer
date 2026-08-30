@@ -106,7 +106,6 @@ prompt_network_choice() {
 
 DEFAULT_USER_ID=${OPENCLAW_EVM_USER_ID:-${USER:-openclaw-user}-local}
 DEFAULT_NETWORK=${OPENCLAW_EVM_NETWORK:-base}
-DEFAULT_SERVICE_URL=${OPENCLAW_EVM_SERVICE_URL:-http://127.0.0.1:8081}
 
 if ! has_flag --user-id "$@"; then
   USER_ID=$(prompt_with_default "OpenClaw user id" "$DEFAULT_USER_ID")
@@ -118,8 +117,8 @@ if ! has_flag --network "$@"; then
   set -- "$@" --network "$NETWORK"
 fi
 
-if ! has_flag --service-url "$@"; then
-  set -- "$@" --service-url "$DEFAULT_SERVICE_URL"
+if ! has_flag --service-url "$@" && [ -n "${OPENCLAW_EVM_SERVICE_URL:-}" ]; then
+  set -- "$@" --service-url "$OPENCLAW_EVM_SERVICE_URL"
 fi
 
 if ! has_flag --config-path "$@" && [ -n "${OPENCLAW_EVM_CONFIG_PATH:-}" ]; then

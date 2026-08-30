@@ -129,6 +129,12 @@ jobs:
       - name: Smoke EVM status probes over unix socket
         run: python agent-wallet/tests/smoke_evm_status_unix_socket.py
 
+      - name: Smoke EVM factory auto-start
+        run: python agent-wallet/tests/smoke_wdk_evm_factory_autostart.py
+
+      - name: Smoke codex plugin session defaults
+        run: python agent-wallet/tests/smoke_codex_plugin_session_defaults.py
+
       - name: Test EVM daemon socket transport
         run: npm run test:socket-transport --prefix wdk-evm-wallet
 

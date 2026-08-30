@@ -181,8 +181,12 @@ cd wdk-evm-wallet && sh run-local.sh
 
 Environment variables:
 
-- `HOST`
-- `PORT`
+- `WDK_EVM_TRANSPORT` — `socket` (default) or `tcp`. `socket` serves over a unix
+  domain socket at `WDK_EVM_SOCKET_PATH`; `tcp` serves over `HOST`/`PORT`.
+- `WDK_EVM_SOCKET_PATH` — unix socket path, used only when `WDK_EVM_TRANSPORT=socket`.
+  Defaults to `<dataDir>/daemon.sock`.
+- `HOST` — used only when `WDK_EVM_TRANSPORT=tcp`.
+- `PORT` — used only when `WDK_EVM_TRANSPORT=tcp`.
 - `WDK_EVM_NETWORK`
 - `WDK_EVM_DATA_DIR`
 - `WDK_EVM_LOCAL_TOKEN`
