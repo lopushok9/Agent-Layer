@@ -754,16 +754,18 @@ def _is_evm_backend(backend: str) -> bool:
 
 
 def _default_evm_service_url() -> str:
-    # This installer script runs standalone (before the agent_wallet package is
-    # necessarily importable in the current interpreter), so make sure the
-    # package root is on sys.path before importing it -- mirrors the pattern
-    # used by bootstrap_openclaw_evm.py and manage_openclaw_evm_wallet.py.
-    package_root = str(_package_root())
-    if package_root not in sys.path:
-        sys.path.insert(0, package_root)
-    from agent_wallet.config import resolve_wdk_evm_service_url
-
-    return resolve_wdk_evm_service_url()
+    # This installer bootstraps a brand-new install, so it runs before
+    # agent_wallet's *dependencies* (e.g. pydantic-settings) are guaranteed to
+    # be installed -- putting the package root on sys.path (as other scripts
+    # in this family do) isn't enough, since `import agent_wallet.config`
+    # itself pulls in pydantic_settings. Mirror
+    # agent_wallet.config.resolve_wdk_evm_service_url()'s stdlib-only logic
+    # directly instead of importing it.
+    explicit = os.environ.get("WDK_EVM_SERVICE_URL", "").strip()
+    if explicit:
+        return explicit
+    openclaw_home = Path(os.environ.get("OPENCLAW_HOME", "~/.openclaw")).expanduser()
+    return f"unix://{openclaw_home / 'wdk-evm-wallet' / 'daemon.sock'}"
 
 
 def _build_evm_onboard_config(args: argparse.Namespace) -> dict[str, object]:
