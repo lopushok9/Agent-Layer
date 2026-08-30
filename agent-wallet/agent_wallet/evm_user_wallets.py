@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import secrets
 import shutil
 import signal
+import socket as socket_module
 import subprocess
 import time
 from pathlib import Path
@@ -52,7 +54,22 @@ def _paired_network(network: str) -> str | None:
     return mapping.get(_normalize_evm_network(network))
 
 
+class _UnixHealthConnection(http.client.HTTPConnection):
+    """Minimal HTTPConnection over AF_UNIX, for the unauthenticated /health probe."""
+
+    def __init__(self, socket_path: str, timeout: float = 1.5):
+        super().__init__("localhost", timeout=timeout)
+        self._socket_path = socket_path
+
+    def connect(self) -> None:
+        self.sock = socket_module.socket(socket_module.AF_UNIX, socket_module.SOCK_STREAM)
+        self.sock.settimeout(self.timeout)
+        self.sock.connect(self._socket_path)
+
+
 def _health_url(service_url: str) -> str:
+    # Display/error-message use only now — unix:// targets are fetched via
+    # _UnixHealthConnection below, not urlopen, which has no unix-socket support.
     return f"{service_url.rstrip('/')}/health"
 
 
@@ -62,12 +79,24 @@ def _service_health(service_url: str) -> dict[str, Any] | None:
     An empty dict means the service answered 200 but the body was unparseable —
     treated as "running, version unknown" so we never restart on a parse blip.
     """
+    parsed = urlparse(service_url)
     try:
-        with urlopen(_health_url(service_url), timeout=1.5) as response:
-            if int(getattr(response, "status", 0) or 0) != 200:
-                return None
-            raw = response.read()
-    except (URLError, TimeoutError, OSError):
+        if parsed.scheme == "unix":
+            conn = _UnixHealthConnection(parsed.path, timeout=1.5)
+            try:
+                conn.request("GET", "/health")
+                response = conn.getresponse()
+                if response.status != 200:
+                    return None
+                raw = response.read()
+            finally:
+                conn.close()
+        else:
+            with urlopen(_health_url(service_url), timeout=1.5) as response:
+                if int(getattr(response, "status", 0) or 0) != 200:
+                    return None
+                raw = response.read()
+    except (URLError, TimeoutError, OSError, http.client.HTTPException):
         return None
     try:
         payload = json.loads(raw.decode("utf-8"))
@@ -430,6 +459,11 @@ def _stop_local_service(service_url: str, health: dict[str, Any] | None = None) 
 
 def _is_local_service_url(service_url: str) -> bool:
     parsed = urlparse(service_url)
+    if parsed.scheme == "unix":
+        # A unix socket is local by construction. Mirrors the same acceptance in
+        # scripts/bootstrap_openclaw_evm.py and providers/wdk_evm_local.py; without
+        # it _auto_start_local_service refuses the default service URL outright.
+        return bool(parsed.path)
     return parsed.scheme in {"http", "https"} and parsed.hostname in LOCAL_WDK_EVM_HOSTS
 
 
@@ -462,8 +496,6 @@ def _auto_start_local_service(service_url: str, network: str) -> None:
         if not _is_local_service_url(service_url):
             return
         if not _should_restart_local_service(health, wallet_root=wallet_root):
-            if str(health.get("instanceId") or "").strip():
-                _write_service_owner(health, service_url)
             return
         _stop_local_service(service_url, health)
     if not _is_local_service_url(service_url):
@@ -476,8 +508,13 @@ def _auto_start_local_service(service_url: str, network: str) -> None:
         )
     parsed = urlparse(service_url)
     env = os.environ.copy()
-    env["HOST"] = parsed.hostname or "127.0.0.1"
-    env["PORT"] = str(parsed.port or 8081)
+    if parsed.scheme == "unix":
+        env["WDK_EVM_TRANSPORT"] = "socket"
+        env["WDK_EVM_SOCKET_PATH"] = parsed.path
+    else:
+        env["WDK_EVM_TRANSPORT"] = "tcp"
+        env["HOST"] = parsed.hostname or "127.0.0.1"
+        env["PORT"] = str(parsed.port or 8081)
     env["WDK_EVM_NETWORK"] = _normalize_evm_network(network)
     env["WDK_EVM_INSTANCE_ID"] = _expected_local_service_instance_id()
     process = subprocess.Popen(  # noqa: S603
@@ -493,7 +530,6 @@ def _auto_start_local_service(service_url: str, network: str) -> None:
     while time.time() < deadline:
         health = _service_health(service_url)
         if health is not None:
-            _write_service_owner(health, service_url)
             return
         if process.poll() is not None:
             raise WalletBackendError("wdk-evm-wallet exited before becoming healthy.")
