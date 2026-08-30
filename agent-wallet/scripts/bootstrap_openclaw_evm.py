@@ -10,9 +10,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from urllib.error import URLError
 from urllib.parse import urlparse
-from urllib.request import urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -109,11 +107,13 @@ def _health_url(service_url: str) -> str:
 
 
 def _service_is_healthy(service_url: str) -> bool:
-    try:
-        with urlopen(_health_url(service_url), timeout=1.5) as response:
-            return int(getattr(response, "status", 0) or 0) == 200
-    except (URLError, TimeoutError, OSError):
-        return False
+    # Delegate to the shared probe: it dispatches on scheme, so a unix:// URL
+    # (the default since resolve_wdk_evm_service_url moved to a per-home socket)
+    # is fetched over AF_UNIX. urlopen alone raises "unknown url type: unix",
+    # which would make --no-auto-start-service reject a healthy daemon.
+    from agent_wallet.evm_user_wallets import _service_health
+
+    return _service_health(service_url) is not None
 
 
 def _is_local_service_url(service_url: str) -> bool:

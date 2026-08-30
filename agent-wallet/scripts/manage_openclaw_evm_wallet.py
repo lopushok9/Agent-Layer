@@ -8,8 +8,6 @@ import json
 import sys
 from getpass import getpass
 from pathlib import Path
-from urllib.error import URLError
-from urllib.request import urlopen
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 if str(PACKAGE_ROOT) not in sys.path:
@@ -20,6 +18,7 @@ from agent_wallet.config import (  # noqa: E402
     resolve_wdk_evm_service_url,
 )
 from agent_wallet.evm_user_wallets import (  # noqa: E402
+    _service_health as probe_service_health,
     bind_user_evm_wallet,
     create_user_evm_wallet,
     get_user_evm_wallet_binding,
@@ -84,17 +83,18 @@ def _service_health(service_url: str | None) -> dict[str, object]:
     target = str(service_url or "").strip()
     if not target:
         return {"service_url": None, "healthy": False, "error": "service_url is not configured"}
-    health_url = f"{target.rstrip('/')}/health"
-    try:
-        with urlopen(health_url, timeout=1.5) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-            return {
-                "service_url": target,
-                "healthy": int(getattr(response, "status", 0) or 0) == 200,
-                "health": payload,
-            }
-    except (URLError, TimeoutError, OSError, ValueError) as exc:
-        return {"service_url": target, "healthy": False, "error": str(exc)}
+    # Delegate to the shared probe: it dispatches on scheme, so a unix:// URL
+    # (the default since resolve_wdk_evm_service_url moved to a per-home socket)
+    # is fetched over AF_UNIX. urlopen alone raises "unknown url type: unix" and
+    # would report a perfectly healthy socket daemon as down.
+    payload = probe_service_health(target)
+    if payload is None:
+        return {
+            "service_url": target,
+            "healthy": False,
+            "error": f"no healthy /health response from {target}",
+        }
+    return {"service_url": target, "healthy": True, "health": payload}
 
 
 def _status_payload(user_id: str | None, network: str | None, service_url: str | None) -> dict[str, object]:

@@ -126,6 +126,9 @@ jobs:
       - name: Smoke EVM bootstrap unix env derivation
         run: python agent-wallet/tests/smoke_bootstrap_openclaw_evm_unix_env.py
 
+      - name: Smoke EVM status probes over unix socket
+        run: python agent-wallet/tests/smoke_evm_status_unix_socket.py
+
       - name: Test EVM daemon socket transport
         run: npm run test:socket-transport --prefix wdk-evm-wallet
 
