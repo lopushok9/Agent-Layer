@@ -34,6 +34,7 @@ def main() -> None:
     original_wallet_id = settings.wdk_evm_wallet_id
     original_solana_public_key = settings.solana_agent_public_key
     original_autostart_disable = os.environ.get("AGENT_WALLET_EVM_DISABLE_AUTOSTART")
+    original_local_token = os.environ.get("WDK_EVM_LOCAL_TOKEN")
     original_ensure = evm_user_wallets.ensure_local_evm_service_ready
 
     calls: list[tuple[str, str]] = []
@@ -43,6 +44,13 @@ def main() -> None:
 
     try:
         os.environ.pop("AGENT_WALLET_EVM_DISABLE_AUTOSTART", None)
+        # ensure_local_evm_service_ready is stubbed above -- no real daemon
+        # ever starts -- but WdkEvmLocalWalletBackend still eagerly builds a
+        # WdkEvmLocalClient, which reads a real local-auth-token file from
+        # disk unless this env var is set. A dev machine that has ever run
+        # the real daemon has that file already, which let this test pass
+        # locally while failing on a fresh checkout with no such file.
+        os.environ["WDK_EVM_LOCAL_TOKEN"] = "test-local-evm-token-for-factory-autostart-smoke"
         settings.agent_wallet_backend = "wdk_evm_local"
         settings.solana_network = "base"
         settings.wdk_evm_service_url = "http://127.0.0.1:8081"
@@ -97,6 +105,10 @@ def main() -> None:
             os.environ.pop("AGENT_WALLET_EVM_DISABLE_AUTOSTART", None)
         else:
             os.environ["AGENT_WALLET_EVM_DISABLE_AUTOSTART"] = original_autostart_disable
+        if original_local_token is None:
+            os.environ.pop("WDK_EVM_LOCAL_TOKEN", None)
+        else:
+            os.environ["WDK_EVM_LOCAL_TOKEN"] = original_local_token
 
     print("smoke_wdk_evm_factory_autostart: ok")
 
