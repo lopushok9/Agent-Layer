@@ -118,6 +118,8 @@ def _service_is_healthy(service_url: str) -> bool:
 
 def _is_local_service_url(service_url: str) -> bool:
     parsed = urlparse(service_url)
+    if parsed.scheme == "unix":
+        return bool(parsed.path)
     return parsed.scheme in {"http", "https"} and parsed.hostname in {"127.0.0.1", "localhost", "::1"}
 
 

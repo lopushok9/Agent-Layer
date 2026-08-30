@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import shutil
@@ -18,7 +19,28 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "bootstrap_openclaw_evm.py"
 
 
+def _load_module(path: Path, name: str):
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _check_is_local_service_url() -> None:
+    # The default --service-url now resolves to a unix:// socket URL (see
+    # resolve_wdk_evm_service_url); _is_local_service_url must accept that,
+    # the same way providers/wdk_evm_local.py's _normalize_base_url does,
+    # or _require_local_service_url would reject the script's own default.
+    module = _load_module(SCRIPT, "bootstrap_openclaw_evm_module_under_test")
+    assert module._is_local_service_url("unix:///tmp/some/daemon.sock") is True
+    assert module._is_local_service_url("unix://") is False
+    assert module._is_local_service_url("http://example.com:8081") is False
+    assert module._is_local_service_url("http://127.0.0.1:8081") is True
+
+
 def main() -> None:
+    _check_is_local_service_url()
     temp_home = Path("/tmp/openclaw-evm-bootstrap-smoke")
     if temp_home.exists():
         shutil.rmtree(temp_home)
