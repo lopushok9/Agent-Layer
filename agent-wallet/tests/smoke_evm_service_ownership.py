@@ -1,4 +1,4 @@
-"""EVM daemon stop signals only a verified same-home local listener."""
+"""EVM daemon stop signals only a verified, still-owned local pid."""
 
 from __future__ import annotations
 
@@ -19,23 +19,7 @@ PID = 4242
 
 
 def _health(**overrides):
-    payload = {
-        "service": "wdk-evm-wallet",
-        "dataDir": str(evm._expected_local_service_data_dir()),
-        "instanceId": "instance-a",
-        "pid": PID,
-    }
-    payload.update(overrides)
-    return payload
-
-
-def _owner(**overrides):
-    payload = {
-        "pid": PID,
-        "port": 18081,
-        "data_dir": str(evm._expected_local_service_data_dir()),
-        "instance_id": "instance-a",
-    }
+    payload = {"service": "wdk-evm-wallet", "instanceId": "instance-a", "pid": PID}
     payload.update(overrides)
     return payload
 
@@ -52,79 +36,56 @@ def main() -> None:
     home = Path(tempfile.mkdtemp(prefix="openclaw-evm-owner-"))
     os.environ["OPENCLAW_HOME"] = str(home)
 
-    originals = {
-        "listeners": evm._listening_pids,
-        "cwd": evm._process_cwd,
-        "owner": evm._read_service_owner,
-        "exists": evm._process_exists,
-        "kill": evm.os.kill,
-        "health": evm._service_health,
-    }
+    originals = {"kill": evm.os.kill, "health": evm._service_health}
     signalled: list[tuple[int, int]] = []
 
     try:
-        evm._listening_pids = lambda _port: [PID]
-        evm._process_cwd = lambda _pid: Path("/tmp/runtime/wdk-evm-wallet")
-        evm._read_service_owner = lambda: _owner()
-        evm._process_exists = lambda _pid: False
-        evm._service_health = lambda _url: None
+        # A live pid the caller owns: SIGTERM, then the wait loop sees it
+        # gone via a dropped /health and returns cleanly.
         evm.os.kill = lambda pid, sig: signalled.append((pid, sig))
-
-        # A stale instance is stoppable only because every same-home OS and
-        # ownership check confirms the exact listener.
-        evm._stop_local_service(
-            SERVICE_URL,
-            _health(instanceId="instance-a"),
-        )
+        evm._service_health = lambda _url: None
+        evm._stop_local_service(SERVICE_URL, _health())
         assert (PID, signal.SIGTERM) in signalled, signalled
 
+        # No pid in /health at all: refuse before ever signalling.
         signalled.clear()
-        evm._listening_pids = lambda _port: [9999]
         _expect_refusal(
-            "health pid absent from listeners",
+            "missing pid",
+            lambda: evm._stop_local_service(SERVICE_URL, _health(pid=0)),
+        )
+        assert signalled == [], signalled
+
+        # os.kill(pid, 0) says the process is already gone: treat as success,
+        # not a refusal — nothing left to signal.
+        signalled.clear()
+
+        def _kill_already_gone(pid, sig):
+            if sig == 0:
+                raise ProcessLookupError()
+            signalled.append((pid, sig))
+
+        evm.os.kill = _kill_already_gone
+        evm._stop_local_service(SERVICE_URL, _health())
+        assert signalled == [], signalled
+
+        # os.kill(pid, 0) says the pid belongs to another user: refuse.
+        signalled.clear()
+
+        def _kill_foreign_user(pid, sig):
+            if sig == 0:
+                raise PermissionError("owned by another user")
+            signalled.append((pid, sig))
+
+        evm.os.kill = _kill_foreign_user
+        _expect_refusal(
+            "foreign-user pid",
             lambda: evm._stop_local_service(SERVICE_URL, _health()),
         )
         assert signalled == [], signalled
 
+        # The escape hatch refuses before any pid check at all.
         signalled.clear()
-        evm._listening_pids = lambda _port: []
-        _expect_refusal(
-            "missing listener inspection",
-            lambda: evm._stop_local_service(SERVICE_URL, _health()),
-        )
-        assert signalled == [], signalled
-
-        signalled.clear()
-        evm._listening_pids = lambda _port: [PID]
-        evm._process_cwd = lambda _pid: Path("/tmp/unrelated-service")
-        _expect_refusal(
-            "foreign process cwd",
-            lambda: evm._stop_local_service(SERVICE_URL, _health()),
-        )
-        assert signalled == [], signalled
-
-        signalled.clear()
-        evm._process_cwd = lambda _pid: Path("/tmp/runtime/wdk-evm-wallet")
-        evm._read_service_owner = lambda: _owner(pid=9999)
-        _expect_refusal(
-            "ownership record mismatch",
-            lambda: evm._stop_local_service(SERVICE_URL, _health()),
-        )
-        assert signalled == [], signalled
-
-        signalled.clear()
-        evm._read_service_owner = lambda: _owner()
-        foreign_dir = home / "other-wallet-home"
-        _expect_refusal(
-            "different wallet home",
-            lambda: evm._stop_local_service(
-                SERVICE_URL,
-                _health(dataDir=str(foreign_dir)),
-            ),
-        )
-        assert signalled == [], signalled
-
-        signalled.clear()
+        evm.os.kill = lambda pid, sig: signalled.append((pid, sig))
         os.environ["OPENCLAW_EVM_DISABLE_DAEMON_TAKEOVER"] = "1"
         _expect_refusal(
             "kill switch",
@@ -132,10 +93,6 @@ def main() -> None:
         )
         assert signalled == [], signalled
     finally:
-        evm._listening_pids = originals["listeners"]
-        evm._process_cwd = originals["cwd"]
-        evm._read_service_owner = originals["owner"]
-        evm._process_exists = originals["exists"]
         evm.os.kill = originals["kill"]
         evm._service_health = originals["health"]
         os.environ.pop("OPENCLAW_EVM_DISABLE_DAEMON_TAKEOVER", None)

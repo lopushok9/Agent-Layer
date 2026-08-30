@@ -146,7 +146,11 @@ class FakeWdkEvmWalletServer(AbstractContextManager["FakeWdkEvmWalletServer"]):
                         payload["dataDir"] = outer.health_data_dir
                     if outer.instance_id:
                         payload["instanceId"] = outer.instance_id
-                        payload["pid"] = os.getpid()
+                    # The real daemon (wdk-evm-wallet/src/server.js) reports pid
+                    # unconditionally; pid used to be gated on instance_id here,
+                    # which only worked while _resolve_stoppable_pid still had an
+                    # lsof fallback for pre-PID daemons.
+                    payload["pid"] = os.getpid()
                     self._send(200, payload)
                     return
                 if self.path == "/v1/evm/wallets":

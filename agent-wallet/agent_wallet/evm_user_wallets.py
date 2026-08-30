@@ -6,7 +6,6 @@ import http.client
 import json
 import os
 import secrets
-import shutil
 import signal
 import socket as socket_module
 import subprocess
@@ -31,7 +30,6 @@ from agent_wallet.user_wallets import normalize_user_id
 from agent_wallet.wallet_layer.base import WalletBackendError
 
 LOCAL_WDK_EVM_HOSTS = {"127.0.0.1", "localhost", "::1"}
-_SERVICE_OWNER_FILENAME = "service-owner.json"
 _INSTANCE_ID_FILENAME = "instance-id"
 
 
@@ -139,50 +137,6 @@ def _expected_local_service_instance_id() -> str:
     return generated
 
 
-def _service_owner_path() -> Path:
-    return _expected_local_service_data_dir() / _SERVICE_OWNER_FILENAME
-
-
-def _read_service_owner() -> dict[str, Any] | None:
-    try:
-        payload = json.loads(_service_owner_path().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    return payload if isinstance(payload, dict) else None
-
-
-def _write_service_owner(health: dict[str, Any], service_url: str) -> int:
-    expected_instance = _expected_local_service_instance_id()
-    instance_id = str(health.get("instanceId") or "").strip()
-    try:
-        pid = int(health.get("pid") or 0)
-    except (TypeError, ValueError):
-        pid = 0
-    if instance_id != expected_instance or pid <= 0:
-        raise WalletBackendError("wdk-evm-wallet health did not confirm local process ownership.")
-    payload = {
-        "version": 1,
-        "pid": pid,
-        "instance_id": instance_id,
-        "port": urlparse(service_url).port or 8081,
-        "data_dir": str(_expected_local_service_data_dir()),
-        "service_version": str(health.get("version") or "").strip() or None,
-    }
-    atomic_write_text(_service_owner_path(), json.dumps(payload, indent=2) + "\n", mode=0o600)
-    return pid
-
-
-def _same_path(left: str | Path | None, right: str | Path | None) -> bool:
-    if left is None or right is None:
-        return False
-    try:
-        left_path = Path(str(left)).expanduser().resolve()
-        right_path = Path(str(right)).expanduser().resolve()
-    except OSError:
-        return False
-    return left_path == right_path
-
-
 def _should_restart_local_service(
     health: dict[str, Any] | None,
     *,
@@ -192,42 +146,7 @@ def _should_restart_local_service(
         return False
     expected_version = _read_on_disk_service_version(wallet_root) if wallet_root is not None else None
     running_version = str(health.get("version") or "").strip()
-    if expected_version and running_version and running_version != expected_version:
-        return True
-
-    reported_data_dir = str(health.get("dataDir") or "").strip()
-    if reported_data_dir and not _same_path(reported_data_dir, _expected_local_service_data_dir()):
-        return True
-
-    reported_instance = str(health.get("instanceId") or "").strip()
-    if reported_data_dir and reported_instance != _expected_local_service_instance_id():
-        return True
-
-    return False
-
-
-def _listening_pids(port: int) -> list[int]:
-    """PIDs LISTENing on a local TCP port (via lsof), excluding our own."""
-    lsof = shutil.which("lsof")
-    if not lsof:
-        return []
-    try:
-        completed = subprocess.run(  # noqa: S603
-            [lsof, "-t", "-i", f"tcp:{port}", "-sTCP:LISTEN"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return []
-    pids: list[int] = []
-    for token in completed.stdout.split():
-        token = token.strip()
-        if token.isdigit():
-            pid = int(token)
-            if pid != os.getpid():
-                pids.append(pid)
-    return pids
+    return bool(expected_version and running_version and running_version != expected_version)
 
 
 def _daemon_takeover_disabled() -> bool:
@@ -239,38 +158,11 @@ def _daemon_takeover_disabled() -> bool:
     }
 
 
-def _takeover_refusal(port: int, listeners: list[int], data_dir: str, reason: str) -> str:
-    pids = ", ".join(str(pid) for pid in listeners) if listeners else "unknown"
+def _takeover_refusal(reason: str) -> str:
     return (
-        f"Refusing to stop the wdk-evm-wallet on port {port}: {reason}. "
-        f"Listening PIDs: {pids}. Daemon dataDir: {data_dir or 'unknown'}. "
-        f"To clear it manually: lsof -nP -iTCP:{port} -sTCP:LISTEN, then kill <pid>."
+        f"Refusing to stop wdk-evm-wallet: {reason}. "
+        "To clear it manually: check /health at the configured service URL for its pid, then kill <pid>."
     )
-
-
-def _process_cwd(pid: int) -> Path | None:
-    """Return a process working directory via lsof, or None when unverified."""
-    lsof = shutil.which("lsof")
-    if not lsof:
-        return None
-    try:
-        completed = subprocess.run(  # noqa: S603
-            [lsof, "-a", "-p", str(pid), "-d", "cwd", "-Fn"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if completed.returncode != 0:
-        return None
-    for line in completed.stdout.splitlines():
-        if line.startswith("n") and line[1:].strip():
-            try:
-                return Path(line[1:].strip()).resolve()
-            except OSError:
-                return None
-    return None
 
 
 def _process_exists(pid: int) -> bool:
@@ -283,129 +175,52 @@ def _process_exists(pid: int) -> bool:
         return True
 
 
-def _process_released_service(pid: int, port: int, service_url: str) -> bool:
+def _process_released_service(pid: int, service_url: str) -> bool:
     if not _process_exists(pid):
         return True
-    # A daemon signalled by a process other than its parent can remain briefly
-    # as a zombie. Once its listener and health endpoint are both gone, it no
-    # longer blocks the updated runtime and is considered released.
-    return pid not in _listening_pids(port) and _service_health(service_url) is None
+    # A daemon signalled by a process other than its parent can remain
+    # briefly as a zombie. Once its health endpoint is gone it no longer
+    # blocks a fresh daemon from claiming the socket.
+    return _service_health(service_url) is None
 
 
-def _owner_matches(
-    owner: dict[str, Any] | None,
-    current_health: dict[str, Any],
-    *,
-    pid: int,
-    port: int,
-) -> bool:
-    if owner is None:
-        return not _service_owner_path().exists()
+def _resolve_stoppable_pid(current_health: dict[str, Any]) -> int:
+    """Return the daemon's reported PID, or 0 if it didn't report one."""
     try:
-        owner_pid = int(owner.get("pid") or 0)
-        owner_port = int(owner.get("port") or 0)
+        pid = int(current_health.get("pid") or 0)
     except (TypeError, ValueError):
-        return False
-    return (
-        owner_pid == pid
-        and owner_port == port
-        and _same_path(owner.get("data_dir"), _expected_local_service_data_dir())
-        and str(owner.get("instance_id") or "")
-        == str(current_health.get("instanceId") or "")
-    )
-
-
-def _resolve_stoppable_pid(current_health: dict[str, Any], port: int) -> int:
-    """Return a strictly verified same-home daemon PID, or 0 to fail closed."""
-    reported_data_dir = str(current_health.get("dataDir") or "").strip()
-    if not _same_path(reported_data_dir, _expected_local_service_data_dir()):
         return 0
-    listeners = _listening_pids(port)
-    if not listeners:
-        return 0
-    try:
-        reported_pid = int(current_health.get("pid") or 0)
-    except (TypeError, ValueError):
-        reported_pid = 0
-    if reported_pid > 0:
-        if reported_pid not in listeners:
-            return 0
-        candidate = reported_pid
-    elif len(listeners) == 1:
-        # One-time compatibility for a pre-PID daemon. The listener and its
-        # working directory still have to identify the bundled service.
-        candidate = listeners[0]
-    else:
-        return 0
-    cwd = _process_cwd(candidate)
-    if cwd is None or cwd.name != "wdk-evm-wallet":
-        return 0
-    if not _owner_matches(_read_service_owner(), current_health, pid=candidate, port=port):
-        return 0
-    return candidate
+    return pid if pid > 0 else 0
 
 
 def _stop_local_service(service_url: str, health: dict[str, Any] | None = None) -> None:
     """Gracefully stop a local wdk-evm-wallet daemon so a fresh one can start.
 
-    SIGTERM the listener(s), wait for /health to drop, then SIGKILL as a fallback.
+    SIGTERM the listener, wait for /health to drop, then SIGKILL as a fallback.
     """
     port = urlparse(service_url).port or 8081
     current_health = health if health is not None else _service_health(service_url)
     if not current_health or current_health.get("service") != "wdk-evm-wallet":
-        raise WalletBackendError(
-            f"Refusing to stop an unidentified service on port {port}."
-        )
-    listeners = _listening_pids(port)
-    reported_data_dir = str(current_health.get("dataDir") or "").strip()
+        raise WalletBackendError(f"Refusing to stop an unidentified service on port {port}.")
 
     if _daemon_takeover_disabled():
         raise WalletBackendError(
-            _takeover_refusal(
-                port,
-                listeners,
-                reported_data_dir,
-                "takeover is disabled by OPENCLAW_EVM_DISABLE_DAEMON_TAKEOVER",
-            )
+            _takeover_refusal("takeover is disabled by OPENCLAW_EVM_DISABLE_DAEMON_TAKEOVER")
         )
 
-    if not _same_path(reported_data_dir, _expected_local_service_data_dir()):
-        raise WalletBackendError(
-            _takeover_refusal(
-                port,
-                listeners,
-                reported_data_dir,
-                "the daemon belongs to a different wallet home",
-            )
-        )
-
-    owned_pid = _resolve_stoppable_pid(current_health, port)
+    owned_pid = _resolve_stoppable_pid(current_health)
     if owned_pid <= 0:
         raise WalletBackendError(
-            _takeover_refusal(
-                port,
-                listeners,
-                reported_data_dir,
-                "the listening process could not be identified",
-            )
+            _takeover_refusal("the daemon's /health response did not include a pid")
         )
 
     try:
         os.kill(owned_pid, 0)
     except ProcessLookupError:
-        try:
-            _service_owner_path().unlink()
-        except FileNotFoundError:
-            pass
         return
     except PermissionError as exc:
         raise WalletBackendError(
-            _takeover_refusal(
-                port,
-                listeners,
-                reported_data_dir,
-                f"pid {owned_pid} belongs to another user ({exc})",
-            )
+            _takeover_refusal(f"pid {owned_pid} belongs to another user ({exc})")
         ) from exc
 
     try:
@@ -413,45 +228,31 @@ def _stop_local_service(service_url: str, health: dict[str, Any] | None = None) 
     except ProcessLookupError:
         pass
     except PermissionError as exc:
-        raise WalletBackendError(
-            f"Cannot stop stale wdk-evm-wallet (pid {owned_pid}): {exc}."
-        ) from exc
+        raise WalletBackendError(f"Cannot stop stale wdk-evm-wallet (pid {owned_pid}): {exc}.") from exc
+
     deadline = time.time() + 10.0
     while time.time() < deadline:
-        if _process_released_service(owned_pid, port, service_url):
-            try:
-                _service_owner_path().unlink()
-            except FileNotFoundError:
-                pass
+        if _process_released_service(owned_pid, service_url):
             return
         time.sleep(0.3)
-    # Re-run the socket/cwd/owner checks immediately before a hard stop. A PID
-    # that exited and was reused must never inherit permission from old health.
+
+    # Re-check immediately before a hard stop. A PID that exited and was
+    # reused must never inherit permission from stale health.
     refreshed_health = _service_health(service_url)
     if (
         not refreshed_health
         or refreshed_health.get("service") != "wdk-evm-wallet"
-        or _resolve_stoppable_pid(refreshed_health, port) != owned_pid
+        or _resolve_stoppable_pid(refreshed_health) != owned_pid
     ):
-        raise WalletBackendError(
-            _takeover_refusal(
-                port,
-                _listening_pids(port),
-                str((refreshed_health or {}).get("dataDir") or ""),
-                "process identity changed before the hard stop",
-            )
-        )
+        raise WalletBackendError(_takeover_refusal("process identity changed before the hard stop"))
+
     try:
         os.kill(owned_pid, signal.SIGKILL)
     except ProcessLookupError:
         pass
     deadline = time.time() + 5.0
     while time.time() < deadline:
-        if _process_released_service(owned_pid, port, service_url):
-            try:
-                _service_owner_path().unlink()
-            except FileNotFoundError:
-                pass
+        if _process_released_service(owned_pid, service_url):
             return
         time.sleep(0.3)
     raise WalletBackendError(f"Failed to stop stale wdk-evm-wallet on port {port}.")

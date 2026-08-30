@@ -102,14 +102,32 @@ jobs:
       - name: Smoke corrupt integration registry recovery
         run: python agent-wallet/tests/smoke_update_recovers_corrupt_integration_registry.py
 
-      - name: Smoke EVM wrong-home daemon recovery
-        run: python agent-wallet/tests/smoke_openclaw_evm_runtime_restart_wrong_home.py
+      - name: Smoke EVM wallet home isolation
+        run: python agent-wallet/tests/smoke_evm_wallet_home_isolation.py
 
       - name: Smoke EVM daemon ownership
         run: python agent-wallet/tests/smoke_evm_service_ownership.py
 
       - name: Smoke EVM same-home stale daemon restart
         run: python agent-wallet/tests/smoke_bootstrap_openclaw_evm_restart_stale.py
+
+      - name: Smoke fake wdk-evm-wallet server socket mode
+        run: python agent-wallet/tests/smoke_fake_wdk_evm_server_socket_mode.py
+
+      - name: Smoke WdkEvmLocalClient over a unix socket
+        run: python agent-wallet/tests/smoke_wdk_evm_unix_socket_client.py
+
+      - name: Smoke EVM default service URL resolution
+        run: python agent-wallet/tests/smoke_wdk_evm_default_service_url.py
+
+      - name: Smoke EVM service health over unix socket
+        run: python agent-wallet/tests/smoke_evm_service_health_unix.py
+
+      - name: Smoke EVM bootstrap unix env derivation
+        run: python agent-wallet/tests/smoke_bootstrap_openclaw_evm_unix_env.py
+
+      - name: Test EVM daemon socket transport
+        run: npm run test:socket-transport --prefix wdk-evm-wallet
 
       - name: Test EVM daemon instance identity
         run: npm run test:identity --prefix wdk-evm-wallet

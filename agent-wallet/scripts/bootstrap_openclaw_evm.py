@@ -154,7 +154,6 @@ def _auto_start_local_service(
         _service_health,
         _should_restart_local_service,
         _stop_local_service,
-        _write_service_owner,
     )
 
     restarted = False
@@ -175,15 +174,18 @@ def _auto_start_local_service(
         raise SystemExit(f"Could not find wdk-evm-wallet launcher: {run_local}")
 
     parsed = urlparse(service_url)
-    host = parsed.hostname or "127.0.0.1"
-    port = parsed.port or 8081
     log_dir = _service_log_dir(config_path)
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = _service_log_path(config_path)
 
     env = os.environ.copy()
-    env["HOST"] = host
-    env["PORT"] = str(port)
+    if parsed.scheme == "unix":
+        env["WDK_EVM_TRANSPORT"] = "socket"
+        env["WDK_EVM_SOCKET_PATH"] = parsed.path
+    else:
+        env["WDK_EVM_TRANSPORT"] = "tcp"
+        env["HOST"] = parsed.hostname or "127.0.0.1"
+        env["PORT"] = str(parsed.port or 8081)
     env["WDK_EVM_NETWORK"] = network
     env["WDK_EVM_INSTANCE_ID"] = _expected_local_service_instance_id()
 
@@ -202,7 +204,7 @@ def _auto_start_local_service(
     while time.time() < deadline:
         health = _service_health(service_url)
         if health is not None:
-            pid = _write_service_owner(health, service_url)
+            pid = int(health.get("pid") or 0)
             return {
                 "started": True,
                 "already_healthy": False,
