@@ -102,3 +102,64 @@ test("sendNativeTransfer flags a second identical send as a likely duplicate, bu
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
 });
+
+test("a send confirmed as reverted is not flagged as a duplicate on retry", async () => {
+  const dataDir = tempDataDir();
+  const harness = createHarness({ dataDir });
+  let receiptStatus = "0x0";
+  setRpcRequestForTests(async () => ({ status: receiptStatus, blockNumber: "0x10" }));
+  try {
+    const params = {
+      seedPhrase: VALID_MNEMONIC,
+      to: RECIPIENT,
+      value: "1000000000000000",
+      network: "base",
+    };
+
+    await assert.rejects(
+      () => harness.service.sendNativeTransfer(params),
+      (error) => error?.errorCode === "native_transfer_reverted"
+    );
+
+    receiptStatus = "0x1";
+    const retry = await harness.service.sendNativeTransfer(params);
+    assert.equal(
+      retry.duplicate_warning,
+      undefined,
+      "a retry after a genuine onchain revert must not be flagged as a duplicate"
+    );
+  } finally {
+    setRpcRequestForTests(null);
+    harness.restore();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("a corrupt idempotency store never blocks or delays a real broadcast", async () => {
+  const dataDir = tempDataDir();
+  const harness = createHarness({ dataDir });
+  setRpcRequestForTests(async () => ({ status: "0x1", blockNumber: "0x10" }));
+  try {
+    // A structurally valid file with a corrupt entry: readEntries returns it
+    // happily, and every store function then dereferences null. This is the
+    // pre-broadcast check's failure mode, which must not abort the send.
+    fs.writeFileSync(
+      path.join(dataDir, "pending-transactions.json"),
+      JSON.stringify({ entries: [null] })
+    );
+
+    const sent = await harness.service.sendNativeTransfer({
+      seedPhrase: VALID_MNEMONIC,
+      to: RECIPIENT,
+      value: "1000000000000000",
+      network: "base",
+    });
+    assert.ok(sent.tx_hash, "the send must complete even when idempotency tracking is broken");
+    assert.equal(sent.duplicate_warning, undefined);
+    assert.equal(harness.sentTransactions.length, 1, "the transaction must actually broadcast");
+  } finally {
+    setRpcRequestForTests(null);
+    harness.restore();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});

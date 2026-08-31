@@ -1,10 +1,20 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import MorphoProtocolEvm from "@morpho-org/wdk-protocol-lending-morpho-evm";
 import WalletManagerEvm from "@tetherto/wdk-wallet-evm";
 
 import { WdkEvmWalletService } from "../src/wdk_evm_wallet.js";
+
+const SEED_PHRASE =
+  "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+
+function tempDataDir() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "wdk-evm-morpho-idempotency-"));
+}
 
 const DEFAULT_ADDRESS = "0x1111111111111111111111111111111111111111";
 const DEFAULT_MARKET_ID =
@@ -18,9 +28,10 @@ const APPROVAL_DATA = "0xaaaaaaaa";
 const AUTHORIZATION_DATA = "0xbbbbbbbb";
 const MORPHO_OPERATION_DATA = "0xcccccccc";
 
-function createService() {
+function createService({ dataDir } = {}) {
   return new WdkEvmWalletService({
     network: "base",
+    ...(dataDir ? { dataDir } : {}),
     morphoApiBaseUrl: "https://morpho-api.test/graphql",
     networkProfiles: {
       ethereum: {
@@ -639,6 +650,88 @@ test("morpho send waits for the final receipt and reports an onchain revert", as
     assert.equal(harness.state.sentTransactions[0].gasLimit, 130n);
   } finally {
     harness.restore();
+  }
+});
+
+// #sendMorphoProtocolOperation installs its own sendTransaction interceptor
+// instead of going through #sendBufferedDefiTransactionWithSender, so its
+// idempotency wiring has to be proven separately -- this is the exact
+// operation the original double-withdraw incident was about.
+test("morpho vault send flags a second identical operation as a likely duplicate, but still broadcasts it", async () => {
+  const dataDir = tempDataDir();
+  const service = createService({ dataDir });
+  const harness = createMorphoHarness({ initialApprovalSatisfied: true });
+
+  try {
+    const params = {
+      seedPhrase: SEED_PHRASE,
+      network: "base",
+      vaultAddress: DEFAULT_VAULT_ADDRESS,
+      token: DEFAULT_TOKEN,
+      amount: "5000000",
+      operation: "supply",
+    };
+
+    const first = await service.sendMorphoVaultOperation(params);
+    assert.equal(first.result.duplicate_warning, undefined, "first send must not be flagged");
+    assert.ok(first.tx_hash, "first send must report a tx_hash");
+
+    const second = await service.sendMorphoVaultOperation(params);
+    assert.ok(
+      second.result.duplicate_warning,
+      "a second identical Morpho operation inside the window must carry duplicate_warning"
+    );
+    assert.equal(
+      second.result.duplicate_warning.tx_hash,
+      first.tx_hash,
+      "duplicate_warning must point back at the first operation's tx_hash"
+    );
+    // Warn-not-block: the second operation must still have gone out for real.
+    assert.equal(harness.state.sentTransactions.length, 2, "both operations must actually broadcast");
+    assert.notEqual(second.tx_hash, first.tx_hash);
+  } finally {
+    harness.restore();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("a morpho operation that reverted onchain is not flagged as a duplicate on retry", async () => {
+  const dataDir = tempDataDir();
+  const service = createService({ dataDir });
+  const params = {
+    seedPhrase: SEED_PHRASE,
+    network: "base",
+    vaultAddress: DEFAULT_VAULT_ADDRESS,
+    token: DEFAULT_TOKEN,
+    amount: "5000000",
+    operation: "supply",
+  };
+
+  const reverting = createMorphoHarness({
+    initialApprovalSatisfied: true,
+    operationReceiptStatus: "0x0",
+  });
+  try {
+    await assert.rejects(
+      () => service.sendMorphoVaultOperation(params),
+      (error) => error?.errorCode === "morpho_operation_reverted"
+    );
+  } finally {
+    reverting.restore();
+  }
+
+  const retry = createMorphoHarness({ initialApprovalSatisfied: true });
+  try {
+    const second = await service.sendMorphoVaultOperation(params);
+    assert.equal(
+      second.result.duplicate_warning,
+      undefined,
+      "retrying an operation that is known to have reverted must not warn about a duplicate"
+    );
+    assert.equal(second.confirmation_status, "confirmed");
+  } finally {
+    retry.restore();
+    fs.rmSync(dataDir, { recursive: true, force: true });
   }
 });
 

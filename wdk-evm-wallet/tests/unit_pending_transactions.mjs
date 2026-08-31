@@ -8,6 +8,7 @@ import {
   transactionIdempotencyKey,
   checkTransactionIdempotency,
   recordTransactionSent,
+  updateTransactionConfirmationStatus,
 } from "../src/pending_transactions.js";
 
 function tempDataDir() {
@@ -113,6 +114,81 @@ test("recordTransactionSent prunes entries older than the match window on every 
     const afterWrite = JSON.parse(fs.readFileSync(storePath, "utf8"));
     assert.equal(afterWrite.entries.length, 1);
     assert.equal(afterWrite.entries[0].key, freshKey);
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("updateTransactionConfirmationStatus rewrites an existing entry's status", async () => {
+  const dataDir = tempDataDir();
+  try {
+    const key = transactionIdempotencyKey({ to: "0xAAA", data: "0x1", value: "0", chainId: 8453 });
+    await recordTransactionSent(dataDir, { key, txHash: "0xfirst", network: "base", operation: "morpho withdraw" });
+    const storePath = path.join(dataDir, "pending-transactions.json");
+    const before = JSON.parse(fs.readFileSync(storePath, "utf8"));
+    assert.equal(before.entries[0].confirmation_status, "submitted");
+
+    assert.equal(await updateTransactionConfirmationStatus(dataDir, "0xfirst", "confirmed"), true);
+
+    const after = JSON.parse(fs.readFileSync(storePath, "utf8"));
+    assert.equal(after.entries.length, 1, "updating must not add an entry");
+    assert.equal(after.entries[0].confirmation_status, "confirmed");
+    assert.equal(after.entries[0].key, key, "the entry's identity must be preserved");
+    assert.ok(
+      after.entries[0].last_checked_at >= before.entries[0].last_checked_at,
+      "last_checked_at must be refreshed"
+    );
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("updateTransactionConfirmationStatus is a safe no-op for an unknown tx_hash", async () => {
+  const dataDir = tempDataDir();
+  try {
+    const key = transactionIdempotencyKey({ to: "0xAAA", data: "0x1", value: "0", chainId: 8453 });
+    await recordTransactionSent(dataDir, { key, txHash: "0xfirst", network: "base", operation: "native_transfer" });
+
+    assert.equal(await updateTransactionConfirmationStatus(dataDir, "0xnothere", "reverted"), false);
+
+    const storePath = path.join(dataDir, "pending-transactions.json");
+    const stored = JSON.parse(fs.readFileSync(storePath, "utf8"));
+    assert.equal(stored.entries.length, 1, "an unknown hash must not add a spurious entry");
+    assert.equal(stored.entries[0].tx_hash, "0xfirst");
+    assert.equal(stored.entries[0].confirmation_status, "submitted", "the untouched entry keeps its status");
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("updateTransactionConfirmationStatus against an empty store does not throw or create entries", async () => {
+  const dataDir = tempDataDir();
+  try {
+    assert.equal(await updateTransactionConfirmationStatus(dataDir, "0xghost", "reverted"), false);
+    assert.equal(fs.existsSync(path.join(dataDir, "pending-transactions.json")), false);
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("a send confirmed as reverted stops being reported as a duplicate", async () => {
+  const dataDir = tempDataDir();
+  try {
+    const key = transactionIdempotencyKey({ to: "0xAAA", data: "0x1", value: "0", chainId: 8453 });
+    await recordTransactionSent(dataDir, { key, txHash: "0xfirst", network: "base", operation: "morpho withdraw" });
+    assert.ok(
+      await checkTransactionIdempotency(dataDir, key),
+      "a freshly submitted entry is a duplicate candidate"
+    );
+
+    // What confirmTransaction now does when the receipt reports status 0x0.
+    await updateTransactionConfirmationStatus(dataDir, "0xfirst", "reverted");
+
+    assert.equal(
+      await checkTransactionIdempotency(dataDir, key),
+      null,
+      "retrying a genuinely reverted operation must not be flagged as a duplicate"
+    );
   } finally {
     fs.rmSync(dataDir, { recursive: true, force: true });
   }

@@ -12,6 +12,7 @@ import {
   transactionIdempotencyKey,
   checkTransactionIdempotency,
   recordTransactionSent,
+  updateTransactionConfirmationStatus,
 } from "./pending_transactions.js";
 
 const ERC20_NAME_SELECTOR = "0x06fdde03";
@@ -580,9 +581,33 @@ const MORPHO_USER_OVERVIEW_QUERY = `
 // loaded config.js) carries a dataDir. A missing dataDir only happens in
 // harnesses/fixtures that construct a bare config object without it — treat
 // that as "idempotency tracking unavailable" rather than crashing the send.
+// The same reasoning makes the lookup itself fail open: idempotency tracking
+// is advisory, so a corrupt store entry must never abort a send the user
+// actually asked for. On any error the caller is told "no known duplicate"
+// and the broadcast proceeds, exactly like recordTransactionSentIfConfigured.
 async function checkIdempotencyIfConfigured(dataDir, key) {
-  if (!dataDir) return null;
-  return checkTransactionIdempotency(dataDir, key);
+  if (!dataDir || !key) return null;
+  try {
+    return await checkTransactionIdempotency(dataDir, key);
+  } catch (error) {
+    console.warn(
+      `[wdk-evm-wallet] failed to check idempotency store: ${error?.message || error}`
+    );
+    return null;
+  }
+}
+
+// Key derivation encodes calldata, which can throw. Same fail-open rule: a
+// null key disables tracking for this one send rather than blocking it.
+function deriveIdempotencyKey(build) {
+  try {
+    return transactionIdempotencyKey(build());
+  } catch (error) {
+    console.warn(
+      `[wdk-evm-wallet] failed to derive idempotency key: ${error?.message || error}`
+    );
+    return null;
+  }
 }
 
 // A record-write failure happens AFTER the broadcast already went out. Never
@@ -590,12 +615,26 @@ async function checkIdempotencyIfConfigured(dataDir, key) {
 // broadcast as an error and invite exactly the double-send this feature
 // exists to prevent. Fail open, same as checkIdempotencyIfConfigured.
 async function recordTransactionSentIfConfigured(dataDir, params) {
-  if (!dataDir) return;
+  if (!dataDir || !params?.key) return;
   try {
     await recordTransactionSent(dataDir, params);
   } catch (error) {
     console.warn(
       `[wdk-evm-wallet] failed to record idempotency entry for ${params?.operation}: ${error?.message || error}`
+    );
+  }
+}
+
+// Called once the confirmation outcome is known, so a later identical send can
+// tell "already landed" from "reverted, safe to retry". A failure here must
+// never mask or replace the real confirm/revert outcome -- fail open and warn.
+async function updateTransactionConfirmationStatusIfConfigured(dataDir, txHash, status) {
+  if (!dataDir || !txHash) return;
+  try {
+    await updateTransactionConfirmationStatus(dataDir, txHash, status);
+  } catch (error) {
+    console.warn(
+      `[wdk-evm-wallet] failed to update idempotency entry ${txHash} to ${status}: ${error?.message || error}`
     );
   }
 }
@@ -633,11 +672,25 @@ async function confirmTransaction(
     if (receipt) {
       const status = String(receipt.status || "").toLowerCase();
       if (status === "0x0") {
+        // Record the revert before throwing: this is the only signal that lets
+        // a legitimate retry of a genuinely-failed operation avoid a spurious
+        // duplicate warning. The update never throws, so the revert error
+        // below is what the caller actually sees, unchanged.
+        await updateTransactionConfirmationStatusIfConfigured(
+          runtimeConfig.dataDir,
+          txHash,
+          "reverted"
+        );
         throw createTaggedError(`${operationLabel} reverted onchain.`, failureCode, {
           txHash,
           network: runtimeConfig.network,
         });
       }
+      await updateTransactionConfirmationStatusIfConfigured(
+        runtimeConfig.dataDir,
+        txHash,
+        "confirmed"
+      );
       return { status: "confirmed", receipt };
     }
     await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -4381,12 +4434,12 @@ export class WdkEvmWalletService {
         to: normalizeAddress(to, "to"),
         value: assertPositiveBigIntString(value, "value"),
       };
-      const idempotencyKey = transactionIdempotencyKey({
+      const idempotencyKey = deriveIdempotencyKey(() => ({
         to: tx.to,
         data: "0x",
         value: tx.value,
         chainId: runtimeConfig.chainId,
-      });
+      }));
       const duplicateCheck = await checkIdempotencyIfConfigured(runtimeConfig.dataDir, idempotencyKey);
       const result = await account.sendTransaction(tx);
       await recordTransactionSentIfConfigured(runtimeConfig.dataDir, {
@@ -4498,7 +4551,7 @@ export class WdkEvmWalletService {
         transfer,
         ownerAddress,
       });
-      const idempotencyKey = transactionIdempotencyKey({
+      const idempotencyKey = deriveIdempotencyKey(() => ({
         to: transfer.token,
         data: ERC20_TRANSFER_INTERFACE.encodeFunctionData("transfer", [
           transfer.recipient,
@@ -4506,7 +4559,7 @@ export class WdkEvmWalletService {
         ]),
         value: "0",
         chainId: runtimeConfig.chainId,
-      });
+      }));
       const duplicateCheck = await checkIdempotencyIfConfigured(runtimeConfig.dataDir, idempotencyKey);
       let result;
       try {
@@ -4870,9 +4923,32 @@ export class WdkEvmWalletService {
         tx,
         operation: request.operation,
       });
-      const result = await originalSendTransaction.call(account, {
+      const preparedTx = {
         ...tx,
         gasLimit: gas.gasLimit,
+      };
+      // This interceptor is Morpho's own broadcast point -- it deliberately
+      // does not go through #sendBufferedDefiTransactionWithSender (it needs
+      // MORPHO_GAS_BUFFER_BPS, not DEFI_GAS_BUFFER_BPS), so the idempotency
+      // guard has to be wired here explicitly or the Morpho vault/market
+      // operation would have no duplicate detection at all.
+      const operationLabel = `morpho ${request.operation}`;
+      const idempotencyKey = deriveIdempotencyKey(() => ({
+        to: preparedTx.to,
+        data: preparedTx.data,
+        value: preparedTx.value,
+        chainId: runtimeConfig.chainId,
+      }));
+      const duplicateCheck = await checkIdempotencyIfConfigured(
+        runtimeConfig.dataDir,
+        idempotencyKey
+      );
+      const result = await originalSendTransaction.call(account, preparedTx);
+      await recordTransactionSentIfConfigured(runtimeConfig.dataDir, {
+        key: idempotencyKey,
+        txHash: result.hash,
+        network: runtimeConfig.network,
+        operation: operationLabel,
       });
       return {
         ...result,
@@ -4880,6 +4956,7 @@ export class WdkEvmWalletService {
         gasEstimate: gas.gasEstimate.toString(),
         gasLimit: gas.gasLimit.toString(),
         gasBufferBps: MORPHO_GAS_BUFFER_BPS.toString(),
+        ...(duplicateCheck ? { duplicate_warning: duplicateCheck.duplicate } : {}),
       };
     };
 
@@ -4956,12 +5033,12 @@ export class WdkEvmWalletService {
       operationLabel,
     });
     const preparedTx = { ...tx, gasLimit: gas.gasLimit };
-    const idempotencyKey = transactionIdempotencyKey({
+    const idempotencyKey = deriveIdempotencyKey(() => ({
       to: preparedTx.to,
       data: preparedTx.data,
       value: preparedTx.value,
       chainId: runtimeConfig.chainId,
-    });
+    }));
     const duplicateCheck = await checkIdempotencyIfConfigured(runtimeConfig.dataDir, idempotencyKey);
     const result = await sendTransaction(preparedTx);
     await recordTransactionSentIfConfigured(runtimeConfig.dataDir, {
@@ -8637,12 +8714,12 @@ export class WdkEvmWalletService {
     const duplicateWarnings = [];
     for (const step of plan.approval.steps) {
       const approveTx = buildErc20ApproveTransaction(swapRequest.tokenIn, plan.spender, step.amount);
-      const idempotencyKey = transactionIdempotencyKey({
+      const idempotencyKey = deriveIdempotencyKey(() => ({
         to: approveTx.to,
         data: approveTx.data,
         value: approveTx.value,
         chainId: runtimeConfig.chainId,
-      });
+      }));
       const duplicateCheck = await checkIdempotencyIfConfigured(runtimeConfig.dataDir, idempotencyKey);
       const result = await account.approve({
         token: swapRequest.tokenIn,

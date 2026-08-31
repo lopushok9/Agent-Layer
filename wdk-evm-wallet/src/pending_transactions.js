@@ -61,6 +61,29 @@ export async function checkTransactionIdempotency(dataDir, key) {
   };
 }
 
+// A recorded entry keeps the status it had at broadcast ("submitted") until
+// the confirmation outcome is known. Without this update the spec's binding
+// rule -- a reverted entry is never treated as a duplicate -- could never fire,
+// because nothing ever wrote "reverted" into the store. Matching is by
+// tx_hash: an unknown hash is a no-op (no throw, no spurious entry).
+export async function updateTransactionConfirmationStatus(dataDir, txHash, status) {
+  const target = String(txHash || "").trim().toLowerCase();
+  if (!target) return false;
+  const entries = await readEntries(dataDir);
+  const now = new Date().toISOString();
+  let changed = false;
+  for (const entry of entries) {
+    if (String(entry.tx_hash || "").trim().toLowerCase() === target) {
+      entry.confirmation_status = status;
+      entry.last_checked_at = now;
+      changed = true;
+    }
+  }
+  if (!changed) return false;
+  await writeEntries(dataDir, entries);
+  return true;
+}
+
 export async function recordTransactionSent(
   dataDir,
   { key, txHash, network, operation, confirmationStatus = "submitted" }
