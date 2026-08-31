@@ -51,6 +51,8 @@ export async function startServer(config = loadConfig()) {
       code === "lido_withdrawal_reverted" ||
       code === "swap_reverted" ||
       code === "transaction_reverted" ||
+      code === "native_transfer_reverted" ||
+      code === "token_transfer_reverted" ||
       code === "token_transfer_failed" ||
       code === "fee_limit_exceeded" ||
       code === "token_read_failed" ||
