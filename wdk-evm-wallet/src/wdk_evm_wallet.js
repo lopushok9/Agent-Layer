@@ -576,6 +576,40 @@ function createTaggedError(message, code, details = {}) {
   return error;
 }
 
+async function confirmTransaction(
+  runtimeConfig,
+  txHash,
+  { operationLabel = "Transaction", failureCode = "transaction_reverted", maxWaitMs = 20_000 } = {}
+) {
+  const deadline = Date.now() + maxWaitMs;
+  let sawCleanResponse = false;
+  while (Date.now() < deadline) {
+    let receipt;
+    try {
+      receipt = await activeRpcRequest(runtimeConfig.providerUrl, "eth_getTransactionReceipt", [txHash]);
+      sawCleanResponse = true;
+    } catch {
+      // Transient RPC failure (the known provider-gateway latency/timeout
+      // issue) -- keep polling. Only reported as "unknown" if no attempt
+      // ever succeeds before maxWaitMs elapses.
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      continue;
+    }
+    if (receipt) {
+      const status = String(receipt.status || "").toLowerCase();
+      if (status === "0x0") {
+        throw createTaggedError(`${operationLabel} reverted onchain.`, failureCode, {
+          txHash,
+          network: runtimeConfig.network,
+        });
+      }
+      return { status: "confirmed", receipt };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  return { status: sawCleanResponse ? "submitted" : "unknown" };
+}
+
 function assertNonEmptyString(value, fieldName) {
   if (typeof value !== "string" || !value.trim()) {
     throw new Error(`${fieldName} is required.`);
@@ -1727,6 +1761,12 @@ async function rpcRequest(providerUrl, method, params = []) {
     throw error;
   }
   return payload.result;
+}
+
+let activeRpcRequest = rpcRequest;
+
+function setRpcRequestForTests(override) {
+  activeRpcRequest = override || rpcRequest;
 }
 
 async function ethCall(providerUrl, to, data) {
@@ -8826,4 +8866,6 @@ export const __testables = {
   assertValidNetwork,
   uniswapSlippagePercentFromBps,
   normalizeUniswapPermitData,
+  confirmTransaction,
+  setRpcRequestForTests,
 };
