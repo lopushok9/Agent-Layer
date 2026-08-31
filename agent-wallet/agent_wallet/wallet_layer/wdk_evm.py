@@ -1242,6 +1242,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             ),
             "broadcasted": True,
             "confirmed": bool(data.get("confirmed")),
+            "confirmation_status": data.get("confirmation_status"),
         }
 
     async def preview_evm_lido_operation(
@@ -1310,6 +1311,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             ),
             "broadcasted": True,
             "confirmed": bool(data.get("confirmed")),
+            "confirmation_status": data.get("confirmation_status"),
         }
 
     async def preview_evm_lido_withdrawal(
@@ -1387,6 +1389,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             ),
             "broadcasted": True,
             "confirmed": bool(data.get("confirmed")),
+            "confirmation_status": data.get("confirmation_status"),
         }
 
     async def preview_evm_morpho_vault_operation(
@@ -1482,6 +1485,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             ),
             "broadcasted": True,
             "confirmed": bool(data.get("confirmed")),
+            "confirmation_status": data.get("confirmation_status"),
         }
 
     async def preview_evm_morpho_market_operation(
@@ -1577,6 +1581,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             ),
             "broadcasted": True,
             "confirmed": bool(data.get("confirmed")),
+            "confirmation_status": data.get("confirmation_status"),
         }
 
     async def get_evm_swap_quote(
@@ -1818,6 +1823,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "chain_id": int(data.get("chainId") or 0),
             "broadcasted": True,
             "confirmed": bool(data.get("confirmed")),
+            "confirmation_status": data.get("confirmation_status"),
             "source": "wdk-evm-wallet",
         }
 
@@ -2086,6 +2092,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "broadcasted": bool(result.get("hash")),
             "order_submitted": order_id is not None,
             "confirmed": bool(data.get("confirmed")),
+            "confirmation_status": data.get("confirmation_status"),
             "source": str(data.get("source") or "wdk-evm-wallet"),
         }
 
@@ -2131,6 +2138,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "chain_id": int(data.get("chainId") or 0),
             "broadcasted": bool(result.get("hash")),
             "confirmed": bool(data.get("confirmed")),
+            "confirmation_status": data.get("confirmation_status"),
             "source": str(data.get("source") or "wdk-evm-wallet"),
         }
 
@@ -2298,6 +2306,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "result": result,
             "broadcasted": True,
             "confirmed": bool(data.get("confirmed")),
+            "confirmation_status": data.get("confirmation_status"),
         }
 
     async def preview_evm_native_transfer(
@@ -2365,7 +2374,12 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "result": result,
             "chain_id": int(data.get("chainId") or 0),
             "broadcasted": True,
-            "confirmed": False,
+            "confirmed": bool(data.get("confirmed")),
+            "confirmation_status": data.get("confirmation_status"),
+            # The daemon puts duplicate_warning at the top level for native and
+            # token transfers (unlike the buffered-defi family, where it rides
+            # inside `result`), so it has to be forwarded explicitly here.
+            "duplicate_warning": data.get("duplicate_warning"),
             "source": "wdk-evm-wallet",
         }
 
@@ -2442,7 +2456,10 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "result": result,
             "chain_id": int(data.get("chainId") or 0),
             "broadcasted": True,
-            "confirmed": False,
+            "confirmed": bool(data.get("confirmed")),
+            "confirmation_status": data.get("confirmation_status"),
+            # Top-level on the daemon side, same as the native transfer above.
+            "duplicate_warning": data.get("duplicate_warning"),
             "source": "wdk-evm-wallet",
         }
 
