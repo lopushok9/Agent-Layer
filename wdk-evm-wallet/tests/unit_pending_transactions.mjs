@@ -1,0 +1,119 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+
+import {
+  transactionIdempotencyKey,
+  checkTransactionIdempotency,
+  recordTransactionSent,
+} from "../src/pending_transactions.js";
+
+function tempDataDir() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "wdk-evm-idempotency-"));
+}
+
+test("transactionIdempotencyKey is stable for the same resolved call and differs for a different one", () => {
+  const a = transactionIdempotencyKey({ to: "0xAAA", data: "0x1", value: "0", chainId: 8453 });
+  const b = transactionIdempotencyKey({ to: "0xaaa", data: "0x1", value: "0", chainId: 8453 });
+  const c = transactionIdempotencyKey({ to: "0xAAA", data: "0x2", value: "0", chainId: 8453 });
+  assert.equal(a, b, "case must not matter for addresses/calldata");
+  assert.notEqual(a, c);
+});
+
+test("no prior entry means no duplicate", async () => {
+  const dataDir = tempDataDir();
+  try {
+    const key = transactionIdempotencyKey({ to: "0xAAA", data: "0x1", value: "0", chainId: 8453 });
+    assert.equal(await checkTransactionIdempotency(dataDir, key), null);
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("a recent submitted entry is reported as a duplicate", async () => {
+  const dataDir = tempDataDir();
+  try {
+    const key = transactionIdempotencyKey({ to: "0xAAA", data: "0x1", value: "0", chainId: 8453 });
+    await recordTransactionSent(dataDir, { key, txHash: "0xfirst", network: "base", operation: "morpho_vault_withdraw" });
+    const result = await checkTransactionIdempotency(dataDir, key);
+    assert.ok(result);
+    assert.equal(result.duplicate.tx_hash, "0xfirst");
+    assert.equal(result.duplicate.status, "submitted");
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("a confirmed entry is still reported as a duplicate", async () => {
+  const dataDir = tempDataDir();
+  try {
+    const key = transactionIdempotencyKey({ to: "0xAAA", data: "0x1", value: "0", chainId: 8453 });
+    await recordTransactionSent(dataDir, {
+      key,
+      txHash: "0xfirst",
+      network: "base",
+      operation: "morpho_vault_withdraw",
+      confirmationStatus: "confirmed",
+    });
+    const result = await checkTransactionIdempotency(dataDir, key);
+    assert.equal(result.duplicate.status, "confirmed");
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("a reverted entry is never reported as a duplicate", async () => {
+  const dataDir = tempDataDir();
+  try {
+    const key = transactionIdempotencyKey({ to: "0xAAA", data: "0x1", value: "0", chainId: 8453 });
+    await recordTransactionSent(dataDir, {
+      key,
+      txHash: "0xfirst",
+      network: "base",
+      operation: "morpho_vault_withdraw",
+      confirmationStatus: "reverted",
+    });
+    assert.equal(await checkTransactionIdempotency(dataDir, key), null);
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("an entry outside the match window is not reported as a duplicate", async () => {
+  const dataDir = tempDataDir();
+  try {
+    const key = transactionIdempotencyKey({ to: "0xAAA", data: "0x1", value: "0", chainId: 8453 });
+    await recordTransactionSent(dataDir, { key, txHash: "0xold", network: "base", operation: "morpho_vault_withdraw" });
+    // Backdate the recorded entry past the default 30-minute window.
+    const storePath = path.join(dataDir, "pending-transactions.json");
+    const stored = JSON.parse(fs.readFileSync(storePath, "utf8"));
+    stored.entries[0].broadcast_at = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    fs.writeFileSync(storePath, JSON.stringify(stored, null, 2));
+    assert.equal(await checkTransactionIdempotency(dataDir, key), null);
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("recordTransactionSent prunes entries older than the match window on every write", async () => {
+  const dataDir = tempDataDir();
+  try {
+    const staleKey = transactionIdempotencyKey({ to: "0xAAA", data: "0x1", value: "0", chainId: 8453 });
+    await recordTransactionSent(dataDir, { key: staleKey, txHash: "0xold", network: "base", operation: "x" });
+    const storePath = path.join(dataDir, "pending-transactions.json");
+    const stored = JSON.parse(fs.readFileSync(storePath, "utf8"));
+    stored.entries[0].broadcast_at = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    fs.writeFileSync(storePath, JSON.stringify(stored, null, 2));
+
+    const freshKey = transactionIdempotencyKey({ to: "0xBBB", data: "0x2", value: "0", chainId: 8453 });
+    await recordTransactionSent(dataDir, { key: freshKey, txHash: "0xnew", network: "base", operation: "y" });
+
+    const afterWrite = JSON.parse(fs.readFileSync(storePath, "utf8"));
+    assert.equal(afterWrite.entries.length, 1);
+    assert.equal(afterWrite.entries[0].key, freshKey);
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
