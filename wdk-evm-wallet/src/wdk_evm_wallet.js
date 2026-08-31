@@ -2826,10 +2826,9 @@ export class WdkEvmWalletService {
         } finally {
           await maybeDispose(protocol);
         }
-        await this.#waitForTransactionReceipt(runtimeConfig, result.hash, {
+        const confirmation = await confirmTransaction(runtimeConfig, result.hash, {
           operationLabel: "Morpho operation",
           failureCode: "morpho_operation_reverted",
-          timeoutCode: "morpho_operation_confirmation_timeout",
         });
         const resultFee = BigInt(result?.fee || finalPlan.operationFee || 0);
         const totalFee = requirementExecution.totalFee + resultFee;
@@ -2856,7 +2855,9 @@ export class WdkEvmWalletService {
             requirementsFee: requirementExecution.totalFee.toString(),
             requirements: requirementExecution.transactions,
           },
-          confirmed: true,
+          confirmed: confirmation.status === "confirmed",
+          tx_hash: result.hash,
+          confirmation_status: confirmation.status,
         };
       } catch (error) {
         const cleanup = await this.#restoreMorphoRequirementsAfterFailedOperation({
@@ -3007,10 +3008,9 @@ export class WdkEvmWalletService {
         } finally {
           await maybeDispose(protocol);
         }
-        await this.#waitForTransactionReceipt(runtimeConfig, result.hash, {
+        const confirmation = await confirmTransaction(runtimeConfig, result.hash, {
           operationLabel: "Aave operation",
           failureCode: "aave_operation_reverted",
-          timeoutCode: "aave_operation_confirmation_timeout",
         });
         const resultFee = BigInt(result?.fee || 0);
         const totalFee = approvalExecution.totalFee + resultFee;
@@ -3040,7 +3040,9 @@ export class WdkEvmWalletService {
               ? { resetAllowanceHash: approvalExecution.resetAllowanceHash }
               : {}),
           },
-          confirmed: true,
+          confirmed: confirmation.status === "confirmed",
+          tx_hash: result.hash,
+          confirmation_status: confirmation.status,
         };
       } catch (error) {
         const cleanup = await this.#restoreAllowanceAfterFailedAaveOperation({
@@ -3330,10 +3332,9 @@ export class WdkEvmWalletService {
           operationLabel: `Lido ${request.operation}`,
           operation: request.operation,
         });
-        await this.#waitForTransactionReceipt(runtimeConfig, result.hash, {
+        const confirmation = await confirmTransaction(runtimeConfig, result.hash, {
           operationLabel: "Lido operation",
           failureCode: "lido_operation_reverted",
-          timeoutCode: "lido_operation_confirmation_timeout",
         });
         const resultFee = BigInt(result?.fee || finalPlan.operationFee || 0);
         const totalFee = approvalExecution.totalFee + resultFee;
@@ -3363,7 +3364,9 @@ export class WdkEvmWalletService {
               ? { resetAllowanceHash: approvalExecution.resetAllowanceHash }
               : {}),
           },
-          confirmed: true,
+          confirmed: confirmation.status === "confirmed",
+          tx_hash: result.hash,
+          confirmation_status: confirmation.status,
         };
       } catch (error) {
         const cleanup = await this.#restoreAllowanceAfterFailedLidoOperation({
@@ -3494,10 +3497,9 @@ export class WdkEvmWalletService {
           operationLabel: `Lido ${request.operation}`,
           operation: request.operation,
         });
-        await this.#waitForTransactionReceipt(runtimeConfig, result.hash, {
+        const confirmation = await confirmTransaction(runtimeConfig, result.hash, {
           operationLabel: "Lido withdrawal",
           failureCode: "lido_withdrawal_reverted",
-          timeoutCode: "lido_withdrawal_confirmation_timeout",
         });
         const resultFee = BigInt(result?.fee || finalPlan.operationFee || 0);
         const totalFee = approvalExecution.totalFee + resultFee;
@@ -3527,7 +3529,9 @@ export class WdkEvmWalletService {
               ? { resetAllowanceHash: approvalExecution.resetAllowanceHash }
               : {}),
           },
-          confirmed: true,
+          confirmed: confirmation.status === "confirmed",
+          tx_hash: result.hash,
+          confirmation_status: confirmation.status,
         };
       } catch (error) {
         const cleanup = await this.#restoreAllowanceAfterFailedLidoWithdrawal({
@@ -3936,10 +3940,9 @@ export class WdkEvmWalletService {
           tx: finalPlan.swapTx,
           operationLabel: "LI.FI swap",
         });
-        await this.#waitForTransactionReceipt(runtimeConfig, swapResult.hash, {
+        const confirmation = await confirmTransaction(runtimeConfig, swapResult.hash, {
           operationLabel: "LI.FI swap",
           failureCode: "swap_reverted",
-          timeoutCode: "swap_confirmation_timeout",
         });
         const totalFee = approvalExecution.totalFee + BigInt(swapResult.fee);
         const result = {
@@ -3972,7 +3975,9 @@ export class WdkEvmWalletService {
             },
           }),
           result,
-          confirmed: true,
+          confirmed: confirmation.status === "confirmed",
+          tx_hash: swapResult.hash,
+          confirmation_status: confirmation.status,
         };
       } catch (error) {
         const cleanup = await this.#restoreAllowanceAfterFailedSwap({
@@ -5229,7 +5234,7 @@ export class WdkEvmWalletService {
         hash: result.hash,
         fee: fee.toString(),
       });
-      await this.#waitForTransactionReceipt(runtimeConfig, result.hash);
+      await confirmTransaction(runtimeConfig, result.hash);
     }
     return {
       performed: true,
@@ -5285,7 +5290,7 @@ export class WdkEvmWalletService {
             hash: result.hash,
             fee: BigInt(result.fee || 0).toString(),
           });
-          await this.#waitForTransactionReceipt(runtimeConfig, result.hash);
+          await confirmTransaction(runtimeConfig, result.hash);
         }
         const finalAllowance = await account.getAllowance(context.tokenAddress, context.spender);
         entry.finalAllowance = finalAllowance.toString();
@@ -5317,7 +5322,7 @@ export class WdkEvmWalletService {
           hash: result.hash,
           fee: BigInt(result.fee || 0).toString(),
         });
-        await this.#waitForTransactionReceipt(runtimeConfig, result.hash);
+        await confirmTransaction(runtimeConfig, result.hash);
       }
 
       cleanup.restored = true;
@@ -6246,7 +6251,7 @@ export class WdkEvmWalletService {
         const approvalSimulation = await this.#simulatePreparedTransaction({ runtimeConfig, from: address, tx: approval.tx, operationLabel: "Uniswap liquidity approval" });
         this.#assertSimulationSucceeded(approvalSimulation);
         const approvalResult = await this.#sendBufferedDefiTransaction({ account, runtimeConfig, from: address, tx: approval.tx, operationLabel: "Uniswap liquidity approval" });
-        await this.#waitForTransactionReceipt(runtimeConfig, approvalResult.hash, { operationLabel: "Uniswap liquidity approval", failureCode: "uniswap_liquidity_approval_reverted", timeoutCode: "uniswap_liquidity_approval_timeout" });
+        await confirmTransaction(runtimeConfig, approvalResult.hash, { operationLabel: "Uniswap liquidity approval", failureCode: "uniswap_liquidity_approval_reverted" });
         approvalResults.push({ token: approval.token, spender: approval.spender, amount: approval.amount.toString(), hash: approvalResult.hash });
       }
       if (approvals.length) {
@@ -6261,16 +6266,17 @@ export class WdkEvmWalletService {
       const simulation = await this.#simulatePreparedTransaction({ runtimeConfig, from: address, tx: transaction, operationLabel: "Uniswap liquidity" });
       this.#assertSimulationSucceeded(simulation);
       const result = await this.#sendBufferedDefiTransaction({ account, runtimeConfig, from: address, tx: transaction, operationLabel: "Uniswap liquidity" });
-      await this.#waitForTransactionReceipt(runtimeConfig, result.hash, {
+      const confirmation = await confirmTransaction(runtimeConfig, result.hash, {
         operationLabel: "Uniswap liquidity",
         failureCode: "uniswap_liquidity_reverted",
-        timeoutCode: "uniswap_liquidity_confirmation_timeout",
       });
       return {
         ...this.#formatUniswapLiquidityResponse({ runtimeConfig, accountIndex, address, action: normalizedAction, protocol: normalizedProtocol, request: body, payload, transaction, approvals, simulation }),
         result,
         approvalResults,
-        confirmed: true,
+        confirmed: confirmation.status === "confirmed",
+        tx_hash: result.hash,
+        confirmation_status: confirmation.status,
       };
     });
   }
@@ -7106,7 +7112,7 @@ export class WdkEvmWalletService {
       } else if (step.type === "approve") {
         approveHash = result.hash;
       }
-      await this.#waitForTransactionReceipt(runtimeConfig, result.hash);
+      await confirmTransaction(runtimeConfig, result.hash);
     }
     return {
       performed: true,
@@ -7163,7 +7169,7 @@ export class WdkEvmWalletService {
           hash: result.hash,
           fee: BigInt(result.fee || 0).toString(),
         });
-        await this.#waitForTransactionReceipt(runtimeConfig, result.hash);
+        await confirmTransaction(runtimeConfig, result.hash);
       }
       const finalAllowance = await account.getAllowance(tokenAddress, spender);
       cleanup.finalAllowance = finalAllowance.toString();
@@ -7930,7 +7936,7 @@ export class WdkEvmWalletService {
       } else if (step.type === "approve") {
         approveHash = result.hash;
       }
-      await this.#waitForTransactionReceipt(runtimeConfig, result.hash);
+      await confirmTransaction(runtimeConfig, result.hash);
     }
     return {
       performed: true,
@@ -7988,7 +7994,7 @@ export class WdkEvmWalletService {
           hash: result.hash,
           fee: BigInt(result.fee || 0).toString(),
         });
-        await this.#waitForTransactionReceipt(runtimeConfig, result.hash);
+        await confirmTransaction(runtimeConfig, result.hash);
       }
       const finalAllowance = await account.getAllowance(tokenAddress, spender);
       cleanup.finalAllowance = finalAllowance.toString();
@@ -8166,7 +8172,7 @@ export class WdkEvmWalletService {
       } else if (step.type === "approve") {
         approveHash = result.hash;
       }
-      await this.#waitForTransactionReceipt(runtimeConfig, result.hash);
+      await confirmTransaction(runtimeConfig, result.hash);
     }
     return {
       performed: true,
@@ -8224,7 +8230,7 @@ export class WdkEvmWalletService {
           hash: result.hash,
           fee: BigInt(result.fee || 0).toString(),
         });
-        await this.#waitForTransactionReceipt(runtimeConfig, result.hash);
+        await confirmTransaction(runtimeConfig, result.hash);
       }
       const finalAllowance = await account.getAllowance(tokenAddress, spender);
       cleanup.finalAllowance = finalAllowance.toString();
@@ -8535,7 +8541,7 @@ export class WdkEvmWalletService {
       } else if (step.type === "approve") {
         approveHash = result.hash;
       }
-      await this.#waitForTransactionReceipt(runtimeConfig, result.hash);
+      await confirmTransaction(runtimeConfig, result.hash);
     }
     return {
       performed: true,
@@ -8767,7 +8773,7 @@ export class WdkEvmWalletService {
           hash: result.hash,
           fee: BigInt(result.fee || 0).toString(),
         });
-        await this.#waitForTransactionReceipt(runtimeConfig, result.hash);
+        await confirmTransaction(runtimeConfig, result.hash);
       }
       const finalAllowance = await account.getAllowance(tokenAddress, spender);
       cleanup.finalAllowance = finalAllowance.toString();
@@ -8832,39 +8838,6 @@ export class WdkEvmWalletService {
             : {},
       };
     }
-  }
-
-  async #waitForTransactionReceipt(
-    runtimeConfig,
-    txHash,
-    {
-      operationLabel = "Approval transaction",
-      failureCode = "swap_approval_failed",
-      timeoutCode = "swap_approval_timeout",
-    } = {}
-  ) {
-    for (let attempt = 0; attempt < 30; attempt += 1) {
-      const receipt = await rpcRequest(runtimeConfig.providerUrl, "eth_getTransactionReceipt", [txHash]);
-      if (receipt) {
-        const status = String(receipt.status || "").toLowerCase();
-        if (status === "0x0") {
-          throw createTaggedError(`${operationLabel} reverted onchain.`, failureCode, {
-            txHash,
-            network: runtimeConfig.network,
-          });
-        }
-        return receipt;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    }
-    throw createTaggedError(
-      `Timed out waiting for ${operationLabel.toLowerCase()} confirmation.`,
-      timeoutCode,
-      {
-        txHash,
-        network: runtimeConfig.network,
-      }
-    );
   }
 }
 
