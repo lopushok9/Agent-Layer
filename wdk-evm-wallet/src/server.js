@@ -35,13 +35,11 @@ export async function startServer(config = loadConfig()) {
       code === "swap_simulation_failed" ||
       code === "swap_approval_required" ||
       code === "swap_approval_failed" ||
-      code === "swap_approval_timeout" ||
       code === "swap_cleanup_failed" ||
       code === "aave_quote_changed" ||
       code === "aave_approval_required" ||
       code === "aave_fee_unavailable" ||
       code === "aave_operation_reverted" ||
-      code === "aave_operation_confirmation_timeout" ||
       code === "aave_cleanup_failed" ||
       code === "morpho_api_failed" ||
       code === "morpho_quote_changed" ||
@@ -50,11 +48,9 @@ export async function startServer(config = loadConfig()) {
       code === "morpho_cleanup_failed" ||
       code === "defi_gas_estimate_unavailable" ||
       code === "lido_operation_reverted" ||
-      code === "lido_operation_confirmation_timeout" ||
       code === "lido_withdrawal_reverted" ||
-      code === "lido_withdrawal_confirmation_timeout" ||
       code === "swap_reverted" ||
-      code === "swap_confirmation_timeout" ||
+      code === "transaction_reverted" ||
       code === "token_transfer_failed" ||
       code === "fee_limit_exceeded" ||
       code === "token_read_failed" ||
@@ -146,12 +142,10 @@ export async function startServer(config = loadConfig()) {
       errorCode === "swap_simulation_failed" ||
       errorCode === "swap_approval_required" ||
       errorCode === "swap_approval_failed" ||
-      errorCode === "swap_approval_timeout" ||
       errorCode === "swap_cleanup_failed" ||
       errorCode === "aave_approval_required" ||
       errorCode === "aave_fee_unavailable" ||
       errorCode === "aave_operation_reverted" ||
-      errorCode === "aave_operation_confirmation_timeout" ||
       errorCode === "aave_cleanup_failed" ||
       errorCode === "morpho_api_failed" ||
       errorCode === "morpho_requirements_unresolved" ||
@@ -159,11 +153,8 @@ export async function startServer(config = loadConfig()) {
       errorCode === "morpho_cleanup_failed" ||
       errorCode === "defi_gas_estimate_unavailable" ||
       errorCode === "lido_operation_reverted" ||
-      errorCode === "lido_operation_confirmation_timeout" ||
       errorCode === "lido_withdrawal_reverted" ||
-      errorCode === "lido_withdrawal_confirmation_timeout" ||
       errorCode === "swap_reverted" ||
-      errorCode === "swap_confirmation_timeout" ||
       errorCode === "token_transfer_failed" ||
       errorCode === "fee_limit_exceeded" ||
       errorCode === "uniswap_api_key_missing"

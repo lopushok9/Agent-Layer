@@ -102,6 +102,21 @@ test("a confirmed transfer merges confirmation_status into its response shape", 
   }
 });
 
+test("confirmTransaction with no options defaults to transaction_reverted on revert (the shape internal cleanup/recovery loops rely on)", async () => {
+  setRpcRequestForTests(async () => ({ status: "0x0" }));
+  try {
+    await assert.rejects(
+      () => confirmTransaction(RUNTIME_CONFIG, "0xabc"),
+      (error) => {
+        assert.equal(error.errorCode, "transaction_reverted");
+        return true;
+      }
+    );
+  } finally {
+    setRpcRequestForTests(null);
+  }
+});
+
 test("a reverted transfer throws native_transfer_reverted, not a generic error", async () => {
   setRpcRequestForTests(async () => ({ status: "0x0" }));
   try {
