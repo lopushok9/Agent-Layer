@@ -879,6 +879,7 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "chain_id": int(data.get("chainId") or 0),
             "tx_hash": tx_hash,
             "found": bool(data.get("found")),
+            "status": data.get("status"),
             "receipt": data.get("receipt"),
             "source": "wdk-evm-wallet",
         }

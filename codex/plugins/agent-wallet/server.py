@@ -1585,7 +1585,17 @@ async def _handle_wallet_tool(tool_name: str, params: dict[str, Any]) -> dict[st
         _cache_x402_preview_payload(_user_id(), payload)
     if payload.get("ok") is False:
         raise RuntimeError(str(payload.get("error") or f"{tool_name} failed"))
-    return payload.get("data", {})
+    data = payload.get("data", {})
+    if isinstance(data, dict) and data.get("confirmation_status") in ("submitted", "unknown"):
+        data = {
+            **data,
+            "next_step": (
+                f"Transaction {data.get('tx_hash')} was submitted but not yet confirmed "
+                "on-chain. Call get_evm_transaction_receipt with this tx_hash to check the "
+                "outcome before resending — do not treat this as failed."
+            ),
+        }
+    return data
 
 
 BASE_INSTRUCTIONS = (

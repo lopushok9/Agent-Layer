@@ -2059,17 +2059,22 @@ export class WdkEvmWalletService {
 
   async getTransactionReceipt({ txHash, network }) {
     const runtimeConfig = this.#resolveRuntimeConfig(network);
-    const receipt = await rpcRequest(
-      runtimeConfig.providerUrl,
-      "eth_getTransactionReceipt",
-      [assertValidHash(txHash, "txHash")]
-    );
+    const validHash = assertValidHash(txHash, "txHash");
+    const receipt = await rpcRequest(runtimeConfig.providerUrl, "eth_getTransactionReceipt", [validHash]);
+    let status;
+    if (receipt) {
+      status = String(receipt.status || "").toLowerCase() === "0x0" ? "reverted" : "confirmed";
+    } else {
+      const pendingTx = await rpcRequest(runtimeConfig.providerUrl, "eth_getTransactionByHash", [validHash]);
+      status = pendingTx ? "pending" : "not_found";
+    }
     return {
       network: runtimeConfig.network,
       chainId: runtimeConfig.chainId,
       txHash,
       receipt,
       found: receipt !== null,
+      status,
       source: "rpc",
     };
   }

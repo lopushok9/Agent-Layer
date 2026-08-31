@@ -436,3 +436,48 @@ test("Aave failure after approval restores original allowance", async () => {
     ]);
   });
 });
+
+test("getTransactionReceipt reports pending for a known-but-unmined tx", async () => {
+  await withHarness({}, async ({ service }) => {
+    const txHash = `0x${"a".repeat(64)}`;
+
+    function mockReceiptFetch(receiptResult, byHashResult) {
+      globalThis.fetch = async (_url, init) => {
+        const body = JSON.parse(String(init?.body || "{}"));
+        let result = null;
+        if (body.method === "eth_getTransactionReceipt") result = receiptResult;
+        if (body.method === "eth_getTransactionByHash") result = byHashResult;
+        return {
+          ok: true,
+          async json() {
+            return { jsonrpc: "2.0", id: 1, result };
+          },
+        };
+      };
+    }
+
+    // eth_getTransactionReceipt -> null, eth_getTransactionByHash -> a tx -> pending
+    mockReceiptFetch(null, { hash: txHash, blockNumber: null });
+    let result = await service.getTransactionReceipt({ txHash, network: "ethereum" });
+    assert.equal(result.status, "pending");
+    assert.equal(result.found, false);
+
+    // eth_getTransactionReceipt -> null, eth_getTransactionByHash -> null -> not_found
+    mockReceiptFetch(null, null);
+    result = await service.getTransactionReceipt({ txHash, network: "ethereum" });
+    assert.equal(result.status, "not_found");
+    assert.equal(result.found, false);
+
+    // eth_getTransactionReceipt -> {status: "0x1"} -> confirmed
+    mockReceiptFetch({ status: "0x1" }, null);
+    result = await service.getTransactionReceipt({ txHash, network: "ethereum" });
+    assert.equal(result.status, "confirmed");
+    assert.equal(result.found, true);
+
+    // eth_getTransactionReceipt -> {status: "0x0"} -> reverted
+    mockReceiptFetch({ status: "0x0" }, null);
+    result = await service.getTransactionReceipt({ txHash, network: "ethereum" });
+    assert.equal(result.status, "reverted");
+    assert.equal(result.found, true);
+  });
+});
