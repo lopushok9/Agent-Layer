@@ -8,6 +8,11 @@ import { AaveV3Base, AaveV3Ethereum } from "@bgd-labs/aave-address-book";
 import AaveProtocolEvm from "@tetherto/wdk-protocol-lending-aave-evm";
 import VeloraProtocolEvm from "@tetherto/wdk-protocol-swap-velora-evm";
 import WalletManagerEvm, { WalletAccountReadOnlyEvm } from "@tetherto/wdk-wallet-evm";
+import {
+  transactionIdempotencyKey,
+  checkTransactionIdempotency,
+  recordTransactionSent,
+} from "./pending_transactions.js";
 
 const ERC20_NAME_SELECTOR = "0x06fdde03";
 const ERC20_SYMBOL_SELECTOR = "0x95d89b41";
@@ -44,6 +49,12 @@ const UNISWAP_LIQUIDITY_POSITION_MANAGERS = {
 };
 const ERC20_APPROVE_INTERFACE = new Interface([
   "function approve(address spender,uint256 amount) returns (bool)",
+]);
+// Used only to derive a stable idempotency key for account.transfer()'s
+// underlying broadcast — the SDK builds and sends this calldata itself, but
+// the on-chain call is the standard ERC-20 transfer(address,uint256).
+const ERC20_TRANSFER_INTERFACE = new Interface([
+  "function transfer(address to,uint256 amount) returns (bool)",
 ]);
 // V3 PositionManager is ERC-721 enumerable, so positions owned by the active
 // wallet can be discovered and then read directly from the canonical contract.
@@ -564,6 +575,20 @@ const MORPHO_USER_OVERVIEW_QUERY = `
     }
   }
 `;
+
+// Every real runtimeConfig (built by #resolveRuntimeConfig from the daemon's
+// loaded config.js) carries a dataDir. A missing dataDir only happens in
+// harnesses/fixtures that construct a bare config object without it — treat
+// that as "idempotency tracking unavailable" rather than crashing the send.
+async function checkIdempotencyIfConfigured(dataDir, key) {
+  if (!dataDir) return null;
+  return checkTransactionIdempotency(dataDir, key);
+}
+
+async function recordTransactionSentIfConfigured(dataDir, params) {
+  if (!dataDir) return;
+  await recordTransactionSent(dataDir, params);
+}
 
 function createTaggedError(message, code, details = {}) {
   const error = new Error(message);
@@ -3787,6 +3812,9 @@ export class WdkEvmWalletService {
           ...(approvalExecution.resetAllowanceHash
             ? { resetAllowanceHash: approvalExecution.resetAllowanceHash }
             : {}),
+          ...(approvalExecution.duplicateWarnings?.length
+            ? { approval_duplicate_warnings: approvalExecution.duplicateWarnings }
+            : {}),
         };
         return {
           network: runtimeConfig.network,
@@ -3955,6 +3983,9 @@ export class WdkEvmWalletService {
           ...(approvalExecution.approveHash ? { approveHash: approvalExecution.approveHash } : {}),
           ...(approvalExecution.resetAllowanceHash
             ? { resetAllowanceHash: approvalExecution.resetAllowanceHash }
+            : {}),
+          ...(approvalExecution.duplicateWarnings?.length
+            ? { approval_duplicate_warnings: approvalExecution.duplicateWarnings }
             : {}),
         };
         return {
@@ -4156,6 +4187,9 @@ export class WdkEvmWalletService {
             ...(approvalExecution.resetAllowanceHash
               ? { resetAllowanceHash: approvalExecution.resetAllowanceHash }
               : {}),
+            ...(approvalExecution.duplicateWarnings?.length
+              ? { approval_duplicate_warnings: approvalExecution.duplicateWarnings }
+              : {}),
           };
         } else {
           const swapTx =
@@ -4198,6 +4232,9 @@ export class WdkEvmWalletService {
             ...(approvalExecution.approveHash ? { approveHash: approvalExecution.approveHash } : {}),
             ...(approvalExecution.resetAllowanceHash
               ? { resetAllowanceHash: approvalExecution.resetAllowanceHash }
+              : {}),
+            ...(approvalExecution.duplicateWarnings?.length
+              ? { approval_duplicate_warnings: approvalExecution.duplicateWarnings }
               : {}),
           };
         }
@@ -4329,7 +4366,20 @@ export class WdkEvmWalletService {
         to: normalizeAddress(to, "to"),
         value: assertPositiveBigIntString(value, "value"),
       };
+      const idempotencyKey = transactionIdempotencyKey({
+        to: tx.to,
+        data: "0x",
+        value: tx.value,
+        chainId: runtimeConfig.chainId,
+      });
+      const duplicateCheck = await checkIdempotencyIfConfigured(runtimeConfig.dataDir, idempotencyKey);
       const result = await account.sendTransaction(tx);
+      await recordTransactionSentIfConfigured(runtimeConfig.dataDir, {
+        key: idempotencyKey,
+        txHash: result.hash,
+        network: runtimeConfig.network,
+        operation: "native_transfer",
+      });
       const confirmation = await confirmTransaction(runtimeConfig, result.hash, {
         operationLabel: "Native transfer",
         failureCode: "native_transfer_reverted",
@@ -4343,6 +4393,7 @@ export class WdkEvmWalletService {
         confirmed: confirmation.status === "confirmed",
         tx_hash: result.hash,
         confirmation_status: confirmation.status,
+        ...(duplicateCheck ? { duplicate_warning: duplicateCheck.duplicate } : {}),
         source: "wdk-wallet-evm",
       };
     });
@@ -4432,6 +4483,16 @@ export class WdkEvmWalletService {
         transfer,
         ownerAddress,
       });
+      const idempotencyKey = transactionIdempotencyKey({
+        to: transfer.token,
+        data: ERC20_TRANSFER_INTERFACE.encodeFunctionData("transfer", [
+          transfer.recipient,
+          transfer.amount,
+        ]),
+        value: "0",
+        chainId: runtimeConfig.chainId,
+      });
+      const duplicateCheck = await checkIdempotencyIfConfigured(runtimeConfig.dataDir, idempotencyKey);
       let result;
       try {
         result = await account.transfer(transfer);
@@ -4461,6 +4522,12 @@ export class WdkEvmWalletService {
         }
         throw error;
       }
+      await recordTransactionSentIfConfigured(runtimeConfig.dataDir, {
+        key: idempotencyKey,
+        txHash: result.hash,
+        network: runtimeConfig.network,
+        operation: "token_transfer",
+      });
       const confirmation = await confirmTransaction(runtimeConfig, result.hash, {
         operationLabel: "Token transfer",
         failureCode: "token_transfer_reverted",
@@ -4476,6 +4543,7 @@ export class WdkEvmWalletService {
         confirmed: confirmation.status === "confirmed",
         tx_hash: result.hash,
         confirmation_status: confirmation.status,
+        ...(duplicateCheck ? { duplicate_warning: duplicateCheck.duplicate } : {}),
         source: "wdk-wallet-evm",
       };
     });
@@ -4872,13 +4940,28 @@ export class WdkEvmWalletService {
       tx,
       operationLabel,
     });
-    const result = await sendTransaction({ ...tx, gasLimit: gas.gasLimit });
+    const preparedTx = { ...tx, gasLimit: gas.gasLimit };
+    const idempotencyKey = transactionIdempotencyKey({
+      to: preparedTx.to,
+      data: preparedTx.data,
+      value: preparedTx.value,
+      chainId: runtimeConfig.chainId,
+    });
+    const duplicateCheck = await checkIdempotencyIfConfigured(runtimeConfig.dataDir, idempotencyKey);
+    const result = await sendTransaction(preparedTx);
+    await recordTransactionSentIfConfigured(runtimeConfig.dataDir, {
+      key: idempotencyKey,
+      txHash: result.hash,
+      network: runtimeConfig.network,
+      operation: operationLabel,
+    });
     return {
       ...result,
       fee: gas.maximumFee.toString(),
       gasEstimate: gas.gasEstimate.toString(),
       gasLimit: gas.gasLimit.toString(),
       gasBufferBps: DEFI_GAS_BUFFER_BPS.toString(),
+      ...(duplicateCheck ? { duplicate_warning: duplicateCheck.duplicate } : {}),
     };
   }
 
@@ -6252,7 +6335,13 @@ export class WdkEvmWalletService {
         this.#assertSimulationSucceeded(approvalSimulation);
         const approvalResult = await this.#sendBufferedDefiTransaction({ account, runtimeConfig, from: address, tx: approval.tx, operationLabel: "Uniswap liquidity approval" });
         await confirmTransaction(runtimeConfig, approvalResult.hash, { operationLabel: "Uniswap liquidity approval", failureCode: "uniswap_liquidity_approval_reverted" });
-        approvalResults.push({ token: approval.token, spender: approval.spender, amount: approval.amount.toString(), hash: approvalResult.hash });
+        approvalResults.push({
+          token: approval.token,
+          spender: approval.spender,
+          amount: approval.amount.toString(),
+          hash: approvalResult.hash,
+          ...(approvalResult.duplicate_warning ? { duplicate_warning: approvalResult.duplicate_warning } : {}),
+        });
       }
       if (approvals.length) {
         payload = await this.#uniswapLiquidityApiRequest(normalizedAction, body);
@@ -8524,17 +8613,36 @@ export class WdkEvmWalletService {
         totalFee: 0n,
         approveHash: null,
         resetAllowanceHash: null,
+        duplicateWarnings: [],
       };
     }
     let totalFee = 0n;
     let approveHash = null;
     let resetAllowanceHash = null;
+    const duplicateWarnings = [];
     for (const step of plan.approval.steps) {
+      const approveTx = buildErc20ApproveTransaction(swapRequest.tokenIn, plan.spender, step.amount);
+      const idempotencyKey = transactionIdempotencyKey({
+        to: approveTx.to,
+        data: approveTx.data,
+        value: approveTx.value,
+        chainId: runtimeConfig.chainId,
+      });
+      const duplicateCheck = await checkIdempotencyIfConfigured(runtimeConfig.dataDir, idempotencyKey);
       const result = await account.approve({
         token: swapRequest.tokenIn,
         spender: plan.spender,
         amount: step.amount,
       });
+      await recordTransactionSentIfConfigured(runtimeConfig.dataDir, {
+        key: idempotencyKey,
+        txHash: result.hash,
+        network: runtimeConfig.network,
+        operation: `${step.type} allowance`,
+      });
+      if (duplicateCheck) {
+        duplicateWarnings.push(duplicateCheck.duplicate);
+      }
       totalFee += BigInt(result.fee || 0);
       if (step.type === "reset_allowance") {
         resetAllowanceHash = result.hash;
@@ -8548,6 +8656,7 @@ export class WdkEvmWalletService {
       totalFee,
       approveHash,
       resetAllowanceHash,
+      duplicateWarnings,
     };
   }
 

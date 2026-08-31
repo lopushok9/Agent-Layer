@@ -117,3 +117,23 @@ test("recordTransactionSent prunes entries older than the match window on every 
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
 });
+
+test("a second identical send within the window is still broadcast, but flagged", async () => {
+  const dataDir = tempDataDir();
+  try {
+    const key = transactionIdempotencyKey({ to: "0xAAA", data: "0x1", value: "0", chainId: 8453 });
+    await recordTransactionSent(dataDir, { key, txHash: "0xfirst", network: "base", operation: "native_transfer" });
+
+    const duplicateCheck = await checkTransactionIdempotency(dataDir, key);
+    assert.ok(duplicateCheck, "expected the second send to see the first as a duplicate candidate");
+
+    // The warn-not-block contract: the caller proceeds to broadcast and
+    // record the new send regardless of duplicateCheck's result.
+    await recordTransactionSent(dataDir, { key, txHash: "0xsecond", network: "base", operation: "native_transfer" });
+    const storePath = path.join(dataDir, "pending-transactions.json");
+    const stored = JSON.parse(fs.readFileSync(storePath, "utf8"));
+    assert.equal(stored.entries.length, 2, "both attempts must be recorded, not deduplicated away");
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
