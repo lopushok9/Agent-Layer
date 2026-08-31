@@ -2639,10 +2639,9 @@ export class WdkEvmWalletService {
         } finally {
           await maybeDispose(protocol);
         }
-        await this.#waitForTransactionReceipt(runtimeConfig, result.hash, {
+        const confirmation = await confirmTransaction(runtimeConfig, result.hash, {
           operationLabel: "Morpho operation",
           failureCode: "morpho_operation_reverted",
-          timeoutCode: "morpho_operation_confirmation_timeout",
         });
         const resultFee = BigInt(result?.fee || finalPlan.operationFee || 0);
         const totalFee = requirementExecution.totalFee + resultFee;
@@ -2669,7 +2668,9 @@ export class WdkEvmWalletService {
             requirementsFee: requirementExecution.totalFee.toString(),
             requirements: requirementExecution.transactions,
           },
-          confirmed: true,
+          confirmed: confirmation.status === "confirmed",
+          tx_hash: result.hash,
+          confirmation_status: confirmation.status,
         };
       } catch (error) {
         const cleanup = await this.#restoreMorphoRequirementsAfterFailedOperation({
@@ -3766,10 +3767,9 @@ export class WdkEvmWalletService {
           tx: finalPlan.swapTx,
           operationLabel: "Velora swap",
         });
-        await this.#waitForTransactionReceipt(runtimeConfig, swapResult.hash, {
+        const confirmation = await confirmTransaction(runtimeConfig, swapResult.hash, {
           operationLabel: "Velora swap",
           failureCode: "swap_reverted",
-          timeoutCode: "swap_confirmation_timeout",
         });
         const totalFee = approvalExecution.totalFee + BigInt(swapResult.fee);
         const result = {
@@ -3816,7 +3816,9 @@ export class WdkEvmWalletService {
           simulation: effectiveSimulation,
           swapTransaction: finalPlan.swapTransaction,
           result,
-          confirmed: true,
+          confirmed: confirmation.status === "confirmed",
+          tx_hash: swapResult.hash,
+          confirmation_status: confirmation.status,
           source: "wdk-protocol-swap-velora-evm",
         };
       } catch (error) {
@@ -4123,6 +4125,7 @@ export class WdkEvmWalletService {
         let simulation;
         let swapTransaction = null;
         let result;
+        let confirmation = null;
         if (finalPlan.isUniswapX) {
           const order = await this.#submitUniswapOrder({
             quoteResponse: finalPlan.quoteResponse,
@@ -4173,10 +4176,9 @@ export class WdkEvmWalletService {
             tx: swapTx,
             operationLabel: "Uniswap swap",
           });
-          await this.#waitForTransactionReceipt(runtimeConfig, swapResult.hash, {
+          confirmation = await confirmTransaction(runtimeConfig, swapResult.hash, {
             operationLabel: "Uniswap swap",
             failureCode: "swap_reverted",
-            timeoutCode: "swap_confirmation_timeout",
           });
           swapTransaction = {
             to: swapTx.to,
@@ -4211,7 +4213,8 @@ export class WdkEvmWalletService {
           simulation,
           swapTransaction,
           result,
-          confirmed: Boolean(result.hash),
+          confirmed: confirmation ? confirmation.status === "confirmed" : Boolean(result.hash),
+          ...(confirmation ? { tx_hash: result.hash, confirmation_status: confirmation.status } : {}),
         };
       } catch (error) {
         const cleanup = await this.#restoreAllowanceAfterFailedSwap({

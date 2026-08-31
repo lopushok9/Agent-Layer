@@ -69,3 +69,21 @@ test("confirmTransaction recovers to submitted if a later poll succeeds after ea
     setRpcRequestForTests(null);
   }
 });
+
+test("a submitted (not yet confirmed) result still carries a usable tx_hash and status", async () => {
+  setRpcRequestForTests(async () => null);
+  try {
+    const confirmation = await confirmTransaction(RUNTIME_CONFIG, "0xdeadbeef", { maxWaitMs: 500 });
+    const merged = {
+      result: { hash: "0xdeadbeef" },
+      confirmed: confirmation.status === "confirmed",
+      tx_hash: "0xdeadbeef",
+      confirmation_status: confirmation.status,
+    };
+    assert.equal(merged.confirmed, false);
+    assert.equal(merged.tx_hash, "0xdeadbeef");
+    assert.equal(merged.confirmation_status, "submitted");
+  } finally {
+    setRpcRequestForTests(null);
+  }
+});
