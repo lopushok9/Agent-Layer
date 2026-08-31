@@ -585,9 +585,19 @@ async function checkIdempotencyIfConfigured(dataDir, key) {
   return checkTransactionIdempotency(dataDir, key);
 }
 
+// A record-write failure happens AFTER the broadcast already went out. Never
+// let it propagate as a send failure — that would report a successful
+// broadcast as an error and invite exactly the double-send this feature
+// exists to prevent. Fail open, same as checkIdempotencyIfConfigured.
 async function recordTransactionSentIfConfigured(dataDir, params) {
   if (!dataDir) return;
-  await recordTransactionSent(dataDir, params);
+  try {
+    await recordTransactionSent(dataDir, params);
+  } catch (error) {
+    console.warn(
+      `[wdk-evm-wallet] failed to record idempotency entry for ${params?.operation}: ${error?.message || error}`
+    );
+  }
 }
 
 function createTaggedError(message, code, details = {}) {
