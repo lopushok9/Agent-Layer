@@ -4325,12 +4325,19 @@ export class WdkEvmWalletService {
         value: assertPositiveBigIntString(value, "value"),
       };
       const result = await account.sendTransaction(tx);
+      const confirmation = await confirmTransaction(runtimeConfig, result.hash, {
+        operationLabel: "Native transfer",
+        failureCode: "native_transfer_reverted",
+      });
       return {
         network: runtimeConfig.network,
         chainId: runtimeConfig.chainId,
         accountIndex,
         transaction: tx,
         result,
+        confirmed: confirmation.status === "confirmed",
+        tx_hash: result.hash,
+        confirmation_status: confirmation.status,
         source: "wdk-wallet-evm",
       };
     });
@@ -4449,6 +4456,10 @@ export class WdkEvmWalletService {
         }
         throw error;
       }
+      const confirmation = await confirmTransaction(runtimeConfig, result.hash, {
+        operationLabel: "Token transfer",
+        failureCode: "token_transfer_reverted",
+      });
       return {
         network: runtimeConfig.network,
         chainId: runtimeConfig.chainId,
@@ -4457,6 +4468,9 @@ export class WdkEvmWalletService {
         tokenMetadata,
         amountFormatted: formatUnits(transfer.amount, tokenMetadata.decimals),
         result,
+        confirmed: confirmation.status === "confirmed",
+        tx_hash: result.hash,
+        confirmation_status: confirmation.status,
         source: "wdk-wallet-evm",
       };
     });

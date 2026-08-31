@@ -87,3 +87,37 @@ test("a submitted (not yet confirmed) result still carries a usable tx_hash and 
     setRpcRequestForTests(null);
   }
 });
+
+test("a confirmed transfer merges confirmation_status into its response shape", async () => {
+  setRpcRequestForTests(async () => ({ status: "0x1" }));
+  try {
+    const confirmation = await confirmTransaction(RUNTIME_CONFIG, "0xtransfer", {
+      operationLabel: "Native transfer",
+      failureCode: "native_transfer_reverted",
+      maxWaitMs: 500,
+    });
+    assert.equal(confirmation.status, "confirmed");
+  } finally {
+    setRpcRequestForTests(null);
+  }
+});
+
+test("a reverted transfer throws native_transfer_reverted, not a generic error", async () => {
+  setRpcRequestForTests(async () => ({ status: "0x0" }));
+  try {
+    await assert.rejects(
+      () =>
+        confirmTransaction(RUNTIME_CONFIG, "0xtransfer", {
+          operationLabel: "Native transfer",
+          failureCode: "native_transfer_reverted",
+          maxWaitMs: 500,
+        }),
+      (error) => {
+        assert.equal(error.errorCode, "native_transfer_reverted");
+        return true;
+      }
+    );
+  } finally {
+    setRpcRequestForTests(null);
+  }
+});
