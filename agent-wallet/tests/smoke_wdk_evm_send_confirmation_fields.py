@@ -2,10 +2,18 @@
 
 Every send builder reshapes the daemon's JSON through an explicit field
 allow-list, so a field the daemon reports is invisible to the agent unless the
-builder names it. These tests pin the three fields this branch added --
-`confirmed`, `confirmation_status`, `duplicate_warning` -- for both nesting
-levels the daemon uses: top-level (native/token transfer) and inside `result`
-(the buffered-defi family: Aave/Morpho/Lido/swaps).
+builder names it. These tests pin the four fields this branch added --
+`confirmed`, `confirmation_status`, `tx_hash`, `duplicate_warning` -- for both
+nesting levels the daemon uses: top-level (native/token transfer) and inside
+`result` (the buffered-defi family: Aave/Morpho/Lido/swaps).
+
+`tx_hash` was the residual gap from the final whole-branch review: the daemon
+always emits it at the top level of every send response, but every builder
+was still silent on it (they only forwarded the hash nested inside `result`,
+under the key `hash`, not `tx_hash`) -- so the `next_step` hint that quotes
+`data.get("tx_hash")` printed "Transaction None was submitted...". These
+tests assert `tx_hash` reaches the top level of the agent-facing response
+directly, not just nested inside `result`.
 """
 
 from __future__ import annotations
@@ -59,6 +67,7 @@ def _check_native_transfer() -> None:
             "network": "base",
             "chainId": 8453,
             "result": {"hash": "0x" + "b" * 64, "fee": "21000000000000"},
+            "tx_hash": "0x" + "b" * 64,
             "confirmed": True,
             "confirmation_status": "confirmed",
             "duplicate_warning": DUPLICATE,
@@ -69,6 +78,7 @@ def _check_native_transfer() -> None:
     )
     assert sent["confirmed"] is True, "native transfer must report the daemon's confirmed flag"
     assert sent["confirmation_status"] == "confirmed"
+    assert sent["tx_hash"] == "0x" + "b" * 64, "native transfer must forward the daemon's top-level tx_hash"
     assert sent["duplicate_warning"] == DUPLICATE
 
     unconfirmed = _backend(
@@ -76,6 +86,7 @@ def _check_native_transfer() -> None:
             "network": "base",
             "chainId": 8453,
             "result": {"hash": "0x" + "b" * 64},
+            "tx_hash": "0x" + "b" * 64,
             "confirmed": False,
             "confirmation_status": "submitted",
         }
@@ -85,6 +96,10 @@ def _check_native_transfer() -> None:
     )
     assert pending["confirmed"] is False
     assert pending["confirmation_status"] == "submitted"
+    assert pending["tx_hash"] == "0x" + "b" * 64, (
+        "an unconfirmed native transfer must still surface a usable tx_hash "
+        "-- this is what the next_step hint quotes"
+    )
     assert pending["duplicate_warning"] is None
 
 
@@ -94,6 +109,7 @@ def _check_token_transfer() -> None:
             "network": "base",
             "chainId": 8453,
             "result": {"hash": "0x" + "c" * 64, "fee": "45000000000000"},
+            "tx_hash": "0x" + "c" * 64,
             "tokenMetadata": {"address": TOKEN, "symbol": "USDC", "decimals": 6},
             "amountFormatted": "5",
             "confirmed": True,
@@ -110,6 +126,7 @@ def _check_token_transfer() -> None:
     )
     assert sent["confirmed"] is True, "token transfer must report the daemon's confirmed flag"
     assert sent["confirmation_status"] == "confirmed"
+    assert sent["tx_hash"] == "0x" + "c" * 64, "token transfer must forward the daemon's top-level tx_hash"
     assert sent["duplicate_warning"] == DUPLICATE
 
 
@@ -127,6 +144,7 @@ def _check_morpho_vault_operation() -> None:
             "target": {"type": "vault", "address": VAULT},
             "operationRequest": {"token": TOKEN, "amount": "5000000"},
             "result": {"hash": "0x" + "d" * 64, "duplicate_warning": DUPLICATE},
+            "tx_hash": "0x" + "d" * 64,
             "confirmed": False,
             "confirmation_status": "submitted",
         }
@@ -141,6 +159,9 @@ def _check_morpho_vault_operation() -> None:
     )
     assert sent["confirmed"] is False
     assert sent["confirmation_status"] == "submitted"
+    assert sent["tx_hash"] == "0x" + "d" * 64, (
+        "the incident operation must surface a usable tx_hash even when unconfirmed"
+    )
     assert sent["result"]["duplicate_warning"] == DUPLICATE
 
 
