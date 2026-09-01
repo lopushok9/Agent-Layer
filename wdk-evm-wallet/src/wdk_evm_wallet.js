@@ -4434,7 +4434,9 @@ export class WdkEvmWalletService {
         to: normalizeAddress(to, "to"),
         value: assertPositiveBigIntString(value, "value"),
       };
+      const senderAddress = await account.getAddress();
       const idempotencyKey = deriveIdempotencyKey(() => ({
+        from: senderAddress,
         to: tx.to,
         data: "0x",
         value: tx.value,
@@ -4552,6 +4554,7 @@ export class WdkEvmWalletService {
         ownerAddress,
       });
       const idempotencyKey = deriveIdempotencyKey(() => ({
+        from: ownerAddress,
         to: transfer.token,
         data: ERC20_TRANSFER_INTERFACE.encodeFunctionData("transfer", [
           transfer.recipient,
@@ -4933,7 +4936,9 @@ export class WdkEvmWalletService {
       // guard has to be wired here explicitly or the Morpho vault/market
       // operation would have no duplicate detection at all.
       const operationLabel = `morpho ${request.operation}`;
+      const senderAddress = await account.getAddress();
       const idempotencyKey = deriveIdempotencyKey(() => ({
+        from: senderAddress,
         to: preparedTx.to,
         data: preparedTx.data,
         value: preparedTx.value,
@@ -5034,6 +5039,7 @@ export class WdkEvmWalletService {
     });
     const preparedTx = { ...tx, gasLimit: gas.gasLimit };
     const idempotencyKey = deriveIdempotencyKey(() => ({
+      from,
       to: preparedTx.to,
       data: preparedTx.data,
       value: preparedTx.value,
@@ -8712,9 +8718,11 @@ export class WdkEvmWalletService {
     let approveHash = null;
     let resetAllowanceHash = null;
     const duplicateWarnings = [];
+    const senderAddress = await account.getAddress();
     for (const step of plan.approval.steps) {
       const approveTx = buildErc20ApproveTransaction(swapRequest.tokenIn, plan.spender, step.amount);
       const idempotencyKey = deriveIdempotencyKey(() => ({
+        from: senderAddress,
         to: approveTx.to,
         data: approveTx.data,
         value: approveTx.value,
