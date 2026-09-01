@@ -4208,6 +4208,41 @@ class OpenClawWalletAdapter:
         ]
 
     async def invoke(self, tool_name: str, arguments: dict[str, Any] | None = None) -> AgentToolResult:
+        """Dispatch an agent-facing tool call to the wallet backend.
+
+        This is the single choke point every consumer of this adapter goes
+        through -- the OpenClaw Gateway and Hermes call it directly, and the
+        Codex/Claude Code bridge (codex/plugins/agent-wallet/server.py)
+        reaches it indirectly through the openclaw_cli.py subprocess. A send
+        response that isn't confirmed yet gets the same next_step guidance
+        here regardless of which of those paths made the call, mirroring the
+        hint _handle_wallet_tool separately attaches for its own bridge.
+        """
+        result = await self._invoke_tool_dispatch(tool_name, arguments)
+        data = result.data
+        if (
+            result.ok
+            and isinstance(data, dict)
+            and data.get("confirmation_status") in ("submitted", "unknown")
+        ):
+            result = result.model_copy(
+                update={
+                    "data": {
+                        **data,
+                        "next_step": (
+                            f"Transaction {data.get('tx_hash')} was submitted but not yet "
+                            "confirmed on-chain. Call get_evm_transaction_receipt with this "
+                            "tx_hash to check the outcome before resending -- do not treat "
+                            "this as failed."
+                        ),
+                    }
+                }
+            )
+        return result
+
+    async def _invoke_tool_dispatch(
+        self, tool_name: str, arguments: dict[str, Any] | None = None
+    ) -> AgentToolResult:
         """Dispatch an agent-facing tool call to the wallet backend."""
         args = arguments or {}
         try:
