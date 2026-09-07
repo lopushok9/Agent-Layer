@@ -201,6 +201,7 @@ wdk-btc-wallet
 wdk-evm-wallet
 bin
 scripts
+mcp
 setup.sh
 install-from-github.sh
 README.md

@@ -81,6 +81,15 @@ def main() -> None:
     assert not Path(payload["staging_root"]).exists()
     assert (runtime_root / "setup.sh").exists()
     assert (runtime_root / "agent-wallet").exists()
+    assert (runtime_root / "mcp" / "server.py").is_file()
+    assert (runtime_root / "mcp" / "scripts" / "run_mcp.sh").is_file()
+    mcp_config = subprocess.run(
+        ["node", str(cli), "mcp", "config"],
+        capture_output=True, text=True, check=True, env=env,
+    )
+    assert json.loads(mcp_config.stdout)["mcpServers"]["agent-wallet"]["args"] == [
+        str(runtime_base / "current" / "mcp" / "scripts" / "run_mcp.sh")
+    ]
     assert (runtime_root / ".openclaw" / "extensions" / "agent-wallet").exists()
     assert (runtime_root / "codex" / "plugins" / "agent-wallet" / ".codex-plugin" / "plugin.json").exists()
     assert (runtime_root / "claude-code" / "plugins" / "agent-wallet" / ".mcp.json").exists()

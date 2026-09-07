@@ -50,6 +50,8 @@ def main() -> None:
         '{"name":"agent-wallet"}\n',
     )
     _write(source_root / "hermes" / "plugins" / "agent_wallet" / "plugin.yaml", "name: agent_wallet\n")
+    _write(source_root / "mcp" / "server.py", "print('mcp')\n")
+    _write(source_root / "mcp" / "scripts" / "run_mcp.sh", "#!/bin/sh\n")
     _write(source_root / "bin" / "openclaw-agent-wallet.mjs", "// cli\n")
     _write(source_root / "scripts" / "check_release_version.mjs", "// check\n")
     _write(source_root / ".claude-plugin" / "marketplace.json", '{"plugins":[]}\n')
@@ -101,6 +103,8 @@ def main() -> None:
     assert f"{bundle_root}/wdk-evm-wallet/package.json" in names
     assert f"{bundle_root}/.openclaw/extensions/agent-wallet/index.ts" in names
     assert f"{bundle_root}/hermes/plugins/agent_wallet/plugin.yaml" in names
+    assert f"{bundle_root}/mcp/server.py" in names
+    assert f"{bundle_root}/mcp/scripts/run_mcp.sh" in names
     assert f"{bundle_root}/bin/openclaw-agent-wallet.mjs" in names
     assert f"{bundle_root}/scripts/check_release_version.mjs" in names
     assert f"{bundle_root}/.claude-plugin/marketplace.json" in names

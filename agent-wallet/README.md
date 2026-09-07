@@ -28,6 +28,21 @@ It provides:
 - OpenClaw-style plugin manifest and skill bundle
 - explicit network-aware results so the host and agent can see the active chain network
 
+## Universal local MCP
+
+The runtime can also be used directly by any MCP client with `stdio` support;
+this is separate from the Codex, Claude Code, OpenClaw, and Hermes bridges.
+
+```bash
+wallet mcp config  # prints a ready-to-paste mcpServers JSON object
+wallet mcp serve   # starts the same server for clients that launch by command
+wallet mcp path    # prints the stable local launcher path
+```
+
+The universal MCP exposes the same tool set and calls the same adapter as the
+Codex and Claude Code bridges. It does not carry secrets in its generated
+config, and all signing and approval policy remains in this Python backend.
+
 ## Hermes integration
 
 The optional Hermes plugin is intentionally a bridge, not a port of the OpenClaw plugin. It registers:

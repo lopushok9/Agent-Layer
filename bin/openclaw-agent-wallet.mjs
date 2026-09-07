@@ -44,6 +44,9 @@ Usage:
   openclaw-agent-wallet hermes install [options]
   openclaw-agent-wallet codex install [options]
   openclaw-agent-wallet claude-code install [options]
+  openclaw-agent-wallet mcp serve
+  openclaw-agent-wallet mcp path
+  openclaw-agent-wallet mcp config
   openclaw-agent-wallet update [options]
   openclaw-agent-wallet status
   openclaw-agent-wallet rollback [--to <version>]
@@ -70,6 +73,8 @@ Examples:
   npx @agentlayer.tech/wallet hermes install --yes
   npx @agentlayer.tech/wallet codex install --yes
   npx @agentlayer.tech/wallet claude-code install --yes
+  wallet mcp config
+  wallet mcp serve
   npx @agentlayer.tech/wallet install --backend none
   npx @agentlayer.tech/wallet update --yes
   npx @agentlayer.tech/wallet update --yes --dry-run
@@ -161,7 +166,7 @@ function telemetryInstallId(env = process.env) {
 
 function telemetryHost(host = "", env = process.env) {
   const raw = String(host || env.AGENT_WALLET_HOST || "").trim().toLowerCase();
-  return ["claude-code", "codex", "hermes", "openclaw"].includes(raw) ? raw : "unknown";
+  return ["claude-code", "codex", "hermes", "mcp", "openclaw"].includes(raw) ? raw : "unknown";
 }
 
 function telemetrySource(env = process.env) {
@@ -1258,6 +1263,91 @@ function resolveVenvPython(releaseRoot) {
     if (fs.existsSync(candidate)) return candidate;
   }
   return null;
+}
+
+function resolveUniversalMcpLauncher(env = process.env) {
+  // Keep the lexical `current` path in generated MCP config. Resolving the
+  // symlink here would pin clients to one release and defeat seamless updates.
+  const currentRoot = currentRuntimePath(env);
+  const candidates = [currentRoot ? path.join(currentRoot, "mcp", "scripts", "run_mcp.sh") : null];
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function universalMcpConfig(env = process.env) {
+  const launcher = resolveUniversalMcpLauncher(env);
+  if (!launcher) {
+    throw new Error("Universal MCP launcher is missing. Run: wallet install --yes");
+  }
+  return {
+    mcpServers: {
+      "agent-wallet": {
+        command: "sh",
+        args: [launcher],
+        env: {
+          AGENT_WALLET_HOST: "mcp",
+          FASTMCP_LOG_LEVEL: "ERROR",
+          FASTMCP_SHOW_SERVER_BANNER: "false",
+          OPENCLAW_HOME: resolveOpenclawHome(env),
+        },
+      },
+    },
+  };
+}
+
+function runUniversalMcpCommand(args = [], env = process.env) {
+  const subcommand = args[0] || "config";
+  if (subcommand === "config") {
+    if (args.length > 1 && !(args.length === 2 && args[1] === "--json")) {
+      console.error("Usage: wallet mcp config [--json]");
+      return 2;
+    }
+    try {
+      console.log(JSON.stringify(universalMcpConfig(env), null, 2));
+      return 0;
+    } catch (error) {
+      console.error(JSON.stringify({ ok: false, error: error.message }));
+      return 1;
+    }
+  }
+  if (subcommand === "path") {
+    if (args.length !== 1) {
+      console.error("Usage: wallet mcp path");
+      return 2;
+    }
+    const launcher = resolveUniversalMcpLauncher(env);
+    if (!launcher) {
+      console.error(JSON.stringify({ ok: false, error: "Universal MCP launcher is missing. Run: wallet install --yes" }));
+      return 1;
+    }
+    console.log(launcher);
+    return 0;
+  }
+  if (subcommand === "serve") {
+    if (args.length !== 1) {
+      console.error("Usage: wallet mcp serve");
+      return 2;
+    }
+    const launcher = resolveUniversalMcpLauncher(env);
+    if (!launcher) {
+      console.error(JSON.stringify({ ok: false, error: "Universal MCP launcher is missing. Run: wallet install --yes" }));
+      return 1;
+    }
+    const result = spawnSync("sh", [launcher], {
+      env: { ...env, AGENT_WALLET_HOST: env.AGENT_WALLET_HOST || "mcp" },
+      stdio: "inherit",
+    });
+    if (result.error) {
+      console.error(JSON.stringify({ ok: false, error: result.error.message }));
+      return 1;
+    }
+    return result.status ?? 1;
+  }
+  console.error(`Unknown mcp command: ${subcommand}`);
+  console.error("Use: wallet mcp serve | path | config");
+  return 2;
 }
 
 // Classify a verification failure so the caller can route the right guidance:
@@ -3023,6 +3113,10 @@ if (command === "status") {
 
 if (command === "connectors") {
   process.exit(runConnectorsCommand(args.slice(1)));
+}
+
+if (command === "mcp") {
+  process.exit(runUniversalMcpCommand(args.slice(1)));
 }
 
 if (command === "detect") {

@@ -36,6 +36,7 @@ INCLUDED_TOP_LEVEL_DIRS = [
     "codex",
     "connectors",
     "hermes",
+    "mcp",
     "scripts",
     "wdk-btc-wallet",
     "wdk-evm-wallet",

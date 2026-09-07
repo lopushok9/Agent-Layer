@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v0.1.108 - 2026-09-07
+
+- **Added a universal local MCP entry point.** Any MCP client with `stdio`
+  support can now use `wallet mcp config`, `wallet mcp path`, or `wallet mcp
+  serve` to connect to the shared local wallet runtime without installing a
+  framework-specific plugin. The surface reuses the existing full wallet MCP
+  bridge; transaction approvals and wallet policy remain enforced in Python.
+
 ## v0.1.94 - 2026-08-13
 
 - **Added Uniswap V3/V4 liquidity provisioning for Ethereum, Base, and

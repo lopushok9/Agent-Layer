@@ -35,7 +35,7 @@ from typing import Any
 from . import __version__
 from .config import DEFAULT_PROVIDER_GATEWAY_URL, resolve_openclaw_home
 
-ALLOWED_HOSTS = {"claude-code", "codex", "hermes", "openclaw"}
+ALLOWED_HOSTS = {"claude-code", "codex", "hermes", "mcp", "openclaw"}
 
 SPOOL_NAME = "telemetry_spool.jsonl"
 ID_NAME = "telemetry_id"

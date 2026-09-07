@@ -94,6 +94,28 @@ wallet status
 wallet doctor
 ```
 
+## Universal local MCP
+
+Any MCP client that supports the standard local `stdio` transport can use the
+same wallet runtime, without installing a Codex, Claude Code, OpenClaw, or
+Hermes plugin. Install the runtime, then print a ready-to-paste MCP config:
+
+```bash
+npx --yes @agentlayer.tech/wallet@latest install --yes --runtime-only
+npx --yes @agentlayer.tech/wallet@latest mcp config
+```
+
+The generated config starts a local process at the stable
+`agent-wallet-runtime/current` path. It exposes the same wallet tools as the
+Codex and Claude Code bridges. Transaction policy, preview/prepare/execute,
+and approval checks remain enforced by the shared Python wallet runtime.
+
+For clients that ask for an executable path instead of JSON, use:
+
+```bash
+npx --yes @agentlayer.tech/wallet@latest mcp path
+```
+
 If the global CLI is not installed:
 
 ```bash

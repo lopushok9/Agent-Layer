@@ -38,6 +38,7 @@ INCLUDED_RUNTIME_TOP_LEVEL_DIRS = [
     "agent-wallet",
     "agent-a2a-gateway",
     "hermes",
+    "mcp",
     "wdk-btc-wallet",
     "wdk-evm-wallet",
 ]
