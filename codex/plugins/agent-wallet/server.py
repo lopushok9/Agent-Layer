@@ -269,6 +269,9 @@ def _cli_env(package_root: Path) -> dict[str, str]:
     env = dict(os.environ)
     current = str(env.get("PYTHONPATH", "")).strip()
     env["PYTHONPATH"] = f"{package_root}{os.pathsep}{current}" if current else str(package_root)
+    # Keep adoption telemetry attributable to Codex unless a caller explicitly
+    # supplies a host tag (for example, a shared MCP launcher).
+    env.setdefault("AGENT_WALLET_HOST", "codex")
     return env
 
 

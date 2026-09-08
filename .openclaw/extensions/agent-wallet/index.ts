@@ -420,6 +420,9 @@ function buildCliEnv(packageRoot) {
   env.PYTHONPATH = env.PYTHONPATH
     ? `${packageRoot}${path.delimiter}${env.PYTHONPATH}`
     : packageRoot;
+  // Tag anonymous telemetry at the native OpenClaw bridge. Respect an
+  // explicit override for shared or embedded launchers.
+  env.AGENT_WALLET_HOST = env.AGENT_WALLET_HOST || "openclaw";
   return env;
 }
 
