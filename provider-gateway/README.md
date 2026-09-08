@@ -67,7 +67,12 @@ from every install) and validated against a strict allowlist in
 `host`, `tool` (registered tool name), `backend`, `plugin_version`, `ok`, `ts`
 are accepted. Any extra field — and anything address-like in `tool` — is rejected
 (`422`). No wallet addresses, balances, amounts, tx hashes, tool arguments, or
-secrets are ever stored.
+secrets are ever stored. x402 lifecycle events add only coarse, allowlisted
+dimensions: network, scheme, asset family, USD amount bucket, settlement status,
+and error class. They never include the request URL, recipient, raw amount,
+transaction hash, response body, or payment payload. The x402 dashboard funnel
+keeps `x402_pay_request` call volume separate from payment success; a payment is
+successful only after an `x402_payment_settled` event.
 
 Config:
 

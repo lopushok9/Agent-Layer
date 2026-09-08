@@ -475,6 +475,66 @@ def _success_rate_breakdown(conn: sqlite3.Connection, since_ts: int) -> list[dic
     return rows
 
 
+def _x402_summary(conn: sqlite3.Connection, since_ts: int) -> dict[str, Any]:
+    """Return an x402 funnel where success means settled payment, never a tool call."""
+
+    def _count(event: str) -> int:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM events WHERE received_ts >= ? AND event = ?",
+            (since_ts, event),
+        ).fetchone()
+        return int(row[0] or 0) if row else 0
+
+    tool_invocations_row = conn.execute(
+        """
+        SELECT COUNT(*) FROM events
+        WHERE received_ts >= ? AND event = 'tool_invoke' AND tool = 'x402_pay_request'
+        """,
+        (since_ts,),
+    ).fetchone()
+    tool_invocations = int(tool_invocations_row[0] or 0) if tool_invocations_row else 0
+    attempted = _count("x402_payment_attempted")
+    not_required = _count("x402_payment_not_required")
+    settled = _count("x402_payment_settled")
+    failed = _count("x402_payment_failed")
+    paid_attempts = max(attempted - not_required, 0)
+
+    def _breakdown(column: str) -> list[dict[str, Any]]:
+        rows = conn.execute(
+            f"""
+            SELECT {column}, COUNT(*)
+            FROM events
+            WHERE received_ts >= ?
+              AND event IN ('x402_payment_attempted', 'x402_payment_settled', 'x402_payment_failed')
+              AND {column} != ''
+            GROUP BY {column}
+            ORDER BY COUNT(*) DESC, {column} ASC
+            """,
+            (since_ts,),
+        ).fetchall()
+        return [{"key": str(row[0]), "calls": int(row[1] or 0)} for row in rows]
+
+    return {
+        # Keep this explicit so the generic tool-call count is never mistaken
+        # for a payment-success metric.
+        "pay_tool_invocations": tool_invocations,
+        "previewed": _count("x402_previewed"),
+        "preview_failed": _count("x402_preview_failed"),
+        "payment_attempted": attempted,
+        "payment_not_required": not_required,
+        "paid_attempts": paid_attempts,
+        "payment_settled": settled,
+        "payment_failed": failed,
+        "payment_settlement_rate": (settled / paid_attempts) if paid_attempts else None,
+        "by_network": _breakdown("network"),
+        "by_scheme": _breakdown("scheme"),
+        "by_asset_family": _breakdown("asset_family"),
+        "by_amount_bucket": _breakdown("amount_bucket"),
+        "by_settlement_status": _breakdown("settlement_status"),
+        "by_error_class": _breakdown("error_class"),
+    }
+
+
 def _rpc_enabled() -> bool:
     raw = os.getenv("RPC_USAGE_TELEMETRY_ENABLED", "true").strip().lower()
     return raw not in {"0", "false", "no", "off"}
@@ -778,6 +838,7 @@ def summary(window_days: int = 30) -> dict[str, Any]:
         by_source = _breakdown("source", non_empty=True)
         by_command = _breakdown("command", non_empty=True)
         success_by_family = _success_rate_breakdown(conn, since)
+        x402 = _x402_summary(conn, since)
         daily = _daily_series(conn, since, window_days)
 
     success_rate = (ok_calls / total_events) if total_events else None
@@ -806,6 +867,7 @@ def summary(window_days: int = 30) -> dict[str, Any]:
         "by_source": by_source,
         "by_command": by_command,
         "success_by_family": success_by_family,
+        "x402": x402,
         "daily": daily,
         "npm_downloads": npm_downloads,
         "rpc_usage": rpc_usage_summary(window_days),

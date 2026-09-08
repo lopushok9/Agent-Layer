@@ -392,6 +392,7 @@ def _render_telemetry_dashboard(stats: dict[str, Any]) -> str:
     install_family = _lookup_breakdown(success_by_family, "installs") or {}
     tool_family = _lookup_breakdown(success_by_family, "tool_invocations") or {}
     rpc_usage = dict(stats.get("rpc_usage") or {})
+    x402 = dict(stats.get("x402") or {})
     npm = dict(stats.get("npm_downloads") or {})
     daily = dict(stats.get("daily") or {})
     raw_json = html.escape(json.dumps(_legacy_stats_payload(stats), indent=2, sort_keys=True))
@@ -625,6 +626,11 @@ def _render_telemetry_dashboard(stats: dict[str, Any]) -> str:
         <div class="sub">tool success {html.escape(_format_pct(tool_family.get("success_rate")))}</div>
       </article>
       <article class="kpi">
+        <div class="label">x402 Settled Payments</div>
+        <div class="value">{html.escape(_format_int(x402.get("payment_settled", 0)))}</div>
+        <div class="sub">{html.escape(_format_pct(x402.get("payment_settlement_rate")))} of paid attempts</div>
+      </article>
+      <article class="kpi">
         <div class="label">RPC Usage</div>
         <div class="value">{html.escape(_format_int(rpc_usage.get("total_calls", 0)))}</div>
         <div class="sub">provider gateway usage</div>
@@ -655,6 +661,14 @@ def _render_telemetry_dashboard(stats: dict[str, Any]) -> str:
     <div class="section-title">Detail</div>
     <section class="grid-2">
       {_html_table("Top Tools", list(stats.get("by_tool") or []), fields=[("key", "tool"), ("calls", "calls"), ("installs", "installs")])}
+      {_html_table("x402 Funnel", [
+        {"key": "x402_pay_request calls", "calls": x402.get("pay_tool_invocations", 0)},
+        {"key": "previewed", "calls": x402.get("previewed", 0)},
+        {"key": "payment attempts", "calls": x402.get("payment_attempted", 0)},
+        {"key": "paid attempts", "calls": x402.get("paid_attempts", 0)},
+        {"key": "settled payments", "calls": x402.get("payment_settled", 0)},
+        {"key": "payment failures", "calls": x402.get("payment_failed", 0)},
+      ], fields=[("key", "stage"), ("calls", "calls")])}
       {_html_table("Event Families", success_by_family, fields=[("key", "family"), ("calls", "calls"), ("ok_calls", "ok"), ("success_rate", "success")], limit=6)}
       {_html_table("RPC Methods", list(rpc_usage.get("by_method") or []), fields=[("key", "method"), ("calls", "calls")], limit=8)}
       {_html_table("RPC Status / Latency", list(rpc_usage.get("by_status") or []), fields=[("key", "status"), ("calls", "calls")], limit=8)}

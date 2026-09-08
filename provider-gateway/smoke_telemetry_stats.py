@@ -101,6 +101,10 @@ def main() -> None:
             assert {"key": "unknown", "calls": 1, "installs": 1} in stats["by_host"]
             assert stats["by_tool"] == [{"key": "get_wallet_balance", "calls": 1, "installs": 1}]
             assert {"key": "core_wallet", "calls": 1, "installs": 1} in stats["by_tool_category"]
+            assert stats["x402"]["pay_tool_invocations"] == 0
+            assert stats["x402"]["payment_settled"] == 1
+            assert stats["x402"]["payment_settlement_rate"] is None
+            assert stats["x402"]["by_network"] == [{"key": "eip155:8453", "calls": 1}]
             assert {"key": "install_success", "calls": 1, "installs": 1} in stats["by_event"]
             assert {"key": "npx", "calls": 1, "installs": 1} in stats["by_source"]
             assert {"key": "install", "calls": 1, "installs": 1} in stats["by_command"]
