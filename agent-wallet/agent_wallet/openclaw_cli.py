@@ -810,7 +810,10 @@ def main() -> int:
         _telemetry_record(
             getattr(args, "tool", ""),
             backend=str(config.get("backend", "") or ""),
-            ok=True,
+            # Adapter-level failures are returned as a normal JSON result, so
+            # the CLI process still exits successfully. Telemetry must reflect
+            # the tool result rather than the subprocess exit status.
+            ok=bool(payload.get("ok", False)) if isinstance(payload, dict) else False,
         )
 
     print(json.dumps(payload))
