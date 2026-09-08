@@ -44,6 +44,12 @@ ALLOWED_EVENTS = {
     "update_start",
     "update_success",
     "update_failed",
+    "x402_previewed",
+    "x402_preview_failed",
+    "x402_payment_attempted",
+    "x402_payment_not_required",
+    "x402_payment_settled",
+    "x402_payment_failed",
 }
 ALLOWED_HOSTS = {"claude-code", "codex", "hermes", "openclaw", "unknown"}
 ALLOWED_BACKENDS = {

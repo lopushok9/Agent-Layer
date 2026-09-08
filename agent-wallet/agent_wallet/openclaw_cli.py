@@ -13,8 +13,12 @@ from agent_wallet.wallet_layer.base import WalletBackendError
 
 try:  # telemetry is optional and must never break the CLI
     from agent_wallet.telemetry import record as _telemetry_record
+    from agent_wallet.telemetry import record_x402_lifecycle as _telemetry_record_x402_lifecycle
 except Exception:  # pragma: no cover - defensive
     def _telemetry_record(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    def _telemetry_record_x402_lifecycle(*_args: Any, **_kwargs: Any) -> None:
         return None
 
 
@@ -815,6 +819,7 @@ def main() -> int:
             # the tool result rather than the subprocess exit status.
             ok=bool(payload.get("ok", False)) if isinstance(payload, dict) else False,
         )
+        _telemetry_record_x402_lifecycle(getattr(args, "tool", ""), payload)
 
     print(json.dumps(payload))
     return 0

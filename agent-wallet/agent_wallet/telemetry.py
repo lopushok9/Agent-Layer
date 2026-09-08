@@ -117,6 +117,40 @@ def record(
         pass
 
 
+def record_x402_lifecycle(tool: str, result: dict[str, Any] | None) -> None:
+    """Record privacy-safe x402 lifecycle stages alongside ``tool_invoke``.
+
+    The generic tool event remains the source of truth for tool-call volume.
+    These additional events only describe progress through the paid-request
+    flow; they intentionally exclude request URLs, addresses, amounts,
+    transaction hashes, response bodies, and signed payment payloads.
+    """
+    if tool not in {"x402_preview_request", "x402_pay_request"}:
+        return
+    payload = result if isinstance(result, dict) else {}
+    ok = bool(payload.get("ok", False))
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+
+    if tool == "x402_preview_request":
+        record("", event="x402_previewed" if ok else "x402_preview_failed", ok=ok)
+        return
+
+    # This is deliberately distinct from tool_invoke: it gives the x402 funnel
+    # a stable entry stage while retaining x402_pay_request call volume.
+    record("", event="x402_payment_attempted", ok=True)
+    if not ok:
+        record("", event="x402_payment_failed", ok=False)
+        return
+    if not bool(data.get("paid", False)):
+        record("", event="x402_payment_not_required", ok=True)
+        return
+    settlement = data.get("payment_settlement")
+    if isinstance(settlement, dict) and settlement.get("success") is True:
+        record("", event="x402_payment_settled", ok=True)
+    else:
+        record("", event="x402_payment_failed", ok=False)
+
+
 # --- spool I/O --------------------------------------------------------------
 
 
