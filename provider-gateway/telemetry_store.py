@@ -70,6 +70,7 @@ _TOOL_RE = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 _VERSION_RE = re.compile(r"^[0-9A-Za-z.\-+]{1,32}$")
 _SOURCE_RE = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 _COMMAND_RE = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
+_X402_DIMENSION_RE = re.compile(r"^[a-z0-9_:.-]{1,64}$")
 
 # Only these keys are ever read from an inbound payload. Everything else is
 # dropped, so a client cannot smuggle a wallet address into an extra field.
@@ -84,6 +85,12 @@ ALLOWED_KEYS = {
     "ts",
     "source",
     "command",
+    "network",
+    "scheme",
+    "asset_family",
+    "amount_bucket",
+    "settlement_status",
+    "error_class",
 }
 
 MAX_BODY_BYTES = 2048
@@ -145,6 +152,12 @@ def validate_event(raw: Any) -> dict[str, Any]:
     if command and not _COMMAND_RE.match(command):
         raise TelemetryValidationError("command has invalid characters")
 
+    def _x402_dimension(name: str) -> str:
+        value = str(raw.get(name, "")).strip().lower()
+        if value and not _X402_DIMENSION_RE.match(value):
+            raise TelemetryValidationError(f"{name} has invalid characters")
+        return value
+
     ok_raw = raw.get("ok", True)
     if not isinstance(ok_raw, bool):
         raise TelemetryValidationError("ok must be a boolean")
@@ -166,6 +179,12 @@ def validate_event(raw: Any) -> dict[str, Any]:
         "ts": ts,
         "source": source,
         "command": command,
+        "network": _x402_dimension("network"),
+        "scheme": _x402_dimension("scheme"),
+        "asset_family": _x402_dimension("asset_family"),
+        "amount_bucket": _x402_dimension("amount_bucket"),
+        "settlement_status": _x402_dimension("settlement_status"),
+        "error_class": _x402_dimension("error_class"),
     }
 
 
@@ -229,6 +248,9 @@ def _connect() -> sqlite3.Connection:
         conn.execute("ALTER TABLE events ADD COLUMN source TEXT NOT NULL DEFAULT ''")
     if "command" not in columns:
         conn.execute("ALTER TABLE events ADD COLUMN command TEXT NOT NULL DEFAULT ''")
+    for column in ("network", "scheme", "asset_family", "amount_bucket", "settlement_status", "error_class"):
+        if column not in columns:
+            conn.execute(f"ALTER TABLE events ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS rpc_usage_rollups (
@@ -258,8 +280,9 @@ def record_event(event: dict[str, Any]) -> None:
         conn.execute(
             """
             INSERT INTO events
-                (event, install_id, host, tool, backend, plugin_version, ok, client_ts, received_ts, source, command)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (event, install_id, host, tool, backend, plugin_version, ok, client_ts, received_ts, source, command,
+                 network, scheme, asset_family, amount_bucket, settlement_status, error_class)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 event["event"],
@@ -273,6 +296,12 @@ def record_event(event: dict[str, Any]) -> None:
                 received_ts,
                 event["source"],
                 event["command"],
+                event["network"],
+                event["scheme"],
+                event["asset_family"],
+                event["amount_bucket"],
+                event["settlement_status"],
+                event["error_class"],
             ),
         )
         conn.commit()

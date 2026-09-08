@@ -29,6 +29,7 @@ import sys
 import time
 import urllib.request
 import uuid
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -95,6 +96,12 @@ def record(
     backend: str = "",
     ok: bool = True,
     event: str = "tool_invoke",
+    network: str = "",
+    scheme: str = "",
+    asset_family: str = "",
+    amount_bucket: str = "",
+    settlement_status: str = "",
+    error_class: str = "",
 ) -> None:
     """Append an anonymous event to the spool and best-effort flush. Never raises."""
     try:
@@ -109,12 +116,66 @@ def record(
             "plugin_version": __version__,
             "ok": bool(ok),
             "ts": int(time.time()),
+            "network": network,
+            "scheme": scheme,
+            "asset_family": asset_family,
+            "amount_bucket": amount_bucket,
+            "settlement_status": settlement_status,
+            "error_class": error_class,
         }
         _append_spool(payload)
         _maybe_spawn_flush()
     except Exception:
         # Telemetry is never allowed to affect the wallet call.
         pass
+
+
+def _x402_amount_bucket(value: Any) -> str:
+    try:
+        amount = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return "unknown"
+    if amount < 0:
+        return "unknown"
+    if amount < Decimal("2"):
+        return "lt_2_usd"
+    if amount < Decimal("10"):
+        return "2_to_10_usd"
+    if amount < Decimal("100"):
+        return "10_to_100_usd"
+    return "gte_100_usd"
+
+
+def _x402_asset_family(asset: Any, amount_display: Any) -> str:
+    # amount_display is populated only for confidently identified USDC.
+    if amount_display is not None:
+        return "usdc"
+    return "other" if str(asset or "").strip() else "unknown"
+
+
+def _x402_error_class(value: Any) -> str:
+    code = str(value or "").strip().lower()
+    if not code:
+        return "unknown"
+    if "approval" in code:
+        return "approval"
+    if "policy" in code or "validate" in code:
+        return "validation"
+    if "timeout" in code or "network" in code or "http" in code:
+        return "network"
+    if code.startswith("x402-") or "provider" in code:
+        return "provider"
+    return "wallet"
+
+
+def _x402_dimensions(payload: dict[str, Any], data: dict[str, Any]) -> dict[str, str]:
+    return {
+        "network": str(data.get("x402_network") or "unknown"),
+        "scheme": str(data.get("x402_scheme") or "unknown"),
+        "asset_family": _x402_asset_family(data.get("x402_asset"), data.get("x402_amount_display")),
+        "amount_bucket": _x402_amount_bucket(data.get("x402_amount_display")),
+        "error_class": _x402_error_class(payload.get("error_code")),
+    }
 
 
 def record_x402_lifecycle(tool: str, result: dict[str, Any] | None) -> None:
@@ -130,25 +191,26 @@ def record_x402_lifecycle(tool: str, result: dict[str, Any] | None) -> None:
     payload = result if isinstance(result, dict) else {}
     ok = bool(payload.get("ok", False))
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    dimensions = _x402_dimensions(payload, data)
 
     if tool == "x402_preview_request":
-        record("", event="x402_previewed" if ok else "x402_preview_failed", ok=ok)
+        record("", event="x402_previewed" if ok else "x402_preview_failed", ok=ok, **dimensions)
         return
 
     # This is deliberately distinct from tool_invoke: it gives the x402 funnel
     # a stable entry stage while retaining x402_pay_request call volume.
-    record("", event="x402_payment_attempted", ok=True)
+    record("", event="x402_payment_attempted", ok=True, **dimensions)
     if not ok:
-        record("", event="x402_payment_failed", ok=False)
+        record("", event="x402_payment_failed", ok=False, settlement_status="failed", **dimensions)
         return
     if not bool(data.get("paid", False)):
-        record("", event="x402_payment_not_required", ok=True)
+        record("", event="x402_payment_not_required", ok=True, settlement_status="not_required", **dimensions)
         return
     settlement = data.get("payment_settlement")
     if isinstance(settlement, dict) and settlement.get("success") is True:
-        record("", event="x402_payment_settled", ok=True)
+        record("", event="x402_payment_settled", ok=True, settlement_status="settled", **dimensions)
     else:
-        record("", event="x402_payment_failed", ok=False)
+        record("", event="x402_payment_failed", ok=False, settlement_status="unconfirmed", **dimensions)
 
 
 # --- spool I/O --------------------------------------------------------------

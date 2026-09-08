@@ -63,6 +63,24 @@ def main() -> None:
                 }
             )
             telemetry_store.record_event(install_event)
+            x402_event = telemetry_store.validate_event(
+                {
+                    "event": "x402_payment_settled",
+                    "install_id": "abcdef1234567890",
+                    "host": "codex",
+                    "backend": "wdk_evm_local",
+                    "plugin_version": "0.1.49",
+                    "ok": True,
+                    "ts": 3,
+                    "network": "eip155:8453",
+                    "scheme": "exact",
+                    "asset_family": "usdc",
+                    "amount_bucket": "2_to_10_usd",
+                    "settlement_status": "settled",
+                    "error_class": "unknown",
+                }
+            )
+            telemetry_store.record_event(x402_event)
             telemetry_store.record_rpc_usage(
                 endpoint="evm_rpc",
                 network="base",
@@ -74,11 +92,11 @@ def main() -> None:
 
             stats = telemetry_store.summary(30)
             assert stats["ok"] is True
-            assert stats["total_events"] == 2
+            assert stats["total_events"] == 3
             assert stats["active_installs"] == 1
             assert stats["wallet_active_installs"] == 1
             assert stats["wallet_dau"] == 1
-            assert {"key": "codex", "calls": 1, "installs": 1} in stats["by_host"]
+            assert {"key": "codex", "calls": 2, "installs": 1} in stats["by_host"]
             assert stats["wallet_by_host"] == [{"key": "codex", "calls": 1, "installs": 1}]
             assert {"key": "unknown", "calls": 1, "installs": 1} in stats["by_host"]
             assert stats["by_tool"] == [{"key": "get_wallet_balance", "calls": 1, "installs": 1}]

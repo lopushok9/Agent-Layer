@@ -22,7 +22,17 @@ def main() -> None:
         telemetry.record_x402_lifecycle("x402_pay_request", {"ok": False})
         telemetry.record_x402_lifecycle(
             "x402_pay_request",
-            {"ok": True, "data": {"paid": True, "payment_settlement": {"success": True}}},
+            {
+                "ok": True,
+                "data": {
+                    "paid": True,
+                    "x402_network": "eip155:8453",
+                    "x402_scheme": "exact",
+                    "x402_asset": "USDC",
+                    "x402_amount_display": "2.50",
+                    "payment_settlement": {"success": True},
+                },
+            },
         )
         telemetry.record_x402_lifecycle("x402_pay_request", {"ok": True, "data": {"paid": False}})
     finally:
@@ -39,6 +49,12 @@ def main() -> None:
         "x402_payment_not_required",
     ]
     assert all(event["tool"] == "" for event in events)
+    settled = events[5]
+    assert settled["network"] == "eip155:8453"
+    assert settled["scheme"] == "exact"
+    assert settled["asset_family"] == "usdc"
+    assert settled["amount_bucket"] == "2_to_10_usd"
+    assert settled["settlement_status"] == "settled"
     print("smoke_x402_telemetry_lifecycle: ok")
 
 
