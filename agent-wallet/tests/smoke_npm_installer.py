@@ -208,7 +208,7 @@ def main() -> None:
     status_verbose_payload = json.loads(status_verbose.stdout)
     assert status_verbose_payload["verbose"] is True
     assert status_verbose_payload["active_python_runtime"]["exists"] is False
-    assert len(status_verbose_payload["active_node_runtimes"]) == 3
+    assert len(status_verbose_payload["active_node_runtimes"]) == 2
     assert all(item["exists"] is False for item in status_verbose_payload["active_node_runtimes"])
     assert "shared_snapshot_inventory" in status_verbose_payload
 
