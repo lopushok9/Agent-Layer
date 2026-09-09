@@ -38,7 +38,6 @@ INCLUDED_TOP_LEVEL_DIRS = [
     "hermes",
     "mcp",
     "scripts",
-    "wdk-btc-wallet",
     "wdk-evm-wallet",
 ]
 EXCLUDED_EXACT_RELATIVE_PATHS = {

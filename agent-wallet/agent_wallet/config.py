@@ -41,9 +41,6 @@ class Settings(BaseSettings):
     provider_gateway_bearer_token: str = ""
     provider_gateway_rpc_provider: str = "auto"
     solana_swap_provider: str = "auto"
-    wdk_btc_service_url: str = "http://127.0.0.1:8080"
-    wdk_btc_wallet_id: str = ""
-    wdk_btc_account_index: int = 0
     wdk_evm_service_url: str = ""
     wdk_evm_wallet_id: str = ""
     wdk_evm_account_index: int = 0
@@ -128,31 +125,6 @@ def normalize_evm_network(network: str | None) -> str:
             f"Unsupported EVM network: {normalized}. Use ethereum, base, robinhood, or goat."
         )
     return normalized
-
-
-def normalize_btc_network(network: str | None) -> str:
-    """Canonicalize supported BTC network names and reject non-mainnet chains."""
-    normalized = str(network or "").strip().lower() or "bitcoin"
-    aliases = {
-        "mainnet": "bitcoin",
-        "btc": "bitcoin",
-        "bitcoin-mainnet": "bitcoin",
-        "bitcoin_mainnet": "bitcoin",
-    }
-    normalized = aliases.get(normalized, normalized)
-    if normalized in {"testnet", "regtest"}:
-        from agent_wallet.wallet_layer.base import WalletBackendError
-
-        raise WalletBackendError(
-            "Bitcoin testnet/regtest are no longer supported by agent-wallet. Use bitcoin."
-        )
-    if normalized != "bitcoin":
-        from agent_wallet.wallet_layer.base import WalletBackendError
-
-        raise WalletBackendError(
-            f"Unsupported Bitcoin network: {normalized}. Only bitcoin is supported."
-        )
-    return "bitcoin"
 
 
 def _normalize_provider_mode(value: str | None) -> str:
@@ -649,17 +621,6 @@ def resolve_evm_wallet_password() -> str:
     return _resolve_sealed_secret(
         "wdk_evm_wallet_password",
         "evm_wallet_password",
-    )
-
-
-def resolve_btc_wallet_password() -> str:
-    """Resolve the local BTC vault password from env or the sealed secret store."""
-    direct = os.getenv("WDK_BTC_WALLET_PASSWORD", "").strip()
-    if direct:
-        return direct
-    return _resolve_sealed_secret(
-        "wdk_btc_wallet_password",
-        "btc_wallet_password",
     )
 
 

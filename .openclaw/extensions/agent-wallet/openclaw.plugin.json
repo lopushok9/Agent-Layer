@@ -1,7 +1,7 @@
 {
   "id": "agent-wallet",
   "name": "Agent Wallet",
-  "description": "Official OpenClaw plugin bridge for the agent-wallet backends, including Solana, local BTC, and local EVM.",
+  "description": "Official OpenClaw plugin bridge for the agent-wallet backends, including Solana and local EVM.",
   "version": "0.1.108",
   "contracts": {
     "tools": [
@@ -12,9 +12,6 @@
       "flash_trade_close_position",
       "flash_trade_open_position",
       "get_active_wallet_backend",
-      "get_btc_fee_rates",
-      "get_btc_max_spendable",
-      "get_btc_transfer_history",
       "get_evm_aave_account",
       "get_evm_aave_positions",
       "get_evm_aave_reserves",
@@ -74,7 +71,6 @@
       "swap_evm_tokens",
       "swap_solana_lifi_cross_chain_tokens",
       "swap_solana_tokens",
-      "transfer_btc",
       "transfer_evm_native",
       "transfer_evm_token",
       "transfer_sol",
@@ -96,23 +92,11 @@
       },
       "backend": {
         "type": "string",
-        "description": "Wallet backend identifier. Supported values: solana_local, wdk_btc_local, wdk_evm_local."
+        "description": "Wallet backend identifier. Supported values: solana_local, wdk_evm_local."
       },
       "network": {
         "type": "string",
-        "description": "Backend network selector. Solana uses mainnet. BTC uses bitcoin. EVM uses ethereum/base/robinhood/goat."
-      },
-      "wdkBtcServiceUrl": {
-        "type": "string",
-        "description": "Base URL for the localhost-only wdk-btc-wallet HTTP service when backend=wdk_btc_local."
-      },
-      "wdkBtcWalletId": {
-        "type": "string",
-        "description": "Optional direct walletId override from the local wdk-btc-wallet vault. If omitted, agent-wallet will look for a user-bound BTC wallet under ~/.openclaw/users/<user>/wallets/."
-      },
-      "wdkBtcAccountIndex": {
-        "type": "integer",
-        "description": "Optional BTC account index to expose to the agent. Defaults to 0."
+        "description": "Backend network selector. Solana uses mainnet. EVM uses ethereum/base/robinhood/goat."
       },
       "wdkEvmServiceUrl": {
         "type": "string",

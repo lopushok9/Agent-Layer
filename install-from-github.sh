@@ -129,7 +129,6 @@ require_path "$SOURCE_ROOT/agent-wallet/scripts/install_agent_wallet.py" "Python
 require_path "$SOURCE_ROOT/.openclaw/extensions/agent-wallet" "OpenClaw extension"
 require_path "$SOURCE_ROOT/codex/plugins/agent-wallet/.codex-plugin/plugin.json" "Codex plugin"
 require_path "$SOURCE_ROOT/claude-code/plugins/agent-wallet/.claude-plugin/plugin.json" "Claude Code plugin"
-require_path "$SOURCE_ROOT/wdk-btc-wallet/package.json" "wdk-btc-wallet runtime"
 require_path "$SOURCE_ROOT/wdk-evm-wallet/package.json" "wdk-evm-wallet runtime"
 
 mkdir -p "$OPENCLAW_INSTALL_ROOT"

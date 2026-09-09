@@ -15,14 +15,6 @@ The wallet stack is intentionally split by chain family.
 - Capabilities: wallet reads, SOL transfers, SPL transfers, staking, Jupiter swaps, Jupiter Earn, Kamino lending, Bags launch and fees, LI.FI cross-chain routes, private swap flows, x402 paid API flows
 - RPC mode: direct user RPC or shared proxy through `provider-gateway`
 
-## Bitcoin wallet path
-
-- Backend: `wdk-btc-wallet`
-- Integration owner: `agent-wallet` selects it through backend `wdk_btc_local`
-- Networks: `bitcoin`, `testnet`, `regtest`
-- Capabilities: address resolution, balances, history, fee rates, max spendable, transfer quote, transfer send
-- Runtime shape: localhost-only Node.js service with encrypted local vault and bearer token auth
-
 ## EVM wallet path
 
 - Backend: `wdk-evm-wallet`

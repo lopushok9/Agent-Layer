@@ -1707,7 +1707,6 @@ async def _main() -> None:
     assert "get_evm_uniswap_positions" in tool_names
     assert "transfer_evm_native" in tool_names
     assert "transfer_evm_token" in tool_names
-    assert "transfer_btc" not in tool_names
     assert "transfer_sol" not in tool_names
     lifi_swap_tool = next(tool for tool in adapter.list_tools() if tool.name == "swap_evm_lifi_cross_chain_tokens")
     lifi_destination_enum = lifi_swap_tool.input_schema["properties"]["destination_chain"]["enum"]

@@ -28,7 +28,6 @@ Use this skill before calling OpenClaw wallet tools. It is the routing guide for
 - Cross-chain EVM -> EVM/Solana: `swap_evm_lifi_cross_chain_tokens` via LI.FI.
 - SOL/SPL transfers: `transfer_sol`, `transfer_spl_token`.
 - EVM transfers: `transfer_evm_native`, `transfer_evm_token`.
-- BTC transfer: `transfer_btc`.
 - Solana staking: `stake_sol_native`, `deactivate_solana_stake`, `withdraw_solana_stake`.
 - Kamino: `get_kamino_portfolio`, `get_kamino_vaults`, `get_kamino_earn_positions`, `get_kamino_liquidity_positions`, `kamino_lend_deposit`, `kamino_lend_withdraw`, `kamino_lend_borrow`, `kamino_lend_repay`, `kamino_earn_deposit`, `kamino_earn_withdraw`.
 - Bags: `launch_bags_token`.
@@ -61,7 +60,6 @@ Use this skill before calling OpenClaw wallet tools. It is the routing guide for
 - `get_evm_token_metadata`: ERC-20 metadata by `token_address`, optional `network`.
 - `get_evm_fee_rates`: EVM fee suggestions.
 - `get_evm_transaction_receipt`: EVM receipt by `tx_hash`.
-- `get_btc_transfer_history`, `get_btc_fee_rates`, `get_btc_max_spendable`: BTC read helpers.
 
 ## Balance Routing
 
@@ -81,8 +79,6 @@ Use this skill before calling OpenClaw wallet tools. It is the routing guide for
   - Params: `recipient`, `amount_wei` raw wei string, `mode`, `purpose`, optional `network`.
 - EVM ERC-20 transfer: `transfer_evm_token`
   - Params: `token_address`, `recipient`, `amount_raw` base-unit string, `mode`, `purpose`, optional `network`.
-- BTC transfer: `transfer_btc`
-  - Params: `recipient`, `amount_sats`, optional `fee_rate`, `confirmation_target`, `mode`, `purpose`.
 
 ## Swap Commands
 

@@ -103,7 +103,6 @@ def main() -> None:
     )
     assert "agent_wallet_evm_status" in hermes_schemas
     assert "agent_wallet_evm_setup" in hermes_schemas
-    assert (runtime_root / "wdk-btc-wallet" / "package.json").exists()
     assert (runtime_root / "wdk-evm-wallet" / "package.json").exists()
     assert (runtime_base / "current").is_symlink()
     assert (runtime_base / "current").resolve() == runtime_root.resolve()

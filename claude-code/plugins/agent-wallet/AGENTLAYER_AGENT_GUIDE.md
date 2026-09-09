@@ -243,14 +243,6 @@ There is no narrower version of the full permission group — pass `scope:
 Same preview/prepare/execute + approval-token discipline as everything else.
 Mayan routes are deliberately denied — see `skills/wallet-operator/SKILL.md`.
 
-## Bitcoin
-
-- `transfer_btc` — amount in `amount_sats`, optional `fee_rate` (sats/vB) or
-  `confirmation_target`.
-- `get_btc_fee_rates`, `get_btc_max_spendable` (post-fee spendable estimate),
-  `get_btc_transfer_history` (filter by `direction`, paginate with
-  `limit`/`skip`).
-
 ## x402 — Paying HTTP 402 Endpoints
 
 - `x402_search_services` — read-only discovery of paid services via CDP

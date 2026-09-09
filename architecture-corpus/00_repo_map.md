@@ -5,7 +5,6 @@ This repository is a local-first finance and wallet stack for agents.
 The top-level architecture has six primary product surfaces:
 
 - `agent-wallet` is the authoritative wallet backend and policy layer.
-- `wdk-btc-wallet` is a separate localhost-only Bitcoin wallet runtime.
 - `wdk-evm-wallet` is a separate localhost-only EVM wallet runtime.
 - `provider-gateway` is the shared provider and RPC relay layer.
 - `mcp-server` is the read-oriented crypto MCP server for agents.
@@ -19,7 +18,7 @@ Supporting delivery surfaces:
 
 Core architectural rule:
 
-- signing and approval stay local in `agent-wallet`, `wdk-btc-wallet`, and `wdk-evm-wallet`
+- signing and approval stay local in `agent-wallet` and `wdk-evm-wallet`
 - shared provider access stays in `provider-gateway`
 - read-only cross-chain analytics stay in `mcp-server`
 - host/plugin UX stays in `.openclaw` and Hermes plugin bridges

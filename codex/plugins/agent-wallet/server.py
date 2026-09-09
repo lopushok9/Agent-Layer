@@ -32,9 +32,6 @@ HOST_DEFAULT_CONFIG_KEYS = {
     "rpcProviderMode",
     "providerGatewayUrl",
     "providerGatewayRpcProvider",
-    "wdkBtcServiceUrl",
-    "wdkBtcWalletId",
-    "wdkBtcAccountIndex",
     "wdkEvmServiceUrl",
     "wdkEvmWalletId",
     "wdkEvmAccountIndex",
@@ -57,7 +54,7 @@ HOST_DEFAULT_CONFIG_KEYS = {
     "kaminoBaseUrl",
     "kaminoProgramId",
 }
-BACKENDS = ("solana_local", "wdk_btc_local", "wdk_evm_local")
+BACKENDS = ("solana_local", "wdk_evm_local")
 PREVIEW_CACHE_TTL_SECONDS = 15 * 60
 PREVIEW_BOUND_SWAP_TOOLS = {
     "swap_solana_tokens",
@@ -92,7 +89,6 @@ RESIDENT_READ_ONLY_TOOLS = {
 selected_wallet_backend: str | None = None
 selected_solana_network: str | None = None
 selected_evm_network: str | None = None
-selected_btc_network: str | None = None
 approval_preview_cache: dict[str, dict[str, Any]] = {}
 resident_read_workers: dict[str, "_ResidentReadWorker"] = {}
 # Guards approval_preview_cache against races once wallet calls run concurrently
@@ -219,8 +215,6 @@ def _configured_network_for_backend(backend: str) -> str | None:
     try:
         if backend == "wdk_evm_local":
             return _normalize_selectable_evm_network(value)
-        if backend == "wdk_btc_local":
-            return _normalize_btc_network(value)
         return _normalize_solana_network(value)
     except RuntimeError:
         return None
@@ -426,24 +420,16 @@ def _normalize_wallet_backend(value: Any) -> str:
         "wdk-evm-local": "wdk_evm_local",
         "evm_local": "wdk_evm_local",
         "evm-local": "wdk_evm_local",
-        "btc": "wdk_btc_local",
-        "bitcoin": "wdk_btc_local",
-        "wdk_btc_local": "wdk_btc_local",
-        "wdk-btc-local": "wdk_btc_local",
-        "btc_local": "wdk_btc_local",
-        "btc-local": "wdk_btc_local",
     }
     backend = aliases.get(normalized, normalized)
     if backend not in BACKENDS:
-        raise RuntimeError("Wallet backend must be solana, evm, ethereum, base, robinhood, goat, btc, or bitcoin.")
+        raise RuntimeError("Wallet backend must be solana, evm, ethereum, base, robinhood, or goat.")
     return backend
 
 
 def _backend_label(backend: str) -> str:
     if backend == "wdk_evm_local":
         return "evm"
-    if backend == "wdk_btc_local":
-        return "bitcoin"
     return "solana"
 
 
@@ -499,24 +485,6 @@ def _normalize_solana_network(value: Any) -> str | None:
     return normalized
 
 
-def _normalize_btc_network(value: Any) -> str | None:
-    network = str(value or "").strip().lower()
-    if not network:
-        return None
-    aliases = {
-        "btc": "bitcoin",
-        "bitcoin_mainnet": "bitcoin",
-        "bitcoin-mainnet": "bitcoin",
-        "mainnet": "bitcoin",
-    }
-    normalized = aliases.get(network, network)
-    if normalized in {"testnet", "regtest"}:
-        raise RuntimeError("Bitcoin testnet/regtest are no longer supported. Use bitcoin.")
-    if normalized != "bitcoin":
-        raise RuntimeError("Bitcoin network must be bitcoin.")
-    return normalized
-
-
 def _default_backend() -> str:
     # Precedence: explicit env override > last backend the user actually
     # picked via set_wallet_backend/set_evm_network in some previous session
@@ -559,15 +527,6 @@ def _default_solana_network() -> str:
         return "mainnet"
 
 
-def _default_btc_network() -> str:
-    try:
-        return _normalize_btc_network(os.getenv("WDK_BTC_NETWORK")) or _configured_network_for_backend(
-            "wdk_btc_local"
-        ) or "bitcoin"
-    except RuntimeError:
-        return "bitcoin"
-
-
 def _infer_backend_for_tool(tool_name: str) -> str | None:
     if (
         tool_name.startswith("get_evm_")
@@ -577,8 +536,6 @@ def _infer_backend_for_tool(tool_name: str) -> str | None:
         or tool_name == "set_evm_network"
     ):
         return "wdk_evm_local"
-    if tool_name.startswith("get_btc_") or tool_name == "transfer_btc":
-        return "wdk_btc_local"
     if (
         "solana" in tool_name
         or "jupiter" in tool_name
@@ -605,8 +562,6 @@ def _active_backend_for_tool(tool_name: str) -> str:
 def _network_for_backend(backend: str) -> str:
     if backend == "wdk_evm_local":
         return selected_evm_network or _default_evm_network() or "ethereum"
-    if backend == "wdk_btc_local":
-        return selected_btc_network or _default_btc_network()
     return selected_solana_network or _default_solana_network()
 
 
@@ -648,8 +603,6 @@ def _base_config(args: dict[str, Any], *, tool_name: str = "") -> dict[str, Any]
     if network_override is not None:
         if backend == "wdk_evm_local":
             config["network"] = _normalize_selectable_evm_network(network_override)
-        elif backend == "wdk_btc_local":
-            config["network"] = _normalize_btc_network(network_override)
         else:
             config["network"] = _normalize_solana_network(network_override)
     return config
@@ -1224,8 +1177,6 @@ class _SchemaOnlyBackend:
 
 
 def _schema_backend(name: str) -> _SchemaOnlyBackend:
-    if name == "wdk_btc_local":
-        return _SchemaOnlyBackend(name=name, chain="bitcoin", network="bitcoin")
     if name == "wdk_evm_local":
         return _SchemaOnlyBackend(name=name, chain="evm", network="ethereum")
     return _SchemaOnlyBackend(name="solana_local", chain="solana", network="mainnet")
@@ -1286,7 +1237,7 @@ def _manual_tool_definitions() -> list[dict[str, Any]]:
                 "properties": {
                     "backend": {
                         "type": "string",
-                        "description": "solana, evm, ethereum, base, robinhood, goat, btc, or bitcoin.",
+                        "description": "solana, evm, ethereum, base, robinhood, or goat.",
                     },
                     "network": {
                         "type": "string",
@@ -1317,15 +1268,15 @@ def _manual_tool_definitions() -> list[dict[str, Any]]:
         {
             "name": "set_wallet_backend",
             "description": (
-                "Switch the active wallet backend for this Codex MCP session between Solana, EVM, "
-                "and Bitcoin without editing runtime config files."
+                "Switch the active wallet backend for this Codex MCP session between Solana and EVM "
+                "without editing runtime config files."
             ),
             "input_schema": {
                 "type": "object",
                 "properties": {
                     "backend": {
                         "type": "string",
-                        "description": "solana, evm, ethereum, base, robinhood, goat, btc, or bitcoin.",
+                        "description": "solana, evm, ethereum, base, robinhood, or goat.",
                     },
                     "wallet": {
                         "type": "string",
@@ -1363,7 +1314,7 @@ def _manual_tool_definitions() -> list[dict[str, Any]]:
 
 def _build_tool_definitions() -> list[dict[str, Any]]:
     merged: dict[str, dict[str, Any]] = {}
-    for backend_name in ("solana_local", "wdk_evm_local", "wdk_btc_local"):
+    for backend_name in ("solana_local", "wdk_evm_local"):
         for spec in _tool_specs(backend_name):
             merged.setdefault(spec["name"], spec)
     for spec in merged.values():
@@ -1393,16 +1344,16 @@ async def _handle_get_active_wallet_backend() -> dict[str, Any]:
         "active_network": _network_for_backend(backend),
         "configured_backend": _default_backend(),
         "session_override_active": bool(selected_wallet_backend),
-        "available_wallets": ["solana", "evm", "bitcoin"],
+        "available_wallets": ["solana", "evm"],
         "usage": (
-            "Use set_wallet_backend to switch between Solana, EVM, and Bitcoin for this Codex "
+            "Use set_wallet_backend to switch between Solana and EVM for this Codex "
             "session. The runtime startup config remains unchanged."
         ),
     }
 
 
 async def _handle_set_wallet_backend(params: dict[str, Any]) -> dict[str, Any]:
-    global selected_wallet_backend, selected_solana_network, selected_evm_network, selected_btc_network
+    global selected_wallet_backend, selected_solana_network, selected_evm_network
 
     requested = params.get("backend", params.get("wallet"))
     backend = _normalize_wallet_backend(requested)
@@ -1418,10 +1369,6 @@ async def _handle_set_wallet_backend(params: dict[str, Any]) -> dict[str, Any]:
             or "ethereum"
         )
         resolved_network = _normalize_selectable_evm_network(implied)
-    elif backend == "wdk_btc_local":
-        resolved_network = _normalize_btc_network(
-            params.get("network") or selected_btc_network or _default_btc_network()
-        )
     else:
         resolved_network = _normalize_solana_network(
             params.get("network") or selected_solana_network or _default_solana_network()
@@ -1440,8 +1387,6 @@ async def _handle_set_wallet_backend(params: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError(str(payload.get("error") or "set_wallet_backend failed"))
     if backend == "wdk_evm_local":
         selected_evm_network = resolved_network
-    elif backend == "wdk_btc_local":
-        selected_btc_network = resolved_network
     else:
         selected_solana_network = resolved_network
     selected_wallet_backend = backend
@@ -1602,7 +1547,7 @@ async def _handle_wallet_tool(tool_name: str, params: dict[str, Any]) -> dict[st
 
 
 BASE_INSTRUCTIONS = (
-    "This server is the user's own local AgentLayer wallet (Solana, EVM, Bitcoin). Use its "
+    "This server is the user's own local AgentLayer wallet (Solana, EVM). Use its "
     "tools whenever the user asks about their balances, portfolio, addresses, transfers, "
     "swaps, bridging, staking, lending, or x402 payments — even when they never say the "
     "word 'wallet'. For anything touching the user's own funds, prefer these tools over "

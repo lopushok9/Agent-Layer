@@ -44,7 +44,7 @@ On mainnet, execute mode requires an approval token that includes an explicit ma
 Before any mainnet execute, restate the network, operation type, asset, amount, and destination, validator, or stake account.
 If the preview result includes a confirmation_summary or mainnet_warning, surface it before asking for confirmation.
 Never bypass the approval token requirement for wallet writes.
-In OpenClaw, switch between Solana, EVM, and Bitcoin wallets with set_wallet_backend.
+In OpenClaw, switch between Solana and EVM wallets with set_wallet_backend.
 The plugin config is the startup default, not something to edit during a normal conversation.
 For EVM wallets, switch between Ethereum, Base, and Robinhood with set_evm_network or by passing the
 network argument to EVM tools. Do not edit code, plugin config, or environment variables
@@ -2591,95 +2591,6 @@ class OpenClawWalletAdapter:
                     read_only=True,
                     risk_level="low",
                 ),
-                AgentToolSpec(
-                    name="get_btc_transfer_history",
-                    description="Get BTC transfer history for the configured wallet account.",
-                    input_schema={
-                        "type": "object",
-                        "properties": {
-                            "direction": {
-                                "type": "string",
-                                "enum": ["incoming", "outgoing", "all"],
-                                "description": "Optional transfer direction filter.",
-                            },
-                            "limit": {
-                                "type": "integer",
-                                "description": "Maximum number of transfers to return. Defaults to 10.",
-                            },
-                            "skip": {
-                                "type": "integer",
-                                "description": "Optional offset for paginated history queries.",
-                            },
-                        },
-                        "additionalProperties": False,
-                    },
-                    read_only=True,
-                    risk_level="low",
-                ),
-                AgentToolSpec(
-                    name="get_btc_fee_rates",
-                    description="Get current BTC fee-rate suggestions from the connected wallet service.",
-                    input_schema={
-                        "type": "object",
-                        "properties": {},
-                        "additionalProperties": False,
-                    },
-                    read_only=True,
-                    risk_level="low",
-                ),
-                AgentToolSpec(
-                    name="get_btc_max_spendable",
-                    description="Estimate the maximum BTC amount spendable after fees for the configured wallet account.",
-                    input_schema={
-                        "type": "object",
-                        "properties": {
-                            "fee_rate": {
-                                "type": "integer",
-                                "description": "Optional fee rate in sats/vB to price the estimate.",
-                            }
-                        },
-                        "additionalProperties": False,
-                    },
-                    read_only=True,
-                    risk_level="low",
-                ),
-                AgentToolSpec(
-                    name="transfer_btc",
-                    description=(
-                        "Preview, prepare, or execute a BTC transfer in satoshis. "
-                        "Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation."
-                    ),
-                    input_schema={
-                        "type": "object",
-                        "properties": {
-                            "recipient": {"type": "string"},
-                            "amount_sats": {
-                                "type": "integer",
-                                "description": "Transfer amount in satoshis.",
-                            },
-                            "fee_rate": {
-                                "type": "integer",
-                                "description": "Optional fee rate in sats/vB.",
-                            },
-                            "confirmation_target": {
-                                "type": "integer",
-                                "description": "Optional target confirmation blocks for fee estimation.",
-                            },
-                            "mode": {
-                                "type": "string",
-                                "enum": ["preview", "prepare", "execute"],
-                            },
-                            "purpose": {"type": "string"},
-                            "user_intent": {"type": "boolean"},
-                            "approval_token": {"type": "string"},
-                        },
-                        "required": ["recipient", "amount_sats", "mode", "purpose"],
-                        "additionalProperties": False,
-                    },
-                    read_only=False,
-                    requires_explicit_user_intent=True,
-                    risk_level="high",
-                ),
             ])
         tools = [
             AgentToolSpec(
@@ -4586,34 +4497,6 @@ class OpenClawWalletAdapter:
                     from_chain=from_chain.strip() if isinstance(from_chain, str) and from_chain.strip() else None,
                     to_chain=to_chain.strip() if isinstance(to_chain, str) and to_chain.strip() else None,
                 )
-                return AgentToolResult(tool=tool_name, ok=True, data=data)
-
-            if tool_name == "get_btc_transfer_history":
-                direction = args.get("direction", "all")
-                limit = args.get("limit", 10)
-                skip = args.get("skip", 0)
-                if not isinstance(direction, str) or direction not in {"incoming", "outgoing", "all"}:
-                    raise WalletBackendError("direction must be 'incoming', 'outgoing', or 'all'.")
-                if not isinstance(limit, int) or limit < 0:
-                    raise WalletBackendError("limit must be a non-negative integer.")
-                if not isinstance(skip, int) or skip < 0:
-                    raise WalletBackendError("skip must be a non-negative integer.")
-                data = await self.backend.get_btc_transfer_history(
-                    direction=direction,
-                    limit=limit,
-                    skip=skip,
-                )
-                return AgentToolResult(tool=tool_name, ok=True, data=data)
-
-            if tool_name == "get_btc_fee_rates":
-                data = await self.backend.get_btc_fee_rates()
-                return AgentToolResult(tool=tool_name, ok=True, data=data)
-
-            if tool_name == "get_btc_max_spendable":
-                fee_rate = args.get("fee_rate")
-                if fee_rate is not None and (not isinstance(fee_rate, int) or fee_rate <= 0):
-                    raise WalletBackendError("fee_rate must be a positive integer when provided.")
-                data = await self.backend.get_btc_max_spendable(fee_rate=fee_rate)
                 return AgentToolResult(tool=tool_name, ok=True, data=data)
 
             if tool_name == "get_evm_network":
@@ -6698,89 +6581,6 @@ class OpenClawWalletAdapter:
                     data=self._annotate_sensitive_payload(
                         result,
                         action_label="SOL transfer",
-                        mode="execute",
-                    ),
-                )
-
-            if tool_name == "transfer_btc":
-                recipient = args.get("recipient")
-                amount_sats = args.get("amount_sats")
-                fee_rate = args.get("fee_rate")
-                confirmation_target = args.get("confirmation_target")
-                mode = args.get("mode")
-                purpose = args.get("purpose")
-                user_intent = args.get("user_intent", False)
-                approval_token = args.get("approval_token")
-
-                if not isinstance(recipient, str) or not recipient.strip():
-                    raise WalletBackendError("recipient is required.")
-                if not isinstance(amount_sats, int) or amount_sats <= 0:
-                    raise WalletBackendError("amount_sats must be a positive integer.")
-                if fee_rate is not None and (not isinstance(fee_rate, int) or fee_rate <= 0):
-                    raise WalletBackendError("fee_rate must be a positive integer when provided.")
-                if confirmation_target is not None and (
-                    not isinstance(confirmation_target, int) or confirmation_target <= 0
-                ):
-                    raise WalletBackendError(
-                        "confirmation_target must be a positive integer when provided."
-                    )
-                if mode not in {"preview", "prepare", "execute"}:
-                    raise WalletBackendError("mode must be 'preview', 'prepare' or 'execute'.")
-                if not isinstance(purpose, str) or not purpose.strip():
-                    raise WalletBackendError("purpose is required.")
-
-                preview_kwargs = {
-                    "recipient": recipient.strip(),
-                    "amount_sats": amount_sats,
-                    "fee_rate": fee_rate,
-                    "confirmation_target": confirmation_target,
-                }
-
-                if mode == "preview":
-                    preview = await self.backend.preview_btc_transfer(**preview_kwargs)
-                    return AgentToolResult(
-                        tool=tool_name,
-                        ok=True,
-                        data=self._annotate_sensitive_payload(
-                            preview,
-                            action_label="BTC transfer",
-                            mode="preview",
-                        ),
-                    )
-
-                if mode == "prepare":
-                    self._require_prepare_intent(user_intent)
-                    preview = await self.backend.preview_btc_transfer(**preview_kwargs)
-                    return AgentToolResult(
-                        tool=tool_name,
-                        ok=True,
-                        data=self._annotate_sensitive_payload(
-                            self._build_prepare_plan(
-                                preview_payload=preview,
-                                action_label="BTC transfer",
-                            ),
-                            action_label="BTC transfer",
-                            mode="prepare",
-                        ),
-                    )
-
-                execute_preview = await self.backend.preview_btc_transfer(**preview_kwargs)
-                self._require_execute_approval(
-                    approval_token=approval_token,
-                    tool_name=tool_name,
-                    summary=self._build_confirmation_summary(
-                        action_label="BTC transfer",
-                        payload=execute_preview,
-                    ),
-                    action_label="BTC transfer",
-                )
-                result = await self.backend.send_btc_transfer(**preview_kwargs)
-                return AgentToolResult(
-                    tool=tool_name,
-                    ok=True,
-                    data=self._annotate_sensitive_payload(
-                        result,
-                        action_label="BTC transfer",
                         mode="execute",
                     ),
                 )

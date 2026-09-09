@@ -119,7 +119,6 @@ def main() -> None:
             *provisioned_wallet_files,
             openclaw_home / "users" / "alice" / "wallets" / "solana-mainnet.json",
             openclaw_home / "wallets" / "legacy-wallet.json",
-            openclaw_home / "wdk-btc-wallet" / "wallet.json",
             openclaw_home / "wdk-evm-wallet" / "wallet.json",
         ]
         for index, protected in enumerate(protected_files):

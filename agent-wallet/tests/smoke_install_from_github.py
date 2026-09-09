@@ -43,9 +43,7 @@ def main() -> None:
     (bundle_tree / "claude-code" / "plugins" / "agent-wallet" / ".claude-plugin" / "plugin.json").write_text(
         '{"name":"agent-wallet"}\n', encoding="utf-8"
     )
-    (bundle_tree / "wdk-btc-wallet").mkdir(parents=True, exist_ok=True)
     (bundle_tree / "wdk-evm-wallet").mkdir(parents=True, exist_ok=True)
-    (bundle_tree / "wdk-btc-wallet" / "package.json").write_text('{"name":"wdk-btc-wallet"}\n', encoding="utf-8")
     (bundle_tree / "wdk-evm-wallet" / "package.json").write_text('{"name":"wdk-evm-wallet"}\n', encoding="utf-8")
 
     asset_path = temp_root / f"{bundle_prefix}.tar.gz"
@@ -103,10 +101,8 @@ def main() -> None:
     assert (current_root / ".openclaw" / "extensions" / "agent-wallet").exists()
     assert (current_root / "codex" / "plugins" / "agent-wallet" / ".codex-plugin" / "plugin.json").exists()
     assert (current_root / "claude-code" / "plugins" / "agent-wallet" / ".claude-plugin" / "plugin.json").exists()
-    assert (current_root / "wdk-btc-wallet" / "package.json").exists()
     assert (current_root / "wdk-evm-wallet" / "package.json").exists()
     assert Path(payload["package_root"]).resolve() == current_root / "agent-wallet"
-    assert Path(payload["wdk_btc_root"]).resolve() == current_root / "wdk-btc-wallet"
     assert Path(payload["wdk_evm_root"]).resolve() == current_root / "wdk-evm-wallet"
 
     print("smoke_install_from_github: ok")

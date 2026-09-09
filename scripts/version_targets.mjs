@@ -30,7 +30,6 @@ export const TARGETS = [
   { file: "codex/plugins/agent-wallet/.codex-plugin/plugin.json", kind: "json" },
   { file: "claude-code/plugins/agent-wallet/.claude-plugin/plugin.json", kind: "json" },
   { file: "hermes/plugins/agent_wallet/plugin.yaml", kind: "yaml" },
-  { file: "wdk-btc-wallet/package.json", kind: "json" },
   { file: "wdk-evm-wallet/package.json", kind: "json" },
 ];
 

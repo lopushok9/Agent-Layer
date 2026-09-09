@@ -30,7 +30,6 @@ MANIFESTS = {
     "codex/plugins/agent-wallet/.codex-plugin/plugin.json": '{{"name": "aw", "version": "{v}"}}\n',
     "claude-code/plugins/agent-wallet/.claude-plugin/plugin.json": '{{"name": "aw", "version": "{v}"}}\n',
     "hermes/plugins/agent_wallet/plugin.yaml": "name: agent-wallet\nversion: {v}\n",
-    "wdk-btc-wallet/package.json": '{{"name": "wdk-btc", "version": "{v}"}}\n',
     "wdk-evm-wallet/package.json": '{{"name": "wdk-evm", "version": "{v}"}}\n',
 }
 

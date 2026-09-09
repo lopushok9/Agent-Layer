@@ -13,7 +13,7 @@ AGENT_WALLET_TOOLS = {
         "properties": {
             "backend": {
                 "type": "string",
-                "enum": ["all", "solana_local", "wdk_btc_local", "wdk_evm_local"],
+                "enum": ["all", "solana_local", "wdk_evm_local"],
                 "description": "Optional backend filter. Defaults to all.",
             },
         },
@@ -43,12 +43,12 @@ AGENT_WALLET_INVOKE = {
             },
             "backend": {
                 "type": "string",
-                "enum": ["solana_local", "wdk_btc_local", "wdk_evm_local"],
+                "enum": ["solana_local", "wdk_evm_local"],
                 "description": "Optional backend override for this invocation.",
             },
             "network": {
                 "type": "string",
-                "description": "Optional network override, such as mainnet, bitcoin, ethereum, or base.",
+                "description": "Optional network override, such as mainnet, ethereum, or base.",
             },
             "user_id": {
                 "type": "string",
@@ -108,7 +108,7 @@ AGENT_WALLET_APPROVE = {
             },
             "backend": {
                 "type": "string",
-                "enum": ["solana_local", "wdk_btc_local", "wdk_evm_local"],
+                "enum": ["solana_local", "wdk_evm_local"],
                 "description": "Optional backend override matching the planned execute invocation.",
             },
             "network": {

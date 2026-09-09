@@ -7,9 +7,7 @@ from typing import Any
 
 from agent_wallet.approval import issue_approval_token
 from agent_wallet.boot_key_migration import migrate_boot_key_to_keystore
-from agent_wallet.btc_user_wallets import get_user_btc_wallet_binding
 from agent_wallet.config import (
-    normalize_btc_network,
     normalize_evm_network,
     resolve_wdk_evm_service_url,
     settings,
@@ -18,12 +16,10 @@ from agent_wallet.evm_user_wallets import ensure_user_evm_wallet_ready
 from agent_wallet.models import OpenClawWalletSessionMetadata
 from agent_wallet.openclaw_adapter import OpenClawWalletAdapter
 from agent_wallet.plugin_bundle import build_openclaw_plugin_bundle
-from agent_wallet.providers.wdk_btc_local import WdkBtcLocalClient
 from agent_wallet.providers.wdk_evm_local import WdkEvmLocalClient
 from agent_wallet.user_wallets import create_openclaw_solana_backend
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendError
 from agent_wallet.wallet_layer.wdk_evm import WdkEvmLocalWalletBackend
-from agent_wallet.wallet_layer.wdk_btc import WdkBtcLocalWalletBackend
 
 _boot_key_migration_done = False
 
@@ -114,9 +110,6 @@ def onboard_openclaw_user_wallet(
     read_only: bool = False,
     network: str | None = None,
     rpc_url: str | None = None,
-    wdk_btc_service_url: str | None = None,
-    wdk_btc_wallet_id: str | None = None,
-    wdk_btc_account_index: int | None = None,
     wdk_evm_service_url: str | None = None,
     wdk_evm_wallet_id: str | None = None,
     wdk_evm_account_index: int | None = None,
@@ -127,64 +120,6 @@ def onboard_openclaw_user_wallet(
     effective_sign_only = True if read_only else (
         settings.agent_wallet_sign_only if sign_only is None else sign_only
     )
-    if backend_name in {"wdk_btc_local", "wdk-btc-local", "btc_local", "btc-local"}:
-        service_url = str(wdk_btc_service_url or settings.wdk_btc_service_url).strip()
-        account_index = (
-            settings.wdk_btc_account_index
-            if wdk_btc_account_index is None
-            else int(wdk_btc_account_index)
-        )
-        effective_network = normalize_btc_network(network or settings.solana_network)
-        binding: dict[str, Any] | None = None
-        wallet_id = str(wdk_btc_wallet_id or settings.wdk_btc_wallet_id).strip()
-        if not service_url:
-            raise WalletBackendError("wdk_btc_service_url is required for backend=wdk_btc_local.")
-        if not wallet_id:
-            binding = get_user_btc_wallet_binding(user_id, network=effective_network)
-            wallet_id = str(binding.get("wallet_id") or "").strip()
-        if not wallet_id:
-            raise WalletBackendError(
-                "wdk_btc_wallet_id is required for backend=wdk_btc_local, or create a bound user BTC wallet first."
-            )
-
-        client = WdkBtcLocalClient(service_url)
-        wallet_meta = client.post_sync("/v1/btc/wallets/get", {"walletId": wallet_id})
-        address_payload = client.post_sync(
-            "/v1/btc/address/resolve",
-            {
-                "walletId": wallet_id,
-                "accountIndex": account_index,
-                "network": effective_network,
-            },
-        )
-        backend = WdkBtcLocalWalletBackend(
-            service_url=service_url,
-            wallet_id=wallet_id,
-            network=effective_network,
-            account_index=account_index,
-            sign_only=effective_sign_only,
-            address=str(address_payload.get("address") or "").strip() or None,
-        )
-        wallet_info = {
-            "user_id": user_id,
-            "address": str(address_payload.get("address") or (binding or {}).get("address") or ""),
-            "path": f"{service_url}#walletId={wallet_id}",
-            "storage_format": "local_vault",
-            "key_scope": "host-managed",
-            "wallet_id": wallet_id,
-            "label": str(wallet_meta.get("label") or (binding or {}).get("label") or "BTC Wallet"),
-        }
-        adapter = OpenClawWalletAdapter(backend)
-        plugin_bundle = build_openclaw_plugin_bundle(backend)
-        return OpenClawWalletRuntimeContext(
-            user_id=user_id,
-            wallet_info=wallet_info,
-            created_now=False,
-            backend=backend,
-            adapter=adapter,
-            plugin_bundle=plugin_bundle,
-        )
-
     if backend_name in {"wdk_evm_local", "wdk-evm-local", "evm_local", "evm-local"}:
         service_url = str(wdk_evm_service_url or resolve_wdk_evm_service_url()).strip()
         account_index = (

@@ -11,7 +11,6 @@ const PLUGIN_ROOT = path.dirname(new URL(import.meta.url).pathname);
 let selectedWalletBackend = null;
 let selectedSolanaNetwork = null;
 let selectedEvmNetwork = null;
-let selectedBtcNetwork = null;
 const PREVIEW_CACHE_TTL_MS = 15 * 60 * 1000;
 const PREVIEW_BOUND_SWAP_TOOLS = new Set([
   "swap_solana_tokens",
@@ -211,23 +210,16 @@ function normalizeWalletBackend(value) {
     "wdk-evm-local": "wdk_evm_local",
     evm_local: "wdk_evm_local",
     "evm-local": "wdk_evm_local",
-    btc: "wdk_btc_local",
-    bitcoin: "wdk_btc_local",
-    wdk_btc_local: "wdk_btc_local",
-    "wdk-btc-local": "wdk_btc_local",
-    btc_local: "wdk_btc_local",
-    "btc-local": "wdk_btc_local",
   };
   const backend = aliases[normalized] || normalized;
-  if (!["solana_local", "wdk_evm_local", "wdk_btc_local"].includes(backend)) {
-    throw new Error("Wallet backend must be solana, evm, ethereum, base, robinhood, goat, btc, or bitcoin.");
+  if (!["solana_local", "wdk_evm_local"].includes(backend)) {
+    throw new Error("Wallet backend must be solana, evm, ethereum, base, robinhood, or goat.");
   }
   return backend;
 }
 
 function backendLabel(backend) {
   if (backend === "wdk_evm_local") return "evm";
-  if (backend === "wdk_btc_local") return "bitcoin";
   return "solana";
 }
 
@@ -273,25 +265,6 @@ function normalizeSolanaNetwork(value) {
   return normalized;
 }
 
-function normalizeBtcNetwork(value) {
-  const network = String(value || "").trim().toLowerCase();
-  if (!network) return null;
-  const aliases = {
-    btc: "bitcoin",
-    bitcoin_mainnet: "bitcoin",
-    "bitcoin-mainnet": "bitcoin",
-    mainnet: "bitcoin",
-  };
-  const normalized = aliases[network] || network;
-  if (["testnet", "regtest"].includes(normalized)) {
-    throw new Error("Bitcoin testnet/regtest are no longer supported. Use bitcoin.");
-  }
-  if (normalized !== "bitcoin") {
-    throw new Error("Bitcoin network must be bitcoin.");
-  }
-  return normalized;
-}
-
 function defaultSelectableEvmNetwork(api) {
   const config = resolvePluginConfig(api);
   const configured = normalizeEvmNetwork(config.network || process.env.WDK_EVM_NETWORK);
@@ -307,15 +280,6 @@ function defaultSolanaNetwork(api) {
   }
 }
 
-function defaultBtcNetwork(api) {
-  const config = resolvePluginConfig(api);
-  try {
-    return normalizeBtcNetwork(config.network || process.env.WDK_BTC_NETWORK) || "bitcoin";
-  } catch {
-    return "bitcoin";
-  }
-}
-
 function inferBackendForTool(toolName) {
   if (
     toolName.startsWith("get_evm_") ||
@@ -325,9 +289,6 @@ function inferBackendForTool(toolName) {
     toolName === "set_evm_network"
   ) {
     return "wdk_evm_local";
-  }
-  if (toolName.startsWith("get_btc_") || toolName === "transfer_btc") {
-    return "wdk_btc_local";
   }
   if (
     toolName.includes("solana") ||
@@ -354,13 +315,6 @@ function networkForBackend(api, backend) {
   const config = resolvePluginConfig(api);
   if (backend === "wdk_evm_local") {
     return selectedEvmNetwork || defaultSelectableEvmNetwork(api) || "ethereum";
-  }
-  if (backend === "wdk_btc_local") {
-    try {
-      return selectedBtcNetwork || defaultBtcNetwork(api);
-    } catch {
-      return "bitcoin";
-    }
   }
   try {
     return (
@@ -420,6 +374,9 @@ function buildCliEnv(packageRoot) {
   env.PYTHONPATH = env.PYTHONPATH
     ? `${packageRoot}${path.delimiter}${env.PYTHONPATH}`
     : packageRoot;
+  // Tag anonymous telemetry at the native OpenClaw bridge. Respect an
+  // explicit override for shared or embedded launchers.
+  env.AGENT_WALLET_HOST = env.AGENT_WALLET_HOST || "openclaw";
   return env;
 }
 
@@ -630,9 +587,9 @@ function registerTool(api, definition) {
           configured_backend: configuredBackend,
           configured_network: String(resolvePluginConfig(api).network || "").trim() || null,
           session_override_active: Boolean(selectedWalletBackend),
-          available_wallets: ["solana", "evm", "bitcoin"],
+          available_wallets: ["solana", "evm"],
           usage:
-            "Use set_wallet_backend to switch between Solana, EVM, and Bitcoin for this OpenClaw plugin session. Do not edit plugin config for normal wallet switching.",
+            "Use set_wallet_backend to switch between Solana and EVM for this OpenClaw plugin session. Do not edit plugin config for normal wallet switching.",
         });
       }
 
@@ -655,11 +612,6 @@ function registerTool(api, definition) {
           selectedSolanaNetwork = normalizeSolanaNetwork(
             params?.network || selectedSolanaNetwork || defaultSolanaNetwork(api)
           );
-        } else if (backend === "wdk_btc_local") {
-          selectedBtcNetwork = normalizeBtcNetwork(
-            params?.network || selectedBtcNetwork || defaultBtcNetwork(api)
-          );
-        }
         const configOverride = effectiveConfigForBackend(api, backend);
         const payload = await callWalletCli(api, "invoke", [
           "--tool",
@@ -763,7 +715,7 @@ function registerTool(api, definition) {
 const walletSessionToolDefinitions = [
   {
     name: "get_wallet_capabilities",
-    description: "Describe the active wallet backend, chain, network, address, and safety limits. Use set_wallet_backend to switch between Solana, EVM, and Bitcoin instead of editing plugin config.",
+    description: "Describe the active wallet backend, chain, network, address, and safety limits. Use set_wallet_backend to switch between Solana and EVM instead of editing plugin config.",
     parameters: { type: "object", properties: {}, additionalProperties: false },
   },
   {
@@ -900,18 +852,18 @@ const walletSessionToolDefinitions = [
   {
     name: "set_wallet_backend",
     description:
-      "Switch the active wallet backend for this OpenClaw plugin session. Use this for user requests like 'switch to EVM wallet', 'use Base', 'switch back to Solana', or 'use Bitcoin'. This does not edit code, environment variables, or plugin config.",
+      "Switch the active wallet backend for this OpenClaw plugin session. Use this for user requests like 'switch to EVM wallet', 'use Base', or 'switch back to Solana'. This does not edit code, environment variables, or plugin config.",
     parameters: {
       type: "object",
       properties: {
         backend: {
           type: "string",
-          enum: ["solana", "sol", "evm", "ethereum", "base", "robinhood", "goat", "bitcoin", "btc"],
+          enum: ["solana", "sol", "evm", "ethereum", "base", "robinhood", "goat"],
           description: "Wallet backend or common alias to make active.",
         },
         network: {
           type: "string",
-          description: "Optional network for the selected wallet. Examples: mainnet, ethereum, base, robinhood, goat, bitcoin.",
+          description: "Optional network for the selected wallet. Examples: mainnet, ethereum, base, robinhood, goat.",
         },
       },
       required: ["backend"],
@@ -1513,81 +1465,6 @@ const solanaToolDefinitions = [
         purpose: { type: "string" },
       },
       required: ["limit", "mode", "purpose"],
-      additionalProperties: false,
-    },
-  },
-];
-
-const btcToolDefinitions = [
-  {
-    name: "get_wallet_capabilities",
-    description: "Describe the connected wallet backend, chain, and safety limits.",
-    parameters: { type: "object", properties: {}, additionalProperties: false },
-  },
-  {
-    name: "get_wallet_address",
-    description: "Return the configured wallet address for the connected backend.",
-    parameters: { type: "object", properties: {}, additionalProperties: false },
-  },
-  {
-    name: "get_wallet_balance",
-    description: "Get the native BTC balance for the configured wallet address.",
-    parameters: {
-      type: "object",
-      properties: {
-        address: {
-          type: "string",
-          description: "Optional wallet address override.",
-        },
-      },
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "get_btc_transfer_history",
-    description: "Get BTC transfer history for the configured wallet account.",
-    parameters: {
-      type: "object",
-      properties: {
-        direction: { type: "string", enum: ["incoming", "outgoing", "all"] },
-        limit: { type: "integer" },
-        skip: { type: "integer" },
-      },
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "get_btc_fee_rates",
-    description: "Get current BTC fee-rate suggestions from the local BTC wallet service.",
-    parameters: { type: "object", properties: {}, additionalProperties: false },
-  },
-  {
-    name: "get_btc_max_spendable",
-    description: "Estimate the maximum BTC spendable amount after fees.",
-    parameters: {
-      type: "object",
-      properties: {
-        fee_rate: { type: "integer" },
-      },
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "transfer_btc",
-    description: "Preview, prepare, or execute a BTC transfer in satoshis. Preview or prepare first. After the user explicitly confirms the shown summary in chat, call execute; the OpenClaw plugin handles the internal execution authorization automatically.",
-    optional: true,
-    parameters: {
-      type: "object",
-      properties: {
-        recipient: { type: "string" },
-        amount_sats: { type: "integer" },
-        fee_rate: { type: "integer" },
-        confirmation_target: { type: "integer" },
-        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
-        purpose: { type: "string" },
-        user_intent: { type: "boolean" },
-      },
-      required: ["recipient", "amount_sats", "mode", "purpose"],
       additionalProperties: false,
     },
   },
@@ -2217,7 +2094,6 @@ export default function registerAgentWalletPlugin(api) {
   selectedWalletBackend = null;
   selectedSolanaNetwork = defaultSolanaNetwork(api);
   selectedEvmNetwork = defaultSelectableEvmNetwork(api);
-  selectedBtcNetwork = defaultBtcNetwork(api);
   const duplicateSessionToolNames = new Set(
     walletSessionToolDefinitions.map((definition) => definition.name)
   );
@@ -2226,7 +2102,6 @@ export default function registerAgentWalletPlugin(api) {
   for (const definition of [
     ...walletSessionToolDefinitions,
     ...solanaToolDefinitions.filter((item) => !duplicateSessionToolNames.has(item.name)),
-    ...btcToolDefinitions.filter((item) => !duplicateSessionToolNames.has(item.name)),
     ...evmToolDefinitions.filter((item) => !duplicateSessionToolNames.has(item.name)),
     ...loadConnectorToolDefinitions(api),
   ]) {

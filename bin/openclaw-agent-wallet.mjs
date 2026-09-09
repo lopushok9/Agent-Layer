@@ -61,7 +61,7 @@ Common install options:
   --runtime-only        Install/update the shared runtime without adding host plugins.
   --no-prompt           Accept the automatic host selection in interactive terminals.
   --no-auto-secrets     Do not generate runtime secrets automatically.
-  --backend <backend>   solana_local, wdk_btc_local, wdk_evm_local, or none.
+  --backend <backend>   solana_local, wdk_evm_local, or none.
   --network <network>   devnet, mainnet, base, ethereum, bitcoin, etc.
   --invite <code>       Bind a welcome invite to the local Base address.
 
@@ -937,7 +937,6 @@ function activeNodeRuntimeInfo(env = process.env) {
   const currentRoot = resolvedCurrentRuntimeRoot(env);
   if (!currentRoot) return [];
   const projects = [
-    path.join(currentRoot, "wdk-btc-wallet"),
     path.join(currentRoot, "wdk-evm-wallet"),
     path.join(currentRoot, "agent-wallet", "scripts", "flash-sdk-bridge"),
   ];

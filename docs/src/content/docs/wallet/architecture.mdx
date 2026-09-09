@@ -13,7 +13,6 @@ the agent gets wallet capabilities, not wallet ownership.
 That rule now spans three backend families:
 
 - Solana in `agent-wallet`
-- Bitcoin through the local `wdk-btc-wallet` runtime
 - EVM through the local `wdk-evm-wallet` runtime
 
 ## Core safety boundaries
@@ -50,7 +49,7 @@ Current responsibilities are split like this:
 - `.openclaw` stays a thin host bridge
 - Hermes integration stays a bridge to the same Python backend, not a fork of wallet logic
 - `provider-gateway` stays non-custodial and provider-oriented
-- local BTC and EVM runtimes keep their own local wallet storage and host-only setup paths
+- the local EVM runtime keeps its own local wallet storage and host-only setup path
 
 ## Mainnet behavior
 

@@ -197,7 +197,6 @@ The npm package is intentionally limited to the wallet installer runtime:
 ```text
 .openclaw/extensions/agent-wallet
 agent-wallet
-wdk-btc-wallet
 wdk-evm-wallet
 bin
 scripts

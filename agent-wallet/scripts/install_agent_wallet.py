@@ -39,7 +39,6 @@ INCLUDED_RUNTIME_TOP_LEVEL_DIRS = [
     "agent-a2a-gateway",
     "hermes",
     "mcp",
-    "wdk-btc-wallet",
     "wdk-evm-wallet",
 ]
 EXCLUDED_RUNTIME_DIR_NAMES = {
@@ -74,10 +73,6 @@ def _package_root() -> Path:
 
 def _extension_path() -> Path:
     return _repo_root() / ".openclaw" / "extensions" / "agent-wallet"
-
-
-def _default_wdk_btc_root() -> Path:
-    return _repo_root() / "wdk-btc-wallet"
 
 
 def _default_wdk_evm_root() -> Path:
@@ -189,7 +184,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--venv-path", default=str(_default_venv_path()))
     parser.add_argument("--package-root", default=str(_package_root()))
     parser.add_argument("--extension-path", default=str(_extension_path()))
-    parser.add_argument("--wdk-btc-root", default=str(_default_wdk_btc_root()))
     parser.add_argument("--wdk-evm-root", default=str(_default_wdk_evm_root()))
     parser.add_argument("--wdk-evm-service-url", default=_default_evm_service_url())
     parser.add_argument("--runtime-root", default=str(_default_runtime_root()))
@@ -219,12 +213,11 @@ def build_parser() -> argparse.ArgumentParser:
 def _infer_source_root(
     package_root: Path,
     extension_path: Path,
-    wdk_btc_root: Path,
     wdk_evm_root: Path,
 ) -> Path:
     candidates = [
         package_root.parent,
-        Path(os.path.commonpath([package_root, extension_path, wdk_btc_root, wdk_evm_root])),
+        Path(os.path.commonpath([package_root, extension_path, wdk_evm_root])),
     ]
     seen: set[Path] = set()
     for candidate in candidates:
@@ -235,14 +228,13 @@ def _infer_source_root(
         if (
             (resolved / "agent-wallet").resolve() == package_root
             and (resolved / ".openclaw" / "extensions" / "agent-wallet").resolve() == extension_path
-            and (resolved / "wdk-btc-wallet").resolve() == wdk_btc_root
             and (resolved / "wdk-evm-wallet").resolve() == wdk_evm_root
             and (resolved / "setup.sh").exists()
         ):
             return resolved
     raise SystemExit(
         "Could not infer the source root for runtime sync. Expected package-root, extension-path, "
-        "wdk-btc-root, and wdk-evm-root to belong to the same repo checkout."
+        "wdk-evm-root to belong to the same repo checkout."
     )
 
 
@@ -1058,7 +1050,6 @@ def main() -> None:
     args = build_parser().parse_args()
     source_package_root = Path(args.package_root).expanduser().resolve()
     source_extension_path = Path(args.extension_path).expanduser().resolve()
-    source_wdk_btc_root = Path(args.wdk_btc_root).expanduser().resolve()
     source_wdk_evm_root = Path(args.wdk_evm_root).expanduser().resolve()
     runtime_root = Path(args.runtime_root).expanduser().resolve()
     final_runtime_root = os.getenv("OPENCLAW_INSTALL_FINAL_ROOT", "").strip()
@@ -1069,7 +1060,6 @@ def main() -> None:
     source_root = _infer_source_root(
         source_package_root,
         source_extension_path,
-        source_wdk_btc_root,
         source_wdk_evm_root,
     )
 
@@ -1098,12 +1088,10 @@ def main() -> None:
     if args.install_from_runtime:
         package_root = runtime_root / "agent-wallet"
         extension_path = runtime_root / ".openclaw" / "extensions" / "agent-wallet"
-        wdk_btc_root = runtime_root / "wdk-btc-wallet"
         wdk_evm_root = runtime_root / "wdk-evm-wallet"
     else:
         package_root = source_package_root
         extension_path = source_extension_path
-        wdk_btc_root = source_wdk_btc_root
         wdk_evm_root = source_wdk_evm_root
 
     install_config_script = package_root / "scripts" / "install_openclaw_local_config.py"
@@ -1155,7 +1143,7 @@ def main() -> None:
         "npm_bin": args.npm_bin,
         "projects": [],
     }
-    node_projects = [wdk_btc_root, wdk_evm_root]
+    node_projects = [wdk_evm_root]
     flash_bridge_root = package_root / "scripts" / "flash-sdk-bridge"
     if (flash_bridge_root / "package.json").exists():
         node_projects.append(flash_bridge_root)
@@ -1264,7 +1252,6 @@ def main() -> None:
                 "configure_openclaw": bool(args.configure_openclaw),
                 "package_root": str(package_root),
                 "extension_path": str(extension_path),
-                "wdk_btc_root": str(wdk_btc_root),
                 "wdk_evm_root": str(wdk_evm_root),
                 "runtime_root": final_runtime_root or str(runtime_root),
                 "staging_root": str(runtime_root) if final_runtime_root else None,

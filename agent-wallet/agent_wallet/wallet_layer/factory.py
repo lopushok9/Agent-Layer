@@ -8,7 +8,6 @@ from pathlib import Path
 from agent_wallet.bootstrap import ensure_solana_wallet_ready, ensure_wallet_pin
 from agent_wallet.encrypted_storage import load_wallet_secret_material
 from agent_wallet.config import (
-    normalize_btc_network,
     normalize_evm_network,
     normalize_solana_network,
     resolve_runtime_solana_rpc_config,
@@ -20,7 +19,6 @@ from agent_wallet.config import (
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendError
 from agent_wallet.wallet_layer.wdk_evm import WdkEvmLocalWalletBackend
 from agent_wallet.wallet_layer.solana import SolanaLocalKeypairSigner, SolanaWalletBackend
-from agent_wallet.wallet_layer.wdk_btc import WdkBtcLocalWalletBackend
 
 
 def _evm_autostart_disabled() -> bool:
@@ -93,15 +91,6 @@ def create_wallet_backend() -> AgentWalletBackend | None:
             swap_transport=str(swap_config["transport"]),
         )
 
-    if backend in {"wdk_btc_local", "wdk-btc-local", "btc_local", "btc-local"}:
-        return WdkBtcLocalWalletBackend(
-            service_url=settings.wdk_btc_service_url,
-            wallet_id=settings.wdk_btc_wallet_id,
-            network=normalize_btc_network(settings.solana_network),
-            account_index=settings.wdk_btc_account_index,
-            sign_only=settings.agent_wallet_sign_only,
-        )
-
     if backend in {"wdk_evm_local", "wdk-evm-local", "evm_local", "evm-local"}:
         evm_network = normalize_evm_network(settings.solana_network)
         service_url = resolve_wdk_evm_service_url()
@@ -124,5 +113,5 @@ def create_wallet_backend() -> AgentWalletBackend | None:
 
     raise WalletBackendError(
         f"Unsupported agent wallet backend: {backend}. "
-        "Supported values: none, solana_local, wdk_btc_local, wdk_evm_local."
+        "Supported values: none, solana_local, wdk_evm_local."
     )

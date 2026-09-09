@@ -14,7 +14,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agent_wallet.file_ops import atomic_write_text, chmod_if_exists
 from agent_wallet.config import (
-    normalize_btc_network,
     normalize_evm_network,
     normalize_solana_network,
     resolve_boot_key,
@@ -46,7 +45,6 @@ LEGACY_ALLOWLIST_TOOLS = [
     "kamino_earn_withdraw",
     "sign_wallet_message",
     "transfer_sol",
-    "transfer_btc",
     "transfer_spl_token",
     "swap_solana_tokens",
     "close_empty_token_accounts",
@@ -207,8 +205,6 @@ def _default_user_id() -> str:
 def _normalize_network(backend: str, network: str) -> str:
     backend_name = backend.strip().lower()
     normalized = network.strip().lower()
-    if backend_name in {"wdk_btc_local", "wdk-btc-local", "btc_local", "btc-local"}:
-        return normalize_btc_network(normalized or "bitcoin")
     if backend_name in {"wdk_evm_local", "wdk-evm-local", "evm_local", "evm-local"}:
         return normalize_evm_network(normalized or "ethereum")
     return normalize_solana_network(normalized or "mainnet")
@@ -223,9 +219,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--network", default="mainnet")
     parser.add_argument("--rpc-url", default="")
     parser.add_argument("--rpc-urls", default="")
-    parser.add_argument("--wdk-btc-service-url", default="")
-    parser.add_argument("--wdk-btc-wallet-id", default="")
-    parser.add_argument("--wdk-btc-account-index", type=int, default=0)
     parser.add_argument("--wdk-evm-service-url", default="")
     parser.add_argument("--wdk-evm-wallet-id", default="")
     parser.add_argument("--wdk-evm-account-index", type=int, default=0)
@@ -363,12 +356,8 @@ def main() -> None:
         plugin_config["rpcUrls"] = [
             item.strip() for item in args.rpc_urls.split(",") if item.strip()
         ]
-    if args.wdk_btc_service_url.strip():
-        plugin_config["wdkBtcServiceUrl"] = args.wdk_btc_service_url.strip()
-    if args.wdk_btc_wallet_id.strip():
-        plugin_config["wdkBtcWalletId"] = args.wdk_btc_wallet_id.strip()
-    if args.wdk_btc_account_index is not None:
-        plugin_config["wdkBtcAccountIndex"] = int(args.wdk_btc_account_index)
+    for key in ("wdkBtcServiceUrl", "wdkBtcWalletId", "wdkBtcAccountIndex"):
+        plugin_config.pop(key, None)
     if args.wdk_evm_service_url.strip():
         plugin_config["wdkEvmServiceUrl"] = args.wdk_evm_service_url.strip()
     if args.wdk_evm_wallet_id.strip():

@@ -14,7 +14,7 @@ from typing import Any
 
 
 SECRET_CONFIG_KEYS = {"privateKey", "masterKey", "approvalSecret"}
-BACKENDS = ("solana_local", "wdk_btc_local", "wdk_evm_local")
+BACKENDS = ("solana_local", "wdk_evm_local")
 PREVIEW_BOUND_SWAP_TOOLS = {"swap_solana_tokens"}
 
 
@@ -206,15 +206,11 @@ def _normalize_backend(value: Any) -> str:
         "base": "wdk_evm_local",
         "wdk_evm_local": "wdk_evm_local",
         "wdk-evm-local": "wdk_evm_local",
-        "btc": "wdk_btc_local",
-        "bitcoin": "wdk_btc_local",
-        "wdk_btc_local": "wdk_btc_local",
-        "wdk-btc-local": "wdk_btc_local",
     }
     backend = aliases.get(normalized, normalized)
     if backend not in BACKENDS:
         raise RuntimeError(
-            "Wallet backend must be one of solana_local, wdk_btc_local, or wdk_evm_local."
+            "Wallet backend must be one of solana_local or wdk_evm_local."
         )
     return backend
 
@@ -229,8 +225,6 @@ def _infer_backend_for_tool(tool_name: str) -> str | None:
         or tool_name == "agent_wallet_evm_setup"
     ):
         return "wdk_evm_local"
-    if tool_name.startswith("get_btc_") or tool_name == "transfer_btc":
-        return "wdk_btc_local"
     if (
         "solana" in tool_name
         or "jupiter" in tool_name
@@ -263,17 +257,6 @@ def _normalize_network_for_backend(backend: str, raw_network: Any) -> str:
         if normalized in {"sepolia", "base-sepolia", "base_sepolia"}:
             raise RuntimeError("EVM testnets are no longer supported. Use ethereum or base.")
         return normalized if normalized in {"ethereum", "base"} else "ethereum"
-    if backend == "wdk_btc_local":
-        aliases = {
-            "btc": "bitcoin",
-            "bitcoin_mainnet": "bitcoin",
-            "bitcoin-mainnet": "bitcoin",
-            "mainnet": "bitcoin",
-        }
-        normalized = aliases.get(network, network)
-        if normalized in {"testnet", "regtest"}:
-            raise RuntimeError("Bitcoin testnet/regtest are no longer supported. Use bitcoin.")
-        return normalized if normalized == "bitcoin" else "bitcoin"
     aliases = {
         "solana": "mainnet",
         "solana-mainnet": "mainnet",
@@ -553,8 +536,6 @@ class _SchemaOnlyBackend:
 
 
 def _schema_backend(name: str) -> _SchemaOnlyBackend:
-    if name == "wdk_btc_local":
-        return _SchemaOnlyBackend(name=name, chain="bitcoin", network="bitcoin")
     if name == "wdk_evm_local":
         return _SchemaOnlyBackend(name=name, chain="evm", network="ethereum")
     return _SchemaOnlyBackend(name="solana_local", chain="solana", network="mainnet")
