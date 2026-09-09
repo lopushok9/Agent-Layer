@@ -163,7 +163,7 @@ AgentLayer connects supported agents to one local wallet runtime. The agent can:
 - swap tokens
 - use supported DeFi services
 - access paid APIs through x402
-- work with Solana, Ethereum, Base, and Bitcoin
+- work with Solana, Ethereum, and Base
 
 Read operations are available directly. Operations that move funds remain
 protected by wallet policy and approval checks.

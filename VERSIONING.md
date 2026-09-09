@@ -23,14 +23,14 @@ Eleven derived manifests carry the same version and are generated, not edited:
 | Codex | `codex/plugins/agent-wallet/.codex-plugin/plugin.json` |
 | Claude Code | `claude-code/plugins/agent-wallet/.claude-plugin/plugin.json` |
 | Hermes | `hermes/plugins/agent_wallet/plugin.yaml` |
-| wdk services | `wdk-btc-wallet/package.json`, `wdk-evm-wallet/package.json` |
+| wdk service | `wdk-evm-wallet/package.json` |
 
 The registry of these targets lives in `scripts/version_targets.mjs`.
 
 ## Everyday commands
 
 ```bash
-# Stamp the current VERSION into all 11 manifests
+# Stamp the current VERSION into all derived manifests
 npm run version:sync
 
 # Bump VERSION and stamp in one step

@@ -39,7 +39,7 @@ VERSION
 
 Every other manifest (npm `package.json`, `agent-wallet/pyproject.toml`, the
 Python `__version__`, the OpenClaw extension, and the Codex / Claude Code /
-Hermes / wdk plugin manifests) is a *derived* target. Do not edit them by hand —
+Hermes / WDK EVM manifests) is a *derived* target. Do not edit them by hand —
 stamp them from `VERSION`:
 
 ```bash

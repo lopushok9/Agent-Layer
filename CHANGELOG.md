@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v0.1.109 - 2026-09-09
+
+- **Removed the local Bitcoin wallet runtime.** The `wdk-btc-wallet` package,
+  BTC-specific wallet tools, host bridges, bootstrap helpers, and bundled
+  Bitcoin documentation no longer ship. Solana and EVM wallet flows are
+  unchanged. Legacy BTC telemetry dimensions remain readable for historical
+  reporting.
+
 ## v0.1.108 - 2026-09-07
 
 - **Added a universal local MCP entry point.** Any MCP client with `stdio`
