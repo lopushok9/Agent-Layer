@@ -442,6 +442,35 @@ def _tool_category_breakdown(conn: sqlite3.Connection, since_ts: int) -> list[di
     )
 
 
+def _backend_tool_breakdown(conn: sqlite3.Connection, since_ts: int, limit: int = 200) -> list[dict[str, Any]]:
+    """Break tool usage down by the backend recorded on the same invocation."""
+    rows = conn.execute(
+        """
+        SELECT backend, tool,
+               COUNT(*) AS calls,
+               COUNT(DISTINCT install_id) AS installs
+        FROM events
+        WHERE received_ts >= ?
+          AND event = 'tool_invoke'
+          AND backend != ''
+          AND tool != ''
+        GROUP BY backend, tool
+        ORDER BY calls DESC, backend ASC, tool ASC
+        LIMIT ?
+        """,
+        (since_ts, limit),
+    ).fetchall()
+    return [
+        {
+            "backend": str(row[0]),
+            "tool": str(row[1]),
+            "calls": int(row[2] or 0),
+            "installs": int(row[3] or 0),
+        }
+        for row in rows
+    ]
+
+
 def _success_rate_breakdown(conn: sqlite3.Connection, since_ts: int) -> list[dict[str, Any]]:
     families = {
         "tool_invocations": ("tool_invoke",),
@@ -832,6 +861,7 @@ def summary(window_days: int = 30) -> dict[str, Any]:
         by_host = _breakdown("host")
         wallet_by_host = _breakdown("host", event_filter="tool_invoke")
         by_tool = _breakdown("tool", non_empty=True)
+        by_backend_tool = _backend_tool_breakdown(conn, since)
         by_tool_category = _tool_category_breakdown(conn, since)
         by_backend = _breakdown("backend", non_empty=True)
         by_version = _breakdown("plugin_version")
@@ -861,6 +891,7 @@ def summary(window_days: int = 30) -> dict[str, Any]:
         "by_host": by_host,
         "wallet_by_host": wallet_by_host,
         "by_tool": by_tool,
+        "by_backend_tool": by_backend_tool,
         "by_tool_category": by_tool_category,
         "by_backend": by_backend,
         "by_version": by_version,

@@ -661,6 +661,7 @@ def _render_telemetry_dashboard(stats: dict[str, Any]) -> str:
     <div class="section-title">Detail</div>
     <section class="grid-2">
       {_html_table("Top Tools", list(stats.get("by_tool") or []), fields=[("key", "tool"), ("calls", "calls"), ("installs", "installs")])}
+      {_html_table("Backend × Tool", list(stats.get("by_backend_tool") or []), fields=[("backend", "backend"), ("tool", "tool"), ("calls", "calls"), ("installs", "installs")], limit=30)}
       {_html_table("x402 Funnel", [
         {"key": "x402_pay_request calls", "calls": x402.get("pay_tool_invocations", 0)},
         {"key": "previewed", "calls": x402.get("previewed", 0)},

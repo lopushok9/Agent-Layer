@@ -100,6 +100,14 @@ def main() -> None:
             assert stats["wallet_by_host"] == [{"key": "codex", "calls": 1, "installs": 1}]
             assert {"key": "unknown", "calls": 1, "installs": 1} in stats["by_host"]
             assert stats["by_tool"] == [{"key": "get_wallet_balance", "calls": 1, "installs": 1}]
+            assert stats["by_backend_tool"] == [
+                {
+                    "backend": "solana_local",
+                    "tool": "get_wallet_balance",
+                    "calls": 1,
+                    "installs": 1,
+                }
+            ]
             assert {"key": "core_wallet", "calls": 1, "installs": 1} in stats["by_tool_category"]
             assert stats["x402"]["pay_tool_invocations"] == 0
             assert stats["x402"]["payment_settled"] == 1

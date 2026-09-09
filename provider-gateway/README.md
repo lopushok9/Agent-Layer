@@ -92,6 +92,8 @@ install activity:
 - `wallet_dau` — unique `install_id` values with at least one `tool_invoke`
   during the last 24 hours
 - `wallet_by_host` — wallet-specific breakdown by host/plugin
+- `by_backend_tool` — tool calls grouped by their recorded wallet backend;
+  useful for separating, for example, Bitcoin reads from EVM/Solana activity
 
 For raw machine-readable JSON use:
 
