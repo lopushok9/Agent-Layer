@@ -151,20 +151,6 @@ Important behavior:
 - `get_agent_by_id` is on-chain identity lookup
 - `search_erc8004_agents` and `get_erc8004_agent_profile` are off-chain indexed discovery tools
 
-## Disabled Wallet Backend
-
-There is also a Turnkey-based wallet execution backend in:
-
-- `tools/wallet.py`
-- `providers/turnkey.py`
-
-This functionality is currently kept in the repository but disabled in MCP registration.
-
-Reason:
-
-- it is not needed right now
-- the project may migrate to a different operational crypto wallet backend
-
 ## Shared Infrastructure
 
 ### Configuration
@@ -256,4 +242,4 @@ This codebase is best understood as an agent-facing finance middleware service:
 - provider layer for external data and chain integrations
 - normalization, caching, and validation in the middle
 
-It is already well-structured for analytics and agent discovery use cases, while execution-oriented wallet functionality is currently present but intentionally disabled.
+It is well-structured for analytics and agent discovery use cases.
