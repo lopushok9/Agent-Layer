@@ -126,6 +126,14 @@ npx --yes @agentlayer.tech/wallet@latest doctor
 After an install or update, restart the connected agent applications when
 `wallet status` shows `restart_required: true`.
 
+## Hosted x402 payment MCP
+
+Cloud-agent and mobile-host users can be served by the separate
+[`x402-payment-mcp/`](x402-payment-mcp/README.md). It is a new remote MCP with
+first-party OAuth (Google/GitHub login), one CDP-managed Base wallet per user,
+CDP Bazaar-only discovery, and Base USDC x402 payments. It does not replace or
+share custody assumptions with the local wallet runtime.
+
 ## Common commands
 
 ```bash

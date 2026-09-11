@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added a standalone hosted `x402-payment-mcp` for cloud-agent clients. It
+  provides first-party OAuth authorization with Google/GitHub login, durable
+  per-user CDP Base wallets, CDP Bazaar-only discovery, preview-bound Base USDC
+  exact payments, rolling spend limits, and Railway deployment assets. It is
+  separate from the local wallet runtime and exposes no generic signing API.
+
 ## v0.1.109 - 2026-09-09
 
 - **Removed the local Bitcoin wallet runtime.** The `wdk-btc-wallet` package,
