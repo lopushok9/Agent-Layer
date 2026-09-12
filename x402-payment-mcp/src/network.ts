@@ -14,7 +14,14 @@ const dispatcher=new Agent({connect:{lookup:((hostname:string,_options:unknown,c
 
 export function assertSafeResourceUrl(raw:string):URL{const url=new URL(raw);if(url.protocol!=="https:")throw new Error("Bazaar resource must use HTTPS");if(url.username||url.password||url.port)throw new Error("resource credentials and custom ports are not allowed");if(url.hostname==="localhost"||(isIP(url.hostname.replace(/^\[|\]$/g,""))&&!publicAddress(url.hostname)))throw new Error("non-public network destinations are blocked");return url;}
 
-export const safeFetch:typeof globalThis.fetch=((input:RequestInfo|URL,init?:RequestInit)=>undiciFetch(input as any,{...(init as any),redirect:"error",dispatcher})) as typeof globalThis.fetch;
+export const safeFetch:typeof globalThis.fetch=(async(input:RequestInfo|URL,init?:RequestInit)=>limitResponseBody(await undiciFetch(input as any,{...(init as any),redirect:"error",dispatcher}) as unknown as Response)) as typeof globalThis.fetch;
+
+export function limitResponseBody(response:Response,maxBytes=1_000_000):Response{
+  const length=Number(response.headers.get("content-length")??0);if(length>maxBytes){void response.body?.cancel();throw new Error("resource response is too large");}
+  if(!response.body)return response;const reader=response.body.getReader();let size=0;
+  const body=new ReadableStream<Uint8Array>({async pull(controller){try{const {done,value}=await reader.read();if(done){controller.close();return;}size+=value.byteLength;if(size>maxBytes){await reader.cancel();controller.error(new Error("resource response is too large"));return;}controller.enqueue(value);}catch(error){controller.error(error);}},cancel(reason){return reader.cancel(reason);}});
+  return new Response(body,{status:response.status,statusText:response.statusText,headers:response.headers});
+}
 
 export async function limitedBody(response:Response,maxBytes=1_000_000):Promise<unknown>{
   const length=Number(response.headers.get("content-length")??0);if(length>maxBytes)throw new Error("resource response is too large");

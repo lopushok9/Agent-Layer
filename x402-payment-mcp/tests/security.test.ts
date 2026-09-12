@@ -3,7 +3,7 @@ import test from "node:test";
 import { exportJWK, generateKeyPair } from "jose";
 import type { Config } from "../src/config.js";
 import { pkceChallenge, TokenService } from "../src/security.js";
-import { assertSafeResourceUrl } from "../src/network.js";
+import { assertSafeResourceUrl, limitResponseBody } from "../src/network.js";
 
 async function config():Promise<Config>{const {privateKey}=await generateKeyPair("ES256",{extractable:true});const privateJwk=await exportJWK(privateKey);return{PUBLIC_BASE_URL:"https://pay.example.com",MCP_DANGEROUSLY_ALLOW_INSECURE_ISSUER_URL:false,PORT:3000,DATABASE_URL:"postgres://localhost/test",OAUTH_SIGNING_PRIVATE_JWK:JSON.stringify(privateJwk),GOOGLE_CLIENT_ID:"g",GOOGLE_CLIENT_SECRET:"g",GITHUB_CLIENT_ID:"h",GITHUB_CLIENT_SECRET:"h",CDP_API_KEY_ID:"c",CDP_API_KEY_SECRET:"c",CDP_WALLET_SECRET:"c",ACCESS_TOKEN_TTL_SECONDS:900,REFRESH_TOKEN_TTL_SECONDS:3600,AUTH_CODE_TTL_SECONDS:300,PREVIEW_TTL_SECONDS:120,MAX_PAYMENT_USDC_ATOMIC:"1000000",MAX_DAILY_USDC_ATOMIC:"5000000",PAYMENT_TIMEOUT_MS:15000,privateJwk,issuer:"https://pay.example.com",resource:"https://pay.example.com/mcp"};}
 
@@ -19,4 +19,11 @@ test("resource URL guard rejects non-public IPv4 and IPv6 literals",()=>{
   for(const url of ["https://[::1]/","https://[::ffff:127.0.0.1]/","https://[fd00::1]/","https://[fe80::1]/","https://100.64.0.1/","https://198.18.0.1/"])assert.throws(()=>assertSafeResourceUrl(url),url);
   assert.equal(assertSafeResourceUrl("https://1.1.1.1/resource").hostname,"1.1.1.1");
   assert.equal(assertSafeResourceUrl("https://[2606:4700:4700::1111]/resource").hostname,"[2606:4700:4700::1111]");
+});
+
+test("response body limit applies before the x402 SDK can buffer a 402 body",async()=>{
+  const oversized=new Response(new ReadableStream<Uint8Array>({start(controller){controller.enqueue(new Uint8Array(600_000));controller.enqueue(new Uint8Array(600_000));controller.close();}}),{status:402});
+  await assert.rejects(()=>limitResponseBody(oversized,1_000_000).text(),/too large/);
+  const declared=new Response("small",{status:402,headers:{"content-length":"1000001"}});
+  assert.throws(()=>limitResponseBody(declared,1_000_000),/too large/);
 });
