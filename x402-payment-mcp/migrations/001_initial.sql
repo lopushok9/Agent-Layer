@@ -11,3 +11,7 @@ ALTER TABLE payments ADD COLUMN IF NOT EXISTS purpose text;
 UPDATE payments SET purpose='legacy payment' WHERE purpose IS NULL;
 ALTER TABLE payments ALTER COLUMN purpose SET NOT NULL;
 CREATE INDEX IF NOT EXISTS payments_user_window ON payments(user_id,created_at DESC);
+ALTER TABLE oauth_login_states ADD COLUMN IF NOT EXISTS browser_session_hash text;
+ALTER TABLE oauth_login_states ADD COLUMN IF NOT EXISTS csrf_token_hash text;
+ALTER TABLE oauth_login_states ADD COLUMN IF NOT EXISTS approved_at timestamptz;
+ALTER TABLE oauth_login_states ADD COLUMN IF NOT EXISTS provider text;

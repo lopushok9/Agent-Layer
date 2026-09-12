@@ -26,13 +26,17 @@ export class Store {
     const row = await this.pool.query(`SELECT client_id,client_name,redirect_uris FROM oauth_clients WHERE client_id=$1`, [clientId]);
     return row.rowCount ? mapClient(row.rows[0]) : null;
   }
-  async createLoginState(data: Omit<LoginState, "id">): Promise<string> {
+  async createLoginState(data: Omit<LoginState, "id">, browserSessionHash:string, csrfTokenHash:string): Promise<string> {
     const id = randomUUID();
-    await this.pool.query(`INSERT INTO oauth_login_states (id,client_id,redirect_uri,oauth_state,code_challenge,resource,scope,expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,now()+interval '10 minutes')`, [id,data.clientId,data.redirectUri,data.state,data.codeChallenge,data.resource,data.scope]);
+    await this.pool.query(`INSERT INTO oauth_login_states (id,client_id,redirect_uri,oauth_state,code_challenge,resource,scope,browser_session_hash,csrf_token_hash,expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now()+interval '10 minutes')`, [id,data.clientId,data.redirectUri,data.state,data.codeChallenge,data.resource,data.scope,browserSessionHash,csrfTokenHash]);
     return id;
   }
-  async consumeLoginState(id: string): Promise<LoginState | null> {
-    const r = await this.pool.query(`DELETE FROM oauth_login_states WHERE id=$1 AND expires_at>now() RETURNING *`, [id]);
+  async approveLoginState(id:string,browserSessionHash:string,csrfTokenHash:string,provider:"google"|"github"):Promise<boolean>{
+    const r=await this.pool.query(`UPDATE oauth_login_states SET approved_at=now(),provider=$4 WHERE id=$1 AND browser_session_hash=$2 AND csrf_token_hash=$3 AND approved_at IS NULL AND expires_at>now()`,[id,browserSessionHash,csrfTokenHash,provider]);
+    return Boolean(r.rowCount);
+  }
+  async consumeLoginState(id: string, browserSessionHash:string, provider:"google"|"github"): Promise<LoginState | null> {
+    const r = await this.pool.query(`DELETE FROM oauth_login_states WHERE id=$1 AND browser_session_hash=$2 AND provider=$3 AND approved_at IS NOT NULL AND expires_at>now() RETURNING *`, [id,browserSessionHash,provider]);
     if (!r.rowCount) return null;
     const x = r.rows[0]; return { id:x.id, clientId:x.client_id, redirectUri:x.redirect_uri, state:x.oauth_state, codeChallenge:x.code_challenge, resource:x.resource, scope:x.scope };
   }

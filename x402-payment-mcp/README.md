@@ -10,6 +10,8 @@ The stable database identity is `(provider, provider subject)`. Each identity ow
 
 The MCP client receives a 15-minute ES256 access token plus a rotating opaque refresh token. It never receives a CDP credential, private key, wallet secret, or signing capability.
 
+Every authorization request shows the requesting MCP client's name, return origin, and payment scope before sign-in. Consent and the upstream OAuth callback are bound to the same short-lived browser session, so a login link prepared by another client cannot silently deliver the user's grant to that client.
+
 ## Payment flow
 
 1. `x402_search` searches CDP Bazaar and returns signed, expiring `service_ref` values instead of raw payment destinations.
