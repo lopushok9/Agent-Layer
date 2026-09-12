@@ -34,14 +34,14 @@ test("OAuth authenticates first and grants a requesting client only after explic
   try{
     const query=new URLSearchParams({client_id:client.clientId,redirect_uri:client.redirectUris[0]!,state:"client-state",code_challenge:pkceChallenge("client-verifier"),resource:config.resource,response_type:"code",code_challenge_method:"S256"});
     const authorize=await realFetch(`${base}/oauth/authorize?${query}`);const page=await authorize.text();
-    assert.equal(authorize.status,200);assert.equal(authorize.headers.get("set-cookie"),null);assert.match(authorize.headers.get("content-security-policy")??"",/script-src 'nonce-/);assert.match(page,/Continue with GitHub/);assert.match(page,/Opening "/);assert.match(page,/color:#171717!important/);assert.match(page,/Untrusted &lt;script&gt;alert\(1\)&lt;\/script&gt;/);assert.doesNotMatch(page,/<script>alert/);
+    assert.equal(authorize.status,200);assert.equal(authorize.headers.get("set-cookie"),null);assert.match(authorize.headers.get("content-security-policy")??"",/script-src 'nonce-/);assert.match(authorize.headers.get("content-security-policy")??"",/form-action 'none'/);assert.match(page,/Continue with GitHub/);assert.match(page,/Opening "/);assert.match(page,/color:#171717!important/);assert.match(page,/Untrusted &lt;script&gt;alert\(1\)&lt;\/script&gt;/);assert.doesNotMatch(page,/<script>alert/);
     const state=linkParam(page,"/auth/github/start","login_state");
     const start=await realFetch(`${base}/auth/github/start?login_state=${encodeURIComponent(state)}`,{redirect:"manual"});
     assert.equal(start.status,302);assert.equal(new URL(start.headers.get("location")!).searchParams.get("state"),"signed-github-login-state");
 
     globalThis.fetch=async(input,init)=>String(input)==="https://github.com/login/oauth/access_token"?Response.json({access_token:"provider-token"}):String(input)==="https://api.github.com/user"?Response.json({id:123,name:"Victim"}):realFetch(input,init);
     const callback=await realFetch(`${base}/auth/github/callback?state=signed-github-login-state&code=provider-code`,{redirect:"manual"});const consentPage=await callback.text();
-    assert.equal(callback.status,200);assert.equal(callback.headers.get("location"),null);assert.match(consentPage,/attacker\.example/);assert.match(consentPage,/Allow access/);assert.match(consentPage,/Connecting to the MCP client/);assert.match(consentPage,/Cancel/);
+    assert.equal(callback.status,200);assert.equal(callback.headers.get("location"),null);assert.match(callback.headers.get("content-security-policy")??"",/form-action 'self' https:\/\/attacker\.example/);assert.match(consentPage,/attacker\.example/);assert.match(consentPage,/Allow access/);assert.match(consentPage,/Connecting to the MCP client/);assert.match(consentPage,/Cancel/);
     assert.ok(pending,"provider login alone must not issue an authorization code or redirect to the client");
 
     const invalidConsent=await realFetch(`${base}/oauth/consent`,{method:"POST",body:new URLSearchParams({consent_token:"wrong",decision:"allow"}),redirect:"manual"});assert.equal(invalidConsent.status,400);
