@@ -10,7 +10,7 @@ import type { TokenService } from "../src/security.js";
 
 test("OAuth authenticates first and grants a requesting client only after explicit one-time consent",async()=>{
   const client:OAuthClient={clientId:"attacker-client",clientName:'Untrusted <script>alert(1)</script>',redirectUris:["https://attacker.example/callback"]};
-  let saved:LoginState|null=null;let pending:AuthorizationCode|null=null;
+  let saved:LoginState|null=null;let pending:AuthorizationCode|null=null;let approved=false;
   const store={
     getClient:async(id:string)=>id===client.clientId?client:null,
     consumeRateLimit:async()=>true,
@@ -19,8 +19,8 @@ test("OAuth authenticates first and grants a requesting client only after explic
     consumeLoginState:async(id:string)=>{if(saved?.id!==id)return null;const result=saved;saved=null;return result;},
     upsertIdentity:async()=>"victim-user",
     createPendingConsent:async(state:LoginState,userId:string)=>{pending={...state,userId};return "pending-consent";},
-    consumePendingConsent:async(token:string)=>{if(token!=="pending-consent"||!pending)return null;const result=pending;pending=null;return result;},
-    createAuthorizationCode:async()=>"authorization-code",
+    approvePendingConsent:async(token:string)=>{if(token!=="pending-consent"||!pending)return null;approved=true;return pending;},
+    denyPendingConsent:async(token:string)=>{if(token!=="pending-consent"||!pending||approved)return null;const result=pending;pending=null;return result;},
   } as unknown as Store;
   const config={issuer:"https://pay.example",resource:"https://pay.example/mcp",GITHUB_CLIENT_ID:"github-id",GITHUB_CLIENT_SECRET:"github-secret",ACCESS_TOKEN_TTL_SECONDS:900,AUTH_CODE_TTL_SECONDS:300} as Config;
   const tokens={
@@ -47,8 +47,8 @@ test("OAuth authenticates first and grants a requesting client only after explic
     const invalidConsent=await realFetch(`${base}/oauth/consent`,{method:"POST",body:new URLSearchParams({consent_token:"wrong",decision:"allow"}),redirect:"manual"});assert.equal(invalidConsent.status,400);
     const consentToken=hidden(consentPage,"consent_token");
     const consent=await realFetch(`${base}/oauth/consent`,{method:"POST",body:new URLSearchParams({consent_token:consentToken,decision:"allow"}),redirect:"manual"});
-    assert.equal(consent.status,302);assert.equal(consent.headers.get("location"),"https://attacker.example/callback?code=authorization-code&state=client-state");
-    const replay=await realFetch(`${base}/oauth/consent`,{method:"POST",body:new URLSearchParams({consent_token:consentToken,decision:"allow"}),redirect:"manual"});assert.equal(replay.status,400);
+    assert.equal(consent.status,302);assert.equal(consent.headers.get("location"),"https://attacker.example/callback?code=pending-consent&state=client-state");
+    const replay=await realFetch(`${base}/oauth/consent`,{method:"POST",body:new URLSearchParams({consent_token:consentToken,decision:"allow"}),redirect:"manual"});assert.equal(replay.status,302);assert.equal(replay.headers.get("location"),consent.headers.get("location"));
     const callbackReplay=await realFetch(`${base}/auth/github/callback?state=signed-github-login-state&code=provider-code`,{redirect:"manual"});assert.equal(callbackReplay.status,400);
   }finally{globalThis.fetch=realFetch;await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));}
 });
@@ -56,7 +56,7 @@ test("OAuth authenticates first and grants a requesting client only after explic
 test("OAuth denial returns access_denied and cannot be replayed",async()=>{
   const grant:AuthorizationCode={id:"",userId:"user",clientId:"client",redirectUri:"https://client.example/callback",state:"client-state",codeChallenge:"challenge",resource:"https://pay.example/mcp",scope:"x402:pay"};
   let available=true;
-  const store={consumePendingConsent:async(token:string)=>token==="deny-token"&&available?(available=false,grant):null} as unknown as Store;
+  const store={approvePendingConsent:async()=>null,denyPendingConsent:async(token:string)=>token==="deny-token"&&available?(available=false,grant):null} as unknown as Store;
   const config={issuer:"https://pay.example",resource:"https://pay.example/mcp"} as Config;const tokens={publicJwk:{}} as unknown as TokenService;
   const app=express();app.use(oauthRouter(config,store,tokens));app.use((_error:unknown,_req:express.Request,res:express.Response,_next:express.NextFunction)=>res.status(400).json({error:"invalid_request"}));
   const server=app.listen(0,"127.0.0.1");await new Promise<void>(resolve=>server.once("listening",resolve));const base=`http://127.0.0.1:${(server.address() as AddressInfo).port}`;

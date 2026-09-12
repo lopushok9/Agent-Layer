@@ -69,10 +69,16 @@ export class Store {
     await this.pool.query(`INSERT INTO oauth_pending_consents(token_hash,user_id,client_id,redirect_uri,oauth_state,code_challenge,resource,scope,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now()+($9*interval '1 second'))`,[sha256(token),userId,state.clientId,state.redirectUri,state.state,state.codeChallenge,state.resource,state.scope,ttlSeconds]);
     return token;
   }
-  async consumePendingConsent(token:string):Promise<AuthorizationCode|null>{
-    const r=await this.pool.query(`DELETE FROM oauth_pending_consents WHERE token_hash=$1 AND expires_at>now() RETURNING *`,[sha256(token)]);
-    if(!r.rowCount)return null;
-    const x=r.rows[0];return{id:"",userId:x.user_id,clientId:x.client_id,redirectUri:x.redirect_uri,state:x.oauth_state,codeChallenge:x.code_challenge,resource:x.resource,scope:x.scope};
+  async approvePendingConsent(token:string):Promise<AuthorizationCode|null>{
+    const tokenHash=sha256(token);const c=await this.pool.connect();
+    try{await c.query("BEGIN");const r=await c.query(`SELECT * FROM oauth_pending_consents WHERE token_hash=$1 AND expires_at>now() FOR UPDATE`,[tokenHash]);
+      if(!r.rowCount){await c.query("ROLLBACK");return null;}const x=r.rows[0];
+      if(!x.approved_at){await c.query(`INSERT INTO oauth_codes(code_hash,user_id,client_id,redirect_uri,code_challenge,resource,scope,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,[tokenHash,x.user_id,x.client_id,x.redirect_uri,x.code_challenge,x.resource,x.scope,x.expires_at]);await c.query(`UPDATE oauth_pending_consents SET approved_at=now() WHERE token_hash=$1`,[tokenHash]);}
+      await c.query("COMMIT");return{id:"",userId:x.user_id,clientId:x.client_id,redirectUri:x.redirect_uri,state:x.oauth_state,codeChallenge:x.code_challenge,resource:x.resource,scope:x.scope};
+    }catch(e){await c.query("ROLLBACK");throw e;}finally{c.release();}
+  }
+  async denyPendingConsent(token:string):Promise<AuthorizationCode|null>{
+    const r=await this.pool.query(`DELETE FROM oauth_pending_consents WHERE token_hash=$1 AND approved_at IS NULL AND expires_at>now() RETURNING *`,[sha256(token)]);if(!r.rowCount)return null;const x=r.rows[0];return{id:"",userId:x.user_id,clientId:x.client_id,redirectUri:x.redirect_uri,state:x.oauth_state,codeChallenge:x.code_challenge,resource:x.resource,scope:x.scope};
   }
   async consumeAuthorizationCode(code: string): Promise<AuthorizationCode | null> {
     const r=await this.pool.query(`DELETE FROM oauth_codes WHERE code_hash=$1 AND expires_at>now() RETURNING *`,[sha256(code)]); if(!r.rowCount)return null; const x=r.rows[0]; return {id:"",userId:x.user_id,clientId:x.client_id,redirectUri:x.redirect_uri,state:"",codeChallenge:x.code_challenge,resource:x.resource,scope:x.scope};

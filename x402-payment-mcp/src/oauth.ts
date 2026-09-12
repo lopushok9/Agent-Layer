@@ -49,10 +49,10 @@ export function oauthRouter(config: Config, store: Store, tokens: TokenService) 
   router.post("/oauth/consent",express.urlencoded({extended:false,limit:"8kb"}),asyncRoute(async(req,res)=>{
     const consentToken=requiredBody(req,"consent_token");const decision=requiredBody(req,"decision");
     if(decision!=="allow"&&decision!=="deny")return oauthJsonError(res,400,"invalid_request","invalid consent decision");
-    const grant=await store.consumePendingConsent(consentToken);
+    const grant=decision==="allow"?await store.approvePendingConsent(consentToken):await store.denyPendingConsent(consentToken);
     if(!grant)return oauthJsonError(res,400,"invalid_request","authorization request is invalid or expired");
     if(decision==="deny")return redirectOAuthError(res,grant,"access_denied","The user denied the authorization request");
-    await finishLogin(res,store,config,grant);
+    finishLogin(res,grant,consentToken);
   }));
 
   router.get("/auth/google/start", asyncRoute(async(req,res)=>startProvider(req,res,store,tokens,config,"google")));
@@ -126,7 +126,7 @@ async function showConsent(res:Response,store:Store,config:Config,state:Awaited<
   const consentToken=await store.createPendingConsent(state,userId,config.AUTH_CODE_TTL_SECONDS);
   secureHtml(res).send(consentPage({consentToken,clientName:client.clientName,redirectOrigin:new URL(state.redirectUri).origin}));
 }
-async function finishLogin(res:Response,store:Store,config:Config,grant:import("./store.js").AuthorizationCode){const code=await store.createAuthorizationCode(grant,grant.userId,config.AUTH_CODE_TTL_SECONDS);const redirect=new URL(grant.redirectUri);redirect.searchParams.set("code",code);redirect.searchParams.set("state",grant.state);res.set("Cache-Control","no-store").redirect(redirect.toString());}
+function finishLogin(res:Response,grant:import("./store.js").AuthorizationCode,code:string){const redirect=new URL(grant.redirectUri);redirect.searchParams.set("code",code);redirect.searchParams.set("state",grant.state);res.set("Cache-Control","no-store").redirect(redirect.toString());}
 function redirectOAuthError(res:Response,state:{redirectUri:string;state:string},error:string,description:string){const redirect=new URL(state.redirectUri);redirect.searchParams.set("error",error);redirect.searchParams.set("error_description",description);redirect.searchParams.set("state",state.state);return res.set("Cache-Control","no-store").redirect(redirect.toString());}
 async function postForm(url:string,body:Record<string,string>){const r=await fetch(url,{method:"POST",headers:{Accept:"application/json","Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams(body),signal:AbortSignal.timeout(10000)});if(!r.ok)throw new Error(`OAuth provider token exchange failed (${r.status})`);return r.json() as Promise<Record<string,unknown>>;}
 async function getJson(url:string,token:string,headers:Record<string,string>={}){const r=await fetch(url,{headers:{...headers,Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(10000)});if(!r.ok)throw new Error(`OAuth provider profile request failed (${r.status})`);return r.json() as Promise<Record<string,unknown>>;}
