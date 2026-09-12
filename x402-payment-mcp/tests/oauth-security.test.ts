@@ -34,8 +34,8 @@ test("OAuth consent and provider callback are bound to the initiating browser",a
     const consentBody=new URLSearchParams({login_state:state,csrf_token:csrf,provider:"github"});
     const noCookie=await realFetch(`${base}/oauth/consent`,{method:"POST",body:consentBody,redirect:"manual"});assert.equal(noCookie.status,400);
     const badCsrf=await realFetch(`${base}/oauth/consent`,{method:"POST",headers:{Cookie:cookie},body:new URLSearchParams({login_state:state,csrf_token:"wrong",provider:"github"}),redirect:"manual"});assert.equal(badCsrf.status,400);
-    const consent=await realFetch(`${base}/oauth/consent`,{method:"POST",headers:{Cookie:cookie},body:consentBody,redirect:"manual"});assert.equal(consent.status,302);assert.equal(new URL(consent.headers.get("location")!).searchParams.get("state"),state);
-    const repeatedConsent=await realFetch(`${base}/oauth/consent`,{method:"POST",headers:{Cookie:cookie},body:consentBody,redirect:"manual"});assert.equal(repeatedConsent.status,302);
+    const consent=await realFetch(`${base}/oauth/consent`,{method:"POST",headers:{Cookie:cookie},body:consentBody,redirect:"manual"});assert.equal(consent.status,303);assert.equal(new URL(consent.headers.get("location")!).searchParams.get("state"),state);
+    const repeatedConsent=await realFetch(`${base}/oauth/consent`,{method:"POST",headers:{Cookie:cookie},body:consentBody,redirect:"manual"});assert.equal(repeatedConsent.status,303);
 
     const callbackWithoutCookie=await realFetch(`${base}/auth/github/callback?state=${state}&code=provider-code`,{redirect:"manual"});assert.equal(callbackWithoutCookie.status,400);assert.ok(saved,"a callback from another browser must not consume the login state");
     globalThis.fetch=async(input,init)=>String(input)==="https://github.com/login/oauth/access_token"?Response.json({access_token:"provider-token"}):String(input)==="https://api.github.com/user"?Response.json({id:123,name:"Victim"}):realFetch(input,init);
