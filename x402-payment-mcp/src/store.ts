@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { Pool, type PoolClient } from "pg";
 import { randomUUID } from "node:crypto";
 import { sha256 } from "./security.js";
@@ -11,6 +12,10 @@ export class Store {
   readonly pool: Pool;
   constructor(databaseUrl: string) { this.pool = new Pool({ connectionString: databaseUrl, ssl: databaseTls(databaseUrl) }); }
   async close() { await this.pool.end(); }
+  async migrate() {
+    const sql=await readFile(new URL("../migrations/001_initial.sql",import.meta.url),"utf8");
+    await this.pool.query(sql);
+  }
 
   async registerClient(clientName: string, redirectUris: string[]): Promise<OAuthClient> {
     const clientId = `mcp_${randomUUID()}`;

@@ -10,7 +10,7 @@ import { TokenService } from "./security.js";
 import { Store } from "./store.js";
 
 export async function createApp(config:Config){
-  const store=new Store(config.DATABASE_URL);const tokens=await TokenService.create(config);const payments=new PaymentService(config,store,tokens);
+  const store=new Store(config.DATABASE_URL);await store.migrate();const tokens=await TokenService.create(config);const payments=new PaymentService(config,store,tokens);
   const hostname=new URL(config.PUBLIC_BASE_URL).hostname;
   const app=createMcpExpressApp({host:"0.0.0.0",allowedHosts:[hostname,"localhost","127.0.0.1"],jsonLimit:"256kb"});
   app.use(express.urlencoded({extended:false,limit:"32kb"}));
