@@ -54,6 +54,25 @@ export class TokenService {
     };
   }
 
+  async providerState(loginStateId: string, provider: "google" | "github"): Promise<string> {
+    return new SignJWT({ login_state: loginStateId, provider })
+      .setProtectedHeader({ alg: "ES256", kid: this.kid, typ: "oauth-provider-state+jwt" })
+      .setIssuer(this.config.issuer).setAudience("oauth-provider-callback")
+      .setIssuedAt().setExpirationTime("10m").setJti(randomToken(16))
+      .sign(this.privateKey);
+  }
+
+  async verifyProviderState(token: string, provider: "google" | "github"): Promise<string> {
+    const { payload } = await jwtVerify(token, this.publicKey, {
+      issuer: this.config.issuer,
+      audience: "oauth-provider-callback",
+      algorithms: ["ES256"],
+      typ: "oauth-provider-state+jwt",
+    });
+    if (payload.provider !== provider || typeof payload.login_state !== "string") throw new Error("invalid OAuth provider state");
+    return payload.login_state;
+  }
+
   async serviceRef(resource: string): Promise<string> {
     return new SignJWT({ resource })
       .setProtectedHeader({ alg: "ES256", kid: this.kid, typ: "bazaar-resource+jwt" })

@@ -35,19 +35,19 @@ export class Store {
     await this.cleanupOAuthArtifacts();this.oauthCleanupTimer=setInterval(()=>{void this.cleanupOAuthArtifacts().catch(error=>console.error("OAuth cleanup failed",error));},15*60*1000);this.oauthCleanupTimer.unref();
   }
   async cleanupOAuthArtifacts(){
-    await this.pool.query(`DELETE FROM oauth_login_states WHERE expires_at<=now(); DELETE FROM oauth_codes WHERE expires_at<=now(); DELETE FROM refresh_tokens WHERE expires_at<=now() OR (revoked_at IS NOT NULL AND revoked_at<=now()-interval '1 day'); DELETE FROM oauth_rate_limits WHERE window_start<=now()-interval '1 day'; DELETE FROM oauth_clients c WHERE COALESCE(c.last_used_at,c.created_at)<=now()-interval '90 days' AND NOT EXISTS(SELECT 1 FROM oauth_login_states s WHERE s.client_id=c.client_id) AND NOT EXISTS(SELECT 1 FROM oauth_codes o WHERE o.client_id=c.client_id) AND NOT EXISTS(SELECT 1 FROM refresh_tokens r WHERE r.client_id=c.client_id);`);
+    await this.pool.query(`DELETE FROM oauth_login_states WHERE expires_at<=now(); DELETE FROM oauth_pending_consents WHERE expires_at<=now(); DELETE FROM oauth_codes WHERE expires_at<=now(); DELETE FROM refresh_tokens WHERE expires_at<=now() OR (revoked_at IS NOT NULL AND revoked_at<=now()-interval '1 day'); DELETE FROM oauth_rate_limits WHERE window_start<=now()-interval '1 day'; DELETE FROM oauth_clients c WHERE COALESCE(c.last_used_at,c.created_at)<=now()-interval '90 days' AND NOT EXISTS(SELECT 1 FROM oauth_login_states s WHERE s.client_id=c.client_id) AND NOT EXISTS(SELECT 1 FROM oauth_pending_consents p WHERE p.client_id=c.client_id) AND NOT EXISTS(SELECT 1 FROM oauth_codes o WHERE o.client_id=c.client_id) AND NOT EXISTS(SELECT 1 FROM refresh_tokens r WHERE r.client_id=c.client_id);`);
   }
-  async createLoginState(data: Omit<LoginState, "id">, browserSessionHash:string, csrfTokenHash:string): Promise<string> {
+  async createLoginState(data: Omit<LoginState, "id">): Promise<string> {
     const id = randomUUID();
-    await this.pool.query(`INSERT INTO oauth_login_states (id,client_id,redirect_uri,oauth_state,code_challenge,resource,scope,browser_session_hash,csrf_token_hash,expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now()+interval '10 minutes')`, [id,data.clientId,data.redirectUri,data.state,data.codeChallenge,data.resource,data.scope,browserSessionHash,csrfTokenHash]);
+    await this.pool.query(`INSERT INTO oauth_login_states (id,client_id,redirect_uri,oauth_state,code_challenge,resource,scope,expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,now()+interval '10 minutes')`, [id,data.clientId,data.redirectUri,data.state,data.codeChallenge,data.resource,data.scope]);
     return id;
   }
-  async approveLoginState(id:string,browserSessionHash:string,csrfTokenHash:string,provider:"google"|"github"):Promise<boolean>{
-    const r=await this.pool.query(`UPDATE oauth_login_states SET approved_at=COALESCE(approved_at,now()),provider=COALESCE(provider,$4) WHERE id=$1 AND browser_session_hash=$2 AND csrf_token_hash=$3 AND (provider IS NULL OR provider=$4) AND expires_at>now()`,[id,browserSessionHash,csrfTokenHash,provider]);
+  async hasLoginState(id:string):Promise<boolean>{
+    const r=await this.pool.query(`SELECT 1 FROM oauth_login_states WHERE id=$1 AND expires_at>now()`,[id]);
     return Boolean(r.rowCount);
   }
-  async consumeLoginState(id: string, browserSessionHash:string, provider:"google"|"github"): Promise<LoginState | null> {
-    const r = await this.pool.query(`DELETE FROM oauth_login_states WHERE id=$1 AND browser_session_hash=$2 AND provider=$3 AND approved_at IS NOT NULL AND expires_at>now() RETURNING *`, [id,browserSessionHash,provider]);
+  async consumeLoginState(id: string): Promise<LoginState | null> {
+    const r = await this.pool.query(`DELETE FROM oauth_login_states WHERE id=$1 AND expires_at>now() RETURNING *`, [id]);
     if (!r.rowCount) return null;
     const x = r.rows[0]; return { id:x.id, clientId:x.client_id, redirectUri:x.redirect_uri, state:x.oauth_state, codeChallenge:x.code_challenge, resource:x.resource, scope:x.scope };
   }
@@ -63,6 +63,16 @@ export class Store {
   }
   async createAuthorizationCode(state: LoginState, userId: string, ttlSeconds: number): Promise<string> {
     const code=randomTokenCompat(); await this.pool.query(`INSERT INTO oauth_codes(code_hash,user_id,client_id,redirect_uri,code_challenge,resource,scope,expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,now()+($8*interval '1 second'))`,[sha256(code),userId,state.clientId,state.redirectUri,state.codeChallenge,state.resource,state.scope,ttlSeconds]); return code;
+  }
+  async createPendingConsent(state:LoginState,userId:string,ttlSeconds:number):Promise<string>{
+    const token=randomTokenCompat();
+    await this.pool.query(`INSERT INTO oauth_pending_consents(token_hash,user_id,client_id,redirect_uri,oauth_state,code_challenge,resource,scope,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now()+($9*interval '1 second'))`,[sha256(token),userId,state.clientId,state.redirectUri,state.state,state.codeChallenge,state.resource,state.scope,ttlSeconds]);
+    return token;
+  }
+  async consumePendingConsent(token:string):Promise<AuthorizationCode|null>{
+    const r=await this.pool.query(`DELETE FROM oauth_pending_consents WHERE token_hash=$1 AND expires_at>now() RETURNING *`,[sha256(token)]);
+    if(!r.rowCount)return null;
+    const x=r.rows[0];return{id:"",userId:x.user_id,clientId:x.client_id,redirectUri:x.redirect_uri,state:x.oauth_state,codeChallenge:x.code_challenge,resource:x.resource,scope:x.scope};
   }
   async consumeAuthorizationCode(code: string): Promise<AuthorizationCode | null> {
     const r=await this.pool.query(`DELETE FROM oauth_codes WHERE code_hash=$1 AND expires_at>now() RETURNING *`,[sha256(code)]); if(!r.rowCount)return null; const x=r.rows[0]; return {id:"",userId:x.user_id,clientId:x.client_id,redirectUri:x.redirect_uri,state:"",codeChallenge:x.code_challenge,resource:x.resource,scope:x.scope};

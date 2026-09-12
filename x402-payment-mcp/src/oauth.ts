@@ -1,10 +1,9 @@
 import express, { type Request, type Response } from "express";
 import type { Config } from "./config.js";
-import { pkceChallenge, randomToken, safeEqual, TokenService } from "./security.js";
+import { pkceChallenge, safeEqual, TokenService } from "./security.js";
 import { Store } from "./store.js";
 
 const ALLOWED_SCOPE = "x402:pay";
-const BROWSER_SESSION_COOKIE = "__Host-x402_oauth_session";
 
 export function oauthRouter(config: Config, store: Store, tokens: TokenService) {
   const router = express.Router();
@@ -43,40 +42,44 @@ export function oauthRouter(config: Config, store: Store, tokens: TokenService) 
     const error = await validateAuthorize(p, store, config);
     if (error) return oauthJsonError(res, 400, "invalid_request", error);
     const client=await store.getClient(p.clientId);if(!client)return oauthJsonError(res,400,"invalid_request","unknown client_id");
-    const browserSession=readBrowserCookie(req)??randomToken();const csrfToken=randomToken();
-    const stateId = await store.createLoginState({ clientId:p.clientId, redirectUri:p.redirectUri, state:p.state, codeChallenge:p.codeChallenge, resource:p.resource, scope:ALLOWED_SCOPE },pkceChallenge(browserSession),pkceChallenge(csrfToken));
-    setBrowserCookie(res,browserSession);
-    res.set("Cache-Control","no-store").set("Content-Security-Policy","default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'").set("X-Frame-Options","DENY").set("Referrer-Policy","no-referrer");
-    res.type("html").send(consentPage({stateId,csrfToken,clientName:client.clientName,redirectOrigin:new URL(p.redirectUri).origin,google:Boolean(config.GOOGLE_CLIENT_ID),github:Boolean(config.GITHUB_CLIENT_ID)}));
+    const stateId = await store.createLoginState({ clientId:p.clientId, redirectUri:p.redirectUri, state:p.state, codeChallenge:p.codeChallenge, resource:p.resource, scope:ALLOWED_SCOPE });
+    secureHtml(res).send(loginPage({stateId,clientName:client.clientName,google:Boolean(config.GOOGLE_CLIENT_ID),github:Boolean(config.GITHUB_CLIENT_ID)}));
   }));
 
   router.post("/oauth/consent",express.urlencoded({extended:false,limit:"8kb"}),asyncRoute(async(req,res)=>{
-    const stateId=requiredBody(req,"login_state");const csrfToken=requiredBody(req,"csrf_token");const provider=requiredBody(req,"provider");
-    if(provider!=="google"&&provider!=="github")return oauthJsonError(res,400,"invalid_request","unsupported identity provider");
-    if((provider==="google"&&!config.GOOGLE_CLIENT_ID)||(provider==="github"&&!config.GITHUB_CLIENT_ID))return oauthJsonError(res,400,"invalid_request","identity provider is not configured");
-    const browserSession=readBrowserCookie(req);if(!browserSession)return oauthJsonError(res,400,"invalid_request","authorization session is missing or expired");
-    const approved=await store.approveLoginState(stateId,pkceChallenge(browserSession),pkceChallenge(csrfToken),provider);if(!approved)return oauthJsonError(res,400,"invalid_request","authorization request is invalid or expired");
-    res.set("Cache-Control","no-store").redirect(303,providerAuthorizationUrl(provider,stateId,config));
+    const consentToken=requiredBody(req,"consent_token");const decision=requiredBody(req,"decision");
+    if(decision!=="allow"&&decision!=="deny")return oauthJsonError(res,400,"invalid_request","invalid consent decision");
+    const grant=await store.consumePendingConsent(consentToken);
+    if(!grant)return oauthJsonError(res,400,"invalid_request","authorization request is invalid or expired");
+    if(decision==="deny")return redirectOAuthError(res,grant,"access_denied","The user denied the authorization request");
+    await finishLogin(res,store,config,grant);
   }));
+
+  router.get("/auth/google/start", asyncRoute(async(req,res)=>startProvider(req,res,store,tokens,config,"google")));
+  router.get("/auth/github/start", asyncRoute(async(req,res)=>startProvider(req,res,store,tokens,config,"github")));
 
   const googleConfig=config.GOOGLE_CLIENT_ID&&config.GOOGLE_CLIENT_SECRET?{id:config.GOOGLE_CLIENT_ID,secret:config.GOOGLE_CLIENT_SECRET}:null;
   if(googleConfig){
     router.get("/auth/google/callback", asyncRoute(async (req, res) => {
-      const state = await consumeCallbackState(req, store,"google");const code = requiredQuery(req, "code");
+      const state = await consumeCallbackState(req, store,tokens,"google");
+      if(typeof req.query.error==="string")return redirectOAuthError(res,state,providerError(req.query.error),"Google sign-in was not completed");
+      const code = requiredQuery(req, "code");
       const token = await postForm("https://oauth2.googleapis.com/token", { code, client_id:googleConfig.id, client_secret:googleConfig.secret, redirect_uri:`${config.issuer}/auth/google/callback`, grant_type:"authorization_code" });
       const profile = await getJson("https://openidconnect.googleapis.com/v1/userinfo", String(token.access_token));
       if (typeof profile.sub !== "string") throw new Error("Google did not return a subject");
-      const userId = await store.upsertIdentity("google", profile.sub, stringOrNull(profile.name), stringOrNull(profile.email));await finishLogin(res, store, config, state, userId);
+      const userId = await store.upsertIdentity("google", profile.sub, stringOrNull(profile.name), stringOrNull(profile.email));await showConsent(res, store, config, state, userId);
     }));
   }
   const githubConfig=config.GITHUB_CLIENT_ID&&config.GITHUB_CLIENT_SECRET?{id:config.GITHUB_CLIENT_ID,secret:config.GITHUB_CLIENT_SECRET}:null;
   if(githubConfig){
     router.get("/auth/github/callback", asyncRoute(async (req, res) => {
-      const state = await consumeCallbackState(req, store,"github");const code = requiredQuery(req, "code");
+      const state = await consumeCallbackState(req, store,tokens,"github");
+      if(typeof req.query.error==="string")return redirectOAuthError(res,state,providerError(req.query.error),"GitHub sign-in was not completed");
+      const code = requiredQuery(req, "code");
       const token = await postForm("https://github.com/login/oauth/access_token", { code, client_id:githubConfig.id, client_secret:githubConfig.secret, redirect_uri:`${config.issuer}/auth/github/callback` });
       const profile = await getJson("https://api.github.com/user", String(token.access_token), { "User-Agent":"AgentLayer-x402-MCP", Accept:"application/vnd.github+json" });
       if (typeof profile.id !== "number" && typeof profile.id !== "string") throw new Error("GitHub did not return a subject");
-      const userId = await store.upsertIdentity("github", String(profile.id), stringOrNull(profile.name ?? profile.login), stringOrNull(profile.email));await finishLogin(res, store, config, state, userId);
+      const userId = await store.upsertIdentity("github", String(profile.id), stringOrNull(profile.name ?? profile.login), stringOrNull(profile.email));await showConsent(res, store, config, state, userId);
     }));
   }
 
@@ -108,8 +111,23 @@ export function oauthRouter(config: Config, store: Store, tokens: TokenService) 
 function protectedMetadata(config:Config,res:Response){res.set("Access-Control-Allow-Origin","*").json({resource:config.resource,authorization_servers:[config.issuer],scopes_supported:[ALLOWED_SCOPE],bearer_methods_supported:["header"]});}
 function authorizeParams(req:Request){return{clientId:requiredQuery(req,"client_id"),redirectUri:requiredQuery(req,"redirect_uri"),state:requiredQuery(req,"state"),codeChallenge:requiredQuery(req,"code_challenge"),resource:requiredQuery(req,"resource"),responseType:requiredQuery(req,"response_type"),challengeMethod:requiredQuery(req,"code_challenge_method"),scope:typeof req.query.scope==="string"?req.query.scope:ALLOWED_SCOPE};}
 async function validateAuthorize(p:ReturnType<typeof authorizeParams>,store:Store,config:Config){const c=await store.getClient(p.clientId);if(!c)return"unknown client_id";if(!c.redirectUris.includes(p.redirectUri))return"redirect_uri is not registered";if(p.responseType!=="code")return"only response_type=code is supported";if(p.challengeMethod!=="S256"||p.codeChallenge.length<43)return"PKCE S256 is required";if(p.resource!==config.resource)return"resource must identify this MCP server";if(p.scope.split(" ").some(s=>s!==ALLOWED_SCOPE))return"unsupported scope";return null;}
-async function consumeCallbackState(req:Request,store:Store,provider:"google"|"github"){const state=requiredQuery(req,"state");const browserSession=readBrowserCookie(req);if(!browserSession)throw new Error("authorization session is missing or expired");const row=await store.consumeLoginState(state,pkceChallenge(browserSession),provider);if(!row)throw new Error("invalid or expired login state");return row;}
-async function finishLogin(res:Response,store:Store,config:Config,state:Awaited<ReturnType<typeof consumeCallbackState>>,userId:string){const code=await store.createAuthorizationCode(state,userId,config.AUTH_CODE_TTL_SECONDS);const redirect=new URL(state.redirectUri);redirect.searchParams.set("code",code);redirect.searchParams.set("state",state.state);res.redirect(redirect.toString());}
+async function startProvider(req:Request,res:Response,store:Store,tokens:TokenService,config:Config,provider:"google"|"github"){
+  if((provider==="google"&&!config.GOOGLE_CLIENT_ID)||(provider==="github"&&!config.GITHUB_CLIENT_ID))return oauthJsonError(res,400,"invalid_request","identity provider is not configured");
+  const stateId=requiredQuery(req,"login_state");
+  if(!await store.hasLoginState(stateId))return oauthJsonError(res,400,"invalid_request","authorization request is invalid or expired");
+  const providerState=await tokens.providerState(stateId,provider);
+  return res.set("Cache-Control","no-store").redirect(providerAuthorizationUrl(provider,providerState,config));
+}
+async function consumeCallbackState(req:Request,store:Store,tokens:TokenService,provider:"google"|"github"){
+  const providerState=requiredQuery(req,"state");const stateId=await tokens.verifyProviderState(providerState,provider);const row=await store.consumeLoginState(stateId);if(!row)throw new Error("invalid or expired login state");return row;
+}
+async function showConsent(res:Response,store:Store,config:Config,state:Awaited<ReturnType<typeof consumeCallbackState>>,userId:string){
+  const client=await store.getClient(state.clientId);if(!client)throw new Error("OAuth client no longer exists");
+  const consentToken=await store.createPendingConsent(state,userId,config.AUTH_CODE_TTL_SECONDS);
+  secureHtml(res).send(consentPage({consentToken,clientName:client.clientName,redirectOrigin:new URL(state.redirectUri).origin}));
+}
+async function finishLogin(res:Response,store:Store,config:Config,grant:import("./store.js").AuthorizationCode){const code=await store.createAuthorizationCode(grant,grant.userId,config.AUTH_CODE_TTL_SECONDS);const redirect=new URL(grant.redirectUri);redirect.searchParams.set("code",code);redirect.searchParams.set("state",grant.state);res.set("Cache-Control","no-store").redirect(redirect.toString());}
+function redirectOAuthError(res:Response,state:{redirectUri:string;state:string},error:string,description:string){const redirect=new URL(state.redirectUri);redirect.searchParams.set("error",error);redirect.searchParams.set("error_description",description);redirect.searchParams.set("state",state.state);return res.set("Cache-Control","no-store").redirect(redirect.toString());}
 async function postForm(url:string,body:Record<string,string>){const r=await fetch(url,{method:"POST",headers:{Accept:"application/json","Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams(body),signal:AbortSignal.timeout(10000)});if(!r.ok)throw new Error(`OAuth provider token exchange failed (${r.status})`);return r.json() as Promise<Record<string,unknown>>;}
 async function getJson(url:string,token:string,headers:Record<string,string>={}){const r=await fetch(url,{headers:{...headers,Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(10000)});if(!r.ok)throw new Error(`OAuth provider profile request failed (${r.status})`);return r.json() as Promise<Record<string,unknown>>;}
 function requiredQuery(req:Request,name:string){const v=req.query[name];if(typeof v!=="string"||!v)throw new Error(`missing ${name}`);return v;}
@@ -121,7 +139,8 @@ async function withinOAuthLimits(req:Request,store:Store,bucket:string,perIp:num
 function rateLimitError(res:Response,retryAfter:number){return res.status(429).set("Retry-After",String(retryAfter)).json({error:"temporarily_unavailable",error_description:"too many OAuth requests"});}
 function asyncRoute(fn:(req:Request,res:Response)=>Promise<unknown>){return(req:Request,res:Response,next:express.NextFunction)=>{Promise.resolve(fn(req,res)).catch(next);};}
 function providerAuthorizationUrl(provider:"google"|"github",state:string,config:Config){if(provider==="google"){const url=new URL("https://accounts.google.com/o/oauth2/v2/auth");url.search=new URLSearchParams({client_id:config.GOOGLE_CLIENT_ID!,redirect_uri:`${config.issuer}/auth/google/callback`,response_type:"code",scope:"openid email profile",state,prompt:"select_account"}).toString();return url.toString();}const url=new URL("https://github.com/login/oauth/authorize");url.search=new URLSearchParams({client_id:config.GITHUB_CLIENT_ID!,redirect_uri:`${config.issuer}/auth/github/callback`,scope:"read:user user:email",state}).toString();return url.toString();}
-function setBrowserCookie(res:Response,value:string){res.append("Set-Cookie",`${BROWSER_SESSION_COOKIE}=${value}; Max-Age=3600; Path=/; HttpOnly; Secure; SameSite=Lax`);}
-function readBrowserCookie(req:Request){for(const part of (req.headers.cookie??"").split(";")){const i=part.indexOf("=");if(i<0)continue;if(part.slice(0,i).trim()===BROWSER_SESSION_COOKIE)return part.slice(i+1).trim();}return null;}
+function secureHtml(res:Response){return res.set("Cache-Control","no-store").set("Content-Security-Policy","default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'").set("X-Frame-Options","DENY").set("Referrer-Policy","no-referrer").type("html");}
+function providerError(value:string){return value==="access_denied"?"access_denied":"temporarily_unavailable";}
 function html(value:string){return value.replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;");}
-function consentPage(input:{stateId:string;csrfToken:string;clientName:string;redirectOrigin:string;google:boolean;github:boolean}){const buttons=[input.google?'<button type="submit" name="provider" value="google">Continue with Google</button>':"",input.github?'<button type="submit" name="provider" value="github">Continue with GitHub</button>':""].join("");return `<!doctype html><html><head><meta name="viewport" content="width=device-width"><title>Authorize x402 wallet</title><style>body{font:16px system-ui;max-width:480px;margin:10vh auto;padding:24px;color:#171717}code{overflow-wrap:anywhere}button{display:block;width:100%;margin:12px 0;padding:14px;background:white;border:1px solid #bbb;border-radius:10px;font:inherit;cursor:pointer}button:active{background:#f1f1f1}small{color:#666}</style></head><body><h1>Authorize x402 wallet</h1><p><strong>${html(input.clientName)}</strong> is requesting access to your x402 wallet.</p><p>After sign-in, access will return to <code>${html(input.redirectOrigin)}</code>.</p><p>Permission: preview and make Base USDC x402 payments within the server limits.</p><form method="post" action="/oauth/consent"><input type="hidden" name="login_state" value="${html(input.stateId)}"><input type="hidden" name="csrf_token" value="${html(input.csrfToken)}">${buttons}</form><small>Continue only if you recognize this client and return address.</small></body></html>`;}
+function loginPage(input:{stateId:string;clientName:string;google:boolean;github:boolean}){const links=[input.google?`<a href="/auth/google/start?login_state=${encodeURIComponent(input.stateId)}">Continue with Google</a>`:"",input.github?`<a href="/auth/github/start?login_state=${encodeURIComponent(input.stateId)}">Continue with GitHub</a>`:""].join("");return `<!doctype html><html><head><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="light"><title>Sign in to x402 wallet</title><style>body{font:16px system-ui;max-width:480px;margin:10vh auto;padding:24px;background:#fff;color:#171717}a{display:block;box-sizing:border-box;width:100%;margin:12px 0;padding:14px;background:#fff;color:#171717!important;-webkit-text-fill-color:#171717;text-align:center;text-decoration:none;border:1px solid #bbb;border-radius:10px;font:inherit}a:active{background:#f1f1f1}small{color:#666}</style></head><body><h1>Sign in to x402 wallet</h1><p>Continue to authenticate for <strong>${html(input.clientName)}</strong>.</p>${links}<small>You will review the MCP client and return address before access is granted.</small></body></html>`;}
+function consentPage(input:{consentToken:string;clientName:string;redirectOrigin:string}){return `<!doctype html><html><head><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="light"><title>Authorize x402 wallet</title><style>body{font:16px system-ui;max-width:480px;margin:10vh auto;padding:24px;background:#fff;color:#171717}code{overflow-wrap:anywhere}button{display:block;box-sizing:border-box;width:100%;margin:12px 0;padding:14px;border:1px solid #171717;border-radius:10px;font:inherit;cursor:pointer}.allow{background:#171717;color:#fff!important;-webkit-text-fill-color:#fff}.deny{background:#fff;color:#171717!important;-webkit-text-fill-color:#171717}small{color:#666}</style></head><body><h1>Authorize x402 wallet</h1><p><strong>${html(input.clientName)}</strong> is requesting access to your x402 wallet.</p><p>Access will return to <code>${html(input.redirectOrigin)}</code>.</p><p>Permission: preview and make Base USDC x402 payments within the server limits.</p><form method="post" action="/oauth/consent"><input type="hidden" name="consent_token" value="${html(input.consentToken)}"><button class="allow" type="submit" name="decision" value="allow">Allow access</button><button class="deny" type="submit" name="decision" value="deny">Cancel</button></form><small>Continue only if you recognize this client and return address.</small></body></html>`;}
