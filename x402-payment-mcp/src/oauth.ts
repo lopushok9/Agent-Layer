@@ -40,42 +40,41 @@ export function oauthRouter(config: Config, store: Store, tokens: TokenService) 
     const error = await validateAuthorize(p, store, config);
     if (error) return oauthJsonError(res, 400, "invalid_request", error);
     const stateId = await store.createLoginState({ clientId:p.clientId, redirectUri:p.redirectUri, state:p.state, codeChallenge:p.codeChallenge, resource:p.resource, scope:ALLOWED_SCOPE });
-    const google = `/auth/google/start?login_state=${encodeURIComponent(stateId)}`;
-    const github = `/auth/github/start?login_state=${encodeURIComponent(stateId)}`;
+    const google = config.GOOGLE_CLIENT_ID ? `/auth/google/start?login_state=${encodeURIComponent(stateId)}` : undefined;
+    const github = config.GITHUB_CLIENT_ID ? `/auth/github/start?login_state=${encodeURIComponent(stateId)}` : undefined;
     res.type("html").send(loginPage(google, github));
   }));
 
-  router.get("/auth/google/start", (req, res) => {
-    const loginState = requiredQuery(req, "login_state");
-    const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-    url.search = new URLSearchParams({ client_id:config.GOOGLE_CLIENT_ID, redirect_uri:`${config.issuer}/auth/google/callback`, response_type:"code", scope:"openid email profile", state:loginState, prompt:"select_account" }).toString();
-    res.redirect(url.toString());
-  });
-  router.get("/auth/github/start", (req, res) => {
-    const loginState = requiredQuery(req, "login_state");
-    const url = new URL("https://github.com/login/oauth/authorize");
-    url.search = new URLSearchParams({ client_id:config.GITHUB_CLIENT_ID, redirect_uri:`${config.issuer}/auth/github/callback`, scope:"read:user user:email", state:loginState }).toString();
-    res.redirect(url.toString());
-  });
-
-  router.get("/auth/google/callback", asyncRoute(async (req, res) => {
-    const state = await consumeCallbackState(req, store);
-    const code = requiredQuery(req, "code");
-    const token = await postForm("https://oauth2.googleapis.com/token", { code, client_id:config.GOOGLE_CLIENT_ID, client_secret:config.GOOGLE_CLIENT_SECRET, redirect_uri:`${config.issuer}/auth/google/callback`, grant_type:"authorization_code" });
-    const profile = await getJson("https://openidconnect.googleapis.com/v1/userinfo", String(token.access_token));
-    if (typeof profile.sub !== "string") throw new Error("Google did not return a subject");
-    const userId = await store.upsertIdentity("google", profile.sub, stringOrNull(profile.name), stringOrNull(profile.email));
-    await finishLogin(res, store, config, state, userId);
-  }));
-  router.get("/auth/github/callback", asyncRoute(async (req, res) => {
-    const state = await consumeCallbackState(req, store);
-    const code = requiredQuery(req, "code");
-    const token = await postForm("https://github.com/login/oauth/access_token", { code, client_id:config.GITHUB_CLIENT_ID, client_secret:config.GITHUB_CLIENT_SECRET, redirect_uri:`${config.issuer}/auth/github/callback` });
-    const profile = await getJson("https://api.github.com/user", String(token.access_token), { "User-Agent":"AgentLayer-x402-MCP", Accept:"application/vnd.github+json" });
-    if (typeof profile.id !== "number" && typeof profile.id !== "string") throw new Error("GitHub did not return a subject");
-    const userId = await store.upsertIdentity("github", String(profile.id), stringOrNull(profile.name ?? profile.login), stringOrNull(profile.email));
-    await finishLogin(res, store, config, state, userId);
-  }));
+  const googleConfig=config.GOOGLE_CLIENT_ID&&config.GOOGLE_CLIENT_SECRET?{id:config.GOOGLE_CLIENT_ID,secret:config.GOOGLE_CLIENT_SECRET}:null;
+  if(googleConfig){
+    router.get("/auth/google/start", (req, res) => {
+      const loginState = requiredQuery(req, "login_state");
+      const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+      url.search = new URLSearchParams({ client_id:googleConfig.id, redirect_uri:`${config.issuer}/auth/google/callback`, response_type:"code", scope:"openid email profile", state:loginState, prompt:"select_account" }).toString();
+      res.redirect(url.toString());
+    });
+    router.get("/auth/google/callback", asyncRoute(async (req, res) => {
+      const state = await consumeCallbackState(req, store);const code = requiredQuery(req, "code");
+      const token = await postForm("https://oauth2.googleapis.com/token", { code, client_id:googleConfig.id, client_secret:googleConfig.secret, redirect_uri:`${config.issuer}/auth/google/callback`, grant_type:"authorization_code" });
+      const profile = await getJson("https://openidconnect.googleapis.com/v1/userinfo", String(token.access_token));
+      if (typeof profile.sub !== "string") throw new Error("Google did not return a subject");
+      const userId = await store.upsertIdentity("google", profile.sub, stringOrNull(profile.name), stringOrNull(profile.email));await finishLogin(res, store, config, state, userId);
+    }));
+  }
+  const githubConfig=config.GITHUB_CLIENT_ID&&config.GITHUB_CLIENT_SECRET?{id:config.GITHUB_CLIENT_ID,secret:config.GITHUB_CLIENT_SECRET}:null;
+  if(githubConfig){
+    router.get("/auth/github/start", (req, res) => {
+      const loginState = requiredQuery(req, "login_state");const url = new URL("https://github.com/login/oauth/authorize");
+      url.search = new URLSearchParams({ client_id:githubConfig.id, redirect_uri:`${config.issuer}/auth/github/callback`, scope:"read:user user:email", state:loginState }).toString();res.redirect(url.toString());
+    });
+    router.get("/auth/github/callback", asyncRoute(async (req, res) => {
+      const state = await consumeCallbackState(req, store);const code = requiredQuery(req, "code");
+      const token = await postForm("https://github.com/login/oauth/access_token", { code, client_id:githubConfig.id, client_secret:githubConfig.secret, redirect_uri:`${config.issuer}/auth/github/callback` });
+      const profile = await getJson("https://api.github.com/user", String(token.access_token), { "User-Agent":"AgentLayer-x402-MCP", Accept:"application/vnd.github+json" });
+      if (typeof profile.id !== "number" && typeof profile.id !== "string") throw new Error("GitHub did not return a subject");
+      const userId = await store.upsertIdentity("github", String(profile.id), stringOrNull(profile.name ?? profile.login), stringOrNull(profile.email));await finishLogin(res, store, config, state, userId);
+    }));
+  }
 
   router.post("/oauth/token", express.urlencoded({ extended:false }), asyncRoute(async (req, res) => {
     res.set("Cache-Control", "no-store"); res.set("Pragma", "no-cache");
@@ -114,4 +113,4 @@ function validRedirectUri(value:string){try{const u=new URL(value);return u.prot
 function stringOrNull(v:unknown){return typeof v==="string"?v:null;}
 function oauthJsonError(res:Response,status:number,error:string,description:string){return res.status(status).json({error,error_description:description});}
 function asyncRoute(fn:(req:Request,res:Response)=>Promise<unknown>){return(req:Request,res:Response,next:express.NextFunction)=>{Promise.resolve(fn(req,res)).catch(next);};}
-function loginPage(google:string,github:string){return `<!doctype html><html><head><meta name="viewport" content="width=device-width"><title>Connect x402 wallet</title><style>body{font:16px system-ui;max-width:440px;margin:12vh auto;padding:24px;color:#171717}a{display:block;margin:12px 0;padding:14px;text-align:center;border:1px solid #bbb;border-radius:10px;text-decoration:none;color:inherit}small{color:#666}</style></head><body><h1>Connect x402 wallet</h1><p>Sign in once. Your Base wallet and limits follow your account across chats and devices.</p><a href="${google}">Continue with Google</a><a href="${github}">Continue with GitHub</a><small>This grants the MCP permission to make only previewed Base USDC x402 payments within configured limits.</small></body></html>`;}
+function loginPage(google?:string,github?:string){const buttons=[google?`<a href="${google}">Continue with Google</a>`:"",github?`<a href="${github}">Continue with GitHub</a>`:""].join("");return `<!doctype html><html><head><meta name="viewport" content="width=device-width"><title>Connect x402 wallet</title><style>body{font:16px system-ui;max-width:440px;margin:12vh auto;padding:24px;color:#171717}a{display:block;margin:12px 0;padding:14px;text-align:center;border:1px solid #bbb;border-radius:10px;text-decoration:none;color:inherit}small{color:#666}</style></head><body><h1>Connect x402 wallet</h1><p>Sign in once. Your Base wallet and limits follow your account across chats and devices.</p>${buttons}<small>This grants the MCP permission to make only previewed Base USDC x402 payments within configured limits.</small></body></html>`;}

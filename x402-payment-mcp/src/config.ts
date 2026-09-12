@@ -6,10 +6,10 @@ const Env = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
   DATABASE_URL: z.string().min(1),
   OAUTH_SIGNING_PRIVATE_JWK: z.string().min(1),
-  GOOGLE_CLIENT_ID: z.string().min(1),
-  GOOGLE_CLIENT_SECRET: z.string().min(1),
-  GITHUB_CLIENT_ID: z.string().min(1),
-  GITHUB_CLIENT_SECRET: z.string().min(1),
+  GOOGLE_CLIENT_ID: z.string().min(1).optional(),
+  GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
+  GITHUB_CLIENT_ID: z.string().min(1).optional(),
+  GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
   CDP_API_KEY_ID: z.string().min(1),
   CDP_API_KEY_SECRET: z.string().min(1),
   CDP_WALLET_SECRET: z.string().min(1),
@@ -20,6 +20,12 @@ const Env = z.object({
   MAX_PAYMENT_USDC_ATOMIC: z.string().regex(/^\d+$/).default("1000000"),
   MAX_DAILY_USDC_ATOMIC: z.string().regex(/^\d+$/).default("5000000"),
   PAYMENT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(15000),
+}).superRefine((value,ctx)=>{
+  const google=Boolean(value.GOOGLE_CLIENT_ID&&value.GOOGLE_CLIENT_SECRET);
+  const github=Boolean(value.GITHUB_CLIENT_ID&&value.GITHUB_CLIENT_SECRET);
+  if(Boolean(value.GOOGLE_CLIENT_ID)!==Boolean(value.GOOGLE_CLIENT_SECRET))ctx.addIssue({code:"custom",message:"Google OAuth requires both client ID and secret"});
+  if(Boolean(value.GITHUB_CLIENT_ID)!==Boolean(value.GITHUB_CLIENT_SECRET))ctx.addIssue({code:"custom",message:"GitHub OAuth requires both client ID and secret"});
+  if(!google&&!github)ctx.addIssue({code:"custom",message:"At least one OAuth provider must be configured"});
 });
 
 export type Config = ReturnType<typeof loadConfig>;
