@@ -11,6 +11,12 @@ test("PKCE uses base64url SHA-256",()=>assert.equal(pkceChallenge("verifier"),"i
 
 test("access tokens bind user, client and MCP resource",async()=>{const c=await config();const service=await TokenService.create(c);const token=await service.accessToken("user-1","client-1",["x402:pay"]);const verified=await service.verifyAccessToken(token);assert.equal(verified.userId,"user-1");assert.equal(verified.clientId,"client-1");assert.deepEqual(verified.scopes,["x402:pay"]);});
 
-test("Bazaar references are signed and tamper evident",async()=>{const service=await TokenService.create(await config());const ref=await service.serviceRef("https://api.example.com/report");assert.equal(await service.verifyServiceRef(ref),"https://api.example.com/report");await assert.rejects(()=>service.verifyServiceRef(`${ref.slice(0,-1)}x`));});
+test("Bazaar references are signed and tamper evident",async()=>{const service=await TokenService.create(await config());const ref=await service.serviceRef("https://api.example.com/report");assert.equal(await service.verifyServiceRef(ref),"https://api.example.com/report");const parts=ref.split(".");parts[1]=`${parts[1]![0]==="A"?"B":"A"}${parts[1]!.slice(1)}`;await assert.rejects(()=>service.verifyServiceRef(parts.join(".")));});
 
 test("resource URL guard rejects SSRF-shaped destinations",()=>{assert.equal(assertSafeResourceUrl("https://api.example.com/path").hostname,"api.example.com");assert.throws(()=>assertSafeResourceUrl("http://api.example.com"));assert.throws(()=>assertSafeResourceUrl("https://127.0.0.1/"));assert.throws(()=>assertSafeResourceUrl("https://169.254.169.254/latest/meta-data"));assert.throws(()=>assertSafeResourceUrl("https://user:pass@example.com"));});
+
+test("resource URL guard rejects non-public IPv4 and IPv6 literals",()=>{
+  for(const url of ["https://[::1]/","https://[::ffff:127.0.0.1]/","https://[fd00::1]/","https://[fe80::1]/","https://100.64.0.1/","https://198.18.0.1/"])assert.throws(()=>assertSafeResourceUrl(url),url);
+  assert.equal(assertSafeResourceUrl("https://1.1.1.1/resource").hostname,"1.1.1.1");
+  assert.equal(assertSafeResourceUrl("https://[2606:4700:4700::1111]/resource").hostname,"[2606:4700:4700::1111]");
+});

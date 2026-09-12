@@ -1,16 +1,18 @@
 import { isIP } from "node:net";
 import dns from "node:dns";
 import { Agent, fetch as undiciFetch } from "undici";
+import ipaddr from "ipaddr.js";
 
-function privateAddress(address:string){
-  if(address==="::1"||address.startsWith("fc")||address.startsWith("fd")||address.startsWith("fe80:"))return true;
-  if(isIP(address)===4){const [a,b=0]=address.split(".").map(Number);return a===10||a===127||a===0||(a===169&&b===254)||(a===172&&b>=16&&b<=31)||(a===192&&b===168);}
-  return false;
+function publicAddress(address:string){
+  const normalized=address.startsWith("[")&&address.endsWith("]")?address.slice(1,-1):address;
+  if(!isIP(normalized)||!ipaddr.isValid(normalized))return false;
+  const parsed=ipaddr.parse(normalized);const candidate=parsed instanceof ipaddr.IPv6&&parsed.isIPv4MappedAddress()?parsed.toIPv4Address():parsed;
+  return candidate.range()==="unicast";
 }
 
-const dispatcher=new Agent({connect:{lookup:((hostname:string,_options:unknown,callback:(error:Error|null,address?:string,family?:number)=>void)=>{dns.lookup(hostname,{all:true},(err,addresses)=>{if(err)return callback(err);if(!addresses.length||addresses.some((x)=>privateAddress(x.address)))return callback(new Error("private network destinations are blocked"));const first=addresses[0]!;callback(null,first.address,first.family);});}) as any}});
+const dispatcher=new Agent({connect:{lookup:((hostname:string,_options:unknown,callback:(error:Error|null,address?:string,family?:number)=>void)=>{dns.lookup(hostname,{all:true},(err,addresses)=>{if(err)return callback(err);if(!addresses.length||addresses.some((x)=>!publicAddress(x.address)))return callback(new Error("non-public network destinations are blocked"));const first=addresses[0]!;callback(null,first.address,first.family);});}) as any}});
 
-export function assertSafeResourceUrl(raw:string):URL{const url=new URL(raw);if(url.protocol!=="https:")throw new Error("Bazaar resource must use HTTPS");if(url.username||url.password||url.port)throw new Error("resource credentials and custom ports are not allowed");if(url.hostname==="localhost"||privateAddress(url.hostname))throw new Error("private network destinations are blocked");return url;}
+export function assertSafeResourceUrl(raw:string):URL{const url=new URL(raw);if(url.protocol!=="https:")throw new Error("Bazaar resource must use HTTPS");if(url.username||url.password||url.port)throw new Error("resource credentials and custom ports are not allowed");if(url.hostname==="localhost"||(isIP(url.hostname.replace(/^\[|\]$/g,""))&&!publicAddress(url.hostname)))throw new Error("non-public network destinations are blocked");return url;}
 
 export const safeFetch:typeof globalThis.fetch=((input:RequestInfo|URL,init?:RequestInit)=>undiciFetch(input as any,{...(init as any),redirect:"error",dispatcher})) as typeof globalThis.fetch;
 
