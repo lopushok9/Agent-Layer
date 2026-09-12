@@ -10,8 +10,9 @@ export type Preview = { id: string; userId: string; method: string; url: string;
 
 export class Store {
   readonly pool: Pool;
+  private oauthCleanupTimer?:ReturnType<typeof setInterval>;
   constructor(databaseUrl: string) { this.pool = new Pool({ connectionString: databaseUrl, ssl: databaseTls(databaseUrl) }); }
-  async close() { await this.pool.end(); }
+  async close() { if(this.oauthCleanupTimer)clearInterval(this.oauthCleanupTimer);await this.pool.end(); }
   async migrate() {
     const sql=await readFile(new URL("../migrations/001_initial.sql",import.meta.url),"utf8");
     await this.pool.query(sql);
@@ -23,8 +24,18 @@ export class Store {
     return mapClient(row.rows[0]);
   }
   async getClient(clientId: string): Promise<OAuthClient | null> {
-    const row = await this.pool.query(`SELECT client_id,client_name,redirect_uris FROM oauth_clients WHERE client_id=$1`, [clientId]);
+    const row = await this.pool.query(`UPDATE oauth_clients SET last_used_at=now() WHERE client_id=$1 RETURNING client_id,client_name,redirect_uris`, [clientId]);
     return row.rowCount ? mapClient(row.rows[0]) : null;
+  }
+  async consumeRateLimit(bucket:string,subjectHash:string,limit:number,windowSeconds:number):Promise<boolean>{
+    const r=await this.pool.query(`INSERT INTO oauth_rate_limits(bucket,subject_hash,window_start,request_count) VALUES($1,$2,now(),1) ON CONFLICT(bucket,subject_hash) DO UPDATE SET request_count=CASE WHEN oauth_rate_limits.window_start<=now()-make_interval(secs=>$4) THEN 1 ELSE oauth_rate_limits.request_count+1 END,window_start=CASE WHEN oauth_rate_limits.window_start<=now()-make_interval(secs=>$4) THEN now() ELSE oauth_rate_limits.window_start END RETURNING request_count<=$3 AS allowed`,[bucket,subjectHash,limit,windowSeconds]);
+    return r.rows[0]?.allowed===true;
+  }
+  async startOAuthCleanup(){
+    await this.cleanupOAuthArtifacts();this.oauthCleanupTimer=setInterval(()=>{void this.cleanupOAuthArtifacts().catch(error=>console.error("OAuth cleanup failed",error));},15*60*1000);this.oauthCleanupTimer.unref();
+  }
+  async cleanupOAuthArtifacts(){
+    await this.pool.query(`DELETE FROM oauth_login_states WHERE expires_at<=now(); DELETE FROM oauth_codes WHERE expires_at<=now(); DELETE FROM refresh_tokens WHERE expires_at<=now() OR (revoked_at IS NOT NULL AND revoked_at<=now()-interval '1 day'); DELETE FROM oauth_rate_limits WHERE window_start<=now()-interval '1 day'; DELETE FROM oauth_clients c WHERE COALESCE(c.last_used_at,c.created_at)<=now()-interval '90 days' AND NOT EXISTS(SELECT 1 FROM oauth_login_states s WHERE s.client_id=c.client_id) AND NOT EXISTS(SELECT 1 FROM oauth_codes o WHERE o.client_id=c.client_id) AND NOT EXISTS(SELECT 1 FROM refresh_tokens r WHERE r.client_id=c.client_id);`);
   }
   async createLoginState(data: Omit<LoginState, "id">, browserSessionHash:string, csrfTokenHash:string): Promise<string> {
     const id = randomUUID();

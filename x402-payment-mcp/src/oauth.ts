@@ -26,6 +26,7 @@ export function oauthRouter(config: Config, store: Store, tokens: TokenService) 
   router.get("/oauth/jwks", (_req, res) => res.set("Access-Control-Allow-Origin","*").json({ keys: [tokens.publicJwk] }));
 
   router.post("/oauth/register", asyncRoute(async (req, res) => {
+    if(!await withinOAuthLimits(req,store,"register",20,3600,500))return rateLimitError(res,3600);
     const body = req.body as Record<string, unknown>;
     if (!Array.isArray(body.redirect_uris) || body.redirect_uris.length === 0 || !body.redirect_uris.every((u) => typeof u === "string" && validRedirectUri(u))) {
       return oauthJsonError(res, 400, "invalid_redirect_uri", "redirect_uris must contain HTTPS or loopback URLs");
@@ -36,6 +37,7 @@ export function oauthRouter(config: Config, store: Store, tokens: TokenService) 
   }));
 
   router.get("/oauth/authorize", asyncRoute(async (req, res) => {
+    if(!await withinOAuthLimits(req,store,"authorize",120,600,5000))return rateLimitError(res,600);
     const p = authorizeParams(req);
     const error = await validateAuthorize(p, store, config);
     if (error) return oauthJsonError(res, 400, "invalid_request", error);
@@ -114,6 +116,8 @@ function requiredBody(req:Request,name:string){const v=req.body?.[name];if(typeo
 function validRedirectUri(value:string){try{const u=new URL(value);return u.protocol==="https:"||(u.protocol==="http:"&&["localhost","127.0.0.1","::1"].includes(u.hostname));}catch{return false;}}
 function stringOrNull(v:unknown){return typeof v==="string"?v:null;}
 function oauthJsonError(res:Response,status:number,error:string,description:string){return res.status(status).json({error,error_description:description});}
+async function withinOAuthLimits(req:Request,store:Store,bucket:string,perIp:number,windowSeconds:number,global:number){const ip=pkceChallenge(req.ip||req.socket.remoteAddress||"unknown");const [ipAllowed,globalAllowed]=await Promise.all([store.consumeRateLimit(`oauth_${bucket}_ip`,ip,perIp,windowSeconds),store.consumeRateLimit(`oauth_${bucket}_global`,"global",global,windowSeconds)]);return ipAllowed&&globalAllowed;}
+function rateLimitError(res:Response,retryAfter:number){return res.status(429).set("Retry-After",String(retryAfter)).json({error:"temporarily_unavailable",error_description:"too many OAuth requests"});}
 function asyncRoute(fn:(req:Request,res:Response)=>Promise<unknown>){return(req:Request,res:Response,next:express.NextFunction)=>{Promise.resolve(fn(req,res)).catch(next);};}
 function providerAuthorizationUrl(provider:"google"|"github",state:string,config:Config){if(provider==="google"){const url=new URL("https://accounts.google.com/o/oauth2/v2/auth");url.search=new URLSearchParams({client_id:config.GOOGLE_CLIENT_ID!,redirect_uri:`${config.issuer}/auth/google/callback`,response_type:"code",scope:"openid email profile",state,prompt:"select_account"}).toString();return url.toString();}const url=new URL("https://github.com/login/oauth/authorize");url.search=new URLSearchParams({client_id:config.GITHUB_CLIENT_ID!,redirect_uri:`${config.issuer}/auth/github/callback`,scope:"read:user user:email",state}).toString();return url.toString();}
 function cookieName(stateId:string){return `__Host-x402_oauth_${stateId}`;}

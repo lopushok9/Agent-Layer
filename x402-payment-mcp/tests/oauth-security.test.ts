@@ -13,6 +13,7 @@ test("OAuth consent and provider callback are bound to the initiating browser",a
   let saved:(LoginState&{browserSessionHash:string;csrfTokenHash:string;approved:boolean;provider?:"google"|"github"})|null=null;
   const store={
     getClient:async(id:string)=>id===client.clientId?client:null,
+    consumeRateLimit:async()=>true,
     createLoginState:async(data:Omit<LoginState,"id">,browserSessionHash:string,csrfTokenHash:string)=>{saved={...data,id:"login-state",browserSessionHash,csrfTokenHash,approved:false};return saved.id;},
     approveLoginState:async(id:string,browserSessionHash:string,csrfTokenHash:string,provider:"google"|"github")=>{if(!saved||saved.id!==id||saved.browserSessionHash!==browserSessionHash||saved.csrfTokenHash!==csrfTokenHash||saved.approved)return false;saved.approved=true;saved.provider=provider;return true;},
     consumeLoginState:async(id:string,browserSessionHash:string,provider:"google"|"github")=>{if(!saved||saved.id!==id||saved.browserSessionHash!==browserSessionHash||!saved.approved||saved.provider!==provider)return null;const result=saved;saved=null;return result;},
@@ -40,6 +41,13 @@ test("OAuth consent and provider callback are bound to the initiating browser",a
     const callback=await realFetch(`${base}/auth/github/callback?state=${state}&code=provider-code`,{headers:{Cookie:cookie},redirect:"manual"});assert.equal(callback.status,302);assert.equal(callback.headers.get("location"),"https://attacker.example/callback?code=authorization-code&state=client-state");assert.match(callback.headers.get("set-cookie")??"",/Max-Age=0/);
     const replay=await realFetch(`${base}/auth/github/callback?state=${state}&code=provider-code`,{headers:{Cookie:cookie},redirect:"manual"});assert.equal(replay.status,400);
   }finally{globalThis.fetch=realFetch;await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));}
+});
+
+test("OAuth authorization stops before creating state when the durable quota is exhausted",async()=>{
+  let created=false;const store={consumeRateLimit:async(bucket:string)=>bucket!=="oauth_authorize_ip",getClient:async()=>{throw new Error("must not query client after rate limit");},createLoginState:async()=>{created=true;throw new Error("must not create state");}} as unknown as Store;
+  const config={issuer:"https://pay.example",resource:"https://pay.example/mcp",GITHUB_CLIENT_ID:"github-id",GITHUB_CLIENT_SECRET:"github-secret"} as Config;const tokens={publicJwk:{}} as unknown as TokenService;
+  const app=express();app.set("trust proxy",1);app.use(oauthRouter(config,store,tokens));const server=app.listen(0,"127.0.0.1");await new Promise<void>(resolve=>server.once("listening",resolve));const base=`http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  try{const response=await fetch(`${base}/oauth/authorize`);assert.equal(response.status,429);assert.equal(response.headers.get("retry-after"),"600");assert.equal(created,false);}finally{await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));}
 });
 
 function hidden(page:string,name:string){const match=page.match(new RegExp(`name="${name}" value="([^"]+)"`));assert.ok(match);return match[1]!;}

@@ -15,3 +15,5 @@ ALTER TABLE oauth_login_states ADD COLUMN IF NOT EXISTS browser_session_hash tex
 ALTER TABLE oauth_login_states ADD COLUMN IF NOT EXISTS csrf_token_hash text;
 ALTER TABLE oauth_login_states ADD COLUMN IF NOT EXISTS approved_at timestamptz;
 ALTER TABLE oauth_login_states ADD COLUMN IF NOT EXISTS provider text;
+ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS last_used_at timestamptz;
+CREATE TABLE IF NOT EXISTS oauth_rate_limits (bucket text NOT NULL, subject_hash text NOT NULL, window_start timestamptz NOT NULL, request_count integer NOT NULL, PRIMARY KEY(bucket,subject_hash));

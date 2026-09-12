@@ -10,9 +10,10 @@ import { TokenService } from "./security.js";
 import { Store } from "./store.js";
 
 export async function createApp(config:Config){
-  const store=new Store(config.DATABASE_URL);await store.migrate();const tokens=await TokenService.create(config);const payments=new PaymentService(config,store,tokens);
+  const store=new Store(config.DATABASE_URL);await store.migrate();await store.startOAuthCleanup();const tokens=await TokenService.create(config);const payments=new PaymentService(config,store,tokens);
   const hostname=new URL(config.PUBLIC_BASE_URL).hostname;
   const app=createMcpExpressApp({host:"0.0.0.0",allowedHosts:[hostname,"localhost","127.0.0.1"],jsonLimit:"256kb"});
+  app.set("trust proxy",1);
   app.use(express.urlencoded({extended:false,limit:"32kb"}));
   app.use(oauthRouter(config,store,tokens));
   app.get("/healthz",async(_req,res)=>{try{await store.pool.query("SELECT 1");res.json({ok:true});}catch{res.status(503).json({ok:false});}});
