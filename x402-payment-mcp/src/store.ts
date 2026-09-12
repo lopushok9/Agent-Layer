@@ -43,7 +43,7 @@ export class Store {
     return id;
   }
   async approveLoginState(id:string,browserSessionHash:string,csrfTokenHash:string,provider:"google"|"github"):Promise<boolean>{
-    const r=await this.pool.query(`UPDATE oauth_login_states SET approved_at=now(),provider=$4 WHERE id=$1 AND browser_session_hash=$2 AND csrf_token_hash=$3 AND approved_at IS NULL AND expires_at>now()`,[id,browserSessionHash,csrfTokenHash,provider]);
+    const r=await this.pool.query(`UPDATE oauth_login_states SET approved_at=COALESCE(approved_at,now()),provider=COALESCE(provider,$4) WHERE id=$1 AND browser_session_hash=$2 AND csrf_token_hash=$3 AND (provider IS NULL OR provider=$4) AND expires_at>now()`,[id,browserSessionHash,csrfTokenHash,provider]);
     return Boolean(r.rowCount);
   }
   async consumeLoginState(id: string, browserSessionHash:string, provider:"google"|"github"): Promise<LoginState | null> {

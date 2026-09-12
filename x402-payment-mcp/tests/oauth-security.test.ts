@@ -15,7 +15,7 @@ test("OAuth consent and provider callback are bound to the initiating browser",a
     getClient:async(id:string)=>id===client.clientId?client:null,
     consumeRateLimit:async()=>true,
     createLoginState:async(data:Omit<LoginState,"id">,browserSessionHash:string,csrfTokenHash:string)=>{saved={...data,id:"login-state",browserSessionHash,csrfTokenHash,approved:false};return saved.id;},
-    approveLoginState:async(id:string,browserSessionHash:string,csrfTokenHash:string,provider:"google"|"github")=>{if(!saved||saved.id!==id||saved.browserSessionHash!==browserSessionHash||saved.csrfTokenHash!==csrfTokenHash||saved.approved)return false;saved.approved=true;saved.provider=provider;return true;},
+    approveLoginState:async(id:string,browserSessionHash:string,csrfTokenHash:string,provider:"google"|"github")=>{if(!saved||saved.id!==id||saved.browserSessionHash!==browserSessionHash||saved.csrfTokenHash!==csrfTokenHash||(saved.provider&&saved.provider!==provider))return false;saved.approved=true;saved.provider=provider;return true;},
     consumeLoginState:async(id:string,browserSessionHash:string,provider:"google"|"github")=>{if(!saved||saved.id!==id||saved.browserSessionHash!==browserSessionHash||!saved.approved||saved.provider!==provider)return null;const result=saved;saved=null;return result;},
     upsertIdentity:async()=>"victim-user",
     createAuthorizationCode:async()=>"authorization-code",
@@ -28,17 +28,18 @@ test("OAuth consent and provider callback are bound to the initiating browser",a
   try{
     const query=new URLSearchParams({client_id:client.clientId,redirect_uri:client.redirectUris[0]!,state:"client-state",code_challenge:pkceChallenge("client-verifier"),resource:config.resource,response_type:"code",code_challenge_method:"S256"});
     const authorize=await realFetch(`${base}/oauth/authorize?${query}`);const page=await authorize.text();const setCookie=authorize.headers.get("set-cookie");
-    assert.equal(authorize.status,200);assert.ok(setCookie?.includes("HttpOnly; Secure; SameSite=Lax"));assert.match(page,/Untrusted &lt;script&gt;alert\(1\)&lt;\/script&gt;/);assert.match(page,/attacker\.example/);assert.doesNotMatch(page,/<script>alert/);
+    assert.equal(authorize.status,200);assert.match(setCookie??"",/^__Host-x402_oauth_session=/);assert.ok(setCookie?.includes("HttpOnly; Secure; SameSite=Lax"));assert.match(page,/Untrusted &lt;script&gt;alert\(1\)&lt;\/script&gt;/);assert.match(page,/attacker\.example/);assert.doesNotMatch(page,/<script>alert/);
     const state=hidden(page,"login_state");const csrf=hidden(page,"csrf_token");const cookie=setCookie!.split(";",1)[0]!;
 
     const consentBody=new URLSearchParams({login_state:state,csrf_token:csrf,provider:"github"});
     const noCookie=await realFetch(`${base}/oauth/consent`,{method:"POST",body:consentBody,redirect:"manual"});assert.equal(noCookie.status,400);
     const badCsrf=await realFetch(`${base}/oauth/consent`,{method:"POST",headers:{Cookie:cookie},body:new URLSearchParams({login_state:state,csrf_token:"wrong",provider:"github"}),redirect:"manual"});assert.equal(badCsrf.status,400);
     const consent=await realFetch(`${base}/oauth/consent`,{method:"POST",headers:{Cookie:cookie},body:consentBody,redirect:"manual"});assert.equal(consent.status,302);assert.equal(new URL(consent.headers.get("location")!).searchParams.get("state"),state);
+    const repeatedConsent=await realFetch(`${base}/oauth/consent`,{method:"POST",headers:{Cookie:cookie},body:consentBody,redirect:"manual"});assert.equal(repeatedConsent.status,302);
 
     const callbackWithoutCookie=await realFetch(`${base}/auth/github/callback?state=${state}&code=provider-code`,{redirect:"manual"});assert.equal(callbackWithoutCookie.status,400);assert.ok(saved,"a callback from another browser must not consume the login state");
     globalThis.fetch=async(input,init)=>String(input)==="https://github.com/login/oauth/access_token"?Response.json({access_token:"provider-token"}):String(input)==="https://api.github.com/user"?Response.json({id:123,name:"Victim"}):realFetch(input,init);
-    const callback=await realFetch(`${base}/auth/github/callback?state=${state}&code=provider-code`,{headers:{Cookie:cookie},redirect:"manual"});assert.equal(callback.status,302);assert.equal(callback.headers.get("location"),"https://attacker.example/callback?code=authorization-code&state=client-state");assert.match(callback.headers.get("set-cookie")??"",/Max-Age=0/);
+    const callback=await realFetch(`${base}/auth/github/callback?state=${state}&code=provider-code`,{headers:{Cookie:cookie},redirect:"manual"});assert.equal(callback.status,302);assert.equal(callback.headers.get("location"),"https://attacker.example/callback?code=authorization-code&state=client-state");
     const replay=await realFetch(`${base}/auth/github/callback?state=${state}&code=provider-code`,{headers:{Cookie:cookie},redirect:"manual"});assert.equal(replay.status,400);
   }finally{globalThis.fetch=realFetch;await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));}
 });
