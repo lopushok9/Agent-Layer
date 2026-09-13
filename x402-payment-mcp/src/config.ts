@@ -17,6 +17,7 @@ const Env = z.object({
   REFRESH_TOKEN_TTL_SECONDS: z.coerce.number().int().min(3600).default(2592000),
   AUTH_CODE_TTL_SECONDS: z.coerce.number().int().min(60).max(600).default(300),
   PREVIEW_TTL_SECONDS: z.coerce.number().int().min(30).max(600).default(120),
+  SPEND_LIMITS_ENABLED: z.enum(["true","1","false","0"]).default("false").transform(v=>v==="true"||v==="1"),
   MAX_PAYMENT_USDC_ATOMIC: z.string().regex(/^\d+$/).default("1000000"),
   MAX_DAILY_USDC_ATOMIC: z.string().regex(/^\d+$/).default("5000000"),
   PAYMENT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(15000),

@@ -18,7 +18,7 @@ The provider choice uses ordinary links so it works reliably in mobile and embed
 2. `x402_preview` verifies the resource is still in Bazaar, performs an unpaid request, validates Base/canonical-USDC/exact requirements, and stores a short-lived request fingerprint.
 3. `x402_pay` atomically consumes the preview, reserves the user's rolling 24-hour limit, repeats the request, and checks the fingerprint inside the x402 SDK hook immediately before CDP signs.
 
-The default limits are 1 USDC per payment and 5 USDC per rolling 24 hours. `unknown` outcomes remain charged against the daily limit because a timeout after signing can still have settled. A preview can be consumed only once.
+Spend limits are disabled by default. The existing 1 USDC per-payment and 5 USDC rolling-24-hour controls can be restored with `SPEND_LIMITS_ENABLED=true`; when enabled, `unknown` outcomes remain charged against the daily limit because a timeout after signing can still have settled. A preview can be consumed only once in either mode.
 
 ## OAuth endpoints
 
