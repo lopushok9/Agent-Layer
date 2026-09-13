@@ -31,6 +31,50 @@ The wallet can now help with:
 - making an unpaid request first and parsing `402 Payment Required`
 - preparing or executing the exact payment-bound request through the active wallet backend
 
+## Solana commerce preflight recipe
+
+For an agent that is about to submit a Solana payment or transaction, use a
+small paid preflight before the higher-value action. Utilia is indexed in both
+CDP Bazaar and Agentic Market and exposes a live priority-fee feed for
+`$0.002` per call.
+
+First preview the exact request without spending:
+
+```text
+x402_preview_request({
+  "url": "https://api.utilia.ink/v1/fees/priority"
+})
+```
+
+After reviewing the network, asset, amount, and destination in the preview,
+execute the same payment-bound request:
+
+```text
+x402_pay_request({
+  "url": "https://api.utilia.ink/v1/fees/priority",
+  "purpose": "Choose a current Solana compute-unit price before submitting the transaction"
+})
+```
+
+Use the returned `mediumMicroLamports`, `highMicroLamports`, or
+`urgentMicroLamports` value according to the transaction's urgency. The
+response is timestamped, so fetch it immediately before building or submitting
+the transaction instead of caching it as a static default.
+
+If the downstream transaction lands with an error, pass its confirmed
+signature to the `$0.004` diagnosis route. It returns balance deltas, logs,
+compute use, a failure class, and a retry-aware next action:
+
+```text
+x402_preview_request({
+  "url": "https://api.utilia.ink/v1/transaction/CONFIRMED_SIGNATURE"
+})
+```
+
+This keeps the full workflow inside AgentLayer's normal
+discovery → preview → approval → execution model. The examples use Solana
+routes; equivalent Base USDC aliases are available under `/base/v1/...`.
+
 ## Current execution model
 
 This milestone is not symmetric across chains.
