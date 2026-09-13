@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { CdpClient, searchX402Resources } from "@coinbase/cdp-sdk";
-import { fromCdpEvmAccount } from "@coinbase/cdp-sdk/x402";
+import { getDefaultEvmRpcUrls } from "@coinbase/cdp-sdk/x402";
 import { x402Client } from "@x402/core/client";
 import { decodePaymentRequiredHeader } from "@x402/core/http";
 import type { PaymentRequired, PaymentRequirements } from "@x402/core/types";
@@ -9,6 +9,9 @@ import { BatchSettlementEvmScheme, type BatchSettlementClientContext, type Clien
 import { registerExactEvmScheme } from "@x402/evm/exact/client";
 import { UptoEvmScheme } from "@x402/evm/upto/client";
 import { wrapFetchWithPayment } from "@x402/fetch";
+import { toClientEvmSigner } from "@x402/evm";
+import { createPublicClient, http } from "viem";
+import { base } from "viem/chains";
 import { BASE_NETWORK, BASE_USDC, type Config } from "./config.js";
 import { assertSafeResourceUrl, limitedBody, safeFetch } from "./network.js";
 import { TokenService } from "./security.js";
@@ -19,7 +22,8 @@ export type PaymentScheme="exact"|"upto"|"batch-settlement"|"auth-capture";
 
 export class PaymentService{
   private readonly cdp:CdpClient;
-  constructor(private config:Config,private store:Store,private tokens:TokenService){this.cdp=new CdpClient({apiKeyId:config.CDP_API_KEY_ID,apiKeySecret:config.CDP_API_KEY_SECRET,walletSecret:config.CDP_WALLET_SECRET});}
+  private readonly baseRpcUrl:Promise<string|undefined>;
+  constructor(private config:Config,private store:Store,private tokens:TokenService){this.cdp=new CdpClient({apiKeyId:config.CDP_API_KEY_ID,apiKeySecret:config.CDP_API_KEY_SECRET,walletSecret:config.CDP_WALLET_SECRET});this.baseRpcUrl=getDefaultEvmRpcUrls().then(urls=>urls[BASE_NETWORK]?.rpcUrl);}
 
   async search(query:string,limit:number){const found=await searchX402Resources({query:query.slice(0,400),network:BASE_NETWORK,asset:BASE_USDC,...(this.config.SPEND_LIMITS_ENABLED?{maxUsdPrice:atomicUsd(this.config.MAX_PAYMENT_USDC_ATOMIC)}:{})});const resources=await Promise.all(found.resources.slice(0,limit).map(async r=>{const accepts=(r.accepts??[]).filter(isAllowedLike) as unknown as RequirementLike[];return{service_ref:await this.tokens.serviceRef(r.resource),service_name:r.serviceName,description:r.description,type:r.type,accepts:accepts.map(publicRequirementLike),quality:r.quality,tags:r.tags};}));return{resources,partial_results:found.partialResults,search_method:found.searchMethod};}
 
@@ -30,7 +34,7 @@ export class PaymentService{
   async pay(userId:string,previewId:string,purpose:string){return this.store.withPaymentLock(userId,()=>this.payLocked(userId,previewId,purpose));}
 
   private async payLocked(userId:string,previewId:string,purpose:string){const dailyLimit=this.config.SPEND_LIMITS_ENABLED?BigInt(this.config.MAX_DAILY_USDC_ATOMIC):null;const reserved=await this.store.reservePayment(userId,previewId,dailyLimit,purpose);if(!reserved)throw new Error("preview is expired, already used, or does not belong to this user");const {paymentId,preview}=reserved;let signed=false;
-    try{const account=await this.account(userId);const signer=fromCdpEvmAccount(account);const client=new x402Client((_version,requirements)=>selectPreviewRequirement(requirements,preview));client.setSpendControls(this.config.SPEND_LIMITS_ENABLED?{maxAmountPerPayment:`$${atomicUsd(this.config.MAX_PAYMENT_USDC_ATOMIC)}`,allowedAssets:[]}:false);registerExactEvmScheme(client,{signer,networks:[BASE_NETWORK]});client.register(BASE_NETWORK,new UptoEvmScheme(signer));client.register(BASE_NETWORK,new BatchSettlementEvmScheme(signer,{storage:new PostgresBatchChannelStorage(this.store,userId)}));client.register(BASE_NETWORK,new AuthCaptureEvmScheme(signer));client.registerPolicy((_v,reqs)=>reqs.filter(isAllowed));client.onBeforePaymentCreation(async({paymentRequired,selectedRequirements})=>{const now=requirementFingerprint(paymentRequired,selectedRequirements,preview.url,{method:preview.method as "GET"|"POST",body:preview.body});if(now!==preview.fingerprint)return{abort:true,reason:"payment terms changed since preview"};});client.onAfterPaymentCreation(async()=>{signed=true;});
+    try{const account=await this.account(userId);const rpcUrl=await this.baseRpcUrl;const publicClient=createPublicClient({chain:base,transport:http(rpcUrl)});const signer=toClientEvmSigner(account,publicClient);const schemeOptions=rpcUrl?{rpcUrl}:undefined;const client=new x402Client((_version,requirements)=>selectPreviewRequirement(requirements,preview));client.setSpendControls(this.config.SPEND_LIMITS_ENABLED?{maxAmountPerPayment:`$${atomicUsd(this.config.MAX_PAYMENT_USDC_ATOMIC)}`,allowedAssets:[]}:false);registerExactEvmScheme(client,{signer,networks:[BASE_NETWORK],...(schemeOptions?{schemeOptions}:{})});client.register(BASE_NETWORK,new UptoEvmScheme(signer,schemeOptions));client.register(BASE_NETWORK,new BatchSettlementEvmScheme(signer,{storage:new PostgresBatchChannelStorage(this.store,userId),...(rpcUrl?{rpcUrl}:{})}));client.register(BASE_NETWORK,new AuthCaptureEvmScheme(signer));client.registerPolicy((_v,reqs)=>reqs.filter(isAllowed));client.onBeforePaymentCreation(async({paymentRequired,selectedRequirements})=>{const now=requirementFingerprint(paymentRequired,selectedRequirements,preview.url,{method:preview.method as "GET"|"POST",body:preview.body});if(now!==preview.fingerprint)return{abort:true,reason:"payment terms changed since preview"};});client.onAfterPaymentCreation(async()=>{signed=true;});
       const paidFetch=wrapFetchWithPayment(safeFetch,client);const response=await paidFetch(preview.url,requestInit({method:preview.method as "GET"|"POST",body:preview.body},this.config.PAYMENT_TIMEOUT_MS));const body=await limitedBody(response);const settlement=decodeSettlement(response);const settled=response.ok&&settlement?.success===true;await this.store.finishPayment(paymentId,settled?"settled":(signed?"unknown":"failed"),settlement?.transaction??null,response.status,settled?null:`paid request returned ${response.status}`,settlement?.amount??null);return{payment_id:paymentId,status:settled?"settled":"unknown",scheme:preview.scheme,purpose,authorized_amount_atomic:preview.amount,settled_amount_atomic:settlement?.amount??null,response_status:response.status,transaction:settlement?.transaction??null,network:settlement?.network??BASE_NETWORK,result:body};
     }catch(e){await this.store.finishPayment(paymentId,signed?"unknown":"failed",null,null,errorMessage(e));throw e;}
   }
