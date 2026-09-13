@@ -3,7 +3,7 @@ import test from "node:test";
 import { exportJWK, generateKeyPair } from "jose";
 import { BASE_NETWORK, BASE_USDC, type Config } from "../src/config.js";
 import { pkceChallenge, TokenService } from "../src/security.js";
-import { assertSafeResourceUrl, limitResponseBody } from "../src/network.js";
+import { assertSafeResourceUrl, createPublicLookup, limitResponseBody } from "../src/network.js";
 import { PostgresBatchChannelStorage, selectRequirement } from "../src/payments.js";
 import type { Store } from "../src/store.js";
 import type { PaymentRequired } from "@x402/core/types";
@@ -57,6 +57,18 @@ test("resource URL guard rejects non-public IPv4 and IPv6 literals",()=>{
   for(const url of ["https://[::1]/","https://[::ffff:127.0.0.1]/","https://[fd00::1]/","https://[fe80::1]/","https://100.64.0.1/","https://198.18.0.1/"])assert.throws(()=>assertSafeResourceUrl(url),url);
   assert.equal(assertSafeResourceUrl("https://1.1.1.1/resource").hostname,"1.1.1.1");
   assert.equal(assertSafeResourceUrl("https://[2606:4700:4700::1111]/resource").hostname,"[2606:4700:4700::1111]");
+});
+
+test("SSRF-safe DNS lookup obeys Node single-address and Undici all-address contracts",async()=>{
+  const addresses=[{address:"1.1.1.1",family:4},{address:"2606:4700:4700::1111",family:6}];
+  const lookup=createPublicLookup((_hostname,options,callback)=>{assert.deepEqual(options,{all:true,verbatim:true});callback(null,addresses);});
+  await new Promise<void>((resolve,reject)=>lookup("api.example.com",{all:true},(error,result)=>{if(error)return reject(error);assert.deepEqual(result,addresses);resolve();}));
+  await new Promise<void>((resolve,reject)=>lookup("api.example.com",{},(error,result,family)=>{if(error)return reject(error);assert.equal(result,"1.1.1.1");assert.equal(family,4);resolve();}));
+});
+
+test("SSRF-safe DNS lookup rejects the whole resolution when any address is non-public",async()=>{
+  const lookup=createPublicLookup((_hostname,_options,callback)=>callback(null,[{address:"1.1.1.1",family:4},{address:"127.0.0.1",family:4}]));
+  await assert.rejects(new Promise<void>((resolve,reject)=>lookup("api.example.com",{all:true},error=>error?reject(error):resolve())),/non-public network destinations/);
 });
 
 test("response body limit applies before the x402 SDK can buffer a 402 body",async()=>{

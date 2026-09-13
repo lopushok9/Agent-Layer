@@ -3,6 +3,9 @@ import dns from "node:dns";
 import { Agent, fetch as undiciFetch } from "undici";
 import ipaddr from "ipaddr.js";
 
+type LookupAll=(hostname:string,options:{all:true;verbatim:true},callback:(error:NodeJS.ErrnoException|null,addresses:dns.LookupAddress[])=>void)=>void;
+type LookupCallback=(error:NodeJS.ErrnoException|null,address?:string|dns.LookupAddress[],family?:number)=>void;
+
 function publicAddress(address:string){
   const normalized=address.startsWith("[")&&address.endsWith("]")?address.slice(1,-1):address;
   if(!isIP(normalized)||!ipaddr.isValid(normalized))return false;
@@ -10,7 +13,9 @@ function publicAddress(address:string){
   return candidate.range()==="unicast";
 }
 
-const dispatcher=new Agent({connect:{lookup:((hostname:string,_options:unknown,callback:(error:Error|null,address?:string,family?:number)=>void)=>{dns.lookup(hostname,{all:true},(err,addresses)=>{if(err)return callback(err);if(!addresses.length||addresses.some((x)=>!publicAddress(x.address)))return callback(new Error("non-public network destinations are blocked"));const first=addresses[0]!;callback(null,first.address,first.family);});}) as any}});
+export function createPublicLookup(resolver:LookupAll=dns.lookup as unknown as LookupAll){return(hostname:string,options:{all?:boolean},callback:LookupCallback)=>{resolver(hostname,{all:true,verbatim:true},(error,addresses)=>{if(error)return callback(error);if(!addresses.length||addresses.some(address=>!publicAddress(address.address)))return callback(new Error("non-public network destinations are blocked"));if(options.all)return callback(null,addresses);const first=addresses[0]!;return callback(null,first.address,first.family);});};}
+
+const dispatcher=new Agent({connect:{lookup:createPublicLookup() as any}});
 
 export function assertSafeResourceUrl(raw:string):URL{const url=new URL(raw);if(url.protocol!=="https:")throw new Error("Bazaar resource must use HTTPS");if(url.username||url.password||url.port)throw new Error("resource credentials and custom ports are not allowed");if(url.hostname==="localhost"||(isIP(url.hostname.replace(/^\[|\]$/g,""))&&!publicAddress(url.hostname)))throw new Error("non-public network destinations are blocked");return url;}
 
