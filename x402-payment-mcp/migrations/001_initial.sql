@@ -15,6 +15,7 @@ ALTER TABLE payments ADD COLUMN IF NOT EXISTS purpose text;
 UPDATE payments SET purpose='legacy payment' WHERE purpose IS NULL;
 ALTER TABLE payments ALTER COLUMN purpose SET NOT NULL;
 CREATE INDEX IF NOT EXISTS payments_user_window ON payments(user_id,created_at DESC);
+CREATE TABLE IF NOT EXISTS batch_payment_channels (user_id uuid NOT NULL REFERENCES users(id), channel_id text NOT NULL, context jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(user_id,channel_id));
 ALTER TABLE oauth_login_states ADD COLUMN IF NOT EXISTS browser_session_hash text;
 ALTER TABLE oauth_login_states ADD COLUMN IF NOT EXISTS csrf_token_hash text;
 ALTER TABLE oauth_login_states ADD COLUMN IF NOT EXISTS approved_at timestamptz;
