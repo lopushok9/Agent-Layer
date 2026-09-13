@@ -18,9 +18,10 @@ test("OAuth provider state is signed and bound to the callback provider",async()
 test("Bazaar references are signed and tamper evident",async()=>{const service=await TokenService.create(await config());const ref=await service.serviceRef("https://api.example.com/report");assert.equal(await service.verifyServiceRef(ref),"https://api.example.com/report");const parts=ref.split(".");parts[1]=`${parts[1]![0]==="A"?"B":"A"}${parts[1]!.slice(1)}`;await assert.rejects(()=>service.verifyServiceRef(parts.join(".")));});
 
 test("scheme selection prefers exact, supports upto, and leaves retained limits disabled",async()=>{
-  const c=await config();const common={network:BASE_NETWORK,asset:BASE_USDC,payTo:"0x1111111111111111111111111111111111111111",maxTimeoutSeconds:60,extra:{}};const challenge={x402Version:2,resource:{url:"https://api.example.com"},accepts:[{...common,scheme:"upto",amount:"3000000"},{...common,scheme:"exact",amount:"2000000"}]} as PaymentRequired;
+  const c=await config();const common={network:BASE_NETWORK,asset:BASE_USDC,payTo:"0x1111111111111111111111111111111111111111",maxTimeoutSeconds:60,extra:{}};const challenge={x402Version:2,resource:{url:"https://api.example.com"},accepts:[{...common,scheme:"auth-capture",amount:"4000000"},{...common,scheme:"upto",amount:"3000000"},{...common,scheme:"exact",amount:"2000000"}]} as PaymentRequired;
   assert.equal(selectRequirement(challenge,c).scheme,"exact");
   assert.equal(selectRequirement(challenge,c,"upto").amount,"3000000");
+  assert.equal(selectRequirement(challenge,c,"auth-capture").amount,"4000000");
   assert.throws(()=>selectRequirement(challenge,{...c,SPEND_LIMITS_ENABLED:true},"exact"),/per-payment limit/);
 });
 

@@ -1,6 +1,6 @@
 # Hosted x402 Payment MCP
 
-A new, standalone buyer-side MCP for cloud agents. It discovers services only through CDP Bazaar and pays x402 v2 `exact` and `upto` requirements using canonical USDC on Base (`eip155:8453`). It never receives payments and never exposes a generic signing method.
+A new, standalone buyer-side MCP for cloud agents. It discovers services only through CDP Bazaar and pays x402 v2 `exact`, `upto`, and `auth-capture` requirements using canonical USDC on Base (`eip155:8453`). It never receives payments and never exposes a generic signing method.
 
 ## Identity model
 
