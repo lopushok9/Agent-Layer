@@ -3,7 +3,7 @@ import test from "node:test";
 import { exportJWK, generateKeyPair } from "jose";
 import { BASE_NETWORK, BASE_USDC, type Config } from "../src/config.js";
 import { pkceChallenge, TokenService } from "../src/security.js";
-import { assertSafeResourceUrl, createPublicLookup, limitResponseBody } from "../src/network.js";
+import { assertSafeResourceUrl, createPublicLookup, limitResponseBody, normalizeUndiciRequest } from "../src/network.js";
 import { PostgresBatchChannelStorage, selectRequirement } from "../src/payments.js";
 import type { Store } from "../src/store.js";
 import type { PaymentRequired } from "@x402/core/types";
@@ -69,6 +69,11 @@ test("SSRF-safe DNS lookup obeys Node single-address and Undici all-address cont
 test("SSRF-safe DNS lookup rejects the whole resolution when any address is non-public",async()=>{
   const lookup=createPublicLookup((_hostname,_options,callback)=>callback(null,[{address:"1.1.1.1",family:4},{address:"127.0.0.1",family:4}]));
   await assert.rejects(new Promise<void>((resolve,reject)=>lookup("api.example.com",{all:true},error=>error?reject(error):resolve())),/non-public network destinations/);
+});
+
+test("safe fetch adapter converts native Request objects without losing payment headers or body",async()=>{
+  const request=new Request("https://api.example.com/resource",{method:"POST",headers:{"content-type":"application/json","payment-signature":"signed"},body:JSON.stringify({query:"test"})});const normalized=await normalizeUndiciRequest(request);
+  assert.equal(normalized.input,"https://api.example.com/resource");assert.equal(normalized.init.method,"POST");assert.equal(new Headers(normalized.init.headers).get("payment-signature"),"signed");assert.equal(new TextDecoder().decode(normalized.init.body as ArrayBuffer),'{"query":"test"}');
 });
 
 test("response body limit applies before the x402 SDK can buffer a 402 body",async()=>{

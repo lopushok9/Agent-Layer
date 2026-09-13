@@ -19,7 +19,13 @@ const dispatcher=new Agent({connect:{lookup:createPublicLookup() as any}});
 
 export function assertSafeResourceUrl(raw:string):URL{const url=new URL(raw);if(url.protocol!=="https:")throw new Error("Bazaar resource must use HTTPS");if(url.username||url.password||url.port)throw new Error("resource credentials and custom ports are not allowed");if(url.hostname==="localhost"||(isIP(url.hostname.replace(/^\[|\]$/g,""))&&!publicAddress(url.hostname)))throw new Error("non-public network destinations are blocked");return url;}
 
-export const safeFetch:typeof globalThis.fetch=(async(input:RequestInfo|URL,init?:RequestInit)=>limitResponseBody(await undiciFetch(input as any,{...(init as any),redirect:"error",dispatcher}) as unknown as Response)) as typeof globalThis.fetch;
+export async function normalizeUndiciRequest(input:RequestInfo|URL,init?:RequestInit):Promise<{input:string|URL;init:RequestInit}>{
+  if(!(input instanceof Request))return{input,init:init??{}};
+  const method=init?.method??input.method;const headers=init?.headers??input.headers;const signal=init?.signal??input.signal;const hasBody=method!=="GET"&&method!=="HEAD";const suppliedBody=!!init&&Object.prototype.hasOwnProperty.call(init,"body");const body=hasBody?(suppliedBody?init!.body:await input.arrayBuffer()):undefined;
+  return{input:input.url,init:{...init,method,headers,signal,...(body!==undefined&&body!==null?{body}: {})}};
+}
+
+export const safeFetch:typeof globalThis.fetch=(async(input:RequestInfo|URL,init?:RequestInit)=>{const normalized=await normalizeUndiciRequest(input,init);return limitResponseBody(await undiciFetch(normalized.input as any,{...(normalized.init as any),redirect:"error",dispatcher}) as unknown as Response);}) as typeof globalThis.fetch;
 
 export function limitResponseBody(response:Response,maxBytes=1_000_000):Response{
   const length=Number(response.headers.get("content-length")??0);if(length>maxBytes){void response.body?.cancel();throw new Error("resource response is too large");}
