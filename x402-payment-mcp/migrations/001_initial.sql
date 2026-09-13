@@ -8,6 +8,9 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (token_hash text PRIMARY KEY, user_id 
 CREATE TABLE IF NOT EXISTS wallets (user_id uuid PRIMARY KEY REFERENCES users(id), cdp_account_name text NOT NULL UNIQUE, address text, created_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS payment_previews (id uuid PRIMARY KEY, user_id uuid NOT NULL REFERENCES users(id), method text NOT NULL, url text NOT NULL, request_body jsonb, fingerprint text NOT NULL, amount numeric(78,0) NOT NULL, pay_to text NOT NULL, expires_at timestamptz NOT NULL, used_at timestamptz);
 CREATE TABLE IF NOT EXISTS payments (id uuid PRIMARY KEY, user_id uuid NOT NULL REFERENCES users(id), preview_id uuid NOT NULL UNIQUE REFERENCES payment_previews(id), amount numeric(78,0) NOT NULL, purpose text NOT NULL, status text NOT NULL CHECK(status IN ('reserved','settled','failed','unknown')), transaction_hash text, response_status integer, error text, created_at timestamptz NOT NULL DEFAULT now(), completed_at timestamptz);
+ALTER TABLE payment_previews ADD COLUMN IF NOT EXISTS scheme text NOT NULL DEFAULT 'exact';
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS scheme text NOT NULL DEFAULT 'exact';
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS settled_amount numeric(78,0);
 ALTER TABLE payments ADD COLUMN IF NOT EXISTS purpose text;
 UPDATE payments SET purpose='legacy payment' WHERE purpose IS NULL;
 ALTER TABLE payments ALTER COLUMN purpose SET NOT NULL;

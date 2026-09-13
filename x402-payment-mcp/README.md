@@ -1,6 +1,6 @@
 # Hosted x402 Payment MCP
 
-A new, standalone buyer-side MCP for cloud agents. It discovers services only through CDP Bazaar and pays only x402 v2 `exact` requirements using canonical USDC on Base (`eip155:8453`). It never receives payments and never exposes a generic signing method.
+A new, standalone buyer-side MCP for cloud agents. It discovers services only through CDP Bazaar and pays x402 v2 `exact` and `upto` requirements using canonical USDC on Base (`eip155:8453`). It never receives payments and never exposes a generic signing method.
 
 ## Identity model
 
@@ -15,7 +15,7 @@ The provider choice uses ordinary links so it works reliably in mobile and embed
 ## Payment flow
 
 1. `x402_search` searches CDP Bazaar and returns signed, expiring `service_ref` values instead of raw payment destinations.
-2. `x402_preview` verifies the resource is still in Bazaar, performs an unpaid request, validates Base/canonical-USDC/exact requirements, and stores a short-lived request fingerprint.
+2. `x402_preview` verifies the resource is still in Bazaar, performs an unpaid request, selects `exact` or `upto`, and stores a short-lived fingerprint of the request and payment terms.
 3. `x402_pay` atomically consumes the preview, reserves the user's rolling 24-hour limit, repeats the request, and checks the fingerprint inside the x402 SDK hook immediately before CDP signs.
 
 Spend limits are disabled by default. The existing 1 USDC per-payment and 5 USDC rolling-24-hour controls can be restored with `SPEND_LIMITS_ENABLED=true`; when enabled, `unknown` outcomes remain charged against the daily limit because a timeout after signing can still have settled. A preview can be consumed only once in either mode.
