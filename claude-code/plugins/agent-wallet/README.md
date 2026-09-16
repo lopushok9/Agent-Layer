@@ -58,6 +58,11 @@ no-op once the backend is healthy.
   switch the session's active wallet backend to Base so follow-up wallet
   requests default to it.
 - `/wallet-ethereum` — print the Ethereum EVM wallet overview directly in chat.
+- `/wallet-statusline` — show live SOL + Base USDC balances in the Claude Code
+  status line under the input box, refreshed roughly every 30s. Resolves your
+  addresses once through the wallet backend, then polls public RPCs directly
+  (no secrets touched after that). Turn it off anytime with the built-in
+  `/statusline delete`; it won't overwrite a statusLine you already have.
 - `/cards` -- issue a Laso Finance prepaid card (US or international), paid
   via x402 from the connected wallet.
 - `/x402` -- discover x402-paid services via CDP Bazaar or Agentic Market
