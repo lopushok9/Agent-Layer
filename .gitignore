@@ -95,3 +95,7 @@ npm-cache/
 benchmarks/
 .vercel
 .env*
+
+# Local worktree for the future public ChatGPT x402 plugin. It deliberately
+# forks the production MCP while the directory-facing app is developed.
+x402-chatgpt-plugin/
