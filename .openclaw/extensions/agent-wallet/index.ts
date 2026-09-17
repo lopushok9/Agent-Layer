@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -413,7 +413,54 @@ function buildCliEnv(packageRoot) {
   env.PYTHONPATH = env.PYTHONPATH
     ? `${packageRoot}${path.delimiter}${env.PYTHONPATH}`
     : packageRoot;
+  // Tag anonymous telemetry at the native OpenClaw bridge. Respect an
+  // explicit override for shared or embedded launchers.
+  env.AGENT_WALLET_HOST = env.AGENT_WALLET_HOST || "openclaw";
   return env;
+}
+
+function loadConnectorToolDefinitions(api) {
+  const config = resolvePluginConfig(api);
+  try {
+    const packageRoot = resolvePackageRoot(config);
+    const stdout = execFileSync(
+      resolvePythonBin(config),
+      ["-m", "agent_wallet.connector_cli", "tools"],
+      {
+        cwd: packageRoot,
+        env: {
+          ...buildCliEnv(packageRoot),
+          OPENCLAW_HOME: resolveOpenclawHome(config),
+        },
+        encoding: "utf8",
+        maxBuffer: 1024 * 1024 * 2,
+        timeout: 10_000,
+      }
+    );
+    const payload = JSON.parse(stdout);
+    if (payload?.ok !== true || !Array.isArray(payload?.tools)) return [];
+    return payload.tools
+      .filter(
+        (tool) =>
+          tool?.read_only === true &&
+          typeof tool?.name === "string" &&
+          tool.name.startsWith("connector__") &&
+          typeof tool?.description === "string" &&
+          tool?.input_schema &&
+          typeof tool.input_schema === "object"
+      )
+      .map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.input_schema,
+        optional: true,
+      }));
+  } catch (error) {
+    api?.logger?.warn?.(
+      `[agent-wallet] connector tools unavailable; built-in tools remain active: ${String(error?.message || error)}`
+    );
+    return [];
+  }
 }
 
 async function callWalletCli(api, command, extraArgs = [], configOverride = null) {
@@ -2057,6 +2104,7 @@ export default function registerAgentWalletPlugin(api) {
     ...solanaToolDefinitions.filter((item) => !duplicateSessionToolNames.has(item.name)),
     ...btcToolDefinitions.filter((item) => !duplicateSessionToolNames.has(item.name)),
     ...evmToolDefinitions.filter((item) => !duplicateSessionToolNames.has(item.name)),
+    ...loadConnectorToolDefinitions(api),
   ]) {
     if (seen.has(definition.name)) {
       continue;
