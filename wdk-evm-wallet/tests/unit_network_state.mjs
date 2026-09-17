@@ -17,6 +17,11 @@ function createConfig(dataDir) {
         providerUrl: "https://robinhood.example",
         nativeSymbol: "ETH",
       },
+      arc: {
+        chainId: 5042,
+        providerUrl: "https://arc.example",
+        nativeSymbol: "USDC",
+      },
     },
   };
 }
@@ -48,6 +53,31 @@ test("robinhood-mainnet alias normalizes when setting the active network", async
   }
 });
 
+test("arc-mainnet alias normalizes when setting the active network", async () => {
+  const home = tempHome();
+  try {
+    const state = new EvmNetworkState(createConfig(home));
+    const info = await state.setActiveNetwork({ network: "arc-mainnet" });
+    assert.equal(info.activeNetwork, "arc");
+    assert.equal(await state.getActiveNetwork(), "arc");
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("resolveRuntimeConfig returns Arc's chainId and USDC native symbol", async () => {
+  const home = tempHome();
+  try {
+    const state = new EvmNetworkState(createConfig(home));
+    const runtime = await state.resolveRuntimeConfig("arc");
+    assert.equal(runtime.network, "arc");
+    assert.equal(runtime.chainId, 5042);
+    assert.equal(runtime.nativeSymbol, "USDC");
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("resolveRuntimeConfig returns robinhood's chainId and nativeSymbol", async () => {
   const home = tempHome();
   try {
@@ -68,7 +98,7 @@ test("setActiveNetwork rejects an unsupported network", async () => {
     const state = new EvmNetworkState(createConfig(home));
     await assert.rejects(
       state.setActiveNetwork({ network: "polygon" }),
-      /ethereum, sepolia, base, base-sepolia, robinhood/
+      /ethereum, sepolia, base, base-sepolia, robinhood, arc/
     );
   } finally {
     fs.rmSync(home, { recursive: true, force: true });

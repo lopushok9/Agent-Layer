@@ -26,6 +26,30 @@ test("robinhood mainnet profile has the expected defaults", () => {
   }
 });
 
+test("arc mainnet profile has the expected defaults", () => {
+  const home = tempHome();
+  try {
+    const config = loadConfig({ OPENCLAW_HOME: home });
+    assert.deepEqual(config.networkProfiles.arc, {
+      chainId: 5042,
+      nativeSymbol: "USDC",
+      providerUrl: "https://agent-layer-production.up.railway.app/v1/evm/rpc/arc?provider=alchemy",
+    });
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("WDK_EVM_NETWORK=arc and arc-mainnet alias are accepted", () => {
+  const home = tempHome();
+  try {
+    assert.equal(loadConfig({ OPENCLAW_HOME: home, WDK_EVM_NETWORK: "arc" }).network, "arc");
+    assert.equal(loadConfig({ OPENCLAW_HOME: home, WDK_EVM_NETWORK: "arc-mainnet" }).network, "arc");
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("WDK_EVM_NETWORK=robinhood is accepted as the active network", () => {
   const home = tempHome();
   try {
@@ -59,12 +83,12 @@ test("per-network Uniswap router versions are parsed and normalized", () => {
   }
 });
 
-test("invalid WDK_EVM_NETWORK error message lists robinhood", () => {
+test("invalid WDK_EVM_NETWORK error message lists arc", () => {
   const home = tempHome();
   try {
     assert.throws(
       () => loadConfig({ OPENCLAW_HOME: home, WDK_EVM_NETWORK: "polygon" }),
-      /ethereum, sepolia, base, base-sepolia, robinhood/
+      /ethereum, sepolia, base, base-sepolia, robinhood, arc/
     );
   } finally {
     fs.rmSync(home, { recursive: true, force: true });

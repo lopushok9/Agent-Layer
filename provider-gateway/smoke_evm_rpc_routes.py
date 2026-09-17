@@ -18,9 +18,11 @@ def main() -> None:
         "ALCHEMY_ETHEREUM_RPC_URL": os.environ.get("ALCHEMY_ETHEREUM_RPC_URL"),
         "ALCHEMY_BASE_RPC_URL": os.environ.get("ALCHEMY_BASE_RPC_URL"),
         "ALCHEMY_ROBINHOOD_RPC_URL": os.environ.get("ALCHEMY_ROBINHOOD_RPC_URL"),
+        "ALCHEMY_ARC_RPC_URL": os.environ.get("ALCHEMY_ARC_RPC_URL"),
         "SHARED_EVM_ETHEREUM_RPC_URL": os.environ.get("SHARED_EVM_ETHEREUM_RPC_URL"),
         "SHARED_EVM_BASE_RPC_URL": os.environ.get("SHARED_EVM_BASE_RPC_URL"),
         "SHARED_EVM_ROBINHOOD_RPC_URL": os.environ.get("SHARED_EVM_ROBINHOOD_RPC_URL"),
+        "SHARED_EVM_ARC_RPC_URL": os.environ.get("SHARED_EVM_ARC_RPC_URL"),
         "TELEMETRY_DB_PATH": os.environ.get("TELEMETRY_DB_PATH"),
         "RPC_USAGE_FLUSH_INTERVAL_SECONDS": os.environ.get("RPC_USAGE_FLUSH_INTERVAL_SECONDS"),
     }
@@ -48,9 +50,11 @@ def main() -> None:
         os.environ.pop("ALCHEMY_ETHEREUM_RPC_URL", None)
         os.environ.pop("ALCHEMY_BASE_RPC_URL", None)
         os.environ.pop("ALCHEMY_ROBINHOOD_RPC_URL", None)
+        os.environ.pop("ALCHEMY_ARC_RPC_URL", None)
         os.environ.pop("SHARED_EVM_ETHEREUM_RPC_URL", None)
         os.environ.pop("SHARED_EVM_BASE_RPC_URL", None)
         os.environ.pop("SHARED_EVM_ROBINHOOD_RPC_URL", None)
+        os.environ.pop("SHARED_EVM_ARC_RPC_URL", None)
         gateway_app.telemetry_store._CONN = None
         gateway_app.telemetry_store._RPC_PENDING.clear()
 
@@ -91,6 +95,13 @@ def main() -> None:
         )
         assert robinhood_allowed.status_code == 200
         assert seen["post"]["url"] == "https://robinhood-mainnet.g.alchemy.com/v2/alchemy-key"
+
+        arc_allowed = client.post(
+            "/v1/evm/rpc/arc?provider=alchemy&token=test-token",
+            json={"jsonrpc": "2.0", "id": 14, "method": "eth_chainId", "params": []},
+        )
+        assert arc_allowed.status_code == 200
+        assert seen["post"]["url"] == "https://arc-mainnet.g.alchemy.com/v2/alchemy-key"
 
         batch_allowed = client.post(
             "/v1/evm/rpc/ethereum?provider=alchemy&token=test-token",

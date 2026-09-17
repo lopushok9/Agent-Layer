@@ -28,7 +28,7 @@ function readPackageVersion() {
 
 const PACKAGE_VERSION = readPackageVersion();
 const DEFAULT_PROVIDER_GATEWAY_URL = "https://agent-layer-production.up.railway.app";
-const ENFORCED_GATEWAY_MAINNETS = new Set(["ethereum", "base", "robinhood"]);
+const ENFORCED_GATEWAY_MAINNETS = new Set(["ethereum", "base", "robinhood", "arc"]);
 
 const DEFAULT_NETWORK_PROFILES = {
   ethereum: {
@@ -55,6 +55,11 @@ const DEFAULT_NETWORK_PROFILES = {
     chainId: 4663,
     providerUrl: "https://rpc.mainnet.chain.robinhood.com",
     nativeSymbol: "ETH",
+  },
+  arc: {
+    chainId: 5042,
+    providerUrl: "https://rpc.mainnet.arc.io",
+    nativeSymbol: "USDC",
   },
 };
 
@@ -192,6 +197,7 @@ function normalizeNetworkKey(value) {
     "base-mainnet": "base",
     base_sepolia: "base-sepolia",
     "robinhood-mainnet": "robinhood",
+    "arc-mainnet": "arc",
   };
   return aliases[normalized] || normalized;
 }
@@ -253,7 +259,7 @@ export function loadConfig(env = process.env) {
   const network = normalizeNetworkKey(env.WDK_EVM_NETWORK ?? DEFAULTS.network) || DEFAULTS.network;
   if (!Object.hasOwn(DEFAULT_NETWORK_PROFILES, network)) {
     throw new Error(
-      "WDK_EVM_NETWORK must be one of: ethereum, sepolia, base, base-sepolia, robinhood."
+      "WDK_EVM_NETWORK must be one of: ethereum, sepolia, base, base-sepolia, robinhood, arc."
     );
   }
 
@@ -349,6 +355,14 @@ export function loadConfig(env = process.env) {
         "robinhood",
         env.WDK_EVM_ROBINHOOD_RPC_URL,
         DEFAULT_NETWORK_PROFILES.robinhood.providerUrl
+      ),
+    },
+    arc: {
+      ...DEFAULT_NETWORK_PROFILES.arc,
+      providerUrl: resolveProviderUrl(
+        "arc",
+        env.WDK_EVM_ARC_RPC_URL,
+        DEFAULT_NETWORK_PROFILES.arc.providerUrl
       ),
     },
   };

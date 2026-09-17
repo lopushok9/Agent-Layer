@@ -938,20 +938,22 @@ def _resolve_rpc_url(provider: str, network: str) -> tuple[str, str]:
 
 def _resolve_evm_rpc_url(provider: str, network: str) -> tuple[str, str]:
     network_key = network.strip().lower()
-    if network_key not in {"ethereum", "base", "robinhood"}:
+    if network_key not in {"ethereum", "base", "robinhood", "arc"}:
         raise RuntimeError(
-            "Shared EVM provider gateway RPC currently supports only ethereum, base, and robinhood."
+            "Shared EVM provider gateway RPC currently supports only ethereum, base, robinhood, and arc."
         )
 
     shared_by_network = {
         "ethereum": _provider_url_from_env("SHARED_EVM_ETHEREUM_RPC_URL"),
         "base": _provider_url_from_env("SHARED_EVM_BASE_RPC_URL"),
         "robinhood": _provider_url_from_env("SHARED_EVM_ROBINHOOD_RPC_URL"),
+        "arc": _provider_url_from_env("SHARED_EVM_ARC_RPC_URL"),
     }
     alchemy_url_by_network = {
         "ethereum": _provider_url_from_env("ALCHEMY_ETHEREUM_RPC_URL"),
         "base": _provider_url_from_env("ALCHEMY_BASE_RPC_URL"),
         "robinhood": _provider_url_from_env("ALCHEMY_ROBINHOOD_RPC_URL"),
+        "arc": _provider_url_from_env("ALCHEMY_ARC_RPC_URL"),
     }
 
     alchemy_key = _trim(os.getenv("ALCHEMY_API_KEY"))
