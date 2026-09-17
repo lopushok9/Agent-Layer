@@ -39,7 +39,7 @@ If the preview result includes a confirmation_summary or mainnet_warning, surfac
 Never bypass the approval token requirement for wallet writes.
 In OpenClaw, switch between Solana, EVM, and Bitcoin wallets with set_wallet_backend.
 The plugin config is the startup default, not something to edit during a normal conversation.
-For EVM wallets, switch between Ethereum, Base, and Robinhood with set_evm_network or by passing the
+For EVM wallets, switch between Ethereum, Base, Robinhood, and Arc with set_evm_network or by passing the
 network argument to EVM tools. Do not edit code, plugin config, or environment variables
 just to switch the active EVM network.
 """.strip()
@@ -74,7 +74,7 @@ class OpenClawWalletAdapter:
         if chain == "bitcoin":
             return normalized == "bitcoin"
         if chain == "evm":
-            return normalized in {"ethereum", "base", "robinhood", "eip155:1", "eip155:8453", "eip155:4663"}
+            return normalized in {"ethereum", "base", "robinhood", "arc", "eip155:1", "eip155:8453", "eip155:4663", "eip155:5042"}
         if chain == "solana":
             return normalized in {"mainnet", "solana:5eykt4usfv8p8njdtrepy1vzkqzkvdp"}
         return normalized == "mainnet"
@@ -98,12 +98,13 @@ class OpenClawWalletAdapter:
             "eth": "ethereum",
             "eth-mainnet": "ethereum",
             "base-mainnet": "base",
+            "arc-mainnet": "arc",
         }
         network = aliases.get(network, network)
         if network in {"sepolia", "base-sepolia", "base_sepolia"}:
-            raise WalletBackendError("EVM testnets are no longer supported. Use ethereum, base, or robinhood.")
-        if network not in {"ethereum", "base", "robinhood"}:
-            raise WalletBackendError("EVM network must be 'ethereum', 'base', or 'robinhood'.")
+            raise WalletBackendError("EVM testnets are no longer supported. Use ethereum, base, robinhood, or arc.")
+        if network not in {"ethereum", "base", "robinhood", "arc"}:
+            raise WalletBackendError("EVM network must be 'ethereum', 'base', 'robinhood', or 'arc'.")
         return network
 
     def _resolve_backend_for_args(self, args: dict[str, Any]) -> AgentWalletBackend:

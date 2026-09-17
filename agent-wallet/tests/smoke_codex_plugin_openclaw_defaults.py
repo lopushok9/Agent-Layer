@@ -159,6 +159,11 @@ def main() -> None:
         assert robinhood_switch["selected_network"] == "robinhood"
         assert module._normalize_selectable_evm_network("robinhood") == "robinhood"
 
+        arc_switch = asyncio.run(module._handle_set_evm_network({"network": "arc-mainnet"}))
+        assert arc_switch["selected_backend"] == "wdk_evm_local"
+        assert arc_switch["selected_network"] == "arc"
+        assert module._normalize_selectable_evm_network("arc") == "arc"
+
         robinhood_backend_switch = asyncio.run(module._handle_set_wallet_backend({"backend": "robinhood"}))
         assert robinhood_backend_switch["selected_backend"] == "wdk_evm_local"
         assert robinhood_backend_switch["selected_network"] == "robinhood"
