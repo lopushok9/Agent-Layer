@@ -21,7 +21,7 @@
   "interface": {
     "displayName": "Agent Wallet",
     "shortDescription": "Use the local AgentLayer wallet runtime directly in Codex",
-    "longDescription": "Agent Wallet adds the existing local AgentLayer wallet runtime to Codex without creating a new wallet. It reuses the current OpenClaw runtime, keeps secrets local, and exposes the same Solana, Bitcoin, EVM, x402, Jupiter, Kamino, LI.FI, Bags, and Flash Trade tool surface through a Codex-native MCP bridge.",
+    "longDescription": "Agent Wallet adds the existing local AgentLayer wallet runtime to Codex without creating a new wallet. It reuses the current OpenClaw runtime, keeps secrets local, and exposes the same Solana, Bitcoin, EVM, x402, Jupiter, Kamino, LI.FI, and Bags tool surface through a Codex-native MCP bridge.",
     "developerName": "AgentLayer",
     "category": "Coding",
     "capabilities": [

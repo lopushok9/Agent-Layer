@@ -162,21 +162,6 @@ def _require_positive_decimal_string(value: Any, *, field_name: str) -> str:
     return normalized or "0"
 
 
-def _normalize_flash_symbol(value: Any, *, field_name: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise WalletBackendError(f"{field_name} must be a non-empty string.")
-    return value.strip().upper()
-
-
-def _normalize_flash_side(value: Any) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise WalletBackendError("side must be a non-empty string.")
-    normalized = value.strip().lower()
-    if normalized not in {"long", "short"}:
-        raise WalletBackendError("side must be 'long' or 'short'.")
-    return normalized
-
-
 def _coerce_positive_int_from_any(value: Any) -> int | None:
     if value is None or value == "":
         return None

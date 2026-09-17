@@ -37,8 +37,7 @@ def main() -> None:
     }
     module._cache_preview_for_approval("autonomous-test-user", "swap_evm_tokens", preview_payload)
 
-    # A cached EVM swap preview yields the exact summary the adapter verifies;
-    # only the Solana/Flash exact-preview tools need a preview digest binding.
+    # A cached EVM swap preview yields the digest-bound summary the adapter verifies.
     params = {"mode": "execute", "network": "base"}
     used_cache, approval_args = module._attach_approval_for_execute(
         "swap_evm_tokens", {"network": "base"}, params
@@ -48,7 +47,7 @@ def main() -> None:
     assert isinstance(approval_args, dict)
     summary = approval_args["summary"]
     assert summary["operation"] == "EVM swap"
-    assert "_preview_digest" not in summary
+    assert "_preview_digest" in summary
     assert approval_args["mainnet_confirmed"] is False
 
     module.approval_preview_cache.clear()
