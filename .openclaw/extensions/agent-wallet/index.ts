@@ -16,7 +16,7 @@ const PREVIEW_CACHE_TTL_MS = 15 * 60 * 1000;
 const PREVIEW_BOUND_SWAP_TOOLS = new Set([
   "swap_solana_tokens",
 ]);
-const EVM_CORE_NETWORKS = ["ethereum", "base", "robinhood"];
+const EVM_CORE_NETWORKS = ["ethereum", "base", "robinhood", "arc"];
 const AUTONOMOUS_BASE_SWAP_TOOLS = new Set([
   "swap_evm_tokens",
   "swap_evm_uniswap_tokens",
@@ -203,6 +203,7 @@ function normalizeWalletBackend(value) {
     eth: "wdk_evm_local",
     base: "wdk_evm_local",
     robinhood: "wdk_evm_local",
+    arc: "wdk_evm_local",
     wdk_evm_local: "wdk_evm_local",
     "wdk-evm-local": "wdk_evm_local",
     evm_local: "wdk_evm_local",
@@ -216,7 +217,7 @@ function normalizeWalletBackend(value) {
   };
   const backend = aliases[normalized] || normalized;
   if (!["solana_local", "wdk_evm_local", "wdk_btc_local"].includes(backend)) {
-    throw new Error("Wallet backend must be solana, evm, ethereum, base, robinhood, btc, or bitcoin.");
+    throw new Error("Wallet backend must be solana, evm, ethereum, base, robinhood, arc, btc, or bitcoin.");
   }
   return backend;
 }
@@ -234,6 +235,7 @@ function normalizeEvmNetwork(value) {
     eth: "ethereum",
     "eth-mainnet": "ethereum",
     "base-mainnet": "base",
+    "arc-mainnet": "arc",
   };
   return aliases[normalized] || normalized;
 }
@@ -241,10 +243,10 @@ function normalizeEvmNetwork(value) {
 function normalizeSelectableEvmNetwork(value) {
   const network = normalizeEvmNetwork(value);
   if (["sepolia", "base-sepolia", "base_sepolia"].includes(network)) {
-    throw new Error("EVM testnets are no longer supported. Use ethereum, base, or robinhood.");
+    throw new Error("EVM testnets are no longer supported. Use ethereum, base, robinhood, or arc.");
   }
   if (!EVM_CORE_NETWORKS.includes(network)) {
-    throw new Error("EVM network must be 'ethereum', 'base', or 'robinhood'.");
+    throw new Error("EVM network must be 'ethereum', 'base', 'robinhood', or 'arc'.");
   }
   return network;
 }
@@ -1529,7 +1531,7 @@ const evmToolDefinitions = [
   {
     name: "set_evm_network",
     description:
-      "Select the active EVM network for subsequent wallet tool calls in this OpenClaw plugin session. Use this to switch between ethereum, base, and robinhood instead of editing code or plugin configuration.",
+      "Select the active EVM network for subsequent wallet tool calls in this OpenClaw plugin session. Use this to switch between ethereum, base, robinhood, and arc instead of editing code or plugin configuration.",
     parameters: {
       type: "object",
       properties: {
