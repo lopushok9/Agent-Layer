@@ -124,16 +124,17 @@ class FakeEvmBackend(AgentWalletBackend):
             "network": self.network,
             "configured_network": self.network,
             "service_active_network": self.network,
-            "available_networks": ["base", "ethereum", "robinhood"],
-            "agent_selectable_networks": ["ethereum", "base", "robinhood"],
+            "available_networks": ["arc", "base", "ethereum", "robinhood"],
+            "agent_selectable_networks": ["ethereum", "base", "robinhood", "arc"],
             "swap_supported_networks": ["ethereum", "base", "robinhood"],
             "network_profiles": {
                 "ethereum": {"chainId": 1, "providerUrl": "https://gateway.example/v1/evm/rpc/ethereum?provider=alchemy"},
                 "base": {"chainId": 8453, "providerUrl": "https://gateway.example/v1/evm/rpc/base?provider=alchemy"},
                 "robinhood": {"chainId": 4663, "providerUrl": "https://gateway.example/v1/evm/rpc/robinhood?provider=alchemy"},
+                "arc": {"chainId": 5042, "providerUrl": "https://gateway.example/v1/evm/rpc/arc?provider=alchemy"},
             },
             "selected_profile": {
-                "chainId": {"ethereum": 1, "base": 8453, "robinhood": 4663}[self.network],
+                "chainId": {"ethereum": 1, "base": 8453, "robinhood": 4663, "arc": 5042}[self.network],
                 "providerUrl": f"https://gateway.example/v1/evm/rpc/{self.network}?provider=alchemy",
             },
             "source": "fake",
@@ -1703,6 +1704,52 @@ async def _main() -> None:
     assert "transfer_evm_native" in tool_names
     assert "transfer_evm_token" in tool_names
     assert "transfer_sol" not in tool_names
+    arc_backend = FakeEvmBackend().with_network("arc")
+    arc_tools = {tool.name: tool for tool in OpenClawWalletAdapter(arc_backend).list_tools()}
+    for tool_name in {
+        "get_wallet_capabilities",
+        "get_wallet_address",
+        "get_wallet_balance",
+        "get_evm_network",
+        "set_evm_network",
+        "get_evm_token_balance",
+        "get_evm_token_metadata",
+        "get_evm_fee_rates",
+        "get_evm_transaction_receipt",
+        "transfer_evm_native",
+        "transfer_evm_token",
+        "issue_wallet_approval",
+    }:
+        assert tool_name in arc_tools
+        network_schema = arc_tools[tool_name].input_schema["properties"].get("network")
+        if network_schema is not None:
+            assert "arc" in network_schema["enum"]
+    arc_external_tools = {
+        "get_evm_aave_account",
+        "get_evm_aave_reserves",
+        "get_evm_aave_positions",
+        "manage_evm_aave_position",
+        "get_evm_morpho_vaults",
+        "get_evm_morpho_markets",
+        "get_evm_morpho_positions",
+        "manage_evm_morpho_vault_position",
+        "manage_evm_morpho_market_position",
+        "get_evm_lido_overview",
+        "get_evm_lido_positions",
+        "manage_evm_lido_position",
+        "get_evm_lido_withdrawal_requests",
+        "manage_evm_lido_withdrawal",
+        "get_evm_swap_quote",
+        "swap_evm_tokens",
+        "swap_evm_lifi_cross_chain_tokens",
+        "get_uniswap_swap_quote",
+        "search_uniswap_pairs",
+        "swap_evm_uniswap_tokens",
+        "get_evm_uniswap_pools",
+        "get_evm_uniswap_positions",
+        "manage_evm_uniswap_liquidity",
+    }
+    assert arc_external_tools.isdisjoint(arc_tools)
     lifi_swap_tool = next(tool for tool in adapter.list_tools() if tool.name == "swap_evm_lifi_cross_chain_tokens")
     lifi_destination_enum = lifi_swap_tool.input_schema["properties"]["destination_chain"]["enum"]
     assert "ethereum" in lifi_destination_enum
@@ -1731,6 +1778,7 @@ async def _main() -> None:
     assert "ethereum" in network_info.data["agent_selectable_networks"]
     assert "base" in network_info.data["agent_selectable_networks"]
     assert "robinhood" in network_info.data["agent_selectable_networks"]
+    assert "arc" in network_info.data["agent_selectable_networks"]
 
     switch_adapter = OpenClawWalletAdapter(FakeEvmBackend())
     switched_network = await switch_adapter.invoke("set_evm_network", {"network": "base"})

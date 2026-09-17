@@ -31,7 +31,13 @@ async def _run() -> None:
         assert request.url in {
             httpx.URL("https://gateway.example/v1/evm/rpc/base?provider=alchemy"),
             httpx.URL("https://gateway.example/v1/evm/rpc/robinhood?provider=alchemy"),
+            httpx.URL("https://gateway.example/v1/evm/rpc/arc?provider=alchemy"),
         }
+        token_address = (
+            evm_portfolio.ARC_USDC_ERC20_ADDRESS
+            if request.url.path.endswith("/arc")
+            else "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
+        )
         return httpx.Response(
             200,
             json={
@@ -40,7 +46,7 @@ async def _run() -> None:
                 "result": {
                     "tokenBalances": [
                         {
-                            "contractAddress": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+                            "contractAddress": token_address,
                             "tokenBalance": "0x2a",
                         }
                     ]
@@ -67,6 +73,12 @@ async def _run() -> None:
         )
         assert len(balances) == 1
         assert seen_urls[-1] == "https://gateway.example/v1/evm/rpc/robinhood?provider=alchemy"
+        balances = await evm_portfolio.fetch_token_balances(
+            "0x3333333333333333333333333333333333333333",
+            "arc",
+        )
+        assert balances == []
+        assert seen_urls[-1] == "https://gateway.example/v1/evm/rpc/arc?provider=alchemy"
     finally:
         evm_portfolio.get_client = original_get_client
         await client.aclose()

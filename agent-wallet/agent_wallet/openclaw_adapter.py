@@ -86,10 +86,22 @@ class OpenClawWalletAdapter:
         return self._is_mainnet_network(getattr(backend, "network", ""))
 
     def _supports_evm_velora(self) -> bool:
-        return str(getattr(self.backend, "chain", "")).strip().lower() == "evm" and self._is_mainnet()
+        return self._supports_evm_velora_for_backend(self.backend)
 
     def _supports_evm_velora_for_backend(self, backend: AgentWalletBackend) -> bool:
-        return str(getattr(backend, "chain", "")).strip().lower() == "evm" and self._is_mainnet_for_backend(backend)
+        if str(getattr(backend, "chain", "")).strip().lower() != "evm":
+            return False
+        network = str(getattr(backend, "network", "")).strip().lower()
+        aliases = {
+            "mainnet": "ethereum",
+            "eth": "ethereum",
+            "eth-mainnet": "ethereum",
+            "base-mainnet": "base",
+            "eip155:1": "ethereum",
+            "eip155:8453": "base",
+            "eip155:4663": "robinhood",
+        }
+        return aliases.get(network, network) in {"ethereum", "base", "robinhood"}
 
     def _normalize_evm_tool_network(self, value: Any) -> str:
         network = str(value or "").strip().lower()
@@ -1191,7 +1203,7 @@ class OpenClawWalletAdapter:
                         "properties": {
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base", "robinhood"],
+                                "enum": ["ethereum", "base", "robinhood", "arc"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -1208,7 +1220,7 @@ class OpenClawWalletAdapter:
                         "properties": {
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base", "robinhood"],
+                                "enum": ["ethereum", "base", "robinhood", "arc"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -1233,7 +1245,7 @@ class OpenClawWalletAdapter:
                             },
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base", "robinhood"],
+                                "enum": ["ethereum", "base", "robinhood", "arc"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -1314,7 +1326,7 @@ class OpenClawWalletAdapter:
                         "properties": {
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base", "robinhood"],
+                                "enum": ["ethereum", "base", "robinhood", "arc"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -1327,7 +1339,7 @@ class OpenClawWalletAdapter:
                     name="set_evm_network",
                     description=(
                         "Select the active EVM network for subsequent wallet tool calls in this "
-                        "runtime session. Use this to switch between ethereum, base, and robinhood instead "
+                        "runtime session. Use this to switch between ethereum, base, robinhood, and arc instead "
                         "of editing code or plugin configuration."
                     ),
                     input_schema={
@@ -1335,7 +1347,7 @@ class OpenClawWalletAdapter:
                         "properties": {
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base", "robinhood"],
+                                "enum": ["ethereum", "base", "robinhood", "arc"],
                                 "description": "EVM network to make active for subsequent calls.",
                             },
                         },
@@ -1357,7 +1369,7 @@ class OpenClawWalletAdapter:
                             },
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base", "robinhood"],
+                                "enum": ["ethereum", "base", "robinhood", "arc"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -1379,7 +1391,7 @@ class OpenClawWalletAdapter:
                             },
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base", "robinhood"],
+                                "enum": ["ethereum", "base", "robinhood", "arc"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -1397,7 +1409,7 @@ class OpenClawWalletAdapter:
                         "properties": {
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base", "robinhood"],
+                                "enum": ["ethereum", "base", "robinhood", "arc"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -1418,7 +1430,7 @@ class OpenClawWalletAdapter:
                             },
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base", "robinhood"],
+                                "enum": ["ethereum", "base", "robinhood", "arc"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -1451,7 +1463,7 @@ class OpenClawWalletAdapter:
                             "approval_token": {"type": "string"},
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base", "robinhood"],
+                                "enum": ["ethereum", "base", "robinhood", "arc"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -1486,7 +1498,7 @@ class OpenClawWalletAdapter:
                             "approval_token": {"type": "string"},
                             "network": {
                                 "type": "string",
-                                "enum": ["ethereum", "base", "robinhood"],
+                                "enum": ["ethereum", "base", "robinhood", "arc"],
                                 "description": "Optional EVM network override for this request.",
                             },
                         },
@@ -2415,41 +2427,41 @@ class OpenClawWalletAdapter:
                         risk_level="high",
                     ),
                 )
-                tools.insert(
-                    13,
-                    AgentToolSpec(
-                        name="issue_wallet_approval",
-                        description=(
-                            "Issue a host approval token bound to an exact wallet operation. "
-                            "Call this after prepare mode to get the token required for execute mode. "
-                            "Pass tool_name and the confirmation_summary exactly as returned in the prepare response. "
-                            "In Claude Code this is the bridge step that Codex performs automatically via its UI dialog."
-                        ),
-                        input_schema={
-                            "type": "object",
-                            "properties": {
-                                "tool_name": {
-                                    "type": "string",
-                                    "description": "Name of the tool being approved, e.g. swap_evm_uniswap_tokens or swap_evm_tokens.",
-                                },
-                                "summary": {
-                                    "type": "object",
-                                    "description": "The confirmation_summary dict returned verbatim from the prepare response.",
-                                    "additionalProperties": True,
-                                },
-                                "mainnet_confirmed": {
-                                    "type": "boolean",
-                                    "description": "Set to true to confirm this is a mainnet operation and you accept the risk.",
-                                },
-                            },
-                            "required": ["tool_name", "summary", "mainnet_confirmed"],
-                            "additionalProperties": False,
-                        },
-                        read_only=False,
-                        requires_explicit_user_intent=True,
-                        risk_level="high",
+            tools.insert(
+                13,
+                AgentToolSpec(
+                    name="issue_wallet_approval",
+                    description=(
+                        "Issue a host approval token bound to an exact wallet operation. "
+                        "Call this after prepare mode to get the token required for execute mode. "
+                        "Pass tool_name and the confirmation_summary exactly as returned in the prepare response. "
+                        "In Claude Code this is the bridge step that Codex performs automatically via its UI dialog."
                     ),
-                )
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "tool_name": {
+                                "type": "string",
+                                "description": "Name of the wallet operation being approved.",
+                            },
+                            "summary": {
+                                "type": "object",
+                                "description": "The confirmation_summary dict returned verbatim from the prepare response.",
+                                "additionalProperties": True,
+                            },
+                            "mainnet_confirmed": {
+                                "type": "boolean",
+                                "description": "Set to true to confirm this is a mainnet operation and you accept the risk.",
+                            },
+                        },
+                        "required": ["tool_name", "summary", "mainnet_confirmed"],
+                        "additionalProperties": False,
+                    },
+                    read_only=False,
+                    requires_explicit_user_intent=True,
+                    risk_level="high",
+                ),
+            )
 
             tools.extend(self._x402_tool_specs())
             tools.extend(self._autonomous_permission_tool_specs())

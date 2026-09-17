@@ -13,6 +13,7 @@ from agent_wallet.http_client import get_client
 COINGECKO_API_URL = "https://api.coingecko.com/api/v3"
 PORTFOLIO_TOKEN_CACHE_TTL_SECONDS = 30.0
 PORTFOLIO_PRICE_CACHE_TTL_SECONDS = 60.0
+ARC_USDC_ERC20_ADDRESS = "0x3600000000000000000000000000000000000000"
 
 TOKEN_METADATA: dict[str, dict[str, dict[str, Any]]] = {
     "ethereum": {
@@ -114,6 +115,13 @@ TOKEN_METADATA: dict[str, dict[str, dict[str, Any]]] = {
             "decimals": 18,
         },
     },
+    "arc": {
+        ARC_USDC_ERC20_ADDRESS: {
+            "symbol": "USDC",
+            "name": "USD Coin",
+            "decimals": 6,
+        },
+    },
 }
 
 COINGECKO_IDS = {
@@ -142,7 +150,7 @@ _PRICE_CACHE: dict[str, tuple[float, float]] = {}
 
 def _normalize_network(network: str) -> str:
     normalized = str(network or "").strip().lower()
-    if normalized not in {"ethereum", "base", "robinhood"}:
+    if normalized not in {"ethereum", "base", "robinhood", "arc"}:
         raise ProviderError("evm-portfolio", f"Unsupported EVM portfolio network: {network}")
     return normalized
 
@@ -207,7 +215,7 @@ async def _gateway_rpc_call(network: str, method: str, params: list[Any]) -> dic
     if not gateway_url:
         raise ProviderError(
             "evm-portfolio",
-            "Provider gateway URL is required for EVM portfolio lookup on ethereum/base/robinhood.",
+            "Provider gateway URL is required for EVM portfolio lookup on ethereum/base/robinhood/arc.",
         )
     try:
         response = await client.post(
@@ -247,6 +255,11 @@ async def fetch_token_balances(address: str, network: str) -> list[dict[str, Any
         contract = str(item.get("contractAddress") or "").strip()
         raw_hex = str(item.get("tokenBalance") or "").strip().lower()
         if not contract or raw_hex in {"", "0x", "0x0"}:
+            continue
+        # Arc exposes the native USDC balance through an ERC-20 compatibility
+        # interface as well. The two representations are the same funds, so the
+        # ERC-20 mirror must not be counted as a second portfolio asset.
+        if normalized_network == "arc" and contract.lower() == ARC_USDC_ERC20_ADDRESS:
             continue
         try:
             balance_raw = int(raw_hex, 16)
