@@ -22,6 +22,15 @@ Primary design rules:
 - EVM network selection with `set_evm_network`
 - auto-managed approval binding for `preview -> execute` write flows
 
+## Status line
+
+```
+/wallet-statusline
+```
+
+Shows live SOL + Base USDC balances under the input box. Turn off anytime with
+the built-in `/statusline delete`.
+
 ## Runtime requirements
 
 - install the AgentLayer runtime first with `npx @agentlayer.tech/wallet install --yes`

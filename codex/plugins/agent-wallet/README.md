@@ -50,6 +50,11 @@ bundled skills:
 - `x402` -- invoke from the slash menu or explicitly as `$x402` to discover
   x402-paid services via CDP Bazaar or Agentic Market (or use a URL already
   given), preview the payment terms, and pay from the connected wallet.
+- `wallet-sandbox` -- invoke as `$wallet-sandbox` to run the bounded
+  real-mainnet release checks: Solana Jupiter, Base Velora and Uniswap, Morpho
+  vault supply/withdrawal, and Kamino lending deposit/withdrawal. It requires
+  an already active `agentlayer_autonomous_approve` permission and never
+  changes that permission itself.
 
 ## Path resolution
 

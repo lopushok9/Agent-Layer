@@ -10,13 +10,9 @@
 > that exact role. Tool names below are short; the full MCP name is
 > `mcp__plugin_agent-wallet_agent-wallet__<name>`.
 
-This server holds funds in the local AgentLayer wallet across Solana, EVM
-(Ethereum, Base, Robinhood chain), and Bitcoin. It is not a generic
-crypto-data tool — every write here moves real money unless stated as
-mainnet-gated preview. Leverage markets (Flash Trade perps:
-`flash_trade_open_position`, `flash_trade_close_position`,
-`get_flash_trade_markets`, `get_flash_trade_positions`) are out of scope for
-this guide — do not use them without separate instructions.
+This server holds funds in the local AgentLayer wallet across Solana and EVM
+(Ethereum, Base, Robinhood chain). It is not a generic crypto-data tool — every
+write here moves real money unless stated as mainnet-gated preview.
 
 ## What You Can Do
 

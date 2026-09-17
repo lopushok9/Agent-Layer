@@ -936,10 +936,7 @@ function activePythonRuntimeInfo(env = process.env) {
 function activeNodeRuntimeInfo(env = process.env) {
   const currentRoot = resolvedCurrentRuntimeRoot(env);
   if (!currentRoot) return [];
-  const projects = [
-    path.join(currentRoot, "wdk-evm-wallet"),
-    path.join(currentRoot, "agent-wallet", "scripts", "flash-sdk-bridge"),
-  ];
+  const projects = [path.join(currentRoot, "wdk-evm-wallet")];
   return projects
     .filter((projectRoot) => fs.existsSync(path.join(projectRoot, "package.json")))
     .map((projectRoot) => {

@@ -59,8 +59,6 @@ BACKENDS = ("solana_local", "wdk_btc_local", "wdk_evm_local")
 PREVIEW_CACHE_TTL_SECONDS = 15 * 60
 PREVIEW_BOUND_SWAP_TOOLS = {
     "swap_solana_tokens",
-    "flash_trade_open_position",
-    "flash_trade_close_position",
 }
 AUTONOMOUS_BASE_SWAP_TOOLS = {"swap_evm_tokens", "swap_evm_uniswap_tokens"}
 AUTONOMOUS_DEFI_TOOLS = {

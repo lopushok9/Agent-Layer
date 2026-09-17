@@ -170,8 +170,7 @@ Current scope:
 
 This genuinely covers every write tool now, including the intent-based
 family (`swap_solana_tokens`, `swap_evm_lifi_cross_chain_tokens`,
-`swap_solana_lifi_cross_chain_tokens`, `flash_trade_open_position`,
-`flash_trade_close_position`, and all 6 Kamino tools). Those previously
+`swap_solana_lifi_cross_chain_tokens` and all 6 Kamino tools). Those previously
 called `inspect_approval_token` unconditionally at the top of their
 execute/intent_execute branches -- before ever reaching
 `_require_execute_approval` -- which hard-required a real host-issued token

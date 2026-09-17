@@ -12,7 +12,6 @@ This service is deliberately narrow:
 - shared Bags trade + claim relay
 - shared Bags token launch relay
 - shared Jupiter Earn relay
-- shared Flash Trade perps read relay
 - shared Solana RPC gateway with method allowlist
 - shared EVM RPC gateway for ethereum/base/robinhood with method allowlist
 - no wallet custody
@@ -45,8 +44,6 @@ Implemented endpoints:
 - `GET /v1/jupiter/earn/earnings` — authenticated Jupiter Earn earnings
 - `POST /v1/jupiter/earn/deposit` — authenticated Jupiter Earn deposit transaction build
 - `POST /v1/jupiter/earn/withdraw` — authenticated Jupiter Earn withdraw transaction build
-- `GET /v1/flash/perps/markets` — authenticated Flash Trade perpetual market relay
-- `GET /v1/flash/perps/positions` — authenticated Flash Trade perpetual positions relay
 - `GET /v1/houdini/tokens` — authenticated Houdini token catalog relay
 - `GET /v1/houdini/quotes/private` — authenticated Houdini private quote relay
 - `POST /v1/houdini/exchanges` — authenticated Houdini single-order private exchange creation
@@ -136,8 +133,6 @@ Configure the surfaces you want to expose:
   - `BAGS_API_KEY`
 - Jupiter Earn relay:
   - `JUPITER_API_KEY`
-- Flash Trade read relay:
-  - `FLASH_API_BASE_URL`
 - Houdini private swap relay:
   - `HOUDINI_API_KEY`
   - `HOUDINI_API_SECRET`

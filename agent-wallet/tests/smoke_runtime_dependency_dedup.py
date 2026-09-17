@@ -68,14 +68,8 @@ def main() -> None:
     assert payload_b["python_runtime"]["shared"] is True
     assert payload_a["python_runtime"]["fingerprint"] == payload_b["python_runtime"]["fingerprint"]
 
-    node_projects = [
-        release_a / "wdk-evm-wallet",
-        release_a / "agent-wallet" / "scripts" / "flash-sdk-bridge",
-    ]
-    other_projects = [
-        release_b / "wdk-evm-wallet",
-        release_b / "agent-wallet" / "scripts" / "flash-sdk-bridge",
-    ]
+    node_projects = [release_a / "wdk-evm-wallet"]
+    other_projects = [release_b / "wdk-evm-wallet"]
     for first, second in zip(node_projects, other_projects):
         first_modules = first / "node_modules"
         second_modules = second / "node_modules"

@@ -326,222 +326,6 @@ class FakeBackend(AgentWalletBackend):
             "source": "solana-rpc",
         }
 
-    async def get_flash_trade_markets(self, pool_name: str | None = None) -> dict:
-        return {
-            "chain": "solana",
-            "network": "mainnet",
-            "pool_name": pool_name,
-            "market_count": 2,
-            "markets": [
-                {
-                    "pool_name": pool_name or "Crypto.1",
-                    "symbol": "SOL",
-                    "market_symbol": "SOL",
-                    "collateral_symbol": "SOL",
-                    "side": "long",
-                    "maxLeverage": 100,
-                },
-                {
-                    "pool_name": pool_name or "Crypto.1",
-                    "symbol": "SOL",
-                    "market_symbol": "SOL",
-                    "collateral_symbol": "USDC",
-                    "side": "short",
-                    "maxLeverage": 100,
-                },
-            ],
-            "raw": {"markets": [{"symbol": "SOL"}]},
-            "source": "flash-trade",
-        }
-
-    async def get_flash_trade_positions(
-        self,
-        owner: str | None = None,
-        pool_name: str | None = None,
-    ) -> dict:
-        wallet = owner or "Fake11111111111111111111111111111111111111111"
-        return {
-            "chain": "solana",
-            "network": "mainnet",
-            "owner": wallet,
-            "pool_name": pool_name,
-            "position_count": 1,
-            "positions": [
-                {
-                    "owner": wallet,
-                    "poolName": pool_name or "Crypto.1",
-                    "symbol": "SOL-PERP",
-                    "side": "long",
-                    "sizeUsd": "250.00",
-                }
-            ],
-            "raw": {"positions": [{"owner": wallet, "symbol": "SOL-PERP"}]},
-            "source": "flash-trade",
-        }
-
-    async def preview_flash_trade_open_position(
-        self,
-        *,
-        pool_name: str,
-        market_symbol: str,
-        collateral_symbol: str,
-        collateral_amount_raw: str,
-        leverage: str,
-        side: str,
-    ) -> dict:
-        return {
-            "chain": "solana",
-            "network": "mainnet",
-            "mode": "preview",
-            "asset_type": "flash-trade-open-position",
-            "owner": "Fake11111111111111111111111111111111111111111",
-            "pool_name": pool_name,
-            "market_symbol": market_symbol,
-            "collateral_symbol": collateral_symbol,
-            "collateral_amount_raw": collateral_amount_raw,
-            "leverage": leverage,
-            "side": side,
-            "estimated_size_usd": "1250.00",
-            "estimated_entry_price": "177.50",
-            "estimated_liquidation_price": "161.20",
-            "sign_only": False,
-            "can_send": True,
-            "source": "flash-sdk-bridge",
-        }
-
-    async def preview_flash_trade_close_position(
-        self,
-        *,
-        pool_name: str,
-        market_symbol: str,
-        side: str,
-    ) -> dict:
-        return {
-            "chain": "solana",
-            "network": "mainnet",
-            "mode": "preview",
-            "asset_type": "flash-trade-close-position",
-            "owner": "Fake11111111111111111111111111111111111111111",
-            "pool_name": pool_name,
-            "market_symbol": market_symbol,
-            "side": side,
-            "position_size_usd": "1250.00",
-            "close_amount_raw": "700000000",
-            "sign_only": False,
-            "can_send": True,
-            "source": "flash-sdk-bridge",
-        }
-
-    async def prepare_flash_trade_open_position(
-        self,
-        *,
-        pool_name: str,
-        market_symbol: str,
-        collateral_symbol: str,
-        collateral_amount_raw: str,
-        leverage: str,
-        side: str,
-    ) -> dict:
-        return {
-            "chain": "solana",
-            "network": "mainnet",
-            "mode": "prepare",
-            "asset_type": "flash-trade-open-position",
-            "owner": "Fake11111111111111111111111111111111111111111",
-            "pool_name": pool_name,
-            "market_symbol": market_symbol,
-            "collateral_symbol": collateral_symbol,
-            "collateral_amount_raw": collateral_amount_raw,
-            "leverage": leverage,
-            "side": side,
-            "estimated_size_usd": "1250.00",
-            "transaction_base64": "AQID",
-            "transaction_encoding": "base64",
-            "transaction_format": "versioned",
-            "signed": True,
-            "verification": {"verified": True, "wallet_signer_index": 0},
-            "source": "flash-sdk-bridge",
-        }
-
-    async def prepare_flash_trade_close_position(
-        self,
-        *,
-        pool_name: str,
-        market_symbol: str,
-        side: str,
-    ) -> dict:
-        return {
-            "chain": "solana",
-            "network": "mainnet",
-            "mode": "prepare",
-            "asset_type": "flash-trade-close-position",
-            "owner": "Fake11111111111111111111111111111111111111111",
-            "pool_name": pool_name,
-            "market_symbol": market_symbol,
-            "side": side,
-            "position_size_usd": "1250.00",
-            "transaction_base64": "AQID",
-            "transaction_encoding": "base64",
-            "transaction_format": "versioned",
-            "signed": True,
-            "verification": {"verified": True, "wallet_signer_index": 0},
-            "source": "flash-sdk-bridge",
-        }
-
-    async def execute_flash_trade_open_position(
-        self,
-        *,
-        pool_name: str,
-        market_symbol: str,
-        collateral_symbol: str,
-        collateral_amount_raw: str,
-        leverage: str,
-        side: str,
-        approved_preview: dict | None = None,
-    ) -> dict:
-        return {
-            "chain": "solana",
-            "network": "mainnet",
-            "mode": "execute",
-            "asset_type": "flash-trade-open-position",
-            "owner": "Fake11111111111111111111111111111111111111111",
-            "pool_name": pool_name,
-            "market_symbol": market_symbol,
-            "collateral_symbol": collateral_symbol,
-            "collateral_amount_raw": collateral_amount_raw,
-            "leverage": leverage,
-            "side": side,
-            "signature": "FakeFlashOpenSignature1111111111111111111111111111",
-            "broadcasted": True,
-            "confirmed": True,
-            "confirmation_status": "confirmed",
-            "source": "flash-sdk-bridge",
-        }
-
-    async def execute_flash_trade_close_position(
-        self,
-        *,
-        pool_name: str,
-        market_symbol: str,
-        side: str,
-        approved_preview: dict | None = None,
-    ) -> dict:
-        return {
-            "chain": "solana",
-            "network": "mainnet",
-            "mode": "execute",
-            "asset_type": "flash-trade-close-position",
-            "owner": "Fake11111111111111111111111111111111111111111",
-            "pool_name": pool_name,
-            "market_symbol": market_symbol,
-            "side": side,
-            "signature": "FakeFlashCloseSignature111111111111111111111111111",
-            "broadcasted": True,
-            "confirmed": True,
-            "confirmation_status": "confirmed",
-            "source": "flash-sdk-bridge",
-        }
-
     async def get_kamino_lend_markets(self) -> dict:
         return {
             "chain": "solana",
@@ -1853,33 +1637,6 @@ class NoRepreviewSwapBackend(FakeBackend):
         )
 
 
-class NoRepreviewFlashBackend(FakeBackend):
-    def __init__(self) -> None:
-        self._flash_open_preview_calls = 0
-
-    async def preview_flash_trade_open_position(
-        self,
-        *,
-        pool_name: str,
-        market_symbol: str,
-        collateral_symbol: str,
-        collateral_amount_raw: str,
-        leverage: str,
-        side: str,
-    ) -> dict:
-        self._flash_open_preview_calls += 1
-        if self._flash_open_preview_calls > 1:
-            raise WalletBackendError("execute should use the approved Flash preview payload")
-        return await super().preview_flash_trade_open_position(
-            pool_name=pool_name,
-            market_symbol=market_symbol,
-            collateral_symbol=collateral_symbol,
-            collateral_amount_raw=collateral_amount_raw,
-            leverage=leverage,
-            side=side,
-        )
-
-
 class NoRepreviewKaminoBackend(FakeBackend):
     def __init__(self) -> None:
         self._kamino_preview_calls = 0
@@ -2156,9 +1913,9 @@ async def main() -> None:
     tool_names = {tool.name for tool in adapter.list_tools()}
     bundle_tool_names = {tool["name"] for tool in bundle["tools"]}
 
-    assert len(tool_names) == 49
+    assert len(tool_names) == 45
     assert bundle["manifest"]["id"] == "agent-wallet"
-    assert len(bundle_tool_names) == 49
+    assert len(bundle_tool_names) == 45
     assert "Wallet Operator" in bundle["instructions"]
     assert "get_lifi_supported_chains" in tool_names
     assert "get_lifi_quote" in tool_names
@@ -2172,10 +1929,6 @@ async def main() -> None:
     assert "get_jupiter_earn_tokens" not in tool_names
     assert "jupiter_earn_deposit" not in tool_names
     assert "jupiter_earn_withdraw" not in tool_names
-    assert "get_flash_trade_markets" in tool_names
-    assert "get_flash_trade_positions" in tool_names
-    assert "flash_trade_open_position" in tool_names
-    assert "flash_trade_close_position" in tool_names
     assert "get_kamino_lend_markets" in tool_names
     assert "get_kamino_portfolio" in tool_names
     assert "get_kamino_vaults" in tool_names
@@ -2194,10 +1947,6 @@ async def main() -> None:
     assert "get_kamino_open_positions" in bundle_tool_names
     assert "get_kamino_portfolio" in bundle_tool_names
     assert "launch_bags_token" in bundle_tool_names
-    assert "get_flash_trade_markets" in bundle_tool_names
-    assert "get_flash_trade_positions" in bundle_tool_names
-    assert "flash_trade_open_position" in bundle_tool_names
-    assert "flash_trade_close_position" in bundle_tool_names
 
     capabilities = await adapter.invoke("get_wallet_capabilities")
     assert capabilities.ok and capabilities.data["backend"] == "fake_wallet"
@@ -2245,114 +1994,6 @@ async def main() -> None:
         {"tx_hash": "0xsourcehash", "from_chain": "base", "to_chain": "solana"},
     )
     assert lifi_status.ok and lifi_status.data["status"] == "DONE"
-
-    flash_markets = await adapter.invoke("get_flash_trade_markets")
-    assert flash_markets.ok and flash_markets.data["market_count"] == 2
-    assert flash_markets.data["markets"][1]["collateral_symbol"] == "USDC"
-
-    flash_positions = await adapter.invoke(
-        "get_flash_trade_positions",
-        {"pool_name": "Crypto.1"},
-    )
-    assert flash_positions.ok and flash_positions.data["position_count"] == 1
-    assert flash_positions.data["positions"][0]["poolName"] == "Crypto.1"
-
-    flash_open_preview = await adapter.invoke(
-        "flash_trade_open_position",
-        {
-            "pool_name": "Crypto.1",
-            "market_symbol": "SOL",
-            "collateral_symbol": "SOL",
-            "collateral_amount_raw": "100000000",
-            "leverage": "5",
-            "side": "long",
-            "mode": "preview",
-            "purpose": "Open a directional SOL perp position",
-        },
-    )
-    assert flash_open_preview.ok and flash_open_preview.data["estimated_size_usd"] == "1250.00"
-
-    flash_open_short_preview = await adapter.invoke(
-        "flash_trade_open_position",
-        {
-            "pool_name": "Crypto.1",
-            "market_symbol": "SOL",
-            "collateral_symbol": "USDC",
-            "collateral_amount_raw": "5000000",
-            "leverage": "2",
-            "side": "short",
-            "mode": "preview",
-            "purpose": "Open a SOL short using USDC collateral",
-        },
-    )
-    assert flash_open_short_preview.ok and flash_open_short_preview.data["collateral_symbol"] == "USDC"
-
-    flash_open_prepare = await adapter.invoke(
-        "flash_trade_open_position",
-        {
-            "pool_name": "Crypto.1",
-            "market_symbol": "SOL",
-            "collateral_symbol": "SOL",
-            "collateral_amount_raw": "100000000",
-            "leverage": "5",
-            "side": "long",
-            "mode": "prepare",
-            "purpose": "Open a directional SOL perp position",
-            "user_intent": True,
-        },
-    )
-    assert flash_open_prepare.ok and flash_open_prepare.data["execution_plan_only"] is True
-
-    flash_open_execute = await adapter.invoke(
-        "flash_trade_open_position",
-        {
-            "pool_name": "Crypto.1",
-            "market_symbol": "SOL",
-            "collateral_symbol": "SOL",
-            "collateral_amount_raw": "100000000",
-            "leverage": "5",
-            "side": "long",
-            "mode": "execute",
-            "purpose": "Open a directional SOL perp position",
-            "approval_token": _issue_execute_approval(
-                tool_name="flash_trade_open_position",
-                preview=flash_open_preview.data,
-                network="mainnet",
-                mainnet_confirmed=True,
-            ),
-        },
-    )
-    assert flash_open_execute.ok and flash_open_execute.data["broadcasted"] is True
-
-    flash_close_preview = await adapter.invoke(
-        "flash_trade_close_position",
-        {
-            "pool_name": "Crypto.1",
-            "market_symbol": "SOL",
-            "side": "long",
-            "mode": "preview",
-            "purpose": "Close the SOL perp position",
-        },
-    )
-    assert flash_close_preview.ok and flash_close_preview.data["position_size_usd"] == "1250.00"
-
-    flash_close_execute = await adapter.invoke(
-        "flash_trade_close_position",
-        {
-            "pool_name": "Crypto.1",
-            "market_symbol": "SOL",
-            "side": "long",
-            "mode": "execute",
-            "purpose": "Close the SOL perp position",
-            "approval_token": _issue_execute_approval(
-                tool_name="flash_trade_close_position",
-                preview=flash_close_preview.data,
-                network="mainnet",
-                mainnet_confirmed=True,
-            ),
-        },
-    )
-    assert flash_close_execute.ok and flash_close_execute.data["broadcasted"] is True
 
     kamino_markets = await adapter.invoke("get_kamino_lend_markets")
     assert kamino_markets.ok and kamino_markets.data["market_count"] == 1
@@ -3162,45 +2803,6 @@ async def main() -> None:
     )
     assert no_repreview_legacy_summary_execute.ok is True
     assert no_repreview_backend._swap_preview_calls == 1
-
-    no_repreview_flash_backend = NoRepreviewFlashBackend()
-    no_repreview_flash_adapter = OpenClawWalletAdapter(no_repreview_flash_backend)
-    no_repreview_flash_preview = await no_repreview_flash_adapter.invoke(
-        "flash_trade_open_position",
-        {
-            "pool_name": "Crypto.1",
-            "market_symbol": "SOL",
-            "collateral_symbol": "SOL",
-            "collateral_amount_raw": "100000000",
-            "leverage": "1",
-            "side": "long",
-            "mode": "preview",
-            "purpose": "test no-repreview flash execute",
-        },
-    )
-    assert no_repreview_flash_preview.ok is True
-    no_repreview_flash_execute = await no_repreview_flash_adapter.invoke(
-        "flash_trade_open_position",
-        {
-            "pool_name": "Crypto.1",
-            "market_symbol": "SOL",
-            "collateral_symbol": "SOL",
-            "collateral_amount_raw": "100000000",
-            "leverage": "1",
-            "side": "long",
-            "mode": "execute",
-            "purpose": "test no-repreview flash execute",
-            "approval_token": _issue_execute_approval(
-                tool_name="flash_trade_open_position",
-                preview=no_repreview_flash_preview.data,
-                network="mainnet",
-                bind_preview_digest=True,
-            ),
-            "_approved_preview": no_repreview_flash_preview.data,
-        },
-    )
-    assert no_repreview_flash_execute.ok is True
-    assert no_repreview_flash_backend._flash_open_preview_calls == 1
 
     no_repreview_kamino_backend = NoRepreviewKaminoBackend()
     no_repreview_kamino_adapter = OpenClawWalletAdapter(no_repreview_kamino_backend)

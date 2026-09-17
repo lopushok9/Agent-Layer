@@ -15,8 +15,6 @@ let selectedBtcNetwork = null;
 const PREVIEW_CACHE_TTL_MS = 15 * 60 * 1000;
 const PREVIEW_BOUND_SWAP_TOOLS = new Set([
   "swap_solana_tokens",
-  "flash_trade_open_position",
-  "flash_trade_close_position",
 ]);
 const EVM_CORE_NETWORKS = ["ethereum", "base", "robinhood"];
 const AUTONOMOUS_BASE_SWAP_TOOLS = new Set([
@@ -844,12 +842,12 @@ const walletSessionToolDefinitions = [
       properties: {
         backend: {
           type: "string",
-          enum: ["solana", "sol", "evm", "ethereum", "base", "robinhood", "bitcoin", "btc"],
+          enum: ["solana", "sol", "evm", "ethereum", "base", "robinhood", "arc", "bitcoin", "btc"],
           description: "Wallet backend or common alias to make active.",
         },
         network: {
           type: "string",
-          description: "Optional network for the selected wallet. Examples: mainnet, ethereum, base, robinhood, bitcoin.",
+          description: "Optional network for the selected wallet. Examples: mainnet, ethereum, base, robinhood, arc, bitcoin.",
         },
       },
       required: ["backend"],
@@ -952,38 +950,6 @@ const solanaToolDefinitions = [
         },
       },
       required: ["mints"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "get_flash_trade_markets",
-    description: "List Flash Trade perpetual markets currently available on Solana mainnet.",
-    parameters: {
-      type: "object",
-      properties: {
-        pool_name: {
-          type: "string",
-          description: "Optional Flash pool identifier such as Crypto.1.",
-        },
-      },
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "get_flash_trade_positions",
-    description: "Get Flash Trade perpetual positions for a Solana wallet on mainnet.",
-    parameters: {
-      type: "object",
-      properties: {
-        owner: {
-          type: "string",
-          description: "Optional Solana wallet address override. If omitted, use the configured wallet.",
-        },
-        pool_name: {
-          type: "string",
-          description: "Optional Flash pool identifier such as Crypto.1.",
-        },
-      },
       additionalProperties: false,
     },
   },
@@ -1359,83 +1325,6 @@ const solanaToolDefinitions = [
         user_intent: { type: "boolean" },
       },
       required: ["kvault", "amount_ui", "mode", "purpose"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "flash_trade_open_position",
-    description: "Preview, prepare, or execute a Flash Trade perpetual open on Solana mainnet using a supported Flash collateral.",
-    optional: true,
-    parameters: {
-      type: "object",
-      properties: {
-        pool_name: {
-          type: "string",
-          description: "Flash pool identifier such as Crypto.1.",
-        },
-        market_symbol: {
-          type: "string",
-          description: "Flash market symbol such as SOL or BTC.",
-        },
-        collateral_symbol: {
-          type: "string",
-          description: "Flash collateral symbol, for example SOL for SOL longs or USDC for SOL shorts.",
-        },
-        collateral_amount_raw: {
-          type: "string",
-          description: "Collateral amount in raw token units.",
-        },
-        leverage: {
-          type: "string",
-          description: "Requested leverage as a decimal string such as 5 or 7.5.",
-        },
-        side: {
-          type: "string",
-          enum: ["long", "short"],
-          description: "Position direction.",
-        },
-        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
-        purpose: { type: "string" },
-        user_intent: { type: "boolean" },
-      },
-      required: [
-        "pool_name",
-        "market_symbol",
-        "collateral_symbol",
-        "collateral_amount_raw",
-        "leverage",
-        "side",
-        "mode",
-        "purpose",
-      ],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "flash_trade_close_position",
-    description: "Preview, prepare, or execute a Flash Trade perpetual close on Solana mainnet.",
-    optional: true,
-    parameters: {
-      type: "object",
-      properties: {
-        pool_name: {
-          type: "string",
-          description: "Flash pool identifier such as Crypto.1.",
-        },
-        market_symbol: {
-          type: "string",
-          description: "Flash market symbol such as SOL or BTC.",
-        },
-        side: {
-          type: "string",
-          enum: ["long", "short"],
-          description: "Position direction to close.",
-        },
-        mode: { type: "string", enum: ["preview", "prepare", "execute"] },
-        purpose: { type: "string" },
-        user_intent: { type: "boolean" },
-      },
-      required: ["pool_name", "market_symbol", "side", "mode", "purpose"],
       additionalProperties: false,
     },
   },

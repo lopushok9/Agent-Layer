@@ -15,7 +15,6 @@ const ONCHAIN_TOOLS = [
     { name: 'Kamino', logo: '/logos/kamino.webp' },
     { name: 'LI.FI', logo: '/logos/lifi.webp' },
     { name: 'Morpho', logo: '/logos/morpho.webp' },
-    { name: 'Flash Trade', logo: '/logos/flash-trade.webp' },
 ]
 
 // Only GitHub is configured in production; X stays out of the copy until it is.

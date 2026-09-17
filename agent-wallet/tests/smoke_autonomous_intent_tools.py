@@ -1,7 +1,7 @@
 """Smoke coverage for the autonomous-mode fallback on the intent-based tools.
 
 swap_solana_tokens, swap_evm_lifi_cross_chain_tokens,
-swap_solana_lifi_cross_chain_tokens, flash_trade_open/close_position, and
+swap_solana_lifi_cross_chain_tokens and
 all 6 Kamino tools used to call inspect_approval_token unconditionally,
 which hard-requires a real host-issued token and made _require_execute_approval's
 autonomous_session / agentlayer_autonomous_approve fallback unreachable dead
@@ -62,21 +62,6 @@ async def main() -> None:
         "slippage": 0.01,
         "purpose": "autonomous evm lifi smoke",
     }
-    flash_open_args = {
-        "pool_name": "Crypto.1",
-        "market_symbol": "SOL",
-        "collateral_symbol": "SOL",
-        "collateral_amount_raw": "100000000",
-        "leverage": "5",
-        "side": "long",
-        "purpose": "autonomous flash open smoke",
-    }
-    flash_close_args = {
-        "pool_name": "Crypto.1",
-        "market_symbol": "SOL",
-        "side": "long",
-        "purpose": "autonomous flash close smoke",
-    }
     kamino_lend_args = {
         "market": "FakeKaminoMarket111111111111111111111111111111",
         "reserve": "FakeKaminoReserve1111111111111111111111111111",
@@ -96,8 +81,6 @@ async def main() -> None:
         (solana_adapter, "swap_solana_tokens", "intent_execute", swap_intent_args),
         (solana_adapter, "swap_solana_lifi_cross_chain_tokens", "execute", lifi_solana_args),
         (evm_adapter, "swap_evm_lifi_cross_chain_tokens", "execute", lifi_evm_args),
-        (solana_adapter, "flash_trade_open_position", "execute", flash_open_args),
-        (solana_adapter, "flash_trade_close_position", "execute", flash_close_args),
         (solana_adapter, "kamino_lend_deposit", "execute", kamino_lend_args),
         (solana_adapter, "kamino_lend_deposit", "intent_execute", kamino_lend_intent_args),
         (solana_adapter, "kamino_earn_deposit", "execute", kamino_earn_args),

@@ -45,7 +45,6 @@ Main clusters:
 - EVM RPC: `/v1/evm/rpc/{network}`
 - Bags trade, launch, claim, and fee analytics
 - Jupiter Earn relay
-- Flash Trade perps relay
 - Houdini private swap relay
 
 ## A2A and registration surfaces

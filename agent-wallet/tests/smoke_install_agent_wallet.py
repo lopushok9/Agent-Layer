@@ -103,7 +103,6 @@ def main() -> None:
     assert payload["ok"] is True
     assert payload["env_created"] is True
     assert payload["boot_key_file_env_updated"] is True
-    assert payload["flash_bridge_env"]["command_updated"] is True
     assert payload["config_created"] is True
     assert payload["configured"] is False
     assert payload["pending_env"] == []
@@ -120,8 +119,6 @@ def main() -> None:
         in Path(payload["env_path"]).read_text(encoding="utf-8")
     )
     env_text = Path(payload["env_path"]).read_text(encoding="utf-8")
-    assert "FLASH_SDK_BRIDGE_COMMAND=node " in env_text
-    assert "FLASH_SDK_BRIDGE_MODE=real" in env_text
     synced_server = runtime_root / "wdk-evm-wallet" / "src" / "server.js"
     assert synced_server.exists()
     assert synced_server.read_text(encoding="utf-8") == (

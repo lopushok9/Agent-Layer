@@ -48,10 +48,6 @@ LEGACY_ALLOWLIST_TOOLS = [
     "transfer_spl_token",
     "swap_solana_tokens",
     "close_empty_token_accounts",
-    "get_flash_trade_markets",
-    "get_flash_trade_positions",
-    "flash_trade_open_position",
-    "flash_trade_close_position",
 ]
 
 X402_TOOLS = [

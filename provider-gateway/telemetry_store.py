@@ -343,8 +343,6 @@ def _tool_category(tool: str) -> str:
         }:
             return "solana_wallet"
         return "solana_defi"
-    if tool.startswith("get_flash_") or tool.startswith("flash_trade_"):
-        return "solana_defi"
     if tool.startswith("get_kamino_") or tool.startswith("kamino_"):
         return "solana_defi"
     if tool.startswith("launch_bags_") or tool == "swap_solana_tokens":

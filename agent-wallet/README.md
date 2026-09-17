@@ -417,30 +417,6 @@ Operational notes:
 - Jupiter `Earn` can use the hosted or self-hosted provider gateway for shared onboarding-friendly access.
 - Ordinary Jupiter swap routing remains direct and does not go through the provider gateway.
 
-## Flash Trade coverage
-
-Current Flash Trade integration is intentionally phase-scoped:
-
-- read-only `markets` and `positions` hooks are now wired through the Solana backend and OpenClaw adapter
-- the transport is provider-driven, so Flash can be added through `provider-gateway` without introducing a new wallet runtime
-
-Operational notes:
-
-- current agent-facing tools are `get_flash_trade_markets` and `get_flash_trade_positions`
-- these reads are mainnet-only
-- Flash perpetual opens/closes now follow the existing `preview -> prepare -> execute` approval model instead of a separate trading wallet flow
-- Flash reads expect either hosted/self-hosted gateway routes on `PROVIDER_GATEWAY_URL` or a direct `FLASH_API_BASE_URL`
-- if those HTTP routes are unavailable, the Solana backend now falls back to the local `flash-sdk-bridge` for market discovery and user-position discovery
-- Phase 2 now also adds `flash_trade_open_position` and `flash_trade_close_position` in `preview` / `prepare` / `execute`
-- those preview/prepare/execute flows are produced by a local bridge command configured via `FLASH_SDK_BRIDGE_COMMAND`
-- the bridge is expected to return machine JSON on stdout; `agent-wallet/tests/smoke_flash_sdk_bridge.py` documents the minimal contract shape
-- a repo-owned Node bridge now lives at `agent-wallet/scripts/flash-sdk-bridge/bridge.mjs`
-- install its pinned SDK dependencies with `cd agent-wallet/scripts/flash-sdk-bridge && npm install`
-- `FLASH_SDK_BRIDGE_MODE=mock` provides deterministic smoke behavior without SDK dependencies
-- `FLASH_SDK_BRIDGE_MODE=real` now produces real Flash SDK quotes for preview and real versioned transaction builds for prepare/execute
-- the backend locally verifies the provider-built Flash transaction, applies only the wallet signature, and requires a host-issued approval token before broadcast; tool-level `prepare` still strips signed transaction bytes before returning to the agent
-- current real-mode constraints are intentionally narrow: mainnet only, Flash-supported market collateral only, and whole-number raw collateral strings for opens
-
 ## Native staking coverage
 
 Current native Solana staking integration now includes:

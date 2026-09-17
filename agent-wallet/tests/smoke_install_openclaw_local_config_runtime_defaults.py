@@ -84,10 +84,6 @@ def main() -> None:
     assert "transfer_evm_token" in config_data["tools"]["alsoAllow"]
     assert "x402_search_services" in config_data["tools"]["alsoAllow"]
     assert "x402_pay_request" in config_data["tools"]["alsoAllow"]
-    assert "get_flash_trade_markets" in config_data["tools"]["alsoAllow"]
-    assert "get_flash_trade_positions" in config_data["tools"]["alsoAllow"]
-    assert "flash_trade_open_position" in config_data["tools"]["alsoAllow"]
-    assert "flash_trade_close_position" in config_data["tools"]["alsoAllow"]
 
     print("smoke_install_openclaw_local_config_runtime_defaults: ok")
 
