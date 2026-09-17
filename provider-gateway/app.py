@@ -938,24 +938,20 @@ def _resolve_rpc_url(provider: str, network: str) -> tuple[str, str]:
 
 def _resolve_evm_rpc_url(provider: str, network: str) -> tuple[str, str]:
     network_key = network.strip().lower()
-    if network_key not in {"ethereum", "base", "robinhood", "goat"}:
+    if network_key not in {"ethereum", "base", "robinhood"}:
         raise RuntimeError(
-            "Shared EVM provider gateway RPC currently supports only ethereum, base, robinhood, and goat."
+            "Shared EVM provider gateway RPC currently supports only ethereum, base, and robinhood."
         )
 
     shared_by_network = {
         "ethereum": _provider_url_from_env("SHARED_EVM_ETHEREUM_RPC_URL"),
         "base": _provider_url_from_env("SHARED_EVM_BASE_RPC_URL"),
         "robinhood": _provider_url_from_env("SHARED_EVM_ROBINHOOD_RPC_URL"),
-        "goat": _provider_url_from_env("SHARED_EVM_GOAT_RPC_URL"),
     }
     alchemy_url_by_network = {
         "ethereum": _provider_url_from_env("ALCHEMY_ETHEREUM_RPC_URL"),
         "base": _provider_url_from_env("ALCHEMY_BASE_RPC_URL"),
         "robinhood": _provider_url_from_env("ALCHEMY_ROBINHOOD_RPC_URL"),
-        # GOAT is deliberately shared-RPC-only. Alchemy is not a GOAT upstream,
-        # and accepting a generic provider here would weaken the allowlist.
-        "goat": "",
     }
 
     alchemy_key = _trim(os.getenv("ALCHEMY_API_KEY"))
@@ -974,8 +970,6 @@ def _resolve_evm_rpc_url(provider: str, network: str) -> tuple[str, str]:
         raise RuntimeError(f"Shared EVM RPC is not configured for {network_key}")
 
     if provider == "alchemy":
-        if network_key == "goat":
-            raise RuntimeError("Alchemy EVM RPC is unavailable for goat; use provider=shared.")
         alchemy_url = alchemy_url_by_network[network_key]
         if alchemy_url:
             return ("alchemy", alchemy_url)
@@ -988,8 +982,6 @@ def _resolve_evm_rpc_url(provider: str, network: str) -> tuple[str, str]:
         return ("shared", shared_by_network[network_key])
     if alchemy_url_by_network[network_key]:
         return ("alchemy", alchemy_url_by_network[network_key])
-    if network_key == "goat":
-        raise RuntimeError("No shared EVM RPC is configured for goat. Set SHARED_EVM_GOAT_RPC_URL.")
     raise RuntimeError(
         f"No shared EVM RPC is configured for {network_key}. "
         "Set SHARED_EVM_<NETWORK>_RPC_URL, ALCHEMY_<NETWORK>_RPC_URL, or ALCHEMY_API_KEY."
@@ -1006,7 +998,7 @@ def _status_payload() -> dict[str, Any]:
             continue
 
     evm_rpc_upstreams: dict[str, list[str]] = {}
-    for network in ("ethereum", "base", "robinhood", "goat"):
+    for network in ("ethereum", "base", "robinhood"):
         available: list[str] = []
         for provider in ("shared", "alchemy"):
             try:

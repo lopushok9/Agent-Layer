@@ -7,8 +7,6 @@ from typing import Iterator
 
 from pydantic_settings import BaseSettings
 
-from agent_wallet.networks import EVM_CORE_MAINNETS, EVM_CORE_NETWORK_ALIASES, EVM_CORE_TESTNETS
-
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PROVIDER_GATEWAY_URL = "https://agent-layer-production.up.railway.app"
 
@@ -41,7 +39,10 @@ class Settings(BaseSettings):
     provider_gateway_bearer_token: str = ""
     provider_gateway_rpc_provider: str = "auto"
     solana_swap_provider: str = "auto"
-    wdk_evm_service_url: str = ""
+    wdk_btc_service_url: str = "http://127.0.0.1:8080"
+    wdk_btc_wallet_id: str = ""
+    wdk_btc_account_index: int = 0
+    wdk_evm_service_url: str = "http://127.0.0.1:8081"
     wdk_evm_wallet_id: str = ""
     wdk_evm_account_index: int = 0
 
@@ -111,20 +112,51 @@ def normalize_solana_network(network: str | None) -> str:
 def normalize_evm_network(network: str | None) -> str:
     """Canonicalize supported EVM network names and reject testnets."""
     normalized = str(network or "").strip().lower() or "ethereum"
-    normalized = EVM_CORE_NETWORK_ALIASES.get(normalized, normalized)
-    if normalized in EVM_CORE_TESTNETS:
+    aliases = {
+        "mainnet": "ethereum",
+        "eth": "ethereum",
+        "eth-mainnet": "ethereum",
+        "base-mainnet": "base",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized in {"sepolia", "base-sepolia", "base_sepolia"}:
         from agent_wallet.wallet_layer.base import WalletBackendError
 
         raise WalletBackendError(
-            "EVM testnets are no longer supported by agent-wallet. Use ethereum, base, robinhood, or goat."
+            "EVM testnets are no longer supported by agent-wallet. Use ethereum, base, or robinhood."
         )
-    if normalized not in EVM_CORE_MAINNETS:
+    if normalized not in {"ethereum", "base", "robinhood"}:
         from agent_wallet.wallet_layer.base import WalletBackendError
 
         raise WalletBackendError(
-            f"Unsupported EVM network: {normalized}. Use ethereum, base, robinhood, or goat."
+            f"Unsupported EVM network: {normalized}. Use ethereum, base, or robinhood."
         )
     return normalized
+
+
+def normalize_btc_network(network: str | None) -> str:
+    """Canonicalize supported BTC network names and reject non-mainnet chains."""
+    normalized = str(network or "").strip().lower() or "bitcoin"
+    aliases = {
+        "mainnet": "bitcoin",
+        "btc": "bitcoin",
+        "bitcoin-mainnet": "bitcoin",
+        "bitcoin_mainnet": "bitcoin",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized in {"testnet", "regtest"}:
+        from agent_wallet.wallet_layer.base import WalletBackendError
+
+        raise WalletBackendError(
+            "Bitcoin testnet/regtest are no longer supported by agent-wallet. Use bitcoin."
+        )
+    if normalized != "bitcoin":
+        from agent_wallet.wallet_layer.base import WalletBackendError
+
+        raise WalletBackendError(
+            f"Unsupported Bitcoin network: {normalized}. Only bitcoin is supported."
+        )
+    return "bitcoin"
 
 
 def _normalize_provider_mode(value: str | None) -> str:
@@ -170,20 +202,6 @@ def resolve_openclaw_home() -> Path:
     """Resolve the default OpenClaw home directory for plugin state."""
     raw = os.getenv("OPENCLAW_HOME", "~/.openclaw")
     return Path(raw).expanduser()
-
-
-def resolve_wdk_evm_service_url() -> str:
-    """Resolve the wdk-evm-wallet service URL, unix-socket by default.
-
-    An explicit WDK_EVM_SERVICE_URL/settings value always wins, whatever
-    transport it names (http:// for an explicit TCP deployment, unix:// for
-    a non-default socket path). Otherwise this is a per-OPENCLAW_HOME unix
-    socket — see docs/superpowers/specs/2026-08-30-evm-wallet-unix-socket-transport-design.md.
-    """
-    explicit = settings.wdk_evm_service_url.strip()
-    if explicit:
-        return explicit
-    return f"unix://{resolve_openclaw_home() / 'wdk-evm-wallet' / 'daemon.sock'}"
 
 
 def default_solana_wallet_path(network: str) -> Path:
@@ -621,6 +639,17 @@ def resolve_evm_wallet_password() -> str:
     return _resolve_sealed_secret(
         "wdk_evm_wallet_password",
         "evm_wallet_password",
+    )
+
+
+def resolve_btc_wallet_password() -> str:
+    """Resolve the local BTC vault password from env or the sealed secret store."""
+    direct = os.getenv("WDK_BTC_WALLET_PASSWORD", "").strip()
+    if direct:
+        return direct
+    return _resolve_sealed_secret(
+        "wdk_btc_wallet_password",
+        "btc_wallet_password",
     )
 
 

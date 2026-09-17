@@ -10,7 +10,7 @@ using the wallet already connected in this session (Solana or Base/EVM
 through the local AgentLayer wallet). Real payment execution today only
 works when the active wallet backend is **Base** (`eip155:8453`) or
 **Solana mainnet** (`solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp`) — other EVM
-networks (Ethereum, Robinhood, GOAT) or testnets can discover and preview
+networks (Ethereum, Robinhood) or testnets can discover and preview
 but cannot currently pay.
 
 Codex has no native multiple-choice menu, so present options as a numbered
