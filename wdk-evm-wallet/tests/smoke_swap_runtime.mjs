@@ -15,6 +15,7 @@ const DEFAULT_TOKEN_OUT_MIXED_CASE = "0xA0b86991c6218b36c1d19d4a2e9eb0ce3606eb48
 const DEFAULT_TOKEN_OUT_MIXED_CASE_LOWER = DEFAULT_TOKEN_OUT_MIXED_CASE.toLowerCase();
 const BASE_USDC_CHECKSUMMED = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const BASE_USDC_LOWER = BASE_USDC_CHECKSUMMED.toLowerCase();
+const ARC_USDC = "0x3600000000000000000000000000000000000000";
 const DEFAULT_ROUTER = "0x4444444444444444444444444444444444444444";
 const DEFAULT_SPENDER = "0x5555555555555555555555555555555555555555";
 const DEFAULT_ADDRESS = "0x1111111111111111111111111111111111111111";
@@ -53,7 +54,7 @@ function createRuntimeHarness(options = {}) {
     network: options.network ?? "ethereum",
     chainId: options.chainId ?? 1,
     providerUrl: options.providerUrl ?? "http://fake-rpc.local",
-    nativeSymbol: "ETH",
+    nativeSymbol: options.nativeSymbol ?? "ETH",
     tokenIn: options.tokenIn ?? DEFAULT_TOKEN_IN,
     tokenOut: options.tokenOut ?? DEFAULT_TOKEN_OUT,
     spender: options.spender ?? DEFAULT_SPENDER,
@@ -739,6 +740,61 @@ test("quoteLifiSwap lowercases EVM token addresses before calling LI.FI", async 
       assert.equal(quote.swapRequest.outputToken, BASE_USDC_LOWER);
       assert.equal(quote.tokenInMetadata.address, DEFAULT_TOKEN_OUT_MIXED_CASE_LOWER);
       assert.equal(quote.outputTokenMetadata.address, BASE_USDC_LOWER);
+    }
+  );
+});
+
+test("quoteLifiSwap supports Arc and maps native USDC to its ERC-20 interface", async () => {
+  await withHarness(
+    {
+      network: "arc",
+      chainId: 5042,
+      nativeSymbol: "USDC",
+      tokenIn: ARC_USDC,
+      tokenDecimals: 6,
+    },
+    async ({ service, state, config }) => {
+      const quote = await service.quoteLifiSwap({
+        seedPhrase: VALID_MNEMONIC,
+        tokenIn: "native",
+        destinationChain: "base",
+        outputToken: BASE_USDC_CHECKSUMMED,
+        destinationAddress: DEFAULT_ADDRESS,
+        tokenInAmount: config.amountIn,
+        network: config.network,
+      });
+
+      assert.equal(state.lifiQuoteUrls.length, 1);
+      const url = new URL(state.lifiQuoteUrls[0]);
+      assert.equal(url.searchParams.get("fromChain"), "5042");
+      assert.equal(url.searchParams.get("fromToken"), ARC_USDC);
+      assert.equal(quote.network, "arc");
+      assert.equal(quote.chainId, 5042);
+      assert.equal(quote.swapRequest.tokenIn, ARC_USDC);
+    }
+  );
+});
+
+test("quoteLifiSwap maps Arc destination native USDC to its ERC-20 interface", async () => {
+  await withHarness(
+    {
+      network: "base",
+      chainId: 8453,
+    },
+    async ({ service, state, config }) => {
+      await service.quoteLifiSwap({
+        seedPhrase: VALID_MNEMONIC,
+        tokenIn: config.tokenIn,
+        destinationChain: "arc",
+        outputToken: "native",
+        destinationAddress: DEFAULT_ADDRESS,
+        tokenInAmount: config.amountIn,
+        network: config.network,
+      });
+
+      const url = new URL(state.lifiQuoteUrls[0]);
+      assert.equal(url.searchParams.get("toChain"), "5042");
+      assert.equal(url.searchParams.get("toToken"), ARC_USDC);
     }
   );
 });

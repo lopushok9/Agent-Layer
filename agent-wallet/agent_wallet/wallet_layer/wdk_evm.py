@@ -20,6 +20,8 @@ def _lifi_chain_id_for_evm_network(network: str) -> str:
     normalized = _normalize_evm_network(network)
     if normalized == "base":
         return "8453"
+    if normalized == "arc":
+        return "5042"
     return "1"
 
 

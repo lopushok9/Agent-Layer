@@ -47,6 +47,7 @@ just to switch the active EVM network.
 EVM_NATIVE_TOKEN_ADDRESS = "0x0000000000000000000000000000000000000000"
 VELORA_NATIVE_TOKEN_ADDRESS = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 SOLANA_NATIVE_TOKEN_ADDRESS = "11111111111111111111111111111111"
+ARC_USDC_ERC20_ADDRESS = "0x3600000000000000000000000000000000000000"
 LIFI_CHAIN_ALIASES = {
     "eth": "1",
     "ethereum": "1",
@@ -56,6 +57,9 @@ LIFI_CHAIN_ALIASES = {
     "base": "8453",
     "base-mainnet": "8453",
     "8453": "8453",
+    "arc": "5042",
+    "arc-mainnet": "5042",
+    "5042": "5042",
     "sol": "1151111081099710",
     "solana": "1151111081099710",
     "1151111081099710": "1151111081099710",
@@ -85,10 +89,10 @@ class OpenClawWalletAdapter:
     def _is_mainnet_for_backend(self, backend: AgentWalletBackend) -> bool:
         return self._is_mainnet_network(getattr(backend, "network", ""))
 
-    def _supports_evm_velora(self) -> bool:
-        return self._supports_evm_velora_for_backend(self.backend)
+    def _supports_evm_protocol_tools(self) -> bool:
+        return self._supports_evm_protocol_tools_for_backend(self.backend)
 
-    def _supports_evm_velora_for_backend(self, backend: AgentWalletBackend) -> bool:
+    def _supports_evm_protocol_tools_for_backend(self, backend: AgentWalletBackend) -> bool:
         if str(getattr(backend, "chain", "")).strip().lower() != "evm":
             return False
         network = str(getattr(backend, "network", "")).strip().lower()
@@ -97,11 +101,17 @@ class OpenClawWalletAdapter:
             "eth": "ethereum",
             "eth-mainnet": "ethereum",
             "base-mainnet": "base",
+            "arc-mainnet": "arc",
             "eip155:1": "ethereum",
             "eip155:8453": "base",
             "eip155:4663": "robinhood",
+            "eip155:5042": "arc",
         }
-        return aliases.get(network, network) in {"ethereum", "base", "robinhood"}
+        return aliases.get(network, network) in {"ethereum", "base", "robinhood", "arc"}
+
+    def _is_arc_backend(self, backend: AgentWalletBackend) -> bool:
+        network = str(getattr(backend, "network", "")).strip().lower()
+        return network in {"arc", "arc-mainnet", "eip155:5042"}
 
     def _normalize_evm_tool_network(self, value: Any) -> str:
         network = str(value or "").strip().lower()
@@ -178,6 +188,12 @@ class OpenClawWalletAdapter:
     def _canonicalize_lifi_token_identifier(self, value: Any, *, chain_id: str) -> str:
         text = str(value or "").strip()
         alias = text.lower()
+        if chain_id == "5042":
+            if alias in {"native", "usdc", "arc", EVM_NATIVE_TOKEN_ADDRESS}:
+                return ARC_USDC_ERC20_ADDRESS
+            if alias.startswith("0x") and len(alias) == 42:
+                return alias
+            return text
         if chain_id in {"1", "8453"}:
             if alias in {"native", "eth", "ethereum"}:
                 return EVM_NATIVE_TOKEN_ADDRESS
@@ -1271,10 +1287,10 @@ class OpenClawWalletAdapter:
                     input_schema={
                         "type": "object",
                         "properties": {
-                            "from_chain": {"type": "string", "description": "Source chain: ethereum, base, solana, or the LI.FI chain id."},
-                            "to_chain": {"type": "string", "description": "Destination chain: ethereum, base, solana, or the LI.FI chain id."},
-                            "from_token": {"type": "string", "description": "Source token address. Use native/eth/sol for native tokens."},
-                            "to_token": {"type": "string", "description": "Destination token address. Use native/eth/sol for native tokens."},
+                            "from_chain": {"type": "string", "description": "Source chain: ethereum, base, arc, solana, or the LI.FI chain id."},
+                            "to_chain": {"type": "string", "description": "Destination chain: ethereum, base, arc, solana, or the LI.FI chain id."},
+                            "from_token": {"type": "string", "description": "Source token address. Use native/eth/sol, or native/usdc on Arc, for native assets."},
+                            "to_token": {"type": "string", "description": "Destination token address. Use native/eth/sol, or native/usdc on Arc, for native assets."},
                             "amount_in_raw": {
                                 "type": "string",
                                 "description": "Input amount in token base units as a base-10 integer string.",
@@ -1511,7 +1527,7 @@ class OpenClawWalletAdapter:
                 ),
             ]
 
-            if self._supports_evm_velora():
+            if self._supports_evm_protocol_tools():
                 tools.insert(
                     6,
                     AgentToolSpec(
@@ -1903,7 +1919,7 @@ class OpenClawWalletAdapter:
                                 },
                                 "network": {
                                     "type": "string",
-                                    "enum": ["ethereum", "base"],
+                                    "enum": ["ethereum", "base", "arc"],
                                     "description": "Optional EVM network override for this request.",
                                 },
                             },
@@ -1979,7 +1995,7 @@ class OpenClawWalletAdapter:
                                 },
                                 "network": {
                                     "type": "string",
-                                    "enum": ["ethereum", "base"],
+                                    "enum": ["ethereum", "base", "arc"],
                                     "description": "Optional EVM network override for this request.",
                                 },
                             },
@@ -1999,7 +2015,7 @@ class OpenClawWalletAdapter:
                             "properties": {
                                 "network": {
                                     "type": "string",
-                                    "enum": ["ethereum", "base"],
+                                    "enum": ["ethereum", "base", "arc"],
                                     "description": "Optional EVM network override for this request.",
                                 },
                             },
@@ -2054,7 +2070,7 @@ class OpenClawWalletAdapter:
                                 "approval_token": {"type": "string"},
                                 "network": {
                                     "type": "string",
-                                    "enum": ["ethereum", "base"],
+                                    "enum": ["ethereum", "base", "arc"],
                                     "description": "Optional EVM network override for this request.",
                                 },
                             },
@@ -2111,7 +2127,7 @@ class OpenClawWalletAdapter:
                                 "approval_token": {"type": "string"},
                                 "network": {
                                     "type": "string",
-                                    "enum": ["ethereum", "base"],
+                                    "enum": ["ethereum", "base", "arc"],
                                     "description": "Optional EVM network override for this request.",
                                 },
                             },
@@ -2204,7 +2220,7 @@ class OpenClawWalletAdapter:
                         name="swap_evm_lifi_cross_chain_tokens",
                         description=(
                             "Preview, prepare, or execute an EVM-origin cross-chain swap through LI.FI. "
-                            "This currently supports ethereum/base as the source network and ethereum/base/solana as the destination chain. "
+                            "This currently supports ethereum/base/arc as the source network and ethereum/base/arc/solana as the destination chain. "
                             "Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation."
                         ),
                         input_schema={
@@ -2212,16 +2228,18 @@ class OpenClawWalletAdapter:
                             "properties": {
                                 "token_in": {
                                     "type": "string",
-                                    "description": "Source EVM token contract address, native, eth, or the zero address for native ETH.",
+                                    "description": "Source EVM token contract address; native/eth for ETH networks, or native/usdc for Arc USDC.",
                                 },
                                 "destination_chain": {
                                     "type": "string",
                                     "enum": [
                                         "ethereum",
                                         "base",
+                                        "arc",
                                         "solana",
                                         "1",
                                         "8453",
+                                        "5042",
                                         "1151111081099710",
                                     ],
                                 },
@@ -2253,7 +2271,7 @@ class OpenClawWalletAdapter:
                                 "approval_token": {"type": "string"},
                                 "network": {
                                     "type": "string",
-                                    "enum": ["ethereum", "base"],
+                                    "enum": ["ethereum", "base", "arc"],
                                     "description": "Optional EVM network override for this request.",
                                 },
                             },
@@ -2427,6 +2445,31 @@ class OpenClawWalletAdapter:
                         risk_level="high",
                     ),
                 )
+            if self._is_arc_backend(self.backend):
+                arc_enabled_tools = {
+                    "get_wallet_capabilities",
+                    "get_wallet_address",
+                    "get_wallet_balance",
+                    "get_lifi_supported_chains",
+                    "get_lifi_quote",
+                    "get_lifi_transfer_status",
+                    "get_evm_network",
+                    "set_evm_network",
+                    "get_evm_token_balance",
+                    "get_evm_token_metadata",
+                    "get_evm_fee_rates",
+                    "get_evm_transaction_receipt",
+                    "transfer_evm_native",
+                    "transfer_evm_token",
+                    "get_evm_morpho_vaults",
+                    "get_evm_morpho_markets",
+                    "get_evm_morpho_positions",
+                    "manage_evm_morpho_vault_position",
+                    "manage_evm_morpho_market_position",
+                    "swap_evm_lifi_cross_chain_tokens",
+                }
+                tools = [tool for tool in tools if tool.name in arc_enabled_tools]
+
             tools.insert(
                 13,
                 AgentToolSpec(
@@ -2657,10 +2700,10 @@ class OpenClawWalletAdapter:
                 input_schema={
                     "type": "object",
                     "properties": {
-                        "from_chain": {"type": "string", "description": "Source chain: ethereum, base, solana, or the LI.FI chain id."},
-                        "to_chain": {"type": "string", "description": "Destination chain: ethereum, base, solana, or the LI.FI chain id."},
-                        "from_token": {"type": "string", "description": "Source token address. Use native/eth/sol for native tokens."},
-                        "to_token": {"type": "string", "description": "Destination token address. Use native/eth/sol for native tokens."},
+                        "from_chain": {"type": "string", "description": "Source chain: ethereum, base, arc, solana, or the LI.FI chain id."},
+                        "to_chain": {"type": "string", "description": "Destination chain: ethereum, base, arc, solana, or the LI.FI chain id."},
+                        "from_token": {"type": "string", "description": "Source token address. Use native/eth/sol, or native/usdc on Arc, for native assets."},
+                        "to_token": {"type": "string", "description": "Destination token address. Use native/eth/sol, or native/usdc on Arc, for native assets."},
                         "amount_in_raw": {
                             "type": "string",
                             "description": "Input amount in token base units as a base-10 integer string.",
@@ -3209,7 +3252,7 @@ class OpenClawWalletAdapter:
                     name="swap_solana_lifi_cross_chain_tokens",
                     description=(
                         "Preview, prepare, or execute a Solana-origin cross-chain swap through LI.FI. "
-                        "This currently supports Solana as the source chain and ethereum/base as the destination chain. "
+                        "This currently supports Solana as the source chain and ethereum/base/arc as the destination chain. "
                         "Prepare returns an execution plan only, and execute requires a host-issued approval token bound to the previewed operation."
                     ),
                     input_schema={
@@ -3221,11 +3264,11 @@ class OpenClawWalletAdapter:
                             },
                             "destination_chain": {
                                 "type": "string",
-                                "enum": ["ethereum", "base", "1", "8453"],
+                                "enum": ["ethereum", "base", "arc", "1", "8453", "5042"],
                             },
                             "output_token": {
                                 "type": "string",
-                                "description": "Destination EVM token contract address, native, eth, or the zero address for native ETH.",
+                                "description": "Destination EVM token contract address; native/eth for ETH networks, or native/usdc for Arc USDC.",
                             },
                             "destination_address": {
                                 "type": "string",

@@ -101,10 +101,11 @@ class FakeBackend(AgentWalletBackend):
             "provider": "lifi",
             "chain": "cross-chain",
             "network": "mainnet",
-            "chain_count": 3,
+            "chain_count": 4,
             "chains": [
                 {"chain_id": "1", "name": "Ethereum"},
                 {"chain_id": "8453", "name": "Base"},
+                {"chain_id": "5042", "name": "Arc"},
                 {"chain_id": "1151111081099710", "name": "Solana"},
             ],
             "source": "lifi",
@@ -1973,7 +1974,7 @@ async def main() -> None:
     assert prices.ok and prices.data["count"] == 1
 
     lifi_chains = await adapter.invoke("get_lifi_supported_chains")
-    assert lifi_chains.ok and lifi_chains.data["chain_count"] == 3
+    assert lifi_chains.ok and lifi_chains.data["chain_count"] == 4
 
     lifi_quote = await adapter.invoke(
         "get_lifi_quote",

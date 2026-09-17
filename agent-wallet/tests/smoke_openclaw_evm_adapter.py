@@ -145,10 +145,11 @@ class FakeEvmBackend(AgentWalletBackend):
             "provider": "lifi",
             "chain": "cross-chain",
             "network": "mainnet",
-            "chain_count": 3,
+            "chain_count": 4,
             "chains": [
                 {"chain_id": "1", "name": "Ethereum"},
                 {"chain_id": "8453", "name": "Base"},
+                {"chain_id": "5042", "name": "Arc"},
                 {"chain_id": "1151111081099710", "name": "Solana"},
             ],
             "source": "lifi",
@@ -1729,11 +1730,6 @@ async def _main() -> None:
         "get_evm_aave_reserves",
         "get_evm_aave_positions",
         "manage_evm_aave_position",
-        "get_evm_morpho_vaults",
-        "get_evm_morpho_markets",
-        "get_evm_morpho_positions",
-        "manage_evm_morpho_vault_position",
-        "manage_evm_morpho_market_position",
         "get_evm_lido_overview",
         "get_evm_lido_positions",
         "manage_evm_lido_position",
@@ -1741,7 +1737,6 @@ async def _main() -> None:
         "manage_evm_lido_withdrawal",
         "get_evm_swap_quote",
         "swap_evm_tokens",
-        "swap_evm_lifi_cross_chain_tokens",
         "get_uniswap_swap_quote",
         "search_uniswap_pairs",
         "swap_evm_uniswap_tokens",
@@ -1750,15 +1745,29 @@ async def _main() -> None:
         "manage_evm_uniswap_liquidity",
     }
     assert arc_external_tools.isdisjoint(arc_tools)
+    for tool_name in {
+        "get_evm_morpho_vaults",
+        "get_evm_morpho_markets",
+        "get_evm_morpho_positions",
+        "manage_evm_morpho_vault_position",
+        "manage_evm_morpho_market_position",
+        "swap_evm_lifi_cross_chain_tokens",
+    }:
+        assert tool_name in arc_tools
+        assert "arc" in arc_tools[tool_name].input_schema["properties"]["network"]["enum"]
     lifi_swap_tool = next(tool for tool in adapter.list_tools() if tool.name == "swap_evm_lifi_cross_chain_tokens")
     lifi_destination_enum = lifi_swap_tool.input_schema["properties"]["destination_chain"]["enum"]
     assert "ethereum" in lifi_destination_enum
     assert "base" in lifi_destination_enum
     assert "solana" in lifi_destination_enum
+    assert "arc" in lifi_destination_enum
+    assert "5042" in lifi_destination_enum
     assert (
         lifi.normalize_token_address("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", chain_id="8453")
         == "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
     )
+    assert lifi.normalize_chain_id("arc", field_name="chain") == "5042"
+    assert lifi.normalize_token_address("native", chain_id="5042") == lifi.ARC_USDC_ERC20_TOKEN
 
     balance = await adapter.invoke("get_wallet_balance", {})
     assert balance.ok is True
@@ -1963,7 +1972,7 @@ async def _main() -> None:
 
     lifi_chains = await adapter.invoke("get_lifi_supported_chains", {})
     assert lifi_chains.ok is True
-    assert lifi_chains.data["chain_count"] == 3
+    assert lifi_chains.data["chain_count"] == 4
 
     lifi_quote = await adapter.invoke(
         "get_lifi_quote",

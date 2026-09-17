@@ -28,9 +28,9 @@ const APPROVAL_DATA = "0xaaaaaaaa";
 const AUTHORIZATION_DATA = "0xbbbbbbbb";
 const MORPHO_OPERATION_DATA = "0xcccccccc";
 
-function createService({ dataDir } = {}) {
+function createService({ dataDir, network = "base" } = {}) {
   return new WdkEvmWalletService({
-    network: "base",
+    network,
     ...(dataDir ? { dataDir } : {}),
     morphoApiBaseUrl: "https://morpho-api.test/graphql",
     networkProfiles: {
@@ -43,6 +43,11 @@ function createService({ dataDir } = {}) {
         chainId: 8453,
         providerUrl: "http://fake-rpc.local",
         nativeSymbol: "ETH",
+      },
+      arc: {
+        chainId: 5042,
+        providerUrl: "http://fake-rpc.local",
+        nativeSymbol: "USDC",
       },
     },
   });
@@ -303,6 +308,32 @@ test("morpho vault list returns discovery payload", async () => {
   assert.deepEqual(calls[0].variables.where, { chainId_in: [8453], listed: true });
   assert.equal(calls[0].variables.orderBy, "TotalAssetsUsd");
   assert.equal(calls[0].variables.orderDirection, "Desc");
+});
+
+test("morpho discovery supports Arc mainnet", async () => {
+  const service = createService({ network: "arc" });
+  const calls = [];
+
+  await withMockedFetch(async (_url, options) => {
+    const body = JSON.parse(String(options?.body || "{}"));
+    calls.push(body);
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return { data: { markets: { items: [] } } };
+      },
+    };
+  }, async () => {
+    const result = await service.getMorphoMarkets({ network: "arc" });
+    assert.equal(result.network, "arc");
+    assert.equal(result.chainId, 5042);
+    assert.equal(result.protocol, "morpho");
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].operationName, "MorphoMarketList");
+  assert.deepEqual(calls[0].variables.where, { chainId_in: [5042], listed: true });
 });
 
 test("morpho vault list applies asset filter and custom ordering", async () => {

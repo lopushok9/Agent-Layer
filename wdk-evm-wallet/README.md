@@ -200,7 +200,7 @@ Morpho read-only support:
 
 - the runtime exposes Morpho discovery and account-read routes through the public
   Morpho GraphQL API at `https://api.morpho.org/graphql` by default
-- Morpho support is currently limited to `ethereum` and `base` mainnet
+- Morpho support is available on `ethereum`, `base`, and `arc` mainnet
 - vault and market discovery use fixed first-party queries rather than caller-provided
   GraphQL strings
 
@@ -209,6 +209,9 @@ Swap providers:
 - the runtime exposes three independent swap surfaces: Velora (`/v1/evm/swap/*`),
   LI.FI cross-chain (`/v1/evm/lifi/*`), and Uniswap Trading API
   (`/v1/evm/uniswap/swap/*`) — always keep more than one route available
+- LI.FI supports Arc as both an EVM source and destination. Arc native USDC aliases
+  are routed through its `0x3600000000000000000000000000000000000000`
+  ERC-20 compatibility interface (6 decimals)
 - Uniswap Trading API support is limited to `ethereum` and `base`, `EXACT_INPUT`,
   and CLASSIC routing only; non-CLASSIC quotes (UniswapX Dutch/Priority) are rejected
 - native ETH inputs need no approval or signature; ERC-20 inputs are pulled via

@@ -9,6 +9,7 @@ from agent_wallet.exceptions import ProviderError
 from agent_wallet.http_client import get_client
 
 EVM_NATIVE_TOKEN = "0x0000000000000000000000000000000000000000"
+ARC_USDC_ERC20_TOKEN = "0x3600000000000000000000000000000000000000"
 SOLANA_NATIVE_TOKEN = "11111111111111111111111111111111"
 ALWAYS_DENIED_BRIDGES = ("mayan",)
 
@@ -21,6 +22,9 @@ _CHAIN_ALIASES = {
     "8453": "8453",
     "base": "8453",
     "base-mainnet": "8453",
+    "5042": "5042",
+    "arc": "5042",
+    "arc-mainnet": "5042",
     "1151111081099710": "1151111081099710",
     "sol": "1151111081099710",
     "solana": "1151111081099710",
@@ -29,12 +33,14 @@ _CHAIN_ALIASES = {
 _CHAIN_NAMES_BY_ID = {
     "1": "ethereum",
     "8453": "base",
+    "5042": "arc",
     "1151111081099710": "solana",
 }
 
 OPENCLAW_SUPPORTED_CHAINS = [
     {"chain": "ethereum", "chain_id": "1", "key": "eth", "name": "Ethereum", "coin": "ETH"},
     {"chain": "base", "chain_id": "8453", "key": "bas", "name": "Base", "coin": "ETH"},
+    {"chain": "arc", "chain_id": "5042", "key": "arc", "name": "Arc", "coin": "USDC"},
     {"chain": "solana", "chain_id": "1151111081099710", "key": "sol", "name": "Solana", "coin": "SOL"},
 ]
 _KNOWN_EVM_TOKEN_ADDRESSES = {
@@ -44,6 +50,9 @@ _KNOWN_EVM_TOKEN_ADDRESSES = {
     },
     "8453": {
         "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    },
+    "5042": {
+        ARC_USDC_ERC20_TOKEN: ARC_USDC_ERC20_TOKEN,
     },
 }
 
@@ -67,13 +76,15 @@ def normalize_token_address(token: str, *, chain_id: str) -> str:
     alias = text.lower()
     if chain_id == "1151111081099710" and alias in {"native", "sol", "solana"}:
         return SOLANA_NATIVE_TOKEN
+    if chain_id == "5042" and alias in {"native", "usdc", "arc", EVM_NATIVE_TOKEN}:
+        return ARC_USDC_ERC20_TOKEN
     if chain_id in {"1", "8453"} and alias in {"native", "eth", "ethereum"}:
         return EVM_NATIVE_TOKEN
     if chain_id in _KNOWN_EVM_TOKEN_ADDRESSES:
         known = _KNOWN_EVM_TOKEN_ADDRESSES[chain_id].get(alias)
         if known:
             return known.lower()
-    if chain_id in {"1", "8453"} and alias.startswith("0x") and len(alias) == 42:
+    if chain_id in {"1", "8453", "5042"} and alias.startswith("0x") and len(alias) == 42:
         return alias
     return text
 

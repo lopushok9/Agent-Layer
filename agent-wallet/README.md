@@ -89,8 +89,8 @@ Current safe tools:
 - `get_lifi_transfer_status`
 - `transfer_evm_native`
 - `transfer_evm_token`
-- `swap_evm_lifi_cross_chain_tokens` - EVM-origin LI.FI routes from Ethereum/Base to Ethereum/Base/Solana when LI.FI returns a route.
-- `swap_solana_lifi_cross_chain_tokens` - Solana-origin LI.FI routes from Solana to Ethereum/Base when LI.FI returns a route.
+- `swap_evm_lifi_cross_chain_tokens` - EVM-origin LI.FI routes from Ethereum/Base/Arc to Ethereum/Base/Arc/Solana when LI.FI returns a route.
+- `swap_solana_lifi_cross_chain_tokens` - Solana-origin LI.FI routes from Solana to Ethereum/Base/Arc when LI.FI returns a route.
 - `get_wallet_portfolio`
 - `get_solana_token_prices`
 - `get_solana_staking_validators`

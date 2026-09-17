@@ -24,6 +24,7 @@ const USDT_MAINNET_ADDRESS = "0xdac17f958d2ee523a2206206994597c13d831ec7";
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const VELORA_NATIVE_TOKEN_ADDRESS = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 const LIFI_SOLANA_NATIVE_TOKEN_ADDRESS = "11111111111111111111111111111111";
+const ARC_USDC_ERC20_ADDRESS = "0x3600000000000000000000000000000000000000";
 const DEFAULT_SWAP_SLIPPAGE_BPS = 100;
 const DEFAULT_LIFI_SLIPPAGE = 0.005;
 const ALWAYS_DENIED_LIFI_BRIDGES = ["mayan"];
@@ -182,6 +183,7 @@ const MORPHO_AUTHORIZATION_INTERFACE = new Interface(MORPHO_AUTHORIZATION_ABI);
 const LIFI_CHAIN_IDS_BY_NETWORK = {
   ethereum: "1",
   base: "8453",
+  arc: "5042",
 };
 const LIFI_CHAIN_ALIASES = {
   eth: "1",
@@ -190,6 +192,8 @@ const LIFI_CHAIN_ALIASES = {
   "eth-mainnet": "1",
   base: "8453",
   "base-mainnet": "8453",
+  arc: "5042",
+  "arc-mainnet": "5042",
   sol: "1151111081099710",
   solana: "1151111081099710",
 };
@@ -724,11 +728,12 @@ function assertValidNetwork(network, fieldName = "network") {
     "base-mainnet": "base",
     base_sepolia: "base-sepolia",
     "robinhood-mainnet": "robinhood",
+    "arc-mainnet": "arc",
   };
   const effective = aliases[normalized] || normalized;
-  if (!["ethereum", "sepolia", "base", "base-sepolia", "robinhood"].includes(effective)) {
+  if (!["ethereum", "sepolia", "base", "base-sepolia", "robinhood", "arc"].includes(effective)) {
     throw new Error(
-      `${fieldName} must be one of: ethereum, sepolia, base, base-sepolia, robinhood.`
+      `${fieldName} must be one of: ethereum, sepolia, base, base-sepolia, robinhood, arc.`
     );
   }
   return effective;
@@ -793,7 +798,7 @@ function assertVeloraSupportedNetwork(network) {
 function assertLifiSupportedNetwork(network) {
   if (!Object.hasOwn(LIFI_CHAIN_IDS_BY_NETWORK, network)) {
     throw new Error(
-      "LI.FI EVM-origin swaps are currently supported only on ethereum and base mainnet."
+      "LI.FI EVM-origin swaps are currently supported only on ethereum, base, and arc mainnet."
     );
   }
 }
@@ -811,8 +816,8 @@ function assertLidoSupportedNetwork(network) {
 }
 
 function assertMorphoSupportedNetwork(network) {
-  if (!["ethereum", "base"].includes(network)) {
-    throw new Error("Morpho is currently supported only on ethereum and base mainnet.");
+  if (!["ethereum", "base", "arc"].includes(network)) {
+    throw new Error("Morpho is currently supported only on ethereum, base, and arc mainnet.");
   }
 }
 
@@ -1031,6 +1036,12 @@ function normalizeVeloraTokenAddress(value, fieldName) {
 function normalizeLifiOutputTokenAddress(value, destinationChainId, fieldName) {
   const raw = assertNonEmptyString(value, fieldName);
   const alias = raw.toLowerCase();
+  if (
+    destinationChainId === "5042" &&
+    ["native", "usdc", "arc", ZERO_ADDRESS].includes(alias)
+  ) {
+    return ARC_USDC_ERC20_ADDRESS;
+  }
   if (["1", "8453"].includes(destinationChainId)) {
     return normalizeEvmTokenAddressAllowingNative(raw, fieldName);
   }
@@ -1043,8 +1054,8 @@ function normalizeLifiOutputTokenAddress(value, destinationChainId, fieldName) {
 function normalizeLifiChainId(value, fieldName) {
   const normalized = assertNonEmptyString(value, fieldName).toLowerCase();
   const effective = LIFI_CHAIN_ALIASES[normalized] || normalized;
-  if (!["1", "8453", "1151111081099710"].includes(effective)) {
-    throw new Error(`${fieldName} must be one of: ethereum, base, solana, 1, 8453, 1151111081099710.`);
+  if (!["1", "8453", "5042", "1151111081099710"].includes(effective)) {
+    throw new Error(`${fieldName} must be one of: ethereum, base, arc, solana, 1, 8453, 5042, 1151111081099710.`);
   }
   return effective;
 }
@@ -1369,6 +1380,7 @@ function buildUniswapSwapRequest({ tokenIn, tokenOut, tokenInAmount, slippageBps
 }
 
 function buildLifiEvmSwapRequest({
+  sourceNetwork,
   tokenIn,
   destinationChain,
   outputToken,
@@ -1380,8 +1392,14 @@ function buildLifiEvmSwapRequest({
   preferBridges,
 }) {
   const destinationChainId = normalizeLifiChainId(destinationChain, "destinationChain");
+  const rawTokenIn = assertNonEmptyString(tokenIn, "tokenIn");
+  const tokenInAlias = rawTokenIn.toLowerCase();
   return {
-    tokenIn: normalizeEvmTokenAddressAllowingNative(tokenIn, "tokenIn"),
+    tokenIn:
+      sourceNetwork === "arc" &&
+      ["native", "usdc", "arc", ZERO_ADDRESS].includes(tokenInAlias)
+        ? ARC_USDC_ERC20_ADDRESS
+        : normalizeEvmTokenAddressAllowingNative(rawTokenIn, "tokenIn"),
     destinationChainId,
     outputToken: normalizeLifiOutputTokenAddress(outputToken, destinationChainId, "outputToken"),
     destinationAddress: assertNonEmptyString(destinationAddress, "destinationAddress"),
@@ -3732,6 +3750,7 @@ export class WdkEvmWalletService {
       async (account, runtimeConfig) => {
         assertLifiSupportedNetwork(runtimeConfig.network);
         const swapRequest = buildLifiEvmSwapRequest({
+          sourceNetwork: runtimeConfig.network,
           tokenIn,
           destinationChain,
           outputToken,
@@ -3947,6 +3966,7 @@ export class WdkEvmWalletService {
     return this.#withAccount({ seedPhrase, accountIndex, network }, async (account, runtimeConfig) => {
       assertLifiSupportedNetwork(runtimeConfig.network);
       const swapRequest = buildLifiEvmSwapRequest({
+        sourceNetwork: runtimeConfig.network,
         tokenIn,
         destinationChain,
         outputToken,

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added Arc Mainnet support for LI.FI cross-chain routes and Morpho vault/market
+  discovery, positions, previews, and execution. LI.FI maps Arc native USDC
+  aliases to the chain's 6-decimal ERC-20 compatibility interface, while other
+  Arc DeFi integrations remain disabled pending separate deployment reviews.
+
 - Added a standalone hosted `x402-payment-mcp` for cloud-agent clients. It
   provides first-party OAuth authorization with Google/GitHub login, durable
   per-user CDP Base wallets, CDP Bazaar-only discovery, preview-bound Base USDC
