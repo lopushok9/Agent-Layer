@@ -29,6 +29,21 @@ where you want to install the plugin.
 
 Restart the selected applications after installation.
 
+### x402 payments only (no install)
+
+If you only need x402 payments, connect this remote MCP instead:
+
+```text
+https://x402.agent-layer.tech/mcp
+```
+
+This is just an MCP server. It gives access to x402 payments only (search
+paid services, preview, and pay in USDC on Base) — it is not the full
+AgentLayer wallet: no Solana, transfers, swaps, or DeFi. Add it as a custom
+connector in any MCP host that supports remote servers with OAuth (for
+example Claude or Muse) and sign in with Google or GitHub. See
+[Hosted x402 payment MCP](#hosted-x402-payment-mcp) for details.
+
 ### Install automatically
 
 To install into every detected framework without questions:
@@ -127,6 +142,8 @@ After an install or update, restart the connected agent applications when
 `wallet status` shows `restart_required: true`.
 
 ## Hosted x402 payment MCP
+
+Connect URL: `https://x402.agent-layer.tech/mcp`
 
 Cloud-agent and mobile-host users can be served by the separate
 [`x402-payment-mcp/`](x402-payment-mcp/README.md). It is a new remote MCP with
