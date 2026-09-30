@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## v0.1.115 - 2026-09-30
+
+- **The legacy EVM URL migration now applies on update.** v0.1.114 only
+  rewrote `openclaw.json` on a host (re)install, which `wallet update` does
+  not run. The runtime itself now reads the legacy
+  `http://127.0.0.1:8081` default as unset, so every host (Claude Code,
+  Codex, OpenClaw, Hermes) moves to the per-home socket after an update and
+  a session restart. Custom URLs and `WDK_EVM_TRANSPORT=tcp` are unchanged.
+
 ## v0.1.114 - 2026-09-30
 
 - **Legacy installs move to the per-home EVM socket.** Installs from before
