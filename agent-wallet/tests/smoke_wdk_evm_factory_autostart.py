@@ -53,14 +53,14 @@ def main() -> None:
         os.environ["WDK_EVM_LOCAL_TOKEN"] = "test-local-evm-token-for-factory-autostart-smoke"
         settings.agent_wallet_backend = "wdk_evm_local"
         settings.solana_network = "base"
-        settings.wdk_evm_service_url = "http://127.0.0.1:8081"
+        settings.wdk_evm_service_url = "http://127.0.0.1:9090"
         settings.wdk_evm_wallet_id = "test-evm-wallet-id"
         evm_user_wallets.ensure_local_evm_service_ready = fake_ensure
 
         backend = create_wallet_backend()
         assert isinstance(backend, WdkEvmLocalWalletBackend)
         assert backend.network == "base"
-        assert calls == [("http://127.0.0.1:8081", "base")]
+        assert calls == [("http://127.0.0.1:9090", "base")]
 
         # Opt-out: the escape hatch must skip the recovery call entirely.
         calls.clear()

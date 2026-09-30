@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agent_wallet.file_ops import atomic_write_text, chmod_if_exists
 from agent_wallet.config import (
+    is_legacy_evm_service_url,
     normalize_evm_network,
     normalize_solana_network,
     resolve_boot_key,
@@ -295,20 +296,10 @@ def _require_hardened_runtime_secrets(backend: str) -> str | None:
     return str(sealed_path)
 
 
-# Installers before the unix-socket transport persisted the then-default TCP
-# address as an explicit wdkEvmServiceUrl. An explicit value always wins over
-# the per-home socket default, so those installs never moved to the socket and
-# ended up with a second daemon on the shared port. Only this exact legacy
-# default is migrated: any other URL, or an explicit WDK_EVM_TRANSPORT=tcp
-# opt-out, is a deliberate choice and stays untouched.
-LEGACY_EVM_SERVICE_URLS = frozenset({"http://127.0.0.1:8081", "http://localhost:8081"})
-
-
 def _drop_legacy_evm_service_url(plugin_config: dict) -> None:
-    if os.environ.get("WDK_EVM_TRANSPORT", "").strip().lower() == "tcp":
-        return
-    value = str(plugin_config.get("wdkEvmServiceUrl") or "").strip().rstrip("/").lower()
-    if value in LEGACY_EVM_SERVICE_URLS:
+    # The runtime already reads this legacy default as unset; removing it on a
+    # host (re)install just keeps the stored config honest.
+    if is_legacy_evm_service_url(plugin_config.get("wdkEvmServiceUrl")):
         plugin_config.pop("wdkEvmServiceUrl", None)
 
 

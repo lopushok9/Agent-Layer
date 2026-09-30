@@ -73,6 +73,12 @@ def _reject_secret_config_json(config: dict[str, Any]) -> None:
 
 def _apply_config_overrides(config: dict[str, Any]) -> None:
     _reject_secret_config_json(config)
+    from agent_wallet.config import is_legacy_evm_service_url
+
+    # Every EVM path below reads wdkEvmServiceUrl from this same dict, so
+    # dropping the legacy TCP default here moves them all to the socket.
+    if is_legacy_evm_service_url(config.get("wdkEvmServiceUrl")):
+        config.pop("wdkEvmServiceUrl", None)
     rpc_env_locked = bool(os.getenv("SOLANA_RPC_URL", "").strip() or os.getenv("SOLANA_RPC_URLS", "").strip())
     env_map: dict[str, tuple[str, Any, bool]] = {
         "backend": ("AGENT_WALLET_BACKEND", config.get("backend"), True),

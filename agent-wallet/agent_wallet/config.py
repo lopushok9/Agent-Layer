@@ -173,16 +173,32 @@ def resolve_openclaw_home() -> Path:
     return Path(raw).expanduser()
 
 
+# Installers before the unix-socket transport persisted the then-default TCP
+# address into openclaw.json as an explicit wdkEvmServiceUrl, and updates never
+# rewrite that config. Treated literally it keeps those installs on the shared
+# port, with a second daemon beside the socket one on the same data dir. Only
+# this exact legacy default is read as "unset"; any other URL, or an explicit
+# WDK_EVM_TRANSPORT=tcp opt-out, is a deliberate choice and is honored.
+LEGACY_EVM_SERVICE_URLS = frozenset({"http://127.0.0.1:8081", "http://localhost:8081"})
+
+
+def is_legacy_evm_service_url(value: object) -> bool:
+    if os.getenv("WDK_EVM_TRANSPORT", "").strip().lower() == "tcp":
+        return False
+    return str(value or "").strip().rstrip("/").lower() in LEGACY_EVM_SERVICE_URLS
+
+
 def resolve_wdk_evm_service_url() -> str:
     """Resolve the wdk-evm-wallet service URL, unix-socket by default.
 
     An explicit WDK_EVM_SERVICE_URL/settings value always wins, whatever
     transport it names (http:// for an explicit TCP deployment, unix:// for
-    a non-default socket path). Otherwise this is a per-OPENCLAW_HOME unix
-    socket — see docs/superpowers/specs/2026-08-30-evm-wallet-unix-socket-transport-design.md.
+    a non-default socket path), except the legacy TCP default above. Otherwise
+    this is a per-OPENCLAW_HOME unix socket — see
+    docs/superpowers/specs/2026-08-30-evm-wallet-unix-socket-transport-design.md.
     """
     explicit = settings.wdk_evm_service_url.strip()
-    if explicit:
+    if explicit and not is_legacy_evm_service_url(explicit):
         return explicit
     return f"unix://{resolve_openclaw_home() / 'wdk-evm-wallet' / 'daemon.sock'}"
 
