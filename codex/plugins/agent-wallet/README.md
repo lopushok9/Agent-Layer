@@ -17,7 +17,7 @@ Primary design rules:
 
 ## What it exposes
 
-- direct wallet tools for Solana, Bitcoin, and EVM
+- direct wallet tools for Solana and EVM
 - session wallet selection with `set_wallet_backend`
 - EVM network selection with `set_evm_network`
 - auto-managed approval binding for `preview -> execute` write flows

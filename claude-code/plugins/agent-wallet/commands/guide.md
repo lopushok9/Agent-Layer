@@ -18,7 +18,7 @@ cat "${CLAUDE_PLUGIN_ROOT}/AGENTLAYER_AGENT_GUIDE.md"
    the language they've been using. Cover, roughly in this order:
 
    - **What it is** — a direct line to their own local AgentLayer wallet
-     (Solana, an EVM chain, Bitcoin), not a generic crypto-data tool; every
+     (Solana or an EVM chain), not a generic crypto-data tool; every
      write moves real money unless it's an explicit preview.
    - **What they can do** — the "What You Can Do" list: Solana (transfers,
      Jupiter swaps, staking, Kamino, Bags launches), EVM (transfers, swaps,
