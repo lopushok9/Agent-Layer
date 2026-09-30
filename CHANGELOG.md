@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## v0.1.113 - 2026-09-30
+
+- **Restored wallet features lost in the GOAT removal.** Read-only
+  `connector__*` tools are exposed again in the wallet adapter, the Bitcoin
+  backend no longer appears as a switchable wallet in Codex/Claude Code or
+  OpenClaw, and unconfirmed sends again carry `next_step` guidance to check
+  the receipt before resending.
+- **Laso Finance partner header.** `/cards` requests to `laso.finance`
+  (preview, paid retry, and card-data polling) now send `X-Laso-Partner`.
+  No other x402 host receives it.
+- Removed leftover Bitcoin mentions from plugin descriptions and the agent
+  guide.
+
+## v0.1.112 - 2026-09-17
+
 - Added Arc Mainnet support for LI.FI cross-chain routes and Morpho vault/market
   discovery, positions, previews, and execution. LI.FI maps Arc native USDC
   aliases to the chain's 6-decimal ERC-20 compatibility interface, while other
