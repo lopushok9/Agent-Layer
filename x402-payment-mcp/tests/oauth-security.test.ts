@@ -70,5 +70,19 @@ test("OAuth authorization stops before creating state when the durable quota is 
   try{const response=await fetch(`${base}/oauth/authorize`);assert.equal(response.status,429);assert.equal(response.headers.get("retry-after"),"600");assert.equal(created,false);}finally{await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));}
 });
 
+test("OAuth authorize treats an omitted resource as this MCP and rejects bad requests with 400",async()=>{
+  const client:OAuthClient={clientId:"loopback-client",clientName:"Muse",redirectUris:["http://127.0.0.1:8374/callback"]};
+  let saved:Omit<LoginState,"id">|null=null;
+  const store={getClient:async(id:string)=>id===client.clientId?client:null,consumeRateLimit:async()=>true,createLoginState:async(data:Omit<LoginState,"id">)=>{saved=data;return "login-state";}} as unknown as Store;
+  const config={issuer:"https://pay.example",resource:"https://pay.example/mcp",GITHUB_CLIENT_ID:"github-id",GITHUB_CLIENT_SECRET:"github-secret"} as Config;const tokens={publicJwk:{}} as unknown as TokenService;
+  const app=express();app.use(oauthRouter(config,store,tokens));const server=app.listen(0,"127.0.0.1");await new Promise<void>(resolve=>server.once("listening",resolve));const base=`http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const params=(extra:Record<string,string>={})=>new URLSearchParams({response_type:"code",client_id:client.clientId,redirect_uri:client.redirectUris[0]!,scope:"x402:pay",state:"s",code_challenge:pkceChallenge("verifier"),code_challenge_method:"S256",...extra});
+  try{
+    const omitted=await fetch(`${base}/oauth/authorize?${params()}`);assert.equal(omitted.status,200);assert.equal(saved!.resource,config.resource);
+    const foreign=await fetch(`${base}/oauth/authorize?${params({resource:"https://evil.example/mcp"})}`);assert.equal(foreign.status,400);assert.equal((await foreign.json()).error,"invalid_request");
+    const missing=params();missing.delete("client_id");const bad=await fetch(`${base}/oauth/authorize?${missing}`);assert.equal(bad.status,400);assert.equal((await bad.json()).error,"invalid_request");
+  }finally{await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));}
+});
+
 function hidden(page:string,name:string){const match=page.match(new RegExp(`name="${name}" value="([^"]+)"`));assert.ok(match);return match[1]!;}
 function linkParam(page:string,path:string,name:string){const match=page.match(new RegExp(`href="([^"]*${path.replaceAll("/","\\/")}[^\"]*)"`));assert.ok(match);return new URL(match[1]!,"https://pay.example").searchParams.get(name)!;}

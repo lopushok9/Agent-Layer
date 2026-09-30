@@ -39,7 +39,8 @@ export function oauthRouter(config: Config, store: Store, tokens: TokenService) 
 
   router.get("/oauth/authorize", asyncRoute(async (req, res) => {
     if(!await withinOAuthLimits(req,store,"authorize",120,600,5000))return rateLimitError(res,600);
-    const p = authorizeParams(req);
+    let p: ReturnType<typeof authorizeParams>;
+    try { p = authorizeParams(req, config); } catch (e) { return oauthJsonError(res, 400, "invalid_request", e instanceof Error ? e.message : "invalid request"); }
     const error = await validateAuthorize(p, store, config);
     if (error) return oauthJsonError(res, 400, "invalid_request", error);
     const client=await store.getClient(p.clientId);if(!client)return oauthJsonError(res,400,"invalid_request","unknown client_id");
@@ -110,7 +111,10 @@ export function oauthRouter(config: Config, store: Store, tokens: TokenService) 
 }
 
 function protectedMetadata(config:Config,res:Response){res.set("Access-Control-Allow-Origin","*").json({resource:config.resource,authorization_servers:[config.issuer],scopes_supported:[ALLOWED_SCOPE],bearer_methods_supported:["header"]});}
-function authorizeParams(req:Request){return{clientId:requiredQuery(req,"client_id"),redirectUri:requiredQuery(req,"redirect_uri"),state:requiredQuery(req,"state"),codeChallenge:requiredQuery(req,"code_challenge"),resource:requiredQuery(req,"resource"),responseType:requiredQuery(req,"response_type"),challengeMethod:requiredQuery(req,"code_challenge_method"),scope:typeof req.query.scope==="string"?req.query.scope:ALLOWED_SCOPE};}
+// RFC 8707 makes `resource` optional and some hosts (e.g. Muse) omit it. This
+// server protects a single resource, so an absent value means that resource; a
+// present one must still match it exactly (validateAuthorize).
+function authorizeParams(req:Request,config:Config){return{clientId:requiredQuery(req,"client_id"),redirectUri:requiredQuery(req,"redirect_uri"),state:requiredQuery(req,"state"),codeChallenge:requiredQuery(req,"code_challenge"),resource:typeof req.query.resource==="string"&&req.query.resource?req.query.resource:config.resource,responseType:requiredQuery(req,"response_type"),challengeMethod:requiredQuery(req,"code_challenge_method"),scope:typeof req.query.scope==="string"?req.query.scope:ALLOWED_SCOPE};}
 async function validateAuthorize(p:ReturnType<typeof authorizeParams>,store:Store,config:Config){const c=await store.getClient(p.clientId);if(!c)return"unknown client_id";if(!c.redirectUris.includes(p.redirectUri))return"redirect_uri is not registered";if(p.responseType!=="code")return"only response_type=code is supported";if(p.challengeMethod!=="S256"||p.codeChallenge.length<43)return"PKCE S256 is required";if(p.resource!==config.resource)return"resource must identify this MCP server";if(p.scope.split(" ").some(s=>s!==ALLOWED_SCOPE))return"unsupported scope";return null;}
 async function startProvider(req:Request,res:Response,store:Store,tokens:TokenService,config:Config,provider:"google"|"github"){
   if((provider==="google"&&!config.GOOGLE_CLIENT_ID)||(provider==="github"&&!config.GITHUB_CLIENT_ID))return oauthJsonError(res,400,"invalid_request","identity provider is not configured");
