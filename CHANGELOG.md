@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## v0.1.114 - 2026-09-30
+
+- **Legacy installs move to the per-home EVM socket.** Installs from before
+  the unix-socket transport kept `wdkEvmServiceUrl: http://127.0.0.1:8081` in
+  `openclaw.json`, so they stayed on the shared TCP port and ended up running
+  a second EVM daemon against the same data directory after each update. The
+  installer now drops exactly that legacy default (a custom URL or
+  `WDK_EVM_TRANSPORT=tcp` is left alone), so new sessions use the socket.
+- **Updates can stop the old TCP daemon again.** A `service-owner.json` left
+  behind by a long-exited daemon blocked the installer's verified graceful
+  stop forever. A record whose process no longer exists is now ignored; live
+  mismatches still fail closed and SIGKILL still needs a matching record.
+
 ## v0.1.113 - 2026-09-30
 
 - **Restored wallet features lost in the GOAT removal.** Read-only
