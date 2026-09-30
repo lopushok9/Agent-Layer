@@ -35,6 +35,33 @@ Spend limits are disabled by default. The existing 1 USDC per-payment and 5 USDC
 - `/oauth/jwks`
 - `/mcp` (stateless Streamable HTTP)
 
+## Personal access tokens (Meta Muse)
+
+Hosts that store a bearer token in their own credential store instead of
+finishing a browser OAuth redirect can use a personal access token. Meta
+Muse is the main case: its custom connectors keep the token outside the
+agent's runtime and Sentinel injects it at egress, while an OAuth redirect
+back to the agent's VM forces the user to copy a code by hand.
+
+1. Open `https://YOUR_DOMAIN/muse` (also `/tokens`) and sign in with Google or
+   GitHub — the same identity reaches the same wallet as OAuth clients.
+2. Create a token. It is shown once, as `alx402_…`, together with a ready
+   prompt for Muse.
+3. Send Muse the prompt and enter the token only in Muse's secure credential
+   prompt, never in the chat.
+
+Tokens carry the single `x402:pay` scope, expire after
+`PERSONAL_TOKEN_TTL_DAYS` (default 90), are capped at
+`PERSONAL_TOKEN_MAX_ACTIVE` active tokens per user (default 10), are stored
+only as SHA-256 hashes, and can be revoked on the same page with immediate
+effect. `/mcp` accepts both personal tokens and OAuth access tokens; the
+token-manager sign-in reuses the registered Google/GitHub callbacks with a
+distinct signed state type, and its pages use a short-lived form token rather
+than cookies.
+
+Set `TEST_DATABASE_URL` to run the Postgres-backed store test
+(`tests/store-personal-tokens.test.ts`); it is skipped otherwise.
+
 ## Local setup
 
 Requires Node 24 and PostgreSQL.

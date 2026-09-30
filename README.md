@@ -41,7 +41,11 @@ This is just an MCP server. It gives access to x402 payments only (search
 paid services, preview, and pay in USDC on Base) — it is not the full
 AgentLayer wallet: no Solana, transfers, swaps, or DeFi. Add it as a custom
 connector in any MCP host that supports remote servers with OAuth (for
-example Claude or Muse) and sign in with Google or GitHub. See
+example Claude) and sign in with Google or GitHub.
+
+**Meta Muse:** open https://x402.agent-layer.tech/muse, sign in, and create a
+personal access token. The page gives you a ready prompt for Muse; enter the
+token only in Muse's secure credential prompt, not in the chat. See
 [Hosted x402 payment MCP](#hosted-x402-payment-mcp) for details.
 
 ### Install automatically

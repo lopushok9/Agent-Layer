@@ -7,6 +7,7 @@ export type OAuthClient = { clientId: string; clientName: string; redirectUris: 
 export type LoginState = { id: string; clientId: string; redirectUri: string; state: string; codeChallenge: string; resource: string; scope: string };
 export type AuthorizationCode = LoginState & { userId: string };
 export type Preview = { id: string; userId: string; method: string; url: string; body: unknown; fingerprint: string; scheme: string; amount: string; payTo: string; expiresAt: Date };
+export type PersonalToken = { id: string; label: string; hint: string; createdAt: Date; expiresAt: Date; lastUsedAt: Date | null };
 export type BatchChannelContext = { chargedCumulativeAmount?:string; balance?:string; totalClaimed?:string; signedMaxClaimable?:string; signature?:`0x${string}` };
 
 export class Store {
@@ -15,8 +16,7 @@ export class Store {
   constructor(databaseUrl: string) { this.pool = new Pool({ connectionString: databaseUrl, ssl: databaseTls(databaseUrl) }); }
   async close() { if(this.oauthCleanupTimer)clearInterval(this.oauthCleanupTimer);await this.pool.end(); }
   async migrate() {
-    const sql=await readFile(new URL("../migrations/001_initial.sql",import.meta.url),"utf8");
-    await this.pool.query(sql);
+    await this.pool.query(await migrationSql());
   }
 
   async registerClient(clientName: string, redirectUris: string[]): Promise<OAuthClient> {
@@ -36,7 +36,7 @@ export class Store {
     await this.cleanupOAuthArtifacts();this.oauthCleanupTimer=setInterval(()=>{void this.cleanupOAuthArtifacts().catch(error=>console.error("OAuth cleanup failed",error));},15*60*1000);this.oauthCleanupTimer.unref();
   }
   async cleanupOAuthArtifacts(){
-    await this.pool.query(`DELETE FROM oauth_login_states WHERE expires_at<=now(); DELETE FROM oauth_pending_consents WHERE expires_at<=now(); DELETE FROM oauth_codes WHERE expires_at<=now(); DELETE FROM refresh_tokens WHERE expires_at<=now() OR (revoked_at IS NOT NULL AND revoked_at<=now()-interval '1 day'); DELETE FROM oauth_rate_limits WHERE window_start<=now()-interval '1 day'; DELETE FROM oauth_clients c WHERE COALESCE(c.last_used_at,c.created_at)<=now()-interval '90 days' AND NOT EXISTS(SELECT 1 FROM oauth_login_states s WHERE s.client_id=c.client_id) AND NOT EXISTS(SELECT 1 FROM oauth_pending_consents p WHERE p.client_id=c.client_id) AND NOT EXISTS(SELECT 1 FROM oauth_codes o WHERE o.client_id=c.client_id) AND NOT EXISTS(SELECT 1 FROM refresh_tokens r WHERE r.client_id=c.client_id);`);
+    await this.pool.query(`DELETE FROM oauth_login_states WHERE expires_at<=now(); DELETE FROM oauth_pending_consents WHERE expires_at<=now(); DELETE FROM oauth_codes WHERE expires_at<=now(); DELETE FROM refresh_tokens WHERE expires_at<=now() OR (revoked_at IS NOT NULL AND revoked_at<=now()-interval '1 day'); DELETE FROM oauth_rate_limits WHERE window_start<=now()-interval '1 day'; DELETE FROM token_login_states WHERE expires_at<=now(); DELETE FROM token_manager_sessions WHERE expires_at<=now(); DELETE FROM personal_access_tokens WHERE expires_at<=now()-interval '30 days' OR revoked_at<=now()-interval '30 days'; DELETE FROM oauth_clients c WHERE COALESCE(c.last_used_at,c.created_at)<=now()-interval '90 days' AND NOT EXISTS(SELECT 1 FROM oauth_login_states s WHERE s.client_id=c.client_id) AND NOT EXISTS(SELECT 1 FROM oauth_pending_consents p WHERE p.client_id=c.client_id) AND NOT EXISTS(SELECT 1 FROM oauth_codes o WHERE o.client_id=c.client_id) AND NOT EXISTS(SELECT 1 FROM refresh_tokens r WHERE r.client_id=c.client_id);`);
   }
   async createLoginState(data: Omit<LoginState, "id">): Promise<string> {
     const id = randomUUID();
@@ -87,6 +87,25 @@ export class Store {
   async createRefreshToken(userId:string,clientId:string,scope:string,ttlSeconds:number):Promise<string>{const t=randomTokenCompat();await this.pool.query(`INSERT INTO refresh_tokens(token_hash,user_id,client_id,scope,family_id,expires_at) VALUES($1,$2,$3,$4,$5,now()+($6*interval '1 second'))`,[sha256(t),userId,clientId,scope,randomUUID(),ttlSeconds]);return t;}
   async rotateRefreshToken(token:string,clientId:string,ttlSeconds:number){const c=await this.pool.connect();try{await c.query("BEGIN");const r=await c.query(`SELECT user_id,scope,family_id,expires_at,revoked_at,used_at FROM refresh_tokens WHERE token_hash=$1 AND client_id=$2 FOR UPDATE`,[sha256(token),clientId]);if(!r.rowCount){await c.query("ROLLBACK");return null;}const current=r.rows[0];if(current.used_at){await c.query(`UPDATE refresh_tokens SET revoked_at=COALESCE(revoked_at,now()) WHERE family_id=$1`,[current.family_id]);await c.query("COMMIT");return null;}if(current.revoked_at||new Date(current.expires_at).getTime()<=Date.now()){await c.query("ROLLBACK");return null;}await c.query(`UPDATE refresh_tokens SET used_at=now() WHERE token_hash=$1`,[sha256(token)]);const next=randomTokenCompat();await c.query(`INSERT INTO refresh_tokens(token_hash,user_id,client_id,scope,family_id,expires_at) VALUES($1,$2,$3,$4,$5,now()+($6*interval '1 second'))`,[sha256(next),current.user_id,clientId,current.scope,current.family_id,ttlSeconds]);await c.query("COMMIT");return{token:next,userId:current.user_id as string,scope:current.scope as string};}catch(e){await c.query("ROLLBACK");throw e;}finally{c.release();}}
   async revokeRefreshToken(token:string){await this.pool.query(`UPDATE refresh_tokens SET revoked_at=COALESCE(revoked_at,now()) WHERE family_id=(SELECT family_id FROM refresh_tokens WHERE token_hash=$1)`,[sha256(token)]);}
+  async createTokenLoginState():Promise<string>{const id=randomUUID();await this.pool.query(`INSERT INTO token_login_states(id,expires_at) VALUES($1,now()+interval '10 minutes')`,[id]);return id;}
+  async hasTokenLoginState(id:string):Promise<boolean>{const r=await this.pool.query(`SELECT 1 FROM token_login_states WHERE id=$1 AND expires_at>now()`,[id]);return Boolean(r.rowCount);}
+  async consumeTokenLoginState(id:string):Promise<boolean>{const r=await this.pool.query(`DELETE FROM token_login_states WHERE id=$1 AND expires_at>now()`,[id]);return Boolean(r.rowCount);}
+  async createTokenManagerSession(userId:string,ttlSeconds:number):Promise<string>{const t=randomTokenCompat();await this.pool.query(`INSERT INTO token_manager_sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()+($3*interval '1 second'))`,[sha256(t),userId,ttlSeconds]);return t;}
+  async getTokenManagerSession(token:string):Promise<string|null>{const r=await this.pool.query(`SELECT user_id FROM token_manager_sessions WHERE token_hash=$1 AND expires_at>now()`,[sha256(token)]);return r.rowCount?r.rows[0].user_id as string:null;}
+  async listPersonalTokens(userId:string):Promise<PersonalToken[]>{const r=await this.pool.query(`SELECT id,label,hint,created_at,expires_at,last_used_at FROM personal_access_tokens WHERE user_id=$1 AND revoked_at IS NULL AND expires_at>now() ORDER BY created_at DESC`,[userId]);return r.rows.map(mapPersonalToken);}
+  async createPersonalToken(userId:string,token:string,label:string,scope:string,ttlDays:number,maxActive:number):Promise<PersonalToken|null>{
+    const c=await this.pool.connect();
+    try{await c.query("BEGIN");await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`,[`pat:${userId}`]);
+      const n=await c.query(`SELECT count(*)::int AS n FROM personal_access_tokens WHERE user_id=$1 AND revoked_at IS NULL AND expires_at>now()`,[userId]);
+      if(n.rows[0].n>=maxActive){await c.query("ROLLBACK");return null;}
+      const r=await c.query(`INSERT INTO personal_access_tokens(id,user_id,token_hash,label,hint,scope,expires_at) VALUES($1,$2,$3,$4,$5,$6,now()+($7*interval '1 day')) RETURNING id,label,hint,created_at,expires_at,last_used_at`,[randomUUID(),userId,sha256(token),label,token.slice(-4),scope,ttlDays]);
+      await c.query("COMMIT");return mapPersonalToken(r.rows[0]);
+    }catch(e){await c.query("ROLLBACK");throw e;}finally{c.release();}
+  }
+  async revokePersonalToken(userId:string,id:string):Promise<boolean>{const r=await this.pool.query(`UPDATE personal_access_tokens SET revoked_at=now() WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL`,[id,userId]);return Boolean(r.rowCount);}
+  // Touches last_used_at at most once a minute so a busy connector does not
+  // turn every MCP call into a write.
+  async verifyPersonalToken(token:string):Promise<{id:string;userId:string;scope:string;expiresAt:Date}|null>{const r=await this.pool.query(`UPDATE personal_access_tokens SET last_used_at=CASE WHEN last_used_at IS NULL OR last_used_at<now()-interval '1 minute' THEN now() ELSE last_used_at END WHERE token_hash=$1 AND revoked_at IS NULL AND expires_at>now() RETURNING id,user_id,scope,expires_at`,[sha256(token)]);if(!r.rowCount)return null;const x=r.rows[0];return{id:x.id,userId:x.user_id,scope:x.scope,expiresAt:new Date(x.expires_at)};}
   async getWallet(userId:string){const r=await this.pool.query(`SELECT cdp_account_name,address FROM wallets WHERE user_id=$1`,[userId]);return r.rowCount?{accountName:r.rows[0].cdp_account_name as string,address:r.rows[0].address as string|null}:null;}
   async saveWallet(userId:string,accountName:string,address:string){await this.pool.query(`INSERT INTO wallets(user_id,cdp_account_name,address) VALUES($1,$2,$3) ON CONFLICT(user_id) DO UPDATE SET address=excluded.address`,[userId,accountName,address]);}
   async getBatchChannel(userId:string,channelId:string):Promise<BatchChannelContext|undefined>{const r=await this.pool.query(`SELECT context FROM batch_payment_channels WHERE user_id=$1 AND channel_id=$2`,[userId,channelId.toLowerCase()]);return r.rowCount?r.rows[0].context as BatchChannelContext:undefined;}
@@ -98,6 +117,11 @@ export class Store {
   async finishPayment(id:string,status:"settled"|"failed"|"unknown",transaction:string|null,responseStatus:number|null,error:string|null,settledAmount:string|null=null){await this.pool.query(`UPDATE payments SET status=$2,transaction_hash=$3,response_status=$4,error=$5,settled_amount=$6,completed_at=now() WHERE id=$1`,[id,status,transaction,responseStatus,error,settledAmount]);}
 }
 
+// Applied in order on every start; each file must stay idempotent.
+export const MIGRATIONS = ["001_initial.sql", "002_personal_tokens.sql"] as const;
+export async function migrationSql(){return (await Promise.all(MIGRATIONS.map(name=>readFile(new URL(`../migrations/${name}`,import.meta.url),"utf8")))).join("\n");}
+
 function mapClient(x:any):OAuthClient{return{clientId:x.client_id,clientName:x.client_name,redirectUris:x.redirect_uris};}
+function mapPersonalToken(x:any):PersonalToken{return{id:x.id,label:x.label,hint:x.hint,createdAt:new Date(x.created_at),expiresAt:new Date(x.expires_at),lastUsedAt:x.last_used_at?new Date(x.last_used_at):null};}
 function randomTokenCompat(){return randomUUID()+randomUUID().replaceAll("-","");}
 export function databaseTls(databaseUrl:string){const url=new URL(databaseUrl);if(url.searchParams.get("sslmode")==="disable"||url.hostname==="localhost"||url.hostname==="127.0.0.1"||url.hostname.endsWith(".railway.internal"))return undefined;return{rejectUnauthorized:false};}

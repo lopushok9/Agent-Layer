@@ -1,8 +1,18 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { calculateJwkThumbprint, importJWK, jwtVerify, SignJWT } from "jose";
+import { calculateJwkThumbprint, decodeProtectedHeader, importJWK, jwtVerify, SignJWT } from "jose";
 import type { Config } from "./config.js";
 
 export const randomToken = (bytes = 32) => randomBytes(bytes).toString("base64url");
+
+// Prefixed so secret scanners can recognize a leaked token.
+export const PERSONAL_TOKEN_PREFIX = "alx402_";
+export const newPersonalToken = () => `${PERSONAL_TOKEN_PREFIX}${randomToken(32)}`;
+export const isPersonalToken = (value: string) => value.startsWith(PERSONAL_TOKEN_PREFIX);
+
+const TOKEN_MANAGER_STATE_TYP = "token-manager-state+jwt";
+export function isTokenManagerState(value: string): boolean {
+  try { return decodeProtectedHeader(value).typ === TOKEN_MANAGER_STATE_TYP; } catch { return false; }
+}
 export const sha256 = (value: string) => createHash("sha256").update(value).digest("base64url");
 export const pkceChallenge = sha256;
 
@@ -70,6 +80,28 @@ export class TokenService {
       typ: "oauth-provider-state+jwt",
     });
     if (payload.provider !== provider || typeof payload.login_state !== "string") throw new Error("invalid OAuth provider state");
+    return payload.login_state;
+  }
+
+  // Personal-token sign-in reuses the provider callback URLs registered with
+  // Google/GitHub, so its state is a distinct JWT type the callback can tell
+  // apart from an MCP client's OAuth login state.
+  async tokenManagerState(loginStateId: string, provider: "google" | "github"): Promise<string> {
+    return new SignJWT({ login_state: loginStateId, provider })
+      .setProtectedHeader({ alg: "ES256", kid: this.kid, typ: TOKEN_MANAGER_STATE_TYP })
+      .setIssuer(this.config.issuer).setAudience("token-manager-callback")
+      .setIssuedAt().setExpirationTime("10m").setJti(randomToken(16))
+      .sign(this.privateKey);
+  }
+
+  async verifyTokenManagerState(token: string, provider: "google" | "github"): Promise<string> {
+    const { payload } = await jwtVerify(token, this.publicKey, {
+      issuer: this.config.issuer,
+      audience: "token-manager-callback",
+      algorithms: ["ES256"],
+      typ: TOKEN_MANAGER_STATE_TYP,
+    });
+    if (payload.provider !== provider || typeof payload.login_state !== "string") throw new Error("invalid token manager state");
     return payload.login_state;
   }
 
