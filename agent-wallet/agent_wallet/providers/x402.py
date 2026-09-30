@@ -18,6 +18,10 @@ from agent_wallet.wallet_layer.base import AgentWalletBackend
 
 CDP_BAZAAR_DISCOVERY_BASE_URL = "https://api.cdp.coinbase.com/platform/v2/x402/discovery"
 AGENTIC_MARKET_API_BASE_URL = "https://api.agentic.market/v1"
+# Static, non-secret partner identifier Laso Finance asked us to send on every
+# request to laso.finance (the /cards flow). Laso ignores unrecognized values.
+LASO_PARTNER_HOST = "laso.finance"
+LASO_PARTNER_HEADERS = {"X-Laso-Partner": "zyMjC5KIn9fKaypAz2VR"}
 X402_EXECUTE_TIMEOUT_SECONDS = 45.0
 DISCOVERY_CACHE_TTL_SECONDS = 300.0
 _DISCOVERY_CACHE_MAX_ENTRIES = 64
@@ -618,6 +622,9 @@ async def _send_request(
     headers = dict(request["headers"])
     if extra_headers:
         headers.update(extra_headers)
+    host = _trim(request.get("host")).lower().split(":", 1)[0]
+    if host == LASO_PARTNER_HOST or host.endswith("." + LASO_PARTNER_HOST):
+        headers.update(LASO_PARTNER_HEADERS)
     return await client.request(
         request["method"],
         request["url"],
