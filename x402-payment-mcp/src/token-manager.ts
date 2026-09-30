@@ -77,7 +77,7 @@ async function renderManager(res: Response, store: Store, config: Config, userId
 }
 
 export function musePrompt(resource: string) {
-  return `Add a custom connector for AgentLayer x402 payments. It is a remote MCP server over streamable HTTP at ${resource} and uses bearer-token auth (Authorization: Bearer <token>), not OAuth. Ask me for the token through your secure credential prompt and never ask me to paste it into this chat. Then list its tools to confirm the connection works.`;
+  return `Build a custom integration to AgentLayer x402, my pay-per-request wallet for paid APIs. Its MCP server URL is ${resource} (remote streamable HTTP, Bearer token auth: the header "Authorization: Bearer <token>", not OAuth). I want you to be able to find paid x402 services, preview their price, and pay for them in USDC on Base from any future conversation. I will paste the token, which starts with alx402_, into your secure credential prompt and never into this chat. Then call wallet_status and show me the result to confirm the connection works.`;
 }
 
 function normalizeLabel(value: unknown) {
