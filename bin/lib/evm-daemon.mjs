@@ -70,6 +70,20 @@ function readServiceOwner(dataDir) {
   return readJsonFile(path.join(dataDir, "service-owner.json"));
 }
 
+// Daemons stopped writing service-owner.json when the transport moved to a
+// unix socket, so an upgraded home can keep a record naming a process that
+// exited long ago. A record whose pid no longer exists cannot own anything;
+// treating it as present would block the graceful stop forever. Drop it so
+// the strictly verified SIGTERM path applies. A live pid (including a reused
+// one) is kept as-is and still fails closed on mismatch, and SIGKILL still
+// requires a present, matching record.
+export function discardDeadServiceOwner(ownerState, isAlive = processExists) {
+  if (!ownerState?.present || !ownerState.valid) return ownerState;
+  const pid = Number(ownerState.value?.pid);
+  if (!Number.isInteger(pid) || pid <= 0 || isAlive(pid)) return ownerState;
+  return { present: false, valid: true, value: null };
+}
+
 function runLsof(args, env = process.env) {
   const result = spawnSync("lsof", args, {
     encoding: "utf8",
@@ -276,7 +290,7 @@ export async function stopLocalEvmDaemon({ serviceUrl, env = process.env } = {})
     Number.isInteger(reportedPid) && reportedPid > 0
       ? inspectDaemonProcess(reportedPid, port, env)
       : { available: false, listenerPids: [], cwd: "" };
-  const ownerState = readServiceOwner(expectedDataDir);
+  const ownerState = discardDeadServiceOwner(readServiceOwner(expectedDataDir));
   const verdict = classifyDaemonHealth(health, {
     expectedDataDir,
     port,

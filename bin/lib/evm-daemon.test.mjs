@@ -9,6 +9,7 @@ import { spawn, spawnSync } from "node:child_process";
 import {
   classifyDaemonHealth,
   daemonTakeoverDisabled,
+  discardDeadServiceOwner,
   expectedDataDirFor,
   isLoopbackServiceUrl,
   readDaemonHealth,
@@ -114,6 +115,28 @@ test("a missing ownership record still permits the strictly verified graceful st
     classify({ ownerState: { present: false, valid: true, value: null } }).reason,
     "stoppable",
   );
+});
+
+test("an ownership record naming a dead process is discarded", () => {
+  const dead = () => false;
+  assert.deepEqual(discardDeadServiceOwner(ownerState({ pid: 11614 }), dead), {
+    present: false,
+    valid: true,
+    value: null,
+  });
+  assert.equal(
+    classify({ ownerState: discardDeadServiceOwner(ownerState({ pid: 11614 }), dead) }).reason,
+    "stoppable",
+  );
+});
+
+test("an ownership record naming a live process is kept and still enforced", () => {
+  const alive = () => true;
+  const kept = discardDeadServiceOwner(ownerState({ pid: 9999 }), alive);
+  assert.deepEqual(kept, ownerState({ pid: 9999 }));
+  assert.equal(classify({ ownerState: kept }).reason, "owner_mismatch");
+  const corrupt = { present: true, valid: false, value: null };
+  assert.equal(discardDeadServiceOwner(corrupt, () => false), corrupt);
 });
 
 test("only loopback http service URLs are accepted", () => {

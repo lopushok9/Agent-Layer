@@ -295,6 +295,23 @@ def _require_hardened_runtime_secrets(backend: str) -> str | None:
     return str(sealed_path)
 
 
+# Installers before the unix-socket transport persisted the then-default TCP
+# address as an explicit wdkEvmServiceUrl. An explicit value always wins over
+# the per-home socket default, so those installs never moved to the socket and
+# ended up with a second daemon on the shared port. Only this exact legacy
+# default is migrated: any other URL, or an explicit WDK_EVM_TRANSPORT=tcp
+# opt-out, is a deliberate choice and stays untouched.
+LEGACY_EVM_SERVICE_URLS = frozenset({"http://127.0.0.1:8081", "http://localhost:8081"})
+
+
+def _drop_legacy_evm_service_url(plugin_config: dict) -> None:
+    if os.environ.get("WDK_EVM_TRANSPORT", "").strip().lower() == "tcp":
+        return
+    value = str(plugin_config.get("wdkEvmServiceUrl") or "").strip().rstrip("/").lower()
+    if value in LEGACY_EVM_SERVICE_URLS:
+        plugin_config.pop("wdkEvmServiceUrl", None)
+
+
 def main() -> None:
     args = build_parser().parse_args()
     config_path = Path(args.config_path).expanduser()
@@ -354,6 +371,7 @@ def main() -> None:
         ]
     for key in ("wdkBtcServiceUrl", "wdkBtcWalletId", "wdkBtcAccountIndex"):
         plugin_config.pop(key, None)
+    _drop_legacy_evm_service_url(plugin_config)
     if args.wdk_evm_service_url.strip():
         plugin_config["wdkEvmServiceUrl"] = args.wdk_evm_service_url.strip()
     if args.wdk_evm_wallet_id.strip():

@@ -57,6 +57,9 @@ jobs:
       - name: Smoke sealed config installer
         run: python agent-wallet/tests/smoke_install_openclaw_local_config_sealed.py
 
+      - name: Smoke legacy EVM service URL migration
+        run: python agent-wallet/tests/smoke_install_openclaw_local_config_migrates_legacy_evm_url.py
+
       - name: Smoke verified boot-key resolution
         run: python agent-wallet/tests/smoke_boot_key_verified_resolution.py
 
