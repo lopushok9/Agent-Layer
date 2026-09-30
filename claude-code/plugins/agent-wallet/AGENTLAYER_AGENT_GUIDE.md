@@ -32,16 +32,16 @@ See the sections below for exact tool names and parameters.
 
 ## Setup & Session State
 
-1. `get_active_wallet_backend` — which backend (solana / evm / btc) is live
+1. `get_active_wallet_backend` — which backend (solana / evm) is live
    for this session, and whether it differs from the startup default.
 2. `get_wallet_address` — the address for the active backend.
 3. `get_wallet_capabilities` — chain, backend, and the safety limits in force.
 4. `set_wallet_backend` (`backend`: solana / evm / ethereum / base /
-   robinhood / btc / bitcoin, optional `network`) — switch backend for this
+   robinhood / arc, optional `network`) — switch backend for this
    session without touching config files.
 5. For EVM specifically: `get_evm_network` shows the effective network and
    which networks support swaps; `set_evm_network` (ethereum / base /
-   robinhood) changes it.
+   robinhood / arc) changes it.
 
 Balance reads (Solana): `get_wallet_balance` / `get_wallet_portfolio` are the
 same enriched payload (native SOL + non-zero SPL accounts + USD pricing via
@@ -74,8 +74,8 @@ Every command except `/wallet-setup` requires the user to type it themselves
 
 ## The preview → prepare → execute → approve Pattern
 
-Nearly every write tool (transfers, swaps, staking, DeFi positions, BTC
-sends, token launch) shares one lifecycle via a `mode` argument:
+Nearly every write tool (transfers, swaps, staking, DeFi positions,
+token launch) shares one lifecycle via a `mode` argument:
 
 - `preview` — read-only summary of what the operation would do. No signing,
   no broadcast. Always do this first.
@@ -259,8 +259,8 @@ what stands between the agent and the payment.
 ## Explaining This to a Human
 
 If asked to summarize this server in plain terms: it's a direct line to the
-local AgentLayer wallet — Solana, an EVM chain (Ethereum/Base/Robinhood),
-and Bitcoin — plus the major yield/lending/LP protocols on those chains
+local AgentLayer wallet — Solana and an EVM chain (Ethereum/Base/Robinhood/Arc)
+— plus the major yield/lending/LP protocols on those chains
 (Kamino, Aave, Lido, Morpho, Uniswap concentrated liquidity) and the ability
 to pay per-request API/data paywalls (x402) straight from the wallet.
 Everything that moves funds is gated by a preview step and an approval token

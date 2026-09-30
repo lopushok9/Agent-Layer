@@ -17,7 +17,7 @@ Primary design rules:
 
 ## What it exposes
 
-- direct wallet tools for Solana, Bitcoin, and EVM (same surface as OpenClaw and Codex)
+- direct wallet tools for Solana and EVM (same surface as OpenClaw and Codex)
 - session wallet selection with `set_wallet_backend`
 - EVM network selection with `set_evm_network`
 - auto-managed approval binding for `preview -> execute` write flows
