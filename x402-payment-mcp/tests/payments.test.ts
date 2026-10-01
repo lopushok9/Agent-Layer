@@ -119,8 +119,8 @@ test("paying signs the previewed challenge and sends exactly one paid request wi
   const {client,account}=await exactClient();let signedCount=0;client.onAfterPaymentCreation(async()=>{signedCount++;});
   const calls:{url:string;init:RequestInit}[]=[];
   const provider=(async(url:string,init:RequestInit)=>{calls.push({url,init});return new Response('{"ok":true}',{status:200,headers:{"content-type":"application/json","payment-response":encodePaymentResponseHeader({success:true,transaction:"0xabc",network:"eip155:8453",payer:account.address} as any)}});}) as unknown as typeof fetch;
-  const response=await payStoredChallenge({client,fetchImpl:provider,url:"https://api.example.com/run?a=BTC",request:{method:"POST",headers:{accept:"application/json"},body:{q:"btc"}},paymentRequired:paidChallenge,timeout:1000});
-  assert.equal(response.status,200);assert.equal(calls.length,1);assert.equal(signedCount,1);
+  const {response,paid}=await payStoredChallenge({client,fetchImpl:provider,url:"https://api.example.com/run?a=BTC",request:{method:"POST",headers:{accept:"application/json"},body:{q:"btc"}},paymentRequired:paidChallenge,timeout:1000});
+  assert.equal(response.status,200);assert.equal(paid,true);assert.equal(calls.length,1);assert.equal(signedCount,1);
   const {url,init}=calls[0]!;const headers=init.headers as Record<string,string>;
   assert.equal(url,"https://api.example.com/run?a=BTC");assert.equal(init.method,"POST");assert.equal(init.body,'{"q":"btc"}');assert.equal(headers.accept,"application/json");assert.ok(init.signal instanceof AbortSignal);
   const payload=decodePaymentSignatureHeader(headers["PAYMENT-SIGNATURE"]!) as any;
@@ -132,7 +132,7 @@ test("a refused or unsettled paid request reports the provider's reason",async()
   const {payStoredChallenge,unsettledReason}=await import("../src/payments.js");const {encodePaymentRequiredHeader}=await import("@x402/core/http");const {limitedBody}=await import("../src/network.js");
   const {client}=await exactClient();
   const refusing=(async()=>new Response("{}",{status:402,headers:{"content-type":"application/json","payment-required":encodePaymentRequiredHeader({...paidChallenge,error:"insufficient_funds"})}})) as unknown as typeof fetch;
-  const refused=await payStoredChallenge({client,fetchImpl:refusing,url:"https://api.example.com/run",request:{method:"GET"},paymentRequired:paidChallenge,timeout:1000});
+  const {response:refused}=await payStoredChallenge({client,fetchImpl:refusing,url:"https://api.example.com/run",request:{method:"GET"},paymentRequired:paidChallenge,timeout:1000});
   assert.equal(refused.status,402);
   assert.match(unsettledReason(refused,await limitedBody(refused)),/refused the signed payment.*insufficient_funds/);
   assert.match(unsettledReason(new Response("upstream down",{status:502}),"upstream down"),/HTTP 502.*upstream down/);
@@ -141,4 +141,28 @@ test("a refused or unsettled paid request reports the provider's reason",async()
   // AbortSignal.timeout does not keep the event loop alive on its own.
   const keepAlive=setTimeout(()=>{},2000);
   try{await assert.rejects(()=>payStoredChallenge({client,fetchImpl:hanging,url:"https://api.example.com/run",request:{method:"GET"},paymentRequired:paidChallenge,timeout:50}),/timeout|aborted/i);}finally{clearTimeout(keepAlive);}
+});
+
+test("Sign-In-With-X is attached when the provider declares it, and granted access is not charged",async()=>{
+  const {payStoredChallenge}=await import("../src/payments.js");const {encodePaymentResponseHeader}=await import("@x402/core/http");
+  const {buildSIWxSchema,createSIWxClientExtension,parseSIWxHeader,SIGN_IN_WITH_X}=await import("@x402/extensions/sign-in-with-x");
+  const declared={...paidChallenge,extensions:{[SIGN_IN_WITH_X]:{info:{domain:"api.example.com",uri:"https://api.example.com/run",version:"1",nonce:"abcdef1234567890",issuedAt:new Date().toISOString(),expirationTime:new Date(Date.now()+300_000).toISOString()},supportedChains:[{chainId:"eip155:8453",type:"eip191"}],schema:buildSIWxSchema()}}};
+  const make=async()=>{const {client,account}=await exactClient();client.registerExtension(createSIWxClientExtension({signers:[account as any]}));let signed=0;client.onAfterPaymentCreation(async()=>{signed++;});return{client,account,signed:()=>signed};};
+  const settledHeaders=(payer:string)=>({"payment-response":encodePaymentResponseHeader({success:true,transaction:"0xabc",network:"eip155:8453",payer} as any)});
+
+  const returning=await make();const seen:Record<string,string>[]=[];
+  const knowsWallet=(async(_url:string,init:RequestInit)=>{seen.push(init.headers as Record<string,string>);return new Response("cached report",{status:200});}) as unknown as typeof fetch;
+  const granted=await payStoredChallenge({client:returning.client,fetchImpl:knowsWallet,url:"https://api.example.com/run",request:{method:"GET"},paymentRequired:declared,timeout:1000});
+  assert.equal(granted.paid,false);assert.equal(returning.signed(),0);assert.equal(seen.length,1);assert.equal(seen[0]!["PAYMENT-SIGNATURE"],undefined);
+  assert.equal((parseSIWxHeader(seen[0]![SIGN_IN_WITH_X]!) as any).address,returning.account.address);
+
+  const first=await make();const requests:Record<string,string>[]=[];
+  const needsPayment=(async(_url:string,init:RequestInit)=>{const headers=init.headers as Record<string,string>;requests.push(headers);return headers["PAYMENT-SIGNATURE"]?new Response("report",{status:200,headers:settledHeaders(first.account.address)}):new Response(null,{status:402});}) as unknown as typeof fetch;
+  const charged=await payStoredChallenge({client:first.client,fetchImpl:needsPayment,url:"https://api.example.com/run",request:{method:"GET"},paymentRequired:declared,timeout:1000});
+  assert.equal(charged.paid,true);assert.equal(first.signed(),1);assert.equal(requests.length,2);assert.ok(requests[1]![SIGN_IN_WITH_X]);assert.ok(requests[1]!["PAYMENT-SIGNATURE"]);
+
+  const plain=await make();const plainRequests:Record<string,string>[]=[];
+  const noSignIn=(async(_url:string,init:RequestInit)=>{plainRequests.push(init.headers as Record<string,string>);return new Response("report",{status:200,headers:settledHeaders(plain.account.address)});}) as unknown as typeof fetch;
+  await payStoredChallenge({client:plain.client,fetchImpl:noSignIn,url:"https://api.example.com/run",request:{method:"GET"},paymentRequired:paidChallenge,timeout:1000});
+  assert.equal(plainRequests.length,1);assert.equal(plainRequests[0]![SIGN_IN_WITH_X],undefined);
 });

@@ -9,6 +9,7 @@ import { BatchSettlementEvmScheme, type BatchSettlementClientContext, type Clien
 import { registerExactEvmScheme } from "@x402/evm/exact/client";
 import { UptoEvmScheme } from "@x402/evm/upto/client";
 import { toClientEvmSigner } from "@x402/evm";
+import { createSIWxClientExtension } from "@x402/extensions/sign-in-with-x";
 import { createPublicClient, http } from "viem";
 import { base } from "viem/chains";
 import { BASE_NETWORK, BASE_USDC, type Config } from "./config.js";
@@ -47,8 +48,9 @@ export class PaymentService{
       const client=await this.client(userId,preview);
       client.onBeforePaymentCreation(async({paymentRequired:terms,selectedRequirements})=>{if(requirementFingerprint(terms,selectedRequirements,preview.url,stored)!==preview.fingerprint)return{abort:true,reason:"stored payment terms do not match the preview"};});
       client.onAfterPaymentCreation(async()=>{signed=true;});
-      const response=await payStoredChallenge({client,fetchImpl:safeFetch,url:preview.url,request:stored,paymentRequired,timeout:this.config.PAYMENT_TIMEOUT_MS});
-      const body=await limitedBody(response);const settlement=decodeSettlement(response);const settled=response.ok&&settlement?.success===true;const reason=settled?null:unsettledReason(response,body);
+      const {response,paid}=await payStoredChallenge({client,fetchImpl:safeFetch,url:preview.url,request:stored,paymentRequired,timeout:this.config.PAYMENT_TIMEOUT_MS});
+      const body=await limitedBody(response);
+      if(!paid){await this.store.finishPayment(paymentId,"failed",null,response.status,NOT_CHARGED_NOTE);return{payment_id:paymentId,status:"not_charged",note:NOT_CHARGED_NOTE,scheme:preview.scheme,purpose,authorized_amount_atomic:preview.amount,settled_amount_atomic:null,response_status:response.status,transaction:null,network:BASE_NETWORK,result:body};}const settlement=decodeSettlement(response);const settled=response.ok&&settlement?.success===true;const reason=settled?null:unsettledReason(response,body);
       await this.store.finishPayment(paymentId,settled?"settled":"unknown",settlement?.transaction??null,response.status,reason,settlement?.amount??null);
       return{payment_id:paymentId,status:settled?"settled":"unknown",...(reason?{failure_reason:reason,next_step:UNKNOWN_NEXT_STEP}:{}),scheme:preview.scheme,purpose,authorized_amount_atomic:preview.amount,settled_amount_atomic:settlement?.amount??null,response_status:response.status,transaction:settlement?.transaction??null,network:settlement?.network??BASE_NETWORK,result:body};
     }catch(e){
@@ -64,6 +66,7 @@ export class PaymentService{
     const account=await this.account(userId);const rpcUrl=await this.baseRpcUrl;const publicClient=createPublicClient({chain:base,transport:http(rpcUrl)});const signer=toClientEvmSigner(account,publicClient);const schemeOptions=rpcUrl?{rpcUrl}:undefined;
     const client=new x402Client((_version,requirements)=>selectPreviewRequirement(requirements,preview));client.setSpendControls(this.config.SPEND_LIMITS_ENABLED?{maxAmountPerPayment:`$${atomicUsd(this.config.MAX_PAYMENT_USDC_ATOMIC)}`,allowedAssets:[]}:false);
     registerExactEvmScheme(client,{signer,networks:[BASE_NETWORK],...(schemeOptions?{schemeOptions}:{})});client.register(BASE_NETWORK,new UptoEvmScheme(signer,schemeOptions));client.register(BASE_NETWORK,new BatchSettlementEvmScheme(signer,{storage:new PostgresBatchChannelStorage(this.store,userId),...(rpcUrl?{rpcUrl}:{})}));client.register(BASE_NETWORK,new AuthCaptureEvmScheme(signer));client.registerPolicy((_v,reqs)=>reqs.filter(isAllowed));
+    client.registerExtension(createSIWxClientExtension({signers:[{address:account.address,signMessage:({message}:{message:string})=>account.signMessage({message})}]}));
     return client;
   }
 
@@ -75,16 +78,20 @@ export class PaymentService{
   private async bazaarListing(url:string):Promise<{listed:boolean|null;method?:HttpMethod}>{try{const found=await searchX402Resources({urlSubstring:listingKey(url),network:BASE_NETWORK,asset:BASE_USDC});const listing=findListing(found.resources,url);const method=listing?hintedMethod(listing.extensions):undefined;return{listed:Boolean(listing),...(method?{method}:{})};}catch{return{listed:null};}}
 }
 
+const NOT_CHARGED_NOTE="not charged: the provider accepted the wallet sign-in and returned the resource without a payment";
 const UNKNOWN_NEXT_STEP="Do not pay again blindly: call wallet_status to see whether the balance changed before previewing a new payment.";
 // Signs the challenge captured at preview time and sends one paid request, as the local wallet does. The amount and recipient the user approved are the only terms that can be signed; a provider that changed its price answers 402 again and nothing settles.
 // Every request gets its own timeout, so a slow on-chain settlement is not cut short by time already spent signing.
-export async function payStoredChallenge(o:{client:x402Client;fetchImpl:typeof globalThis.fetch;url:string;request:RequestSpec;paymentRequired:PaymentRequired;timeout:number}):Promise<Response>{
+export async function payStoredChallenge(o:{client:x402Client;fetchImpl:typeof globalThis.fetch;url:string;request:RequestSpec;paymentRequired:PaymentRequired;timeout:number}):Promise<{response:Response;paid:boolean}>{
   const httpClient=new x402HTTPClient(o.client);
   const send=(extra:Record<string,string>)=>{const init=requestInit(o.request,o.timeout);return o.fetchImpl(o.url,{...init,headers:{...(init.headers as Record<string,string>|undefined),...extra}});};
-  const attempt=async()=>{const payload=await o.client.createPaymentPayload(o.paymentRequired);const response=await send(httpClient.encodePaymentSignatureHeader(payload));const result=await httpClient.processPaymentResult(payload,name=>response.headers.get(name),response.status);return{response,recovered:result.recovered};};
-  const first=await attempt();if(!first.recovered)return first.response;
+  // Sign-In-With-X: a provider that declares it may grant access to a wallet that already paid. Best effort, as in the local wallet: a challenge that cannot be signed must not block the payment.
+  const signIn=await httpClient.handlePaymentRequired(o.paymentRequired,o.url).catch(()=>null)??{};
+  if(Object.keys(signIn).length){const granted=await send(signIn);if(granted.status!==402)return{response:granted,paid:false};void granted.body?.cancel().catch(()=>{});}
+  const attempt=async()=>{const payload=await o.client.createPaymentPayload(o.paymentRequired);const response=await send({...signIn,...httpClient.encodePaymentSignatureHeader(payload)});const result=await httpClient.processPaymentResult(payload,name=>response.headers.get(name),response.status);return{response,recovered:result.recovered};};
+  const first=await attempt();if(!first.recovered)return{response:first.response,paid:true};
   // A scheme hook (batch-settlement channel resync) repaired local state and asked for one retry with a fresh payload.
-  void first.response.body?.cancel().catch(()=>{});return (await attempt()).response;
+  void first.response.body?.cancel().catch(()=>{});return{response:(await attempt()).response,paid:true};
 }
 // The provider's own explanation for refusing a signed payment, when it gives one.
 export function unsettledReason(response:Response,body:unknown){
