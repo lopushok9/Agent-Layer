@@ -10,3 +10,15 @@ test("a body-less POST builds the same request at preview and after the stored p
   const withBody=requestInit({method:"POST",body:{q:"btc"}},1000);
   assert.equal(withBody.body,'{"q":"btc"}');assert.deepEqual(withBody.headers,{"content-type":"application/json"});
 });
+
+test("payment locks use their own bounded pool so lock holders cannot starve queries",async()=>{
+  const {Store,POOL_CONNECT_TIMEOUT_MS}=await import("../src/store.js");
+  const store=new Store("postgres://localhost/test");
+  try{
+    assert.notEqual(store.lockPool,store.pool);
+    for(const pool of [store.pool,store.lockPool])assert.equal(pool.options.connectionTimeoutMillis,POOL_CONNECT_TIMEOUT_MS);
+    const used:unknown[]=[];const fake={query:async()=>({rows:[]}),release(){}};
+    (store.lockPool as any).connect=async()=>{used.push("lock");return fake;};(store.pool as any).connect=async()=>{used.push("main");return fake;};
+    assert.equal(await store.withPaymentLock("user-1",async()=>"done"),"done");assert.deepEqual(used,["lock"]);
+  }finally{await store.close();}
+});

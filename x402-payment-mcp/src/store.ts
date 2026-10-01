@@ -9,13 +9,19 @@ export type AuthorizationCode = LoginState & { userId: string };
 export type Preview = { id: string; userId: string; method: string; url: string; body: unknown; fingerprint: string; scheme: string; amount: string; payTo: string; expiresAt: Date };
 export type ArcReservation = { transferId: string; to: string; amount: bigint };
 export type PersonalToken = { id: string; label: string; hint: string; createdAt: Date; expiresAt: Date; lastUsedAt: Date | null };
+// Fail a request instead of hanging when the database has no free connection.
+export const POOL_CONNECT_TIMEOUT_MS = 10_000;
 export type BatchChannelContext = { chargedCumulativeAmount?:string; balance?:string; totalClaimed?:string; signedMaxClaimable?:string; signature?:`0x${string}` };
 
 export class Store {
   readonly pool: Pool;
+  // A payment holds its advisory-lock connection for the whole paid request and
+  // still needs the main pool for its own queries. Sharing one pool lets enough
+  // concurrent payments take every connection and then wait on each other forever.
+  readonly lockPool: Pool;
   private oauthCleanupTimer?:ReturnType<typeof setInterval>;
-  constructor(databaseUrl: string) { this.pool = new Pool({ connectionString: databaseUrl, ssl: databaseTls(databaseUrl) }); }
-  async close() { if(this.oauthCleanupTimer)clearInterval(this.oauthCleanupTimer);await this.pool.end(); }
+  constructor(databaseUrl: string) { const options={ connectionString: databaseUrl, ssl: databaseTls(databaseUrl), connectionTimeoutMillis: POOL_CONNECT_TIMEOUT_MS }; this.pool = new Pool(options); this.lockPool = new Pool(options); }
+  async close() { if(this.oauthCleanupTimer)clearInterval(this.oauthCleanupTimer);await Promise.all([this.pool.end(),this.lockPool.end()]); }
   async migrate() {
     await this.pool.query(await migrationSql());
   }
@@ -129,7 +135,7 @@ export class Store {
   async getBatchChannel(userId:string,channelId:string):Promise<BatchChannelContext|undefined>{const r=await this.pool.query(`SELECT context FROM batch_payment_channels WHERE user_id=$1 AND channel_id=$2`,[userId,channelId.toLowerCase()]);return r.rowCount?r.rows[0].context as BatchChannelContext:undefined;}
   async setBatchChannel(userId:string,channelId:string,context:BatchChannelContext){await this.pool.query(`INSERT INTO batch_payment_channels(user_id,channel_id,context) VALUES($1,$2,$3) ON CONFLICT(user_id,channel_id) DO UPDATE SET context=excluded.context,updated_at=now()`,[userId,channelId.toLowerCase(),JSON.stringify(context)]);}
   async deleteBatchChannel(userId:string,channelId:string){await this.pool.query(`DELETE FROM batch_payment_channels WHERE user_id=$1 AND channel_id=$2`,[userId,channelId.toLowerCase()]);}
-  async withPaymentLock<T>(userId:string,action:()=>Promise<T>):Promise<T>{const c=await this.pool.connect();const key=`x402-payment:${userId}`;try{await c.query(`SELECT pg_advisory_lock(hashtextextended($1,0))`,[key]);return await action();}finally{try{await c.query(`SELECT pg_advisory_unlock(hashtextextended($1,0))`,[key]);}finally{c.release();}}}
+  async withPaymentLock<T>(userId:string,action:()=>Promise<T>):Promise<T>{const c=await this.lockPool.connect();const key=`x402-payment:${userId}`;try{await c.query(`SELECT pg_advisory_lock(hashtextextended($1,0))`,[key]);return await action();}finally{try{await c.query(`SELECT pg_advisory_unlock(hashtextextended($1,0))`,[key]);}finally{c.release();}}}
   async createPreview(p:Omit<Preview,"id"|"expiresAt">,ttlSeconds:number){const id=randomUUID();const r=await this.pool.query(`INSERT INTO payment_previews(id,user_id,method,url,request_body,fingerprint,scheme,amount,pay_to,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now()+($10*interval '1 second')) RETURNING expires_at`,[id,p.userId,p.method,p.url,JSON.stringify(p.body),p.fingerprint,p.scheme,p.amount,p.payTo,ttlSeconds]);return{id,expiresAt:r.rows[0].expires_at as Date};}
   async reservePayment(userId:string,previewId:string,dailyLimit:bigint|null,purpose:string){const c=await this.pool.connect();try{await c.query("BEGIN");await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`,[userId]);const p=await c.query(`UPDATE payment_previews SET used_at=now() WHERE id=$1 AND user_id=$2 AND used_at IS NULL AND expires_at>now() RETURNING *`,[previewId,userId]);if(!p.rowCount){await c.query("ROLLBACK");return null;}const amount=BigInt(p.rows[0].amount);if(dailyLimit!==null){const spent=await c.query(`SELECT COALESCE(sum(amount::numeric),0)::text total FROM payments WHERE user_id=$1 AND created_at>now()-interval '24 hours' AND status IN ('reserved','settled','unknown')`,[userId]);if(BigInt(spent.rows[0].total)+amount>dailyLimit){await c.query("ROLLBACK");throw new Error("daily spend limit exceeded");}}const paymentId=randomUUID();await c.query(`INSERT INTO payments(id,user_id,preview_id,scheme,amount,purpose,status) VALUES($1,$2,$3,$4,$5,$6,'reserved')`,[paymentId,userId,previewId,p.rows[0].scheme,amount.toString(),purpose]);await c.query("COMMIT");const x=p.rows[0];return{paymentId,preview:{id:x.id,userId:x.user_id,method:x.method,url:x.url,body:x.request_body,fingerprint:x.fingerprint,scheme:x.scheme,amount:x.amount,payTo:x.pay_to,expiresAt:x.expires_at} as Preview};}catch(e){await c.query("ROLLBACK");throw e;}finally{c.release();}}
   async finishPayment(id:string,status:"settled"|"failed"|"unknown",transaction:string|null,responseStatus:number|null,error:string|null,settledAmount:string|null=null){await this.pool.query(`UPDATE payments SET status=$2,transaction_hash=$3,response_status=$4,error=$5,settled_amount=$6,completed_at=now() WHERE id=$1`,[id,status,transaction,responseStatus,error,settledAmount]);}
