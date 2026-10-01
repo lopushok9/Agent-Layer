@@ -18,7 +18,9 @@ const Env = z.object({
   AUTH_CODE_TTL_SECONDS: z.coerce.number().int().min(60).max(600).default(300),
   PERSONAL_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(90),
   PERSONAL_TOKEN_MAX_ACTIVE: z.coerce.number().int().min(1).max(50).default(10),
-  PREVIEW_TTL_SECONDS: z.coerce.number().int().min(30).max(600).default(120),
+  // The user has to read the preview and approve the payment in a chat UI
+  // before the agent can call x402_pay, which routinely takes over two minutes.
+  PREVIEW_TTL_SECONDS: z.coerce.number().int().min(30).max(600).default(600),
   SPEND_LIMITS_ENABLED: z.enum(["true","1","false","0"]).default("false").transform(v=>v==="true"||v==="1"),
   MAX_PAYMENT_USDC_ATOMIC: z.string().regex(/^\d+$/).default("1000000"),
   MAX_DAILY_USDC_ATOMIC: z.string().regex(/^\d+$/).default("5000000"),

@@ -22,3 +22,14 @@ test("payment locks use their own bounded pool so lock holders cannot starve que
     assert.equal(await store.withPaymentLock("user-1",async()=>"done"),"done");assert.deepEqual(used,["lock"]);
   }finally{await store.close();}
 });
+
+test("an unavailable preview says whether it expired or was already used",async()=>{
+  const {previewUnavailableMessage}=await import("../src/store.js");
+  assert.match(previewUnavailableMessage({used:true,expired:true}),/already used/);
+  assert.match(previewUnavailableMessage({used:false,expired:true}),/expired/);
+  assert.match(previewUnavailableMessage(undefined),/not found/);
+  const {loadConfig}=await import("../src/config.js");const {exportJWK,generateKeyPair}=await import("jose");
+  const {privateKey}=await generateKeyPair("ES256",{extractable:true});
+  const config=loadConfig({PUBLIC_BASE_URL:"https://pay.example.com",DATABASE_URL:"postgres://localhost/test",OAUTH_SIGNING_PRIVATE_JWK:JSON.stringify(await exportJWK(privateKey)),GITHUB_CLIENT_ID:"h",GITHUB_CLIENT_SECRET:"h",CDP_API_KEY_ID:"c",CDP_API_KEY_SECRET:"c",CDP_WALLET_SECRET:"c",ARC_RPC_URL:"https://rpc.example.com"});
+  assert.equal(config.PREVIEW_TTL_SECONDS,600);
+});
