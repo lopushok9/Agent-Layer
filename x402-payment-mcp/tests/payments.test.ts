@@ -71,3 +71,17 @@ test("preflight retries the alternate method only on 405 and returns the method 
   const badRequest=(async(_url:string,init:RequestInit)=>{calls.push(init.method!);return new Response('{"error":"missing a"}',{status:400,headers:{"content-type":"application/json"}});}) as unknown as typeof fetch;
   calls.length=0;await assert.rejects(()=>preflight(badRequest,"https://api.example.com/run",{},["GET","POST"],1000),/HTTP 400.*missing a/);assert.deepEqual(calls,["GET"]);
 });
+
+test("caller headers and a raw text body reach the provider, while transport and payment headers stay reserved",async()=>{
+  const {normalizeRequestHeaders}=await import("../src/payments.js");
+  assert.deepEqual(normalizeRequestHeaders({"Accept":"text/csv","X-Client":"agent"}),{accept:"text/csv","x-client":"agent"});
+  assert.equal(normalizeRequestHeaders({}),undefined);
+  for(const name of ["Host","content-length","PAYMENT-SIGNATURE","X-Payment","Proxy-Connection"])assert.throws(()=>normalizeRequestHeaders({[name]:"x"}),/cannot be set/);
+  assert.throws(()=>normalizeRequestHeaders({"bad name":"x"}),/invalid header name/);
+  assert.throws(()=>normalizeRequestHeaders({"x-a":"line\r\nInjected: 1"}),/invalid value/);
+  const text=requestInit({method:"POST",headers:{"content-type":"text/plain"},textBody:"raw payload"},1000);
+  assert.equal(text.body,"raw payload");assert.deepEqual(text.headers,{"content-type":"text/plain"});
+  const json=requestInit({method:"POST",headers:{"content-type":"application/vnd.api+json"},body:{a:1}},1000);
+  assert.deepEqual(json.headers,{"content-type":"application/vnd.api+json"});
+  assert.equal(requestInit({method:"GET",textBody:"ignored"},1000).body,undefined);
+});
