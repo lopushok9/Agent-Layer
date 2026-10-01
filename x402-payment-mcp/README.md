@@ -24,6 +24,26 @@ The CDP account signer is paired with the project's authenticated Base RPC for r
 
 Spend limits are disabled by default. The existing 1 USDC per-payment and 5 USDC rolling-24-hour controls can be restored with `SPEND_LIMITS_ENABLED=true`; when enabled, `unknown` outcomes remain charged against the daily limit because a timeout after signing can still have settled. A preview can be consumed only once in either mode.
 
+## Arc (basic receive and send)
+
+The same CDP account address also works on Arc mainnet (chain id 5042), where
+USDC is the gas asset.
+
+- `arc_wallet_status` returns the receive address, the Arc USDC balance, and
+  the transfer limits.
+- `arc_transfer_preview` validates the recipient and amount, estimates the
+  network fee (paid in USDC), and stores a single-use preview. It never signs.
+- `arc_transfer` consumes that preview and sends exactly one USDC
+  `transfer(to, amount)` through the USDC interface at
+  `0x3600000000000000000000000000000000000000`.
+
+CDP has no Arc network yet, so the CDP account signs the fully built EIP-1559
+transaction and the service broadcasts it through `ARC_RPC_URL`. Limits are
+always on: `ARC_MAX_TRANSFER_USDC_ATOMIC` (default 50 USDC) per transfer and
+`ARC_MAX_DAILY_TRANSFER_USDC_ATOMIC` (default 200 USDC) per rolling 24 hours.
+A transfer whose outcome cannot be confirmed after signing is recorded as
+`unknown` and is never retried automatically.
+
 ## OAuth endpoints
 
 - `/.well-known/oauth-protected-resource/mcp`

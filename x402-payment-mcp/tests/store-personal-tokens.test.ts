@@ -49,3 +49,32 @@ test("personal access token SQL round-trips against Postgres", { skip: !url }, a
     await store.cleanupOAuthArtifacts();
   } finally { await store.close(); }
 });
+
+test("Arc transfer previews are single use and the daily cap holds", { skip: !url }, async () => {
+  const store = new Store(url!);
+  try {
+    await store.migrate();
+    const userId = await store.upsertIdentity("github", `arc-test-${Date.now()}`, "Tester", null);
+    const to = "0x2222222222222222222222222222222222222222";
+    const first = await store.createArcPreview({ userId, to, amount: 150_000_000n, fee: 1200n }, 120);
+    const reserved = await store.reserveArcTransfer(userId, first.id, "first", 200_000_000n);
+    assert.equal(reserved?.amount, 150_000_000n); assert.equal(reserved?.to, to);
+    assert.equal(await store.reserveArcTransfer(userId, first.id, "replay", 200_000_000n), null, "a preview sends once");
+    assert.equal(await store.arcTransferredToday(userId), 150_000_000n);
+
+    const second = await store.createArcPreview({ userId, to, amount: 60_000_000n, fee: 1200n }, 120);
+    await assert.rejects(store.reserveArcTransfer(userId, second.id, "over cap", 200_000_000n), /daily Arc transfer limit/);
+    const stillUnused = await store.pool.query(`SELECT used_at FROM arc_transfer_previews WHERE id=$1`, [second.id]);
+    assert.equal(stillUnused.rows[0].used_at, null, "a rejected reservation does not burn the preview");
+
+    await store.finishArcTransfer(reserved!.transferId, "failed", null, "signing failed");
+    assert.equal(await store.arcTransferredToday(userId), 0n, "failed transfers do not count toward the cap");
+    assert.equal((await store.reserveArcTransfer(userId, second.id, "now fits", 200_000_000n))?.amount, 60_000_000n);
+    await store.finishArcTransfer(reserved!.transferId, "unknown", "0xabc", "rpc timeout");
+    assert.equal(await store.arcTransferredToday(userId), 210_000_000n, "unknown outcomes stay charged");
+
+    const other = await store.upsertIdentity("github", `arc-other-${Date.now()}`, "Other", null);
+    const foreign = await store.createArcPreview({ userId, to, amount: 1n, fee: 1n }, 120);
+    assert.equal(await store.reserveArcTransfer(other, foreign.id, "steal", 200_000_000n), null, "another user cannot use a preview");
+  } finally { await store.close(); }
+});

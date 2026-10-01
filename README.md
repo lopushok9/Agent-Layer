@@ -37,9 +37,9 @@ If you only need x402 payments, connect this remote MCP instead:
 https://x402.agent-layer.tech/mcp
 ```
 
-This is just an MCP server. It gives access to x402 payments only (search
-paid services, preview, and pay in USDC on Base) — it is not the full
-AgentLayer wallet: no Solana, transfers, swaps, or DeFi. Add it as a custom
+This is just an MCP server. It gives access to x402 payments (search paid
+services, preview, and pay in USDC on Base) plus basic USDC receive and send
+on Arc — it is not the full AgentLayer wallet: no Solana, swaps, or DeFi. Add it as a custom
 connector in any MCP host that supports remote servers with OAuth (for
 example Claude) and sign in with Google or GitHub.
 

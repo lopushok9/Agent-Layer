@@ -39,7 +39,8 @@ export class PaymentService{
     }catch(e){await this.store.finishPayment(paymentId,signed?"unknown":"failed",null,null,errorMessage(e));throw e;}
   }
 
-  private async account(userId:string){const name=`x402-${createHash("sha256").update(userId).digest("hex").slice(0,24)}`;const existing=await this.store.getWallet(userId);const account=await this.cdp.evm.getOrCreateAccount({name:existing?.accountName??name});if(!existing?.address)await this.store.saveWallet(userId,name,account.address);return account;}
+  // One CDP EVM account per user, shared by Base x402 payments and Arc transfers.
+  async account(userId:string){const name=`x402-${createHash("sha256").update(userId).digest("hex").slice(0,24)}`;const existing=await this.store.getWallet(userId);const account=await this.cdp.evm.getOrCreateAccount({name:existing?.accountName??name});if(!existing?.address)await this.store.saveWallet(userId,name,account.address);return account;}
   private async resolveRef(ref:string){const url=(await this.tokens.verifyServiceRef(ref));assertSafeResourceUrl(url);const found=await searchX402Resources({urlSubstring:url,network:BASE_NETWORK,asset:BASE_USDC});if(!found.resources.some(r=>r.resource===url&&(r.accepts??[]).some(isAllowedLike)))throw new Error("resource is no longer an eligible CDP Bazaar listing");return url;}
   private async preflight(url:string,spec:RequestSpec){const response=await safeFetch(url,requestInit(spec,this.config.PAYMENT_TIMEOUT_MS));if(response.status!==402)throw new Error(`resource did not return 402 (received ${response.status})`);const header=response.headers.get("payment-required")??response.headers.get("x-payment-required");if(!header)throw new Error("resource returned 402 without PAYMENT-REQUIRED");return decodePaymentRequiredHeader(header);}
 }

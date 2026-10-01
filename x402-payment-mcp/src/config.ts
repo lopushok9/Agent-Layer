@@ -22,6 +22,9 @@ const Env = z.object({
   SPEND_LIMITS_ENABLED: z.enum(["true","1","false","0"]).default("false").transform(v=>v==="true"||v==="1"),
   MAX_PAYMENT_USDC_ATOMIC: z.string().regex(/^\d+$/).default("1000000"),
   MAX_DAILY_USDC_ATOMIC: z.string().regex(/^\d+$/).default("5000000"),
+  ARC_RPC_URL: z.string().url().default("https://rpc.mainnet.arc.io"),
+  ARC_MAX_TRANSFER_USDC_ATOMIC: z.string().regex(/^\d+$/).default("50000000"),
+  ARC_MAX_DAILY_TRANSFER_USDC_ATOMIC: z.string().regex(/^\d+$/).default("200000000"),
   PAYMENT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(15000),
 }).superRefine((value,ctx)=>{
   const google=Boolean(value.GOOGLE_CLIENT_ID&&value.GOOGLE_CLIENT_SECRET);
@@ -49,3 +52,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
 
 export const BASE_NETWORK = "eip155:8453" as const;
 export const BASE_USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
+// Arc mainnet: USDC is the native gas asset; transfers use its 6-decimal
+// ERC-20 interface at this system address.
+export const ARC_CHAIN_ID = 5042 as const;
+export const ARC_NETWORK = "eip155:5042" as const;
+export const ARC_USDC = "0x3600000000000000000000000000000000000000" as const;
