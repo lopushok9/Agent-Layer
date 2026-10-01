@@ -1,6 +1,6 @@
 # Hosted x402 Payment MCP
 
-A new, standalone buyer-side MCP for cloud agents. It discovers services only through CDP Bazaar and pays x402 v2 `exact`, `upto`, `batch-settlement`, and `auth-capture` requirements using canonical USDC on Base (`eip155:8453`). It never receives payments and never exposes a generic signing method.
+A standalone buyer-side MCP for cloud agents. It pays any public HTTPS x402 endpoint, found through CDP Bazaar, Agentic Market, or given by the user, using x402 v2 `exact`, `upto`, `batch-settlement`, and `auth-capture` requirements with canonical USDC on Base (`eip155:8453`). It never receives payments and never exposes a generic signing method.
 
 ## Identity model
 
@@ -14,9 +14,13 @@ The provider choice uses ordinary links so it works reliably in mobile and embed
 
 ## Payment flow
 
-1. `x402_search` searches CDP Bazaar and returns signed, expiring `service_ref` values instead of raw payment destinations.
-2. `x402_preview` verifies the resource is still in Bazaar, applies optional scalar query parameters, performs an unpaid request, selects one supported scheme, and stores a short-lived fingerprint of the exact URL, request body, and payment terms. Provider validation errors are returned with a bounded, explicitly untrusted response preview so callers can correct parameters before any payment is signed.
-3. `x402_pay` atomically consumes the preview, reserves the user's rolling 24-hour limit when that optional control is enabled, repeats the request, and checks the fingerprint inside the x402 SDK hook immediately before CDP signs.
+1. `x402_search` searches CDP Bazaar (default) or Agentic Market and returns each resource's `url`, price, and the provider's untrusted input hint.
+2. `x402_preview` takes a `url`: one from search, or any public HTTPS x402 endpoint the user supplied. It reports whether the url is a Bazaar listing, detects the HTTP method (Bazaar hint, then one retry on 405), applies query parameters, caller headers and a JSON or text body, follows redirects through the SSRF guard, performs the unpaid request, selects one supported scheme, and stores the request together with the provider's `PAYMENT-REQUIRED` challenge. Provider validation errors are returned with a bounded, explicitly untrusted response preview so callers can correct parameters before any payment is signed.
+3. `x402_pay` atomically consumes the preview, reserves the user's rolling 24-hour limit when that optional control is enabled, signs the stored challenge, and sends one paid request. Only the amount and recipient shown in the preview can be signed. If the provider declares Sign-In-With-X, the wallet sign-in is tried first and a granted request is not charged.
+
+`x402_pay` returns `settled` when the provider reported a settlement, `not_charged` when access was granted without payment, and `unknown` with the provider's reason when a payment was signed but no settlement was reported. A failure before signing is an error stating that nothing was charged.
+
+Previews last `PREVIEW_TTL_SECONDS` (default 600) and each provider request has its own `PAYMENT_TIMEOUT_MS` (default 45000) budget. Caller-supplied headers are stored only until the preview is paid or expires.
 
 Batch-settlement channel state is stored durably in PostgreSQL, and payments are serialized per user with a PostgreSQL advisory lock so concurrent requests cannot sign conflicting cumulative vouchers. The SDK's default channel deposit is five times the advertised per-request maximum; this funds subsequent voucher-only calls and is distinct from the amount the seller may charge for the current request.
 
@@ -119,7 +123,7 @@ The host discovers OAuth metadata, dynamically registers, opens Google/GitHub lo
 
 ## Production boundaries
 
-- Apply a Railway/network egress policy as a second SSRF barrier. The code requires HTTPS, rejects credentials/custom ports, and uses DNS resolution that rejects private/link-local answers.
+- Apply a Railway/network egress policy as a second SSRF barrier. The code requires HTTPS, rejects credentials/custom ports, and uses DNS resolution that rejects private/link-local answers. This matters more now that any public url can be previewed, including each redirect hop.
 - Back up Postgres. CDP remains the key custodian, while the DB contains the durable user-to-CDP-account mapping and OAuth grants.
 - Treat a payment timeout after signing as indeterminate and reconcile by transaction/payment audit data before allowing manual retries.
 - The initial migration is intentionally small; use additive numbered migrations after the first production deployment.
