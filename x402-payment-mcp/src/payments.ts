@@ -54,7 +54,7 @@ export class PaymentService{
       client.onBeforePaymentCreation(async({paymentRequired:terms,selectedRequirements})=>{if(requirementFingerprint(terms,selectedRequirements,preview.url,stored)!==preview.fingerprint)return{abort:true,reason:"stored payment terms do not match the preview"};});
       client.onAfterPaymentCreation(async()=>{signed=true;});
       const {response,paid}=await payStoredChallenge({client,fetchImpl:safeFetch,url:preview.url,request:stored,paymentRequired,timeout:this.config.PAYMENT_TIMEOUT_MS});
-      const body=await limitedBody(response);
+      const body=await readResult(response);
       if(!paid){await this.store.finishPayment(paymentId,"failed",null,response.status,NOT_CHARGED_NOTE);return{payment_id:paymentId,status:"not_charged",note:NOT_CHARGED_NOTE,scheme:preview.scheme,purpose,authorized_amount_atomic:preview.amount,settled_amount_atomic:null,response_status:response.status,transaction:null,network:BASE_NETWORK,result:body};}const settlement=decodeSettlement(response);const settled=response.ok&&settlement?.success===true;const reason=settled?null:unsettledReason(response,body);
       await this.store.finishPayment(paymentId,settled?"settled":"unknown",settlement?.transaction??null,response.status,reason,settlement?.amount??null);
       return{payment_id:paymentId,status:settled?"settled":"unknown",...(reason?{failure_reason:reason,next_step:UNKNOWN_NEXT_STEP}:{}),scheme:preview.scheme,purpose,authorized_amount_atomic:preview.amount,settled_amount_atomic:settlement?.amount??null,response_status:response.status,transaction:settlement?.transaction??null,network:settlement?.network??BASE_NETWORK,result:body};
@@ -98,6 +98,8 @@ export async function payStoredChallenge(o:{client:x402Client;fetchImpl:typeof g
   // A scheme hook (batch-settlement channel resync) repaired local state and asked for one retry with a fresh payload.
   void first.response.body?.cancel().catch(()=>{});return{response:(await attempt()).response,paid:true};
 }
+// The settlement arrives in a header, so a body that is too large or breaks mid-stream must not turn a settled payment into an unknown one.
+export async function readResult(response:Response):Promise<unknown>{try{return await limitedBody(response);}catch(e){return{result_unavailable:`the response body could not be read: ${errorMessage(e)}`};}}
 // The provider's own explanation for refusing a signed payment, when it gives one.
 export function unsettledReason(response:Response,body:unknown){
   let detail="";const header=response.headers.get("payment-required")??response.headers.get("x-payment-required");

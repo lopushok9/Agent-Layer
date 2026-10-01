@@ -31,7 +31,8 @@ export const safeFetch=publicFetch("error");
 export const safeFetchManual=publicFetch("manual");
 
 export function limitResponseBody(response:Response,maxBytes=1_000_000):Response{
-  const length=Number(response.headers.get("content-length")??0);if(length>maxBytes){void response.body?.cancel();throw new Error("resource response is too large");}
+  // An oversized body fails when it is read, not here: the status and headers (the settlement of a paid request) must stay available to the caller.
+  const length=Number(response.headers.get("content-length")??0);if(length>maxBytes){void response.body?.cancel();return new Response(new ReadableStream<Uint8Array>({start(controller){controller.error(new Error("resource response is too large"));}}),{status:response.status,statusText:response.statusText,headers:response.headers});}
   if(!response.body)return response;const reader=response.body.getReader();let size=0;
   const body=new ReadableStream<Uint8Array>({async pull(controller){try{const {done,value}=await reader.read();if(done){controller.close();return;}size+=value.byteLength;if(size>maxBytes){await reader.cancel();controller.error(new Error("resource response is too large"));return;}controller.enqueue(value);}catch(error){controller.error(error);}},cancel(reason){return reader.cancel(reason);}});
   return new Response(body,{status:response.status,statusText:response.statusText,headers:response.headers});

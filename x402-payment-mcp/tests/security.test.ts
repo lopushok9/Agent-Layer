@@ -105,5 +105,5 @@ test("response body limit applies before the x402 SDK can buffer a 402 body",asy
   const oversized=new Response(new ReadableStream<Uint8Array>({start(controller){controller.enqueue(new Uint8Array(600_000));controller.enqueue(new Uint8Array(600_000));controller.close();}}),{status:402});
   await assert.rejects(()=>limitResponseBody(oversized,1_000_000).text(),/too large/);
   const declared=new Response("small",{status:402,headers:{"content-length":"1000001"}});
-  assert.throws(()=>limitResponseBody(declared,1_000_000),/too large/);
+  const limited=limitResponseBody(declared,1_000_000);assert.equal(limited.status,402);await assert.rejects(()=>limited.text(),/too large/);
 });

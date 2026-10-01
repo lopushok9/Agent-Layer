@@ -200,3 +200,12 @@ test("an unpaid probe retries one transient connection error and names the cause
   const slow=(async()=>{throw Object.assign(new Error("The operation was aborted due to timeout"),{name:"TimeoutError"});}) as unknown as typeof fetch;
   await assert.rejects(()=>preflight(slow,"https://api.example.com/run",{},["GET"],1000),/no response within 1000 ms/);
 });
+
+test("a settled payment stays settled when the paid response body cannot be read",async()=>{
+  const {readResult}=await import("../src/payments.js");const {limitResponseBody}=await import("../src/network.js");const {encodePaymentResponseHeader}=await import("@x402/core/http");
+  const settlement=encodePaymentResponseHeader({success:true,transaction:"0xabc",network:"eip155:8453",payer:"0x1111111111111111111111111111111111111111"} as any);
+  const oversized=limitResponseBody(new Response("x",{status:200,headers:{"content-length":"5000000","payment-response":settlement}}));
+  assert.equal(oversized.status,200);assert.equal(oversized.headers.get("payment-response"),settlement);
+  assert.match((await readResult(oversized) as {result_unavailable:string}).result_unavailable,/too large/);
+  assert.deepEqual(await readResult(new Response('{"ok":true}',{headers:{"content-type":"application/json"}})),{ok:true});
+});
