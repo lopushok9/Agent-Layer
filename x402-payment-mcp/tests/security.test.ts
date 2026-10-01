@@ -4,7 +4,7 @@ import { exportJWK, generateKeyPair } from "jose";
 import { BASE_NETWORK, BASE_USDC, type Config } from "../src/config.js";
 import { pkceChallenge, TokenService } from "../src/security.js";
 import { assertSafeResourceUrl, createPublicLookup, limitResponseBody, normalizeUndiciRequest } from "../src/network.js";
-import { buildResourceUrl, PostgresBatchChannelStorage, preflightFailureMessage, requirementFingerprint, selectRequirement } from "../src/payments.js";
+import { buildResourceUrl, inputHint, PostgresBatchChannelStorage, preflightFailureMessage, requirementFingerprint, selectRequirement } from "../src/payments.js";
 import type { Store } from "../src/store.js";
 import type { PaymentRequired } from "@x402/core/types";
 import type { ClientEvmSigner } from "@x402/evm";
@@ -31,6 +31,15 @@ test("parameterized x402 requests bind query values into the preview URL and fin
   const second=requirementFingerprint(challenge,requirement,buildResourceUrl("https://api.example.com/metric",{i:"1h"}),{method:"GET",query:{i:"1h"}});
   assert.notEqual(first,second);
   assert.throws(()=>buildResourceUrl("https://api.example.com",{"": "x"}),/must not be empty/);
+});
+
+test("Bazaar input metadata is surfaced as a bounded untrusted hint",()=>{
+  const input={type:"http",method:"GET",queryParams:{a:{type:"string",required:true},i:{type:"string",enum:["1h","24h"]}}};
+  assert.deepEqual(inputHint({bazaar:{info:{input}}}),{input,input_trust:"untrusted provider metadata"});
+  assert.deepEqual(inputHint(undefined),{});
+  assert.deepEqual(inputHint({bazaar:{info:{}}}),{});
+  const big=inputHint({bazaar:{info:{input:{description:"x".repeat(5000)}}}}) as {input_truncated?:string};
+  assert.equal(big.input_truncated?.length,2000);
 });
 
 test("preflight failures preserve bounded provider diagnostics without implying a charge",()=>{
