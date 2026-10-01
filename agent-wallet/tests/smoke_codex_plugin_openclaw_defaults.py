@@ -150,6 +150,36 @@ def main() -> None:
         assert fallback_balance["path"] == "legacy-cli"
         assert resident_worker["value"].closed is True
 
+        def fake_failed_invoke_tool(tool_name, arguments, config, **kwargs):
+            return {
+                "ok": False,
+                "error": "Swap failed after approval and automatic allowance restore did not complete.",
+                "error_code": "swap_cleanup_failed",
+                "error_details": {
+                    "originalError": {
+                        "message": "Swap simulation failed.",
+                        "code": "swap_simulation_failed",
+                    },
+                    "cleanup": {
+                        "attempted": True,
+                        "restored": False,
+                        "error": {"message": "cleanup approve failed", "code": "CALL_EXCEPTION"},
+                    },
+                },
+            }
+
+        module._invoke_tool = fake_failed_invoke_tool
+        try:
+            asyncio.run(module._handle_wallet_tool("swap_evm_lifi_cross_chain_tokens", {}))
+            raise AssertionError("wallet tool failure must surface through the MCP bridge")
+        except RuntimeError as exc:
+            diagnostic = json.loads(str(exc))
+            assert diagnostic["error_code"] == "swap_cleanup_failed"
+            assert diagnostic["error_details"]["originalError"]["code"] == "swap_simulation_failed"
+            assert diagnostic["error_details"]["cleanup"]["error"]["code"] == "CALL_EXCEPTION"
+
+        module._invoke_tool = fake_invoke_tool
+
         base_switch = asyncio.run(module._handle_set_wallet_backend({"backend": "base"}))
         assert base_switch["selected_backend"] == "wdk_evm_local"
         assert base_switch["selected_network"] == "base"

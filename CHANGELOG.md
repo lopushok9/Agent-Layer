@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## v0.1.116 - 2026-10-01
+
+- **LI.FI swap failures now preserve actionable cleanup diagnostics.** The
+  Codex MCP bridge keeps the structured wallet error code and nested details,
+  including the original swap failure and any allowance-restore failure,
+  instead of collapsing them into a generic message.
+- Fixed the LI.FI allowance-restore operation label and added regression
+  coverage for both successful rollback and cleanup failure after approval.
+
 ## v0.1.115 - 2026-09-30
 
 - **The legacy EVM URL migration now applies on update.** v0.1.114 only

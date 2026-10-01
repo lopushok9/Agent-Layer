@@ -633,6 +633,28 @@ def _parse_cli_error(text: str) -> WalletCliError:
     )
 
 
+def _wallet_tool_failure_message(payload: dict[str, Any], fallback: str) -> str:
+    """Preserve structured wallet diagnostics in MCP tool-error text.
+
+    FastMCP renders raised exceptions as text.  If the bridge raises only the
+    human-readable ``error`` field, important nested diagnostics such as the
+    original swap failure and allowance-cleanup failure disappear even though
+    the runtime and Python adapter preserved them.  Emit a compact JSON object
+    so MCP clients can inspect the exact error without weakening fail-closed
+    execution semantics.
+    """
+    diagnostic: dict[str, Any] = {
+        "error": str(payload.get("error") or fallback),
+    }
+    code = str(payload.get("error_code") or payload.get("code") or "").strip()
+    if code:
+        diagnostic["error_code"] = code
+    details = payload.get("error_details", payload.get("details"))
+    if isinstance(details, dict) and details:
+        diagnostic["error_details"] = details
+    return json.dumps(diagnostic, sort_keys=True, separators=(",", ":"))
+
+
 def _cli_timeout_seconds() -> float:
     """Parse the CLI timeout from env, falling back to 180s on bad values."""
     raw = os.getenv("AGENT_WALLET_CODEX_TIMEOUT", "180")
@@ -1530,7 +1552,7 @@ async def _handle_wallet_tool(tool_name: str, params: dict[str, Any]) -> dict[st
     if tool_name == "x402_preview_request":
         _cache_x402_preview_payload(_user_id(), payload)
     if payload.get("ok") is False:
-        raise RuntimeError(str(payload.get("error") or f"{tool_name} failed"))
+        raise RuntimeError(_wallet_tool_failure_message(payload, f"{tool_name} failed"))
     data = payload.get("data", {})
     if isinstance(data, dict) and data.get("confirmation_status") in ("submitted", "unknown"):
         data = {

@@ -8978,7 +8978,7 @@ export class WdkEvmWalletService {
         tokenAddress,
         spender,
         targetAllowance: BigInt(originalAllowance || 0n),
-        operationLabel: "aave",
+        operationLabel: "LI.FI swap",
       });
       cleanup.restoreSteps = restorePlan.steps.map((step) => ({ ...step }));
       if (!restorePlan.required) {

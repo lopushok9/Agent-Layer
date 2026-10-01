@@ -627,6 +627,66 @@ test("LI.FI source transaction uses a padded final gas limit and waits for recei
   });
 });
 
+test("LI.FI failure after approval restores the original allowance", async () => {
+  await withHarness(
+    { failSimulationAfterApproval: true },
+    async ({ service, state, config }) => {
+      await assert.rejects(
+        () =>
+          service.sendLifiSwap({
+            seedPhrase: VALID_MNEMONIC,
+            tokenIn: config.tokenIn,
+            destinationChain: "base",
+            outputToken: DEFAULT_TOKEN_OUT,
+            destinationAddress: DEFAULT_ADDRESS,
+            tokenInAmount: config.amountIn,
+            network: config.network,
+          }),
+        /Swap simulation failed/
+      );
+      assert.equal(state.allowance, 0n);
+      assert.deepEqual(state.approveCalls, [config.amountIn, "0"]);
+      assert.equal(state.sendCalls.length, 0);
+    }
+  );
+});
+
+test("LI.FI cleanup failure preserves original and cleanup diagnostics", async () => {
+  await withHarness(
+    {
+      failSimulationAfterApproval: true,
+      failCleanupApprove: true,
+    },
+    async ({ service, state, config }) => {
+      await assert.rejects(
+        () =>
+          service.sendLifiSwap({
+            seedPhrase: VALID_MNEMONIC,
+            tokenIn: config.tokenIn,
+            destinationChain: "base",
+            outputToken: DEFAULT_TOKEN_OUT,
+            destinationAddress: DEFAULT_ADDRESS,
+            tokenInAmount: config.amountIn,
+            network: config.network,
+          }),
+        (error) => {
+          assert.equal(error?.errorCode, "swap_cleanup_failed");
+          assert.equal(error?.errorDetails?.originalError?.code, "swap_simulation_failed");
+          assert.match(error?.errorDetails?.originalError?.message || "", /simulation failed/i);
+          assert.equal(error?.errorDetails?.cleanup?.attempted, true);
+          assert.equal(error?.errorDetails?.cleanup?.restored, false);
+          assert.match(error?.errorDetails?.cleanup?.error?.message || "", /cleanup approve failed/i);
+          assert.equal(error?.errorDetails?.cleanup?.restoreSteps?.[0]?.type, "reset_allowance");
+          return true;
+        }
+      );
+      assert.equal(state.allowance, BigInt(config.amountIn));
+      assert.deepEqual(state.approveCalls, [config.amountIn]);
+      assert.equal(state.sendCalls.length, 0);
+    }
+  );
+});
+
 test("quoteSwap falls back to route gasCost when swap gas estimate is unavailable before approval", async () => {
   await withHarness(
     {
