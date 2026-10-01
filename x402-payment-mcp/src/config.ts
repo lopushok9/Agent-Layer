@@ -27,7 +27,7 @@ const Env = z.object({
   ARC_RPC_URL: z.string().url(),
   ARC_MAX_TRANSFER_USDC_ATOMIC: z.string().regex(/^\d+$/).default("50000000"),
   ARC_MAX_DAILY_TRANSFER_USDC_ATOMIC: z.string().regex(/^\d+$/).default("200000000"),
-  PAYMENT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(15000),
+  PAYMENT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(45000),
 }).superRefine((value,ctx)=>{
   const google=Boolean(value.GOOGLE_CLIENT_ID&&value.GOOGLE_CLIENT_SECRET);
   const github=Boolean(value.GITHUB_CLIENT_ID&&value.GITHUB_CLIENT_SECRET);

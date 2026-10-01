@@ -20,7 +20,7 @@ export function connectorDiagnostics(req: Request, res: Response, next: NextFunc
   if (req.path === "/healthz") return next();
   const started = Date.now();
   res.on("finish", () => {
-    console.warn(JSON.stringify({
+    console.log(JSON.stringify({
       event: "connector_request",
       method: req.method,
       path: req.path.slice(0, 120),

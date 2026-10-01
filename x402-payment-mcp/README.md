@@ -15,7 +15,7 @@ The provider choice uses ordinary links so it works reliably in mobile and embed
 ## Payment flow
 
 1. `x402_search` searches CDP Bazaar and returns signed, expiring `service_ref` values instead of raw payment destinations.
-2. `x402_preview` verifies the resource is still in Bazaar, performs an unpaid request, selects one supported scheme, and stores a short-lived fingerprint of the request and payment terms.
+2. `x402_preview` verifies the resource is still in Bazaar, applies optional scalar query parameters, performs an unpaid request, selects one supported scheme, and stores a short-lived fingerprint of the exact URL, request body, and payment terms. Provider validation errors are returned with a bounded, explicitly untrusted response preview so callers can correct parameters before any payment is signed.
 3. `x402_pay` atomically consumes the preview, reserves the user's rolling 24-hour limit when that optional control is enabled, repeats the request, and checks the fingerprint inside the x402 SDK hook immediately before CDP signs.
 
 Batch-settlement channel state is stored durably in PostgreSQL, and payments are serialized per user with a PostgreSQL advisory lock so concurrent requests cannot sign conflicting cumulative vouchers. The SDK's default channel deposit is five times the advertised per-request maximum; this funds subsequent voucher-only calls and is distinct from the amount the seller may charge for the current request.

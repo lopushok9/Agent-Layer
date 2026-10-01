@@ -4,7 +4,7 @@ import { exportJWK, generateKeyPair } from "jose";
 import { BASE_NETWORK, BASE_USDC, type Config } from "../src/config.js";
 import { pkceChallenge, TokenService } from "../src/security.js";
 import { assertSafeResourceUrl, createPublicLookup, limitResponseBody, normalizeUndiciRequest } from "../src/network.js";
-import { PostgresBatchChannelStorage, selectRequirement } from "../src/payments.js";
+import { buildResourceUrl, PostgresBatchChannelStorage, preflightFailureMessage, requirementFingerprint, selectRequirement } from "../src/payments.js";
 import type { Store } from "../src/store.js";
 import type { PaymentRequired } from "@x402/core/types";
 import type { ClientEvmSigner } from "@x402/evm";
@@ -21,6 +21,22 @@ test("access tokens bind user, client and MCP resource",async()=>{const c=await 
 test("OAuth provider state is signed and bound to the callback provider",async()=>{const service=await TokenService.create(await config());const state=await service.providerState("login-state","github");assert.equal(await service.verifyProviderState(state,"github"),"login-state");await assert.rejects(()=>service.verifyProviderState(state,"google"),/invalid OAuth provider state/);});
 
 test("Bazaar references are signed and tamper evident",async()=>{const service=await TokenService.create(await config());const ref=await service.serviceRef("https://api.example.com/report");assert.equal(await service.verifyServiceRef(ref),"https://api.example.com/report");const parts=ref.split(".");parts[1]=`${parts[1]![0]==="A"?"B":"A"}${parts[1]!.slice(1)}`;await assert.rejects(()=>service.verifyServiceRef(parts.join(".")));});
+
+test("parameterized x402 requests bind query values into the preview URL and fingerprint",async()=>{
+  const url=buildResourceUrl("https://api.example.com/metric?a=ETH",{a:"BTC",i:"24h",timestamp:1_700_000_000,adjusted:true});
+  assert.equal(url,"https://api.example.com/metric?a=BTC&i=24h&timestamp=1700000000&adjusted=true");
+  const requirement={scheme:"exact",network:BASE_NETWORK,asset:BASE_USDC,amount:"50000",payTo:"0x1111111111111111111111111111111111111111",maxTimeoutSeconds:60,extra:{}};
+  const challenge={x402Version:2,resource:{url:"https://api.example.com/metric"},accepts:[requirement]} as PaymentRequired;
+  const first=requirementFingerprint(challenge,requirement,url,{method:"GET",query:{i:"24h"}});
+  const second=requirementFingerprint(challenge,requirement,buildResourceUrl("https://api.example.com/metric",{i:"1h"}),{method:"GET",query:{i:"1h"}});
+  assert.notEqual(first,second);
+  assert.throws(()=>buildResourceUrl("https://api.example.com",{"": "x"}),/must not be empty/);
+});
+
+test("preflight failures preserve bounded provider diagnostics without implying a charge",()=>{
+  assert.equal(preflightFailureMessage(400,{error:"interval 24h is not supported"}),"resource request failed before payment (HTTP 400); provider response (untrusted): {\"error\":\"interval 24h is not supported\"}");
+  assert.ok(preflightFailureMessage(400,"x".repeat(5000)).length<2100);
+});
 
 test("scheme selection prefers exact, supports upto, and leaves retained limits disabled",async()=>{
   const c=await config();const common={network:BASE_NETWORK,asset:BASE_USDC,payTo:"0x1111111111111111111111111111111111111111",maxTimeoutSeconds:60};const now=Math.floor(Date.now()/1000);const challenge={x402Version:2,resource:{url:"https://api.example.com"},accepts:[{...common,scheme:"auth-capture",amount:"4000000",extra:{name:"USD Coin",version:"2",captureAuthorizer:"0x2222222222222222222222222222222222222222",feeRecipient:"0x3333333333333333333333333333333333333333",captureDeadline:now+3600,refundDeadline:now+7200,minFeeBps:0,maxFeeBps:100}},{...common,scheme:"batch-settlement",amount:"3500000",extra:{receiverAuthorizer:"0x4444444444444444444444444444444444444444"}},{...common,scheme:"upto",amount:"3000000",extra:{facilitatorAddress:"0x5555555555555555555555555555555555555555"}},{...common,scheme:"exact",amount:"2000000",extra:{}}]} as PaymentRequired;
