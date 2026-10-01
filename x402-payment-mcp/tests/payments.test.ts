@@ -35,7 +35,7 @@ test("an unavailable preview says whether it expired or was already used",async(
 });
 
 test("any public HTTPS url is previewable, with unfilled path templates rejected up front",async()=>{
-  const {assertNoPathPlaceholders,isListed}=await import("../src/payments.js");
+  const {assertNoPathPlaceholders,findListing}=await import("../src/payments.js");const isListed=(resources:Parameters<typeof findListing>[0],url:string)=>Boolean(findListing(resources,url));
   for(const url of ["https://api.example.com/wallet/:address/portfolio","https://api.example.com/token/{id}","https://api.example.com/token/%7Bid%7D/price"])assert.throws(()=>assertNoPathPlaceholders(url),/placeholder/);
   for(const url of ["https://api.example.com/v1/price","https://api.example.com/v1/price?pair=BTC:USD&tpl={x}","https://api.example.com/a:b/c"])assert.doesNotThrow(()=>assertNoPathPlaceholders(url));
   const accept={scheme:"exact",network:"eip155:8453",asset:"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",amount:"1000",payTo:"0x1111111111111111111111111111111111111111",maxTimeoutSeconds:60};
@@ -43,4 +43,31 @@ test("any public HTTPS url is previewable, with unfilled path templates rejected
   assert.equal(isListed(resources,"https://api.example.com/v1/price?pair=BTC"),true);
   assert.equal(isListed(resources,"https://api.example.com/v1/pric"),false);
   assert.equal(isListed(resources,"https://other.example.com/v1/free"),false);
+});
+
+test("the HTTP method comes from the Bazaar hint, then falls back to the other verb on 405",async()=>{
+  const {methodCandidates,hintedMethod,preflightFailureMessage}=await import("../src/payments.js");
+  assert.deepEqual(methodCandidates(undefined,false),["GET","POST"]);
+  assert.deepEqual(methodCandidates(undefined,true),["POST","GET"]);
+  assert.deepEqual(methodCandidates("POST",false),["POST","GET"]);
+  assert.deepEqual(methodCandidates("DELETE",false),["DELETE"]);
+  assert.equal(hintedMethod({bazaar:{info:{input:{method:"post",type:"http"}}}}),"POST");
+  assert.equal(hintedMethod({bazaar:{info:{input:{method:"TRACE"}}}}),undefined);
+  assert.equal(hintedMethod(undefined),undefined);
+  assert.match(preflightFailureMessage(405,"Method Not Allowed","GET"),/\(GET, HTTP 405\)/);
+  assert.equal(requestInit({method:"PUT",body:{a:1}},1000).body,'{"a":1}');
+  assert.equal(requestInit({method:"GET",body:{a:1}},1000).body,undefined);
+});
+
+test("preflight retries the alternate method only on 405 and returns the method that reached the paywall",async()=>{
+  const {preflight}=await import("../src/payments.js");const {encodePaymentRequiredHeader}=await import("@x402/core/http");
+  const challenge={x402Version:2,resource:{url:"https://api.example.com/run"},accepts:[{scheme:"exact",network:"eip155:8453",asset:"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",amount:"1000",payTo:"0x1111111111111111111111111111111111111111",maxTimeoutSeconds:60,extra:{}}]};
+  const calls:string[]=[];
+  const postOnly=(async(_url:string,init:RequestInit)=>{calls.push(init.method!);return init.method==="POST"?new Response(null,{status:402,headers:{"payment-required":encodePaymentRequiredHeader(challenge as any)}}):new Response("Method Not Allowed",{status:405});}) as unknown as typeof fetch;
+  const found=await preflight(postOnly,"https://api.example.com/run",{},["GET","POST"],1000);
+  assert.equal(found.method,"POST");assert.equal(found.challenge.accepts[0]!.amount,"1000");assert.deepEqual(calls,["GET","POST"]);
+  calls.length=0;
+  await assert.rejects(()=>preflight(postOnly,"https://api.example.com/run",{},["GET"],1000),/\(GET, HTTP 405\)/);
+  const badRequest=(async(_url:string,init:RequestInit)=>{calls.push(init.method!);return new Response('{"error":"missing a"}',{status:400,headers:{"content-type":"application/json"}});}) as unknown as typeof fetch;
+  calls.length=0;await assert.rejects(()=>preflight(badRequest,"https://api.example.com/run",{},["GET","POST"],1000),/HTTP 400.*missing a/);assert.deepEqual(calls,["GET"]);
 });
