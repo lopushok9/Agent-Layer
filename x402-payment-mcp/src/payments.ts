@@ -23,6 +23,9 @@ export type HttpMethod=typeof HTTP_METHODS[number];
 export type RequestSpec={method:HttpMethod;query?:Record<string,QueryValue>;headers?:Record<string,string>;body?:unknown;textBody?:string};
 // method is omitted when the caller wants it detected from the Bazaar listing or the provider's 405.
 export type PreviewSpec=Omit<RequestSpec,"method">&{method?:HttpMethod};
+export type DiscoveryProvider="bazaar"|"agentic_market";
+const AGENTIC_MARKET_API="https://api.agentic.market/v1";
+const DISCOVERY_TIMEOUT_MS=15_000;
 export type ResourceTarget={url?:string;serviceRef?:string};
 const UNLISTED_WARNING="This URL is not a CDP Bazaar listing. Pay only if the user supplied or confirmed this exact URL, recipient and amount.";
 export type PaymentScheme="exact"|"upto"|"batch-settlement"|"auth-capture";
@@ -32,7 +35,9 @@ export class PaymentService{
   private readonly baseRpcUrl:Promise<string|undefined>;
   constructor(private config:Config,private store:Store,private tokens:TokenService){this.cdp=new CdpClient({apiKeyId:config.CDP_API_KEY_ID,apiKeySecret:config.CDP_API_KEY_SECRET,walletSecret:config.CDP_WALLET_SECRET});this.baseRpcUrl=getDefaultEvmRpcUrls().then(urls=>urls[BASE_NETWORK]?.rpcUrl);}
 
-  async search(query:string,limit:number){const found=await searchX402Resources({query:query.slice(0,400),network:BASE_NETWORK,asset:BASE_USDC,...(this.config.SPEND_LIMITS_ENABLED?{maxUsdPrice:atomicUsd(this.config.MAX_PAYMENT_USDC_ATOMIC)}:{})});const eligible=found.resources.map(r=>({resource:r,accepts:(r.accepts??[]).filter(isAllowedLike) as unknown as RequirementLike[]})).filter(r=>r.accepts.length>0).slice(0,limit);const resources=eligible.map(({resource:r,accepts})=>({url:r.resource,service_name:r.serviceName,description:r.description,type:r.type,accepts:accepts.map(publicRequirementLike),quality:r.quality,tags:r.tags,...inputHint(r.extensions)}));return{resources,partial_results:found.partialResults,search_method:found.searchMethod};}
+  async search(query:string,limit:number,provider:DiscoveryProvider="bazaar"){if(provider==="agentic_market")return this.searchAgenticMarket(query,limit);const found=await searchX402Resources({query:query.slice(0,400),network:BASE_NETWORK,asset:BASE_USDC,...(this.config.SPEND_LIMITS_ENABLED?{maxUsdPrice:atomicUsd(this.config.MAX_PAYMENT_USDC_ATOMIC)}:{})});const eligible=found.resources.map(r=>({resource:r,accepts:(r.accepts??[]).filter(isAllowedLike) as unknown as RequirementLike[]})).filter(r=>r.accepts.length>0).slice(0,limit);const resources=eligible.map(({resource:r,accepts})=>({url:r.resource,service_name:r.serviceName,description:r.description,type:r.type,accepts:accepts.map(publicRequirementLike),quality:r.quality,tags:r.tags,...inputHint(r.extensions)}));return{provider:"bazaar",resources,partial_results:found.partialResults,search_method:found.searchMethod};}
+
+  private async searchAgenticMarket(query:string,limit:number){const response=await safeFetch(`${AGENTIC_MARKET_API}/services/search?q=${encodeURIComponent(query.slice(0,400))}`,{headers:{accept:"application/json"},signal:AbortSignal.timeout(DISCOVERY_TIMEOUT_MS)});const body=await limitedBody(response);if(!response.ok)throw new Error(`Agentic Market search failed (HTTP ${response.status})`);return{provider:"agentic_market",resources:agenticMarketResources(body,limit)};}
 
   async walletStatus(userId:string){const account=await this.account(userId);const scoped=await account.useNetwork("base");const result=await scoped.listTokenBalances({pageSize:100});const usdc=result.balances.find(b=>b.token.contractAddress.toLowerCase()===BASE_USDC);return{network:BASE_NETWORK,address:account.address,usdc_atomic:usdc?.amount.amount.toString()??"0",usdc_decimals:usdc?.amount.decimals??6,spend_limits_enabled:this.config.SPEND_LIMITS_ENABLED,per_payment_limit_atomic:this.config.SPEND_LIMITS_ENABLED?this.config.MAX_PAYMENT_USDC_ATOMIC:null,daily_limit_atomic:this.config.SPEND_LIMITS_ENABLED?this.config.MAX_DAILY_USDC_ATOMIC:null};}
 
@@ -140,6 +145,17 @@ export function normalizeRequestHeaders(raw:Record<string,string>|undefined):Rec
   return out;
 }
 export function buildResourceUrl(raw:string,query?:Record<string,QueryValue>){const url=assertSafeResourceUrl(raw);const entries=Object.entries(query??{});if(entries.length>32)throw new Error("query supports at most 32 parameters");for(const [key,value] of entries){const name=key.trim();if(!name)throw new Error("query parameter names must not be empty");if(name.length>100)throw new Error("query parameter names must be at most 100 characters");if(typeof value==="number"&&!Number.isFinite(value))throw new Error(`query parameter ${name} must be finite`);const text=String(value);if(text.length>500)throw new Error(`query parameter ${name} must be at most 500 characters`);url.searchParams.set(name,text);}const result=url.toString();if(result.length>4096)throw new Error("resource URL with query parameters is too long");return result;}
+// Agentic Market groups endpoints under a service and quotes prices in whole USDC. Only endpoints this wallet can pay (USDC on Base) are returned, one row per endpoint, in the same shape as Bazaar results. Listing data is the provider's own and is not verified here; x402_preview reads the real terms.
+export function agenticMarketResources(payload:unknown,limit:number){
+  const services=isRecord(payload)&&Array.isArray(payload.services)?payload.services:[];const out:Record<string,unknown>[]=[];
+  for(const service of services){if(!isRecord(service)||!Array.isArray(service.endpoints))continue;
+    for(const endpoint of service.endpoints){if(out.length>=limit)return out;if(!isRecord(endpoint)||typeof endpoint.url!=="string")continue;const pricing=isRecord(endpoint.pricing)?endpoint.pricing:{};const network=String(pricing.network??"").toLowerCase();
+      if(String(pricing.currency??"").toUpperCase()!=="USDC"||(network!==BASE_NETWORK&&network!=="base"))continue;try{assertSafeResourceUrl(endpoint.url);}catch{continue;}
+      const method=typeof endpoint.method==="string"?endpoint.method.toUpperCase():undefined;
+      out.push({url:endpoint.url,service_name:textField(endpoint.serviceName)??textField(service.name),description:textField(endpoint.description)??textField(service.description),...(method&&(HTTP_METHODS as readonly string[]).includes(method)?{method}:{}),price_usdc:textField(pricing.amount)??null,scheme:textField(pricing.scheme)??"exact",network:BASE_NETWORK,listing_trust:"untrusted marketplace metadata"});}}
+  return out;
+}
+function textField(value:unknown){return typeof value==="string"&&value.trim()?value.trim().slice(0,500):undefined;}
 // Bazaar lists templated resources such as /wallet/:address/portfolio; requesting them verbatim only returns 404.
 export function assertNoPathPlaceholders(raw:string){const path=raw.split(/[?#]/)[0]!;const found=path.match(/\{[^}/]+\}|%7B[^/]+?%7D|\/:[A-Za-z_]\w*/i);if(found)throw new Error(`url still contains the path placeholder ${found[0].replace(/^\//,"")}; replace it with a real value`);}
 function hasBody(spec:{body?:unknown}){return spec.body!==undefined&&spec.body!==null;}

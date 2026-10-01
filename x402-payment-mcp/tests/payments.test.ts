@@ -166,3 +166,17 @@ test("Sign-In-With-X is attached when the provider declares it, and granted acce
   await payStoredChallenge({client:plain.client,fetchImpl:noSignIn,url:"https://api.example.com/run",request:{method:"GET"},paymentRequired:paidChallenge,timeout:1000});
   assert.equal(plainRequests.length,1);assert.equal(plainRequests[0]![SIGN_IN_WITH_X],undefined);
 });
+
+test("Agentic Market results list only Base USDC endpoints with a previewable url",async()=>{
+  const {agenticMarketResources}=await import("../src/payments.js");
+  const payload={services:[{name:"ChainQuery",description:"Bitcoin intelligence",endpoints:[
+    {url:"https://intel.example.com/v1/velocity",description:"Coin velocity",method:"get",serviceName:"ChainQuery Bitcoin Intelligence",pricing:{amount:"0.01",currency:"USDC",network:"eip155:8453",scheme:"exact"}},
+    {url:"https://intel.example.com/v1/solana",method:"GET",pricing:{amount:"0.01",currency:"USDC",network:"solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"}},
+    {url:"http://intel.example.com/v1/plain",method:"GET",pricing:{amount:"0.01",currency:"USDC",network:"Base"}},
+    {url:"https://intel.example.com/v1/run",method:"POST",pricing:{amount:"0.5",currency:"usdc",network:"Base"}}]},
+    {name:"Broken",endpoints:"none"},"junk"]};
+  const resources=agenticMarketResources(payload,10);
+  assert.deepEqual(resources.map(r=>[r.url,r.method,r.price_usdc]),[["https://intel.example.com/v1/velocity","GET","0.01"],["https://intel.example.com/v1/run","POST","0.5"]]);
+  assert.equal(resources[0]!.service_name,"ChainQuery Bitcoin Intelligence");assert.equal(resources[1]!.description,"Bitcoin intelligence");
+  assert.equal(agenticMarketResources(payload,1).length,1);assert.deepEqual(agenticMarketResources({error:"x"},10),[]);
+});
