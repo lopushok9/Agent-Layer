@@ -105,7 +105,7 @@ Set `PUBLIC_BASE_URL=https://YOUR_DOMAIN`. For local HTTP only, set `MCP_DANGERO
 
 ## Railway
 
-Create a new Railway service from this directory and add a PostgreSQL service. Configure every variable from `.env.example`; `DATABASE_URL` can use the Railway Postgres reference. The included Dockerfile builds on Node 24, and `railway.json` runs the migration before deployment.
+Create a new Railway service from this directory and add a PostgreSQL service. Configure every variable from `.env.example`; `DATABASE_URL` can use the Railway Postgres reference. Set `ARC_RPC_URL` as a service secret to the Alchemy Arc Mainnet endpoint (`https://arc-mainnet.g.alchemy.com/v2/<API_KEY>`). It is required and deliberately has no public-RPC fallback. The included Dockerfile builds on Node 24, and `railway.json` runs the migration before deployment.
 
 Generate the signing JWK locally and store it as a Railway secret. Keep the same JWK across redeploys or all current access tokens will become invalid. CDP credentials must be service-level secrets with access only to this MCP.
 

@@ -22,7 +22,9 @@ const Env = z.object({
   SPEND_LIMITS_ENABLED: z.enum(["true","1","false","0"]).default("false").transform(v=>v==="true"||v==="1"),
   MAX_PAYMENT_USDC_ATOMIC: z.string().regex(/^\d+$/).default("1000000"),
   MAX_DAILY_USDC_ATOMIC: z.string().regex(/^\d+$/).default("5000000"),
-  ARC_RPC_URL: z.string().url().default("https://rpc.mainnet.arc.io"),
+  // Deployment-owned secret. Do not fall back to a public RPC for a service
+  // that signs and broadcasts mainnet USDC transfers.
+  ARC_RPC_URL: z.string().url(),
   ARC_MAX_TRANSFER_USDC_ATOMIC: z.string().regex(/^\d+$/).default("50000000"),
   ARC_MAX_DAILY_TRANSFER_USDC_ATOMIC: z.string().regex(/^\d+$/).default("200000000"),
   PAYMENT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(15000),
