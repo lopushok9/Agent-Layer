@@ -59,7 +59,7 @@ test("the HTTP method comes from the Bazaar hint, then falls back to the other v
   assert.equal(requestInit({method:"GET",body:{a:1}},1000).body,undefined);
 });
 
-test("preflight retries the alternate method only on 405 and returns the method that reached the paywall",async()=>{
+test("preflight tries the alternate method on a client error and returns the method that reached the paywall",async()=>{
   const {preflight}=await import("../src/payments.js");const {encodePaymentRequiredHeader}=await import("@x402/core/http");
   const challenge={x402Version:2,resource:{url:"https://api.example.com/run"},accepts:[{scheme:"exact",network:"eip155:8453",asset:"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",amount:"1000",payTo:"0x1111111111111111111111111111111111111111",maxTimeoutSeconds:60,extra:{}}]};
   const calls:string[]=[];
@@ -69,7 +69,16 @@ test("preflight retries the alternate method only on 405 and returns the method 
   calls.length=0;
   await assert.rejects(()=>preflight(postOnly,"https://api.example.com/run",{},["GET"],1000),/\(GET, HTTP 405\)/);
   const badRequest=(async(_url:string,init:RequestInit)=>{calls.push(init.method!);return new Response('{"error":"missing a"}',{status:400,headers:{"content-type":"application/json"}});}) as unknown as typeof fetch;
-  calls.length=0;await assert.rejects(()=>preflight(badRequest,"https://api.example.com/run",{},["GET","POST"],1000),/HTTP 400.*missing a/);assert.deepEqual(calls,["GET"]);
+  calls.length=0;await assert.rejects(()=>preflight(badRequest,"https://api.example.com/run",{},["GET","POST"],1000),/\(GET, HTTP 400\).*missing a/);assert.deepEqual(calls,["GET","POST"]);
+  // Seen in the Bazaar: the wrong verb answers 404, 401, or a 402 with no challenge instead of 405.
+  for(const wrongVerb of [()=>new Response("not found",{status:404}),()=>new Response("unauthorized",{status:401}),()=>new Response('{"error":"Payment Required or Discovery Needed"}',{status:402})]){
+    const provider=(async(_url:string,init:RequestInit)=>init.method==="POST"?new Response(null,{status:402,headers:{"payment-required":encodePaymentRequiredHeader(challenge as any)}}):wrongVerb()) as unknown as typeof fetch;
+    assert.equal((await preflight(provider,"https://api.example.com/run",{},["GET","POST"],1000)).method,"POST");
+  }
+  const noChallenge=(async()=>new Response("{}",{status:402})) as unknown as typeof fetch;
+  await assert.rejects(()=>preflight(noChallenge,"https://api.example.com/run",{},["GET","POST"],1000),/402 without PAYMENT-REQUIRED \(GET\)/);
+  const down=(async(_url:string,init:RequestInit)=>{calls.push(init.method!);return new Response("bad gateway",{status:502});}) as unknown as typeof fetch;
+  calls.length=0;await assert.rejects(()=>preflight(down,"https://api.example.com/run",{},["GET","POST"],1000),/HTTP 502/);assert.deepEqual(calls,["GET"]);
 });
 
 test("caller headers and a raw text body reach the provider, while transport and payment headers stay reserved",async()=>{
@@ -179,4 +188,15 @@ test("Agentic Market results list only Base USDC endpoints with a previewable ur
   assert.deepEqual(resources.map(r=>[r.url,r.method,r.price_usdc]),[["https://intel.example.com/v1/velocity","GET","0.01"],["https://intel.example.com/v1/run","POST","0.5"]]);
   assert.equal(resources[0]!.service_name,"ChainQuery Bitcoin Intelligence");assert.equal(resources[1]!.description,"Bitcoin intelligence");
   assert.equal(agenticMarketResources(payload,1).length,1);assert.deepEqual(agenticMarketResources({error:"x"},10),[]);
+});
+
+test("an unpaid probe retries one transient connection error and names the cause when unreachable",async()=>{
+  const {preflight}=await import("../src/payments.js");const {encodePaymentRequiredHeader}=await import("@x402/core/http");
+  const reset=()=>Object.assign(new TypeError("fetch failed"),{cause:{code:"ECONNRESET",message:"socket disconnected"}});
+  let calls=0;const flaky=(async()=>{if(++calls===1)throw reset();return new Response(null,{status:402,headers:{"payment-required":encodePaymentRequiredHeader(paidChallenge)}});}) as unknown as typeof fetch;
+  assert.equal((await preflight(flaky,"https://api.example.com/run",{},["GET"],1000)).method,"GET");assert.equal(calls,2);
+  calls=0;const dead=(async()=>{calls++;throw reset();}) as unknown as typeof fetch;
+  await assert.rejects(()=>preflight(dead,"https://api.example.com/run",{},["GET","POST"],1000),/could not reach the resource before payment: ECONNRESET socket disconnected/);assert.equal(calls,2);
+  const slow=(async()=>{throw Object.assign(new Error("The operation was aborted due to timeout"),{name:"TimeoutError"});}) as unknown as typeof fetch;
+  await assert.rejects(()=>preflight(slow,"https://api.example.com/run",{},["GET"],1000),/no response within 1000 ms/);
 });

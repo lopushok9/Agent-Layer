@@ -107,17 +107,23 @@ export function unsettledReason(response:Response,body:unknown){
   const what=response.status===402?"provider refused the signed payment and still asks for payment":response.ok?"provider answered without reporting a settlement":`paid request returned HTTP ${response.status}`;
   return`${what}${detail?`; provider response (untrusted): ${detail}`:""}`;
 }
-// Tries each candidate method in order and moves on only when the provider answers 405, so a wrong default costs one extra unpaid request instead of a failed preview.
+// Tries each candidate method in order. Providers answer the wrong verb with 405, 404, 401 or a 402 that carries no challenge, so any client error moves on to the next candidate; a wrong default then costs one extra unpaid request instead of a failed preview. The first failure is the one reported, since it belongs to the preferred method.
 // Redirects are followed here, hop by hop through the SSRF guard, and the preview is bound to the final url so the paid request never has to follow one.
 export async function preflight(fetchImpl:typeof globalThis.fetch,startUrl:string,request:PreviewSpec,methods:HttpMethod[],timeout:number){
-  let failure=new Error("no HTTP method to try");
+  let failure:Error|undefined;
   for(const method of methods){
-    let url=startUrl;let response=await fetchImpl(url,requestInit({...request,method},timeout));
-    for(let hop=0;REDIRECT_STATUSES.has(response.status);hop++){if(hop>=MAX_REDIRECTS)throw new Error(`resource redirected more than ${MAX_REDIRECTS} times`);url=redirectTarget(url,response,method,Boolean(request.headers));void response.body?.cancel().catch(()=>{});response=await fetchImpl(url,requestInit({...request,method},timeout));}
-    if(response.status===402){const header=response.headers.get("payment-required")??response.headers.get("x-payment-required");if(!header)throw new Error("resource returned 402 without PAYMENT-REQUIRED");return{method,url,header,challenge:decodePaymentRequiredHeader(header)};}
-    const body=await limitedBody(response,64_000);failure=new Error(preflightFailureMessage(response.status,body,method));if(response.status!==405)break;
+    let url=startUrl;let response=await reach(fetchImpl,url,{...request,method},timeout);
+    for(let hop=0;REDIRECT_STATUSES.has(response.status);hop++){if(hop>=MAX_REDIRECTS)throw new Error(`resource redirected more than ${MAX_REDIRECTS} times`);url=redirectTarget(url,response,method,Boolean(request.headers));void response.body?.cancel().catch(()=>{});response=await reach(fetchImpl,url,{...request,method},timeout);}
+    const header=response.status===402?response.headers.get("payment-required")??response.headers.get("x-payment-required"):null;
+    if(header)return{method,url,header,challenge:decodePaymentRequiredHeader(header)};
+    const body=await limitedBody(response,64_000);failure??=new Error(response.status===402?`resource returned 402 without PAYMENT-REQUIRED (${method})`:preflightFailureMessage(response.status,body,method));
+    if(response.status<400||response.status>=500||response.status===429)break;
   }
-  throw failure;
+  throw failure??new Error("no HTTP method to try");
+}
+// An unpaid probe is safe to repeat, so one transient connection error is retried; the paid request never is. A failure names the network cause instead of undici's bare "fetch failed".
+async function reach(fetchImpl:typeof globalThis.fetch,url:string,spec:RequestSpec,timeout:number){
+  for(let attempt=0;;attempt++){try{return await fetchImpl(url,requestInit(spec,timeout));}catch(e){const cause=(e as {cause?:{code?:string;message?:string}}).cause;const timedOut=e instanceof Error&&(e.name==="TimeoutError"||e.name==="AbortError");if(attempt===0&&!timedOut&&cause)continue;throw new Error(`could not reach the resource before payment: ${timedOut?`no response within ${timeout} ms`:[cause?.code,cause?.message??errorMessage(e)].filter(Boolean).join(" ")}`);}}
 }
 const MAX_REDIRECTS=5;
 const REDIRECT_STATUSES=new Set([301,302,303,307,308]);
