@@ -25,7 +25,10 @@ export async function normalizeUndiciRequest(input:RequestInfo|URL,init?:Request
   return{input:input.url,init:{...init,method,headers,signal,...(body!==undefined&&body!==null?{body}: {})}};
 }
 
-export const safeFetch:typeof globalThis.fetch=(async(input:RequestInfo|URL,init?:RequestInit)=>{const normalized=await normalizeUndiciRequest(input,init);return limitResponseBody(await undiciFetch(normalized.input as any,{...(normalized.init as any),redirect:"error",dispatcher}) as unknown as Response);}) as typeof globalThis.fetch;
+function publicFetch(redirect:"error"|"manual"):typeof globalThis.fetch{return (async(input:RequestInfo|URL,init?:RequestInit)=>{const normalized=await normalizeUndiciRequest(input,init);return limitResponseBody(await undiciFetch(normalized.input as any,{...(normalized.init as any),redirect,dispatcher}) as unknown as Response);}) as typeof globalThis.fetch;}
+export const safeFetch=publicFetch("error");
+// Returns 3xx responses to the caller, which validates and follows each hop itself.
+export const safeFetchManual=publicFetch("manual");
 
 export function limitResponseBody(response:Response,maxBytes=1_000_000):Response{
   const length=Number(response.headers.get("content-length")??0);if(length>maxBytes){void response.body?.cancel();throw new Error("resource response is too large");}

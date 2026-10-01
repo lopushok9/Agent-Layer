@@ -85,3 +85,25 @@ test("caller headers and a raw text body reach the provider, while transport and
   assert.deepEqual(json.headers,{"content-type":"application/vnd.api+json"});
   assert.equal(requestInit({method:"GET",textBody:"ignored"},1000).body,undefined);
 });
+
+test("preflight follows safe redirects and binds the preview to the final url",async()=>{
+  const {preflight}=await import("../src/payments.js");const {encodePaymentRequiredHeader}=await import("@x402/core/http");
+  const paywall=()=>new Response(null,{status:402,headers:{"payment-required":encodePaymentRequiredHeader({x402Version:2,resource:{url:"https://api.example.com/v2/run"},accepts:[{scheme:"exact",network:"eip155:8453",asset:"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",amount:"1000",payTo:"0x1111111111111111111111111111111111111111",maxTimeoutSeconds:60,extra:{}}]} as any)}});
+  const redirect=(status:number,location:string)=>new Response(null,{status,headers:{location}});
+  const server=(routes:Record<string,()=>Response>)=>{const seen:string[]=[];return{seen,fetch:(async(url:string)=>{seen.push(url);return (routes[url]??(()=>new Response("nope",{status:404})))();}) as unknown as typeof fetch};};
+  const moved=server({"https://api.example.com/run":()=>redirect(301,"/v2/run"),"https://api.example.com/v2/run":paywall});
+  const found=await preflight(moved.fetch,"https://api.example.com/run",{},["GET"],1000);
+  assert.equal(found.url,"https://api.example.com/v2/run");assert.deepEqual(moved.seen,["https://api.example.com/run","https://api.example.com/v2/run"]);
+  const internal=server({"https://api.example.com/run":()=>redirect(302,"https://169.254.169.254/latest/meta-data")});
+  await assert.rejects(()=>preflight(internal.fetch,"https://api.example.com/run",{},["GET"],1000),/non-public/);
+  const downgrade=server({"https://api.example.com/run":()=>redirect(302,"http://api.example.com/run")});
+  await assert.rejects(()=>preflight(downgrade.fetch,"https://api.example.com/run",{},["GET"],1000),/HTTPS/);
+  const postMoved=server({"https://api.example.com/run":()=>redirect(302,"/v2/run"),"https://api.example.com/v2/run":paywall});
+  await assert.rejects(()=>preflight(postMoved.fetch,"https://api.example.com/run",{body:{a:1}},["POST"],1000),/would change the method/);
+  const postKept=server({"https://api.example.com/run":()=>redirect(308,"/v2/run"),"https://api.example.com/v2/run":paywall});
+  assert.equal((await preflight(postKept.fetch,"https://api.example.com/run",{body:{a:1}},["POST"],1000)).url,"https://api.example.com/v2/run");
+  const otherHost=server({"https://api.example.com/run":()=>redirect(307,"https://cdn.example.net/run")});
+  await assert.rejects(()=>preflight(otherHost.fetch,"https://api.example.com/run",{headers:{accept:"text/csv"}},["GET"],1000),/another host/);
+  const loop=server({"https://api.example.com/run":()=>redirect(302,"/run")});
+  await assert.rejects(()=>preflight(loop.fetch,"https://api.example.com/run",{},["GET"],1000),/more than 5 times/);
+});

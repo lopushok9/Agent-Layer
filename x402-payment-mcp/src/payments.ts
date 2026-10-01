@@ -13,7 +13,7 @@ import { toClientEvmSigner } from "@x402/evm";
 import { createPublicClient, http } from "viem";
 import { base } from "viem/chains";
 import { BASE_NETWORK, BASE_USDC, type Config } from "./config.js";
-import { assertSafeResourceUrl, limitedBody, safeFetch } from "./network.js";
+import { assertSafeResourceUrl, limitedBody, safeFetch, safeFetchManual } from "./network.js";
 import { TokenService } from "./security.js";
 import { Store } from "./store.js";
 
@@ -36,7 +36,7 @@ export class PaymentService{
 
   async walletStatus(userId:string){const account=await this.account(userId);const scoped=await account.useNetwork("base");const result=await scoped.listTokenBalances({pageSize:100});const usdc=result.balances.find(b=>b.token.contractAddress.toLowerCase()===BASE_USDC);return{network:BASE_NETWORK,address:account.address,usdc_atomic:usdc?.amount.amount.toString()??"0",usdc_decimals:usdc?.amount.decimals??6,spend_limits_enabled:this.config.SPEND_LIMITS_ENABLED,per_payment_limit_atomic:this.config.SPEND_LIMITS_ENABLED?this.config.MAX_PAYMENT_USDC_ATOMIC:null,daily_limit_atomic:this.config.SPEND_LIMITS_ENABLED?this.config.MAX_DAILY_USDC_ATOMIC:null};}
 
-  async preview(userId:string,target:ResourceTarget,input:PreviewSpec,scheme:"auto"|PaymentScheme="auto"){if(hasBody(input)&&input.textBody!==undefined)throw new Error("provide either body or text_body, not both");const headers=normalizeRequestHeaders(input.headers);const request:PreviewSpec={...input,...(headers?{headers}:{})};const baseUrl=await this.resolveTarget(target);const url=buildResourceUrl(baseUrl,request.query);const listing=await this.bazaarListing(baseUrl);const listed=listing.listed;const {method,challenge}=await preflight(safeFetch,url,request,request.method?[request.method]:methodCandidates(listing.method,hasBody(request)),this.config.PAYMENT_TIMEOUT_MS);const spec:RequestSpec={...request,method};const selected=selectRequirement(challenge,this.config,scheme);const fingerprint=requirementFingerprint(challenge,selected,url,spec);const saved=await this.store.createPreview({userId,method:spec.method,url,headers:spec.headers??null,body:spec.body??null,textBody:spec.textBody??null,fingerprint,scheme:selected.scheme,amount:selected.amount,payTo:selected.payTo},this.config.PREVIEW_TTL_SECONDS);return{preview_id:saved.id,expires_at:saved.expiresAt.toISOString(),resource:{url,description:challenge.resource.description,service_name:challenge.resource.serviceName,bazaar_listed:listed,...(listed===true?{}:{warning:UNLISTED_WARNING})},payment:publicRequirement(selected),request:{method:spec.method,query:spec.query??{},header_names:Object.keys(spec.headers??{}),has_body:hasBody(spec)||spec.textBody!==undefined}};}
+  async preview(userId:string,target:ResourceTarget,input:PreviewSpec,scheme:"auto"|PaymentScheme="auto"){if(hasBody(input)&&input.textBody!==undefined)throw new Error("provide either body or text_body, not both");const headers=normalizeRequestHeaders(input.headers);const request:PreviewSpec={...input,...(headers?{headers}:{})};const baseUrl=await this.resolveTarget(target);const requested=buildResourceUrl(baseUrl,request.query);const listing=await this.bazaarListing(baseUrl);const listed=listing.listed;const {method,url,challenge}=await preflight(safeFetchManual,requested,request,request.method?[request.method]:methodCandidates(listing.method,hasBody(request)),this.config.PAYMENT_TIMEOUT_MS);const spec:RequestSpec={...request,method};const selected=selectRequirement(challenge,this.config,scheme);const fingerprint=requirementFingerprint(challenge,selected,url,spec);const saved=await this.store.createPreview({userId,method:spec.method,url,headers:spec.headers??null,body:spec.body??null,textBody:spec.textBody??null,fingerprint,scheme:selected.scheme,amount:selected.amount,payTo:selected.payTo},this.config.PREVIEW_TTL_SECONDS);return{preview_id:saved.id,expires_at:saved.expiresAt.toISOString(),resource:{url,...(url!==requested?{redirected_from:requested}:{}),description:challenge.resource.description,service_name:challenge.resource.serviceName,bazaar_listed:listed,...(listed===true?{}:{warning:UNLISTED_WARNING})},payment:publicRequirement(selected),request:{method:spec.method,query:spec.query??{},header_names:Object.keys(spec.headers??{}),has_body:hasBody(spec)||spec.textBody!==undefined}};}
 
   async pay(userId:string,previewId:string,purpose:string){return this.store.withPaymentLock(userId,()=>this.payLocked(userId,previewId,purpose));}
 
@@ -57,7 +57,27 @@ export class PaymentService{
 }
 
 // Tries each candidate method in order and moves on only when the provider answers 405, so a wrong default costs one extra unpaid request instead of a failed preview.
-export async function preflight(fetchImpl:typeof globalThis.fetch,url:string,request:PreviewSpec,methods:HttpMethod[],timeout:number){let failure=new Error("no HTTP method to try");for(const method of methods){const response=await fetchImpl(url,requestInit({...request,method},timeout));if(response.status===402){const header=response.headers.get("payment-required")??response.headers.get("x-payment-required");if(!header)throw new Error("resource returned 402 without PAYMENT-REQUIRED");return{method,challenge:decodePaymentRequiredHeader(header)};}const body=await limitedBody(response,64_000);failure=new Error(preflightFailureMessage(response.status,body,method));if(response.status!==405)break;}throw failure;}
+// Redirects are followed here, hop by hop through the SSRF guard, and the preview is bound to the final url so the paid request never has to follow one.
+export async function preflight(fetchImpl:typeof globalThis.fetch,startUrl:string,request:PreviewSpec,methods:HttpMethod[],timeout:number){
+  let failure=new Error("no HTTP method to try");
+  for(const method of methods){
+    let url=startUrl;let response=await fetchImpl(url,requestInit({...request,method},timeout));
+    for(let hop=0;REDIRECT_STATUSES.has(response.status);hop++){if(hop>=MAX_REDIRECTS)throw new Error(`resource redirected more than ${MAX_REDIRECTS} times`);url=redirectTarget(url,response,method,Boolean(request.headers));void response.body?.cancel().catch(()=>{});response=await fetchImpl(url,requestInit({...request,method},timeout));}
+    if(response.status===402){const header=response.headers.get("payment-required")??response.headers.get("x-payment-required");if(!header)throw new Error("resource returned 402 without PAYMENT-REQUIRED");return{method,url,challenge:decodePaymentRequiredHeader(header)};}
+    const body=await limitedBody(response,64_000);failure=new Error(preflightFailureMessage(response.status,body,method));if(response.status!==405)break;
+  }
+  throw failure;
+}
+const MAX_REDIRECTS=5;
+const REDIRECT_STATUSES=new Set([301,302,303,307,308]);
+function redirectTarget(from:string,response:Response,method:HttpMethod,hasHeaders:boolean){
+  const location=response.headers.get("location");if(!location)throw new Error(`resource returned HTTP ${response.status} without a location`);
+  const next=assertSafeResourceUrl(new URL(location,from).toString());
+  // 301/302/303 turn a non-GET into a GET in every HTTP client; following them would pay for a different request than the one previewed.
+  if(method!=="GET"&&response.status!==307&&response.status!==308)throw new Error(`resource redirects ${method} with HTTP ${response.status}, which would change the method; preview ${next.toString()} directly`);
+  if(hasHeaders&&next.origin!==new URL(from).origin)throw new Error(`resource redirects to another host; preview ${next.toString()} directly so headers are not sent to a host you did not name`);
+  return next.toString();
+}
 // A preview stores "no body" as SQL/JSON null, so null and undefined must build the same request at preview and at pay time.
 export function requestInit(spec:RequestSpec,timeout:number):RequestInit{
   const headers:Record<string,string>={...(spec.headers??{})};const init:RequestInit={method:spec.method,signal:AbortSignal.timeout(timeout)};
