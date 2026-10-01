@@ -107,3 +107,38 @@ test("preflight follows safe redirects and binds the preview to the final url",a
   const loop=server({"https://api.example.com/run":()=>redirect(302,"/run")});
   await assert.rejects(()=>preflight(loop.fetch,"https://api.example.com/run",{},["GET"],1000),/more than 5 times/);
 });
+
+async function exactClient(){
+  const {x402Client}=await import("@x402/core/client");const {registerExactEvmScheme}=await import("@x402/evm/exact/client");const {generatePrivateKey,privateKeyToAccount}=await import("viem/accounts");
+  const account=privateKeyToAccount(generatePrivateKey());const client=new x402Client();registerExactEvmScheme(client,{signer:account as any,networks:["eip155:8453"]});return{client,account};
+}
+const paidChallenge={x402Version:2,resource:{url:"https://api.example.com/run"},accepts:[{scheme:"exact",network:"eip155:8453",asset:"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",amount:"25000",payTo:"0x1111111111111111111111111111111111111111",maxTimeoutSeconds:60,extra:{name:"USD Coin",version:"2"}}]} as any;
+
+test("paying signs the previewed challenge and sends exactly one paid request with its own timeout",async()=>{
+  const {payStoredChallenge}=await import("../src/payments.js");const {decodePaymentSignatureHeader,encodePaymentResponseHeader}=await import("@x402/core/http");
+  const {client,account}=await exactClient();let signedCount=0;client.onAfterPaymentCreation(async()=>{signedCount++;});
+  const calls:{url:string;init:RequestInit}[]=[];
+  const provider=(async(url:string,init:RequestInit)=>{calls.push({url,init});return new Response('{"ok":true}',{status:200,headers:{"content-type":"application/json","payment-response":encodePaymentResponseHeader({success:true,transaction:"0xabc",network:"eip155:8453",payer:account.address} as any)}});}) as unknown as typeof fetch;
+  const response=await payStoredChallenge({client,fetchImpl:provider,url:"https://api.example.com/run?a=BTC",request:{method:"POST",headers:{accept:"application/json"},body:{q:"btc"}},paymentRequired:paidChallenge,timeout:1000});
+  assert.equal(response.status,200);assert.equal(calls.length,1);assert.equal(signedCount,1);
+  const {url,init}=calls[0]!;const headers=init.headers as Record<string,string>;
+  assert.equal(url,"https://api.example.com/run?a=BTC");assert.equal(init.method,"POST");assert.equal(init.body,'{"q":"btc"}');assert.equal(headers.accept,"application/json");assert.ok(init.signal instanceof AbortSignal);
+  const payload=decodePaymentSignatureHeader(headers["PAYMENT-SIGNATURE"]!) as any;
+  assert.equal(payload.accepted.amount,"25000");assert.equal(payload.accepted.payTo,"0x1111111111111111111111111111111111111111");
+  assert.equal(payload.payload.authorization.from.toLowerCase(),account.address.toLowerCase());assert.equal(payload.payload.authorization.value,"25000");
+});
+
+test("a refused or unsettled paid request reports the provider's reason",async()=>{
+  const {payStoredChallenge,unsettledReason}=await import("../src/payments.js");const {encodePaymentRequiredHeader}=await import("@x402/core/http");const {limitedBody}=await import("../src/network.js");
+  const {client}=await exactClient();
+  const refusing=(async()=>new Response("{}",{status:402,headers:{"content-type":"application/json","payment-required":encodePaymentRequiredHeader({...paidChallenge,error:"insufficient_funds"})}})) as unknown as typeof fetch;
+  const refused=await payStoredChallenge({client,fetchImpl:refusing,url:"https://api.example.com/run",request:{method:"GET"},paymentRequired:paidChallenge,timeout:1000});
+  assert.equal(refused.status,402);
+  assert.match(unsettledReason(refused,await limitedBody(refused)),/refused the signed payment.*insufficient_funds/);
+  assert.match(unsettledReason(new Response("upstream down",{status:502}),"upstream down"),/HTTP 502.*upstream down/);
+  assert.match(unsettledReason(new Response("{}",{status:200}),null),/without reporting a settlement/);
+  const hanging=((_url:string,init:RequestInit)=>new Promise((_resolve,reject)=>init.signal!.addEventListener("abort",()=>reject(init.signal!.reason)))) as unknown as typeof fetch;
+  // AbortSignal.timeout does not keep the event loop alive on its own.
+  const keepAlive=setTimeout(()=>{},2000);
+  try{await assert.rejects(()=>payStoredChallenge({client,fetchImpl:hanging,url:"https://api.example.com/run",request:{method:"GET"},paymentRequired:paidChallenge,timeout:50}),/timeout|aborted/i);}finally{clearTimeout(keepAlive);}
+});

@@ -1,14 +1,13 @@
 import { createHash } from "node:crypto";
 import { CdpClient, searchX402Resources } from "@coinbase/cdp-sdk";
 import { getDefaultEvmRpcUrls } from "@coinbase/cdp-sdk/x402";
-import { x402Client } from "@x402/core/client";
+import { x402Client, x402HTTPClient } from "@x402/core/client";
 import { decodePaymentRequiredHeader } from "@x402/core/http";
 import type { PaymentRequired, PaymentRequirements } from "@x402/core/types";
 import { AuthCaptureEvmScheme } from "@x402/evm/auth-capture/client";
 import { BatchSettlementEvmScheme, type BatchSettlementClientContext, type ClientChannelStorage } from "@x402/evm/batch-settlement/client";
 import { registerExactEvmScheme } from "@x402/evm/exact/client";
 import { UptoEvmScheme } from "@x402/evm/upto/client";
-import { wrapFetchWithPayment } from "@x402/fetch";
 import { toClientEvmSigner } from "@x402/evm";
 import { createPublicClient, http } from "viem";
 import { base } from "viem/chains";
@@ -36,16 +35,36 @@ export class PaymentService{
 
   async walletStatus(userId:string){const account=await this.account(userId);const scoped=await account.useNetwork("base");const result=await scoped.listTokenBalances({pageSize:100});const usdc=result.balances.find(b=>b.token.contractAddress.toLowerCase()===BASE_USDC);return{network:BASE_NETWORK,address:account.address,usdc_atomic:usdc?.amount.amount.toString()??"0",usdc_decimals:usdc?.amount.decimals??6,spend_limits_enabled:this.config.SPEND_LIMITS_ENABLED,per_payment_limit_atomic:this.config.SPEND_LIMITS_ENABLED?this.config.MAX_PAYMENT_USDC_ATOMIC:null,daily_limit_atomic:this.config.SPEND_LIMITS_ENABLED?this.config.MAX_DAILY_USDC_ATOMIC:null};}
 
-  async preview(userId:string,target:ResourceTarget,input:PreviewSpec,scheme:"auto"|PaymentScheme="auto"){if(hasBody(input)&&input.textBody!==undefined)throw new Error("provide either body or text_body, not both");const headers=normalizeRequestHeaders(input.headers);const request:PreviewSpec={...input,...(headers?{headers}:{})};const baseUrl=await this.resolveTarget(target);const requested=buildResourceUrl(baseUrl,request.query);const listing=await this.bazaarListing(baseUrl);const listed=listing.listed;const {method,url,challenge}=await preflight(safeFetchManual,requested,request,request.method?[request.method]:methodCandidates(listing.method,hasBody(request)),this.config.PAYMENT_TIMEOUT_MS);const spec:RequestSpec={...request,method};const selected=selectRequirement(challenge,this.config,scheme);const fingerprint=requirementFingerprint(challenge,selected,url,spec);const saved=await this.store.createPreview({userId,method:spec.method,url,headers:spec.headers??null,body:spec.body??null,textBody:spec.textBody??null,fingerprint,scheme:selected.scheme,amount:selected.amount,payTo:selected.payTo},this.config.PREVIEW_TTL_SECONDS);return{preview_id:saved.id,expires_at:saved.expiresAt.toISOString(),resource:{url,...(url!==requested?{redirected_from:requested}:{}),description:challenge.resource.description,service_name:challenge.resource.serviceName,bazaar_listed:listed,...(listed===true?{}:{warning:UNLISTED_WARNING})},payment:publicRequirement(selected),request:{method:spec.method,query:spec.query??{},header_names:Object.keys(spec.headers??{}),has_body:hasBody(spec)||spec.textBody!==undefined}};}
+  async preview(userId:string,target:ResourceTarget,input:PreviewSpec,scheme:"auto"|PaymentScheme="auto"){if(hasBody(input)&&input.textBody!==undefined)throw new Error("provide either body or text_body, not both");const headers=normalizeRequestHeaders(input.headers);const request:PreviewSpec={...input,...(headers?{headers}:{})};const baseUrl=await this.resolveTarget(target);const requested=buildResourceUrl(baseUrl,request.query);const listing=await this.bazaarListing(baseUrl);const listed=listing.listed;const {method,url,header,challenge}=await preflight(safeFetchManual,requested,request,request.method?[request.method]:methodCandidates(listing.method,hasBody(request)),this.config.PAYMENT_TIMEOUT_MS);const spec:RequestSpec={...request,method};const selected=selectRequirement(challenge,this.config,scheme);const fingerprint=requirementFingerprint(challenge,selected,url,spec);const saved=await this.store.createPreview({userId,method:spec.method,url,headers:spec.headers??null,body:spec.body??null,textBody:spec.textBody??null,paymentRequired:header,fingerprint,scheme:selected.scheme,amount:selected.amount,payTo:selected.payTo},this.config.PREVIEW_TTL_SECONDS);return{preview_id:saved.id,expires_at:saved.expiresAt.toISOString(),resource:{url,...(url!==requested?{redirected_from:requested}:{}),description:challenge.resource.description,service_name:challenge.resource.serviceName,bazaar_listed:listed,...(listed===true?{}:{warning:UNLISTED_WARNING})},payment:publicRequirement(selected),request:{method:spec.method,query:spec.query??{},header_names:Object.keys(spec.headers??{}),has_body:hasBody(spec)||spec.textBody!==undefined}};}
 
   async pay(userId:string,previewId:string,purpose:string){return this.store.withPaymentLock(userId,()=>this.payLocked(userId,previewId,purpose));}
 
-  private async payLocked(userId:string,previewId:string,purpose:string){const dailyLimit=this.config.SPEND_LIMITS_ENABLED?BigInt(this.config.MAX_DAILY_USDC_ATOMIC):null;const {paymentId,preview}=await this.store.reservePayment(userId,previewId,dailyLimit,purpose);const stored=storedRequest(preview);let signed=false;
-    try{const account=await this.account(userId);const rpcUrl=await this.baseRpcUrl;const publicClient=createPublicClient({chain:base,transport:http(rpcUrl)});const signer=toClientEvmSigner(account,publicClient);const schemeOptions=rpcUrl?{rpcUrl}:undefined;const client=new x402Client((_version,requirements)=>selectPreviewRequirement(requirements,preview));client.setSpendControls(this.config.SPEND_LIMITS_ENABLED?{maxAmountPerPayment:`$${atomicUsd(this.config.MAX_PAYMENT_USDC_ATOMIC)}`,allowedAssets:[]}:false);registerExactEvmScheme(client,{signer,networks:[BASE_NETWORK],...(schemeOptions?{schemeOptions}:{})});client.register(BASE_NETWORK,new UptoEvmScheme(signer,schemeOptions));client.register(BASE_NETWORK,new BatchSettlementEvmScheme(signer,{storage:new PostgresBatchChannelStorage(this.store,userId),...(rpcUrl?{rpcUrl}:{})}));client.register(BASE_NETWORK,new AuthCaptureEvmScheme(signer));client.registerPolicy((_v,reqs)=>reqs.filter(isAllowed));client.onBeforePaymentCreation(async({paymentRequired,selectedRequirements})=>{const now=requirementFingerprint(paymentRequired,selectedRequirements,preview.url,stored);if(now!==preview.fingerprint)return{abort:true,reason:"payment terms changed since preview"};});client.onAfterPaymentCreation(async()=>{signed=true;});
-      const paidFetch=wrapFetchWithPayment(safeFetch,client);const response=await paidFetch(preview.url,requestInit(stored,this.config.PAYMENT_TIMEOUT_MS));const body=await limitedBody(response);const settlement=decodeSettlement(response);const settled=response.ok&&settlement?.success===true;await this.store.finishPayment(paymentId,settled?"settled":(signed?"unknown":"failed"),settlement?.transaction??null,response.status,settled?null:`paid request returned ${response.status}`,settlement?.amount??null);return{payment_id:paymentId,status:settled?"settled":"unknown",scheme:preview.scheme,purpose,authorized_amount_atomic:preview.amount,settled_amount_atomic:settlement?.amount??null,response_status:response.status,transaction:settlement?.transaction??null,network:settlement?.network??BASE_NETWORK,result:body};
-    }catch(e){await this.store.finishPayment(paymentId,signed?"unknown":"failed",null,null,errorMessage(e));throw e;}
+  private async payLocked(userId:string,previewId:string,purpose:string){
+    const dailyLimit=this.config.SPEND_LIMITS_ENABLED?BigInt(this.config.MAX_DAILY_USDC_ATOMIC):null;const {paymentId,preview}=await this.store.reservePayment(userId,previewId,dailyLimit,purpose);const stored=storedRequest(preview);let signed=false;
+    try{
+      if(!preview.paymentRequired)throw new Error("preview was created before a server upgrade; call x402_preview again");
+      const paymentRequired=decodePaymentRequiredHeader(preview.paymentRequired);
+      const client=await this.client(userId,preview);
+      client.onBeforePaymentCreation(async({paymentRequired:terms,selectedRequirements})=>{if(requirementFingerprint(terms,selectedRequirements,preview.url,stored)!==preview.fingerprint)return{abort:true,reason:"stored payment terms do not match the preview"};});
+      client.onAfterPaymentCreation(async()=>{signed=true;});
+      const response=await payStoredChallenge({client,fetchImpl:safeFetch,url:preview.url,request:stored,paymentRequired,timeout:this.config.PAYMENT_TIMEOUT_MS});
+      const body=await limitedBody(response);const settlement=decodeSettlement(response);const settled=response.ok&&settlement?.success===true;const reason=settled?null:unsettledReason(response,body);
+      await this.store.finishPayment(paymentId,settled?"settled":"unknown",settlement?.transaction??null,response.status,reason,settlement?.amount??null);
+      return{payment_id:paymentId,status:settled?"settled":"unknown",...(reason?{failure_reason:reason,next_step:UNKNOWN_NEXT_STEP}:{}),scheme:preview.scheme,purpose,authorized_amount_atomic:preview.amount,settled_amount_atomic:settlement?.amount??null,response_status:response.status,transaction:settlement?.transaction??null,network:settlement?.network??BASE_NETWORK,result:body};
+    }catch(e){
+      await this.store.finishPayment(paymentId,signed?"unknown":"failed",null,null,errorMessage(e));
+      // Before signing nothing can be charged; after signing the provider holds a valid authorization, so the outcome is unknown rather than failed.
+      throw new Error(signed?`payment was signed but the paid request did not complete (${errorMessage(e)}). Settlement is unknown. ${UNKNOWN_NEXT_STEP}`:`payment was not made: ${errorMessage(e)}. Nothing was signed or charged; call x402_preview again to retry`);
+    }
     // Caller-supplied headers may be sensitive; drop them as soon as the single use is over.
     finally{await this.store.scrubPreview(previewId).catch(error=>console.error("preview scrub failed",errorMessage(error)));}
+  }
+
+  private async client(userId:string,preview:import("./store.js").Preview){
+    const account=await this.account(userId);const rpcUrl=await this.baseRpcUrl;const publicClient=createPublicClient({chain:base,transport:http(rpcUrl)});const signer=toClientEvmSigner(account,publicClient);const schemeOptions=rpcUrl?{rpcUrl}:undefined;
+    const client=new x402Client((_version,requirements)=>selectPreviewRequirement(requirements,preview));client.setSpendControls(this.config.SPEND_LIMITS_ENABLED?{maxAmountPerPayment:`$${atomicUsd(this.config.MAX_PAYMENT_USDC_ATOMIC)}`,allowedAssets:[]}:false);
+    registerExactEvmScheme(client,{signer,networks:[BASE_NETWORK],...(schemeOptions?{schemeOptions}:{})});client.register(BASE_NETWORK,new UptoEvmScheme(signer,schemeOptions));client.register(BASE_NETWORK,new BatchSettlementEvmScheme(signer,{storage:new PostgresBatchChannelStorage(this.store,userId),...(rpcUrl?{rpcUrl}:{})}));client.register(BASE_NETWORK,new AuthCaptureEvmScheme(signer));client.registerPolicy((_v,reqs)=>reqs.filter(isAllowed));
+    return client;
   }
 
   // One CDP EVM account per user, shared by Base x402 payments and Arc transfers.
@@ -56,6 +75,26 @@ export class PaymentService{
   private async bazaarListing(url:string):Promise<{listed:boolean|null;method?:HttpMethod}>{try{const found=await searchX402Resources({urlSubstring:listingKey(url),network:BASE_NETWORK,asset:BASE_USDC});const listing=findListing(found.resources,url);const method=listing?hintedMethod(listing.extensions):undefined;return{listed:Boolean(listing),...(method?{method}:{})};}catch{return{listed:null};}}
 }
 
+const UNKNOWN_NEXT_STEP="Do not pay again blindly: call wallet_status to see whether the balance changed before previewing a new payment.";
+// Signs the challenge captured at preview time and sends one paid request, as the local wallet does. The amount and recipient the user approved are the only terms that can be signed; a provider that changed its price answers 402 again and nothing settles.
+// Every request gets its own timeout, so a slow on-chain settlement is not cut short by time already spent signing.
+export async function payStoredChallenge(o:{client:x402Client;fetchImpl:typeof globalThis.fetch;url:string;request:RequestSpec;paymentRequired:PaymentRequired;timeout:number}):Promise<Response>{
+  const httpClient=new x402HTTPClient(o.client);
+  const send=(extra:Record<string,string>)=>{const init=requestInit(o.request,o.timeout);return o.fetchImpl(o.url,{...init,headers:{...(init.headers as Record<string,string>|undefined),...extra}});};
+  const attempt=async()=>{const payload=await o.client.createPaymentPayload(o.paymentRequired);const response=await send(httpClient.encodePaymentSignatureHeader(payload));const result=await httpClient.processPaymentResult(payload,name=>response.headers.get(name),response.status);return{response,recovered:result.recovered};};
+  const first=await attempt();if(!first.recovered)return first.response;
+  // A scheme hook (batch-settlement channel resync) repaired local state and asked for one retry with a fresh payload.
+  void first.response.body?.cancel().catch(()=>{});return (await attempt()).response;
+}
+// The provider's own explanation for refusing a signed payment, when it gives one.
+export function unsettledReason(response:Response,body:unknown){
+  let detail="";const header=response.headers.get("payment-required")??response.headers.get("x-payment-required");
+  if(header){try{const error=(decodePaymentRequiredHeader(header) as {error?:unknown}).error;if(typeof error==="string")detail=error;}catch{}}
+  if(!detail&&body!==null&&body!==undefined){try{detail=typeof body==="string"?body:JSON.stringify(body);}catch{detail=String(body);}}
+  detail=detail.replace(/\s+/g," ").trim().slice(0,500);
+  const what=response.status===402?"provider refused the signed payment and still asks for payment":response.ok?"provider answered without reporting a settlement":`paid request returned HTTP ${response.status}`;
+  return`${what}${detail?`; provider response (untrusted): ${detail}`:""}`;
+}
 // Tries each candidate method in order and moves on only when the provider answers 405, so a wrong default costs one extra unpaid request instead of a failed preview.
 // Redirects are followed here, hop by hop through the SSRF guard, and the preview is bound to the final url so the paid request never has to follow one.
 export async function preflight(fetchImpl:typeof globalThis.fetch,startUrl:string,request:PreviewSpec,methods:HttpMethod[],timeout:number){
@@ -63,7 +102,7 @@ export async function preflight(fetchImpl:typeof globalThis.fetch,startUrl:strin
   for(const method of methods){
     let url=startUrl;let response=await fetchImpl(url,requestInit({...request,method},timeout));
     for(let hop=0;REDIRECT_STATUSES.has(response.status);hop++){if(hop>=MAX_REDIRECTS)throw new Error(`resource redirected more than ${MAX_REDIRECTS} times`);url=redirectTarget(url,response,method,Boolean(request.headers));void response.body?.cancel().catch(()=>{});response=await fetchImpl(url,requestInit({...request,method},timeout));}
-    if(response.status===402){const header=response.headers.get("payment-required")??response.headers.get("x-payment-required");if(!header)throw new Error("resource returned 402 without PAYMENT-REQUIRED");return{method,url,challenge:decodePaymentRequiredHeader(header)};}
+    if(response.status===402){const header=response.headers.get("payment-required")??response.headers.get("x-payment-required");if(!header)throw new Error("resource returned 402 without PAYMENT-REQUIRED");return{method,url,header,challenge:decodePaymentRequiredHeader(header)};}
     const body=await limitedBody(response,64_000);failure=new Error(preflightFailureMessage(response.status,body,method));if(response.status!==405)break;
   }
   throw failure;
