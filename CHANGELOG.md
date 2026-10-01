@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## v0.1.117 - 2026-10-01
+
+- **EVM transfers now retain their approved preview through execution.** A
+  changing gas estimate no longer invalidates a user confirmation between
+  preview and execute; the adapter still verifies the recipient, token, and
+  amount against that preview before sending.
+- **Arc's documented `native/usdc` alias now works in LI.FI routes.** It is
+  normalized to Arc's USDC compatibility address before the provider request
+  and approval binding.
+
 ## v0.1.116 - 2026-10-01
 
 - **LI.FI swap failures now preserve actionable cleanup diagnostics.** The

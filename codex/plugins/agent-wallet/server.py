@@ -59,6 +59,14 @@ PREVIEW_CACHE_TTL_SECONDS = 15 * 60
 PREVIEW_BOUND_SWAP_TOOLS = {
     "swap_solana_tokens",
 }
+# Transfers reuse their approved preview to keep an estimated network fee from
+# drifting between preview and execute. Unlike exact-preview swaps, their
+# approval token is intentionally not bound to a full preview digest: the
+# adapter rechecks the recipient and amount against that cached preview.
+APPROVED_PREVIEW_REUSE_TOOLS = PREVIEW_BOUND_SWAP_TOOLS | {
+    "transfer_evm_native",
+    "transfer_evm_token",
+}
 AUTONOMOUS_BASE_SWAP_TOOLS = {"swap_evm_tokens", "swap_evm_uniswap_tokens"}
 AUTONOMOUS_DEFI_TOOLS = {
     "manage_evm_aave_position",
@@ -1077,7 +1085,7 @@ def _is_solana_swap_intent_execute(params: dict[str, Any]) -> bool:
 def _requires_approved_preview_payload(tool_name: str, params: dict[str, Any]) -> bool:
     if tool_name == "swap_solana_tokens" and _is_solana_swap_intent_execute(params):
         return False
-    return tool_name in PREVIEW_BOUND_SWAP_TOOLS
+    return tool_name in APPROVED_PREVIEW_REUSE_TOOLS
 
 
 def _should_let_backend_authorize_autonomous_execution(

@@ -2649,6 +2649,90 @@ async def _main() -> None:
     assert prepared.data["execution_plan_only"] is True
     assert prepared.data["token_metadata"]["decimals"] == 6
 
+    class NoRepreviewEvmTokenTransferBackend(FakeEvmBackend):
+        def __init__(self) -> None:
+            self.preview_calls = 0
+
+        async def preview_evm_token_transfer(
+            self,
+            *,
+            token_address: str,
+            recipient: str,
+            amount_raw: str,
+        ) -> dict:
+            self.preview_calls += 1
+            if self.preview_calls > 1:
+                raise WalletBackendError("execute must reuse the approved token-transfer preview")
+            return await super().preview_evm_token_transfer(
+                token_address=token_address,
+                recipient=recipient,
+                amount_raw=amount_raw,
+            )
+
+        async def send_evm_token_transfer(
+            self,
+            *,
+            token_address: str,
+            recipient: str,
+            amount_raw: str,
+        ) -> dict:
+            return {
+                "hash": "0x" + "d" * 64,
+                "broadcasted": True,
+                "confirmed": False,
+                "token_address": token_address,
+                "recipient": recipient,
+                "amount_raw": amount_raw,
+            }
+
+    no_repreview_transfer_adapter = OpenClawWalletAdapter(NoRepreviewEvmTokenTransferBackend())
+    no_repreview_transfer_preview = await no_repreview_transfer_adapter.invoke(
+        "transfer_evm_token",
+        {
+            "token_address": "0x2222222222222222222222222222222222222222",
+            "recipient": "0x3333333333333333333333333333333333333333",
+            "amount_raw": "5000000",
+            "mode": "preview",
+            "purpose": "test approved EVM token-transfer preview reuse",
+        },
+    )
+    assert no_repreview_transfer_preview.ok is True
+    no_repreview_transfer_approval = issue_approval_token(
+        tool_name="transfer_evm_token",
+        network="ethereum",
+        summary=no_repreview_transfer_preview.data["confirmation_summary"],
+        mainnet_confirmed=True,
+        issued_by="test",
+    )
+    mismatched_no_repreview_transfer = await no_repreview_transfer_adapter.invoke(
+        "transfer_evm_token",
+        {
+            "token_address": "0x2222222222222222222222222222222222222222",
+            "recipient": "0x4444444444444444444444444444444444444444",
+            "amount_raw": "5000000",
+            "mode": "execute",
+            "purpose": "test approved EVM token-transfer preview reuse",
+            "approval_token": no_repreview_transfer_approval,
+            "_approved_preview": no_repreview_transfer_preview.data,
+        },
+    )
+    assert mismatched_no_repreview_transfer.ok is False
+    assert "approved preview does not match" in mismatched_no_repreview_transfer.error
+    no_repreview_transfer_execute = await no_repreview_transfer_adapter.invoke(
+        "transfer_evm_token",
+        {
+            "token_address": "0x2222222222222222222222222222222222222222",
+            "recipient": "0x3333333333333333333333333333333333333333",
+            "amount_raw": "5000000",
+            "mode": "execute",
+            "purpose": "test approved EVM token-transfer preview reuse",
+            "approval_token": no_repreview_transfer_approval,
+            "_approved_preview": no_repreview_transfer_preview.data,
+        },
+    )
+    assert no_repreview_transfer_execute.ok is True
+    assert no_repreview_transfer_execute.data["hash"].startswith("0x")
+
     swap_approval = issue_approval_token(
         tool_name="swap_evm_tokens",
         network="ethereum",

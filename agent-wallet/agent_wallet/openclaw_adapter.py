@@ -6157,7 +6157,21 @@ class OpenClawWalletAdapter:
                         ),
                     )
 
-                execute_preview = await active_backend.preview_evm_native_transfer(**preview_kwargs)
+                approved_preview = args.get("_approved_preview")
+                if approved_preview is not None and not isinstance(approved_preview, dict):
+                    raise WalletBackendError("_approved_preview must be an object when provided.")
+                execute_preview = (
+                    dict(approved_preview)
+                    if isinstance(approved_preview, dict)
+                    else await active_backend.preview_evm_native_transfer(**preview_kwargs)
+                )
+                if (
+                    str(execute_preview.get("recipient") or "").strip().lower() != recipient.strip().lower()
+                    or str(execute_preview.get("amount_wei") or "").strip() != amount_wei.strip()
+                ):
+                    raise WalletBackendError(
+                        "approved preview does not match the requested EVM native transfer. Generate a new preview and approval before execute."
+                    )
                 self._require_execute_approval(
                     approval_token=approval_token,
                     tool_name=tool_name,
@@ -6235,7 +6249,23 @@ class OpenClawWalletAdapter:
                         ),
                     )
 
-                execute_preview = await active_backend.preview_evm_token_transfer(**preview_kwargs)
+                approved_preview = args.get("_approved_preview")
+                if approved_preview is not None and not isinstance(approved_preview, dict):
+                    raise WalletBackendError("_approved_preview must be an object when provided.")
+                execute_preview = (
+                    dict(approved_preview)
+                    if isinstance(approved_preview, dict)
+                    else await active_backend.preview_evm_token_transfer(**preview_kwargs)
+                )
+                if (
+                    str(execute_preview.get("recipient") or "").strip().lower() != recipient.strip().lower()
+                    or str(execute_preview.get("token_address") or "").strip().lower()
+                    != token_address.strip().lower()
+                    or str(execute_preview.get("amount_raw") or "").strip() != amount_raw.strip()
+                ):
+                    raise WalletBackendError(
+                        "approved preview does not match the requested EVM token transfer. Generate a new preview and approval before execute."
+                    )
                 self._require_execute_approval(
                     approval_token=approval_token,
                     tool_name=tool_name,
