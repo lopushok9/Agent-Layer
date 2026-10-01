@@ -76,7 +76,7 @@ def normalize_token_address(token: str, *, chain_id: str) -> str:
     alias = text.lower()
     if chain_id == "1151111081099710" and alias in {"native", "sol", "solana"}:
         return SOLANA_NATIVE_TOKEN
-    if chain_id == "5042" and alias in {"native", "usdc", "arc", EVM_NATIVE_TOKEN}:
+    if chain_id == "5042" and alias in {"native", "native/usdc", "usdc", "arc", EVM_NATIVE_TOKEN}:
         return ARC_USDC_ERC20_TOKEN
     if chain_id in {"1", "8453"} and alias in {"native", "eth", "ethereum"}:
         return EVM_NATIVE_TOKEN

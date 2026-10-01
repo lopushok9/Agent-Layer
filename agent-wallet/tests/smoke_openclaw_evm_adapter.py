@@ -1768,6 +1768,11 @@ async def _main() -> None:
     )
     assert lifi.normalize_chain_id("arc", field_name="chain") == "5042"
     assert lifi.normalize_token_address("native", chain_id="5042") == lifi.ARC_USDC_ERC20_TOKEN
+    assert lifi.normalize_token_address("native/usdc", chain_id="5042") == lifi.ARC_USDC_ERC20_TOKEN
+    assert (
+        adapter._canonicalize_lifi_token_identifier("native/usdc", chain_id="5042")
+        == lifi.ARC_USDC_ERC20_TOKEN
+    )
 
     balance = await adapter.invoke("get_wallet_balance", {})
     assert balance.ok is True

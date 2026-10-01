@@ -237,7 +237,7 @@ class OpenClawWalletAdapter:
         text = str(value or "").strip()
         alias = text.lower()
         if chain_id == "5042":
-            if alias in {"native", "usdc", "arc", EVM_NATIVE_TOKEN_ADDRESS}:
+            if alias in {"native", "native/usdc", "usdc", "arc", EVM_NATIVE_TOKEN_ADDRESS}:
                 return ARC_USDC_ERC20_ADDRESS
             if alias.startswith("0x") and len(alias) == 42:
                 return alias

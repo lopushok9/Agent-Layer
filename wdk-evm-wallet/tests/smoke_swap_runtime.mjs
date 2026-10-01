@@ -859,6 +859,30 @@ test("quoteLifiSwap maps Arc destination native USDC to its ERC-20 interface", a
   );
 });
 
+test("quoteLifiSwap maps the documented Arc native/usdc alias to its ERC-20 interface", async () => {
+  await withHarness(
+    {
+      network: "base",
+      chainId: 8453,
+    },
+    async ({ service, state, config }) => {
+      await service.quoteLifiSwap({
+        seedPhrase: VALID_MNEMONIC,
+        tokenIn: config.tokenIn,
+        destinationChain: "arc",
+        outputToken: "native/usdc",
+        destinationAddress: DEFAULT_ADDRESS,
+        tokenInAmount: config.amountIn,
+        network: config.network,
+      });
+
+      const url = new URL(state.lifiQuoteUrls[0]);
+      assert.equal(url.searchParams.get("toChain"), "5042");
+      assert.equal(url.searchParams.get("toToken"), ARC_USDC);
+    }
+  );
+});
+
 test("quoteSwap falls back to Velora route decimals when ERC-20 metadata decimals is invalid", async () => {
   await withHarness(
     {

@@ -1038,7 +1038,7 @@ function normalizeLifiOutputTokenAddress(value, destinationChainId, fieldName) {
   const alias = raw.toLowerCase();
   if (
     destinationChainId === "5042" &&
-    ["native", "usdc", "arc", ZERO_ADDRESS].includes(alias)
+    ["native", "native/usdc", "usdc", "arc", ZERO_ADDRESS].includes(alias)
   ) {
     return ARC_USDC_ERC20_ADDRESS;
   }
