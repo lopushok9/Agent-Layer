@@ -33,3 +33,14 @@ test("an unavailable preview says whether it expired or was already used",async(
   const config=loadConfig({PUBLIC_BASE_URL:"https://pay.example.com",DATABASE_URL:"postgres://localhost/test",OAUTH_SIGNING_PRIVATE_JWK:JSON.stringify(await exportJWK(privateKey)),GITHUB_CLIENT_ID:"h",GITHUB_CLIENT_SECRET:"h",CDP_API_KEY_ID:"c",CDP_API_KEY_SECRET:"c",CDP_WALLET_SECRET:"c",ARC_RPC_URL:"https://rpc.example.com"});
   assert.equal(config.PREVIEW_TTL_SECONDS,600);
 });
+
+test("any public HTTPS url is previewable, with unfilled path templates rejected up front",async()=>{
+  const {assertNoPathPlaceholders,isListed}=await import("../src/payments.js");
+  for(const url of ["https://api.example.com/wallet/:address/portfolio","https://api.example.com/token/{id}","https://api.example.com/token/%7Bid%7D/price"])assert.throws(()=>assertNoPathPlaceholders(url),/placeholder/);
+  for(const url of ["https://api.example.com/v1/price","https://api.example.com/v1/price?pair=BTC:USD&tpl={x}","https://api.example.com/a:b/c"])assert.doesNotThrow(()=>assertNoPathPlaceholders(url));
+  const accept={scheme:"exact",network:"eip155:8453",asset:"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",amount:"1000",payTo:"0x1111111111111111111111111111111111111111",maxTimeoutSeconds:60};
+  const resources=[{resource:"https://api.example.com/v1/price-history",accepts:[accept]},{resource:"https://api.example.com/v1/price",accepts:[accept]},{resource:"https://other.example.com/v1/free",accepts:[]}];
+  assert.equal(isListed(resources,"https://api.example.com/v1/price?pair=BTC"),true);
+  assert.equal(isListed(resources,"https://api.example.com/v1/pric"),false);
+  assert.equal(isListed(resources,"https://other.example.com/v1/free"),false);
+});
