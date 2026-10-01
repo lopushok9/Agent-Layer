@@ -88,6 +88,9 @@ docs/superpowers/
 # Subagent-driven-development scratch workspace (ledgers, briefs, reports)
 .superpowers/
 
+# Local Superstack reports and scratch artifacts
+.superstack/
+
 # Local npm cache (sandbox installs)
 npm-cache/
 
