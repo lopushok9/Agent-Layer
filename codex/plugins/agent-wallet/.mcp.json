@@ -4,7 +4,7 @@
       "command": "sh",
       "args": [
         "-lc",
-        "exec \"${AGENT_WALLET_CODEX_PLUGIN_ROOT:-$HOME/plugins}/agent-wallet/scripts/run_mcp.sh\""
+        "OPENCLAW_HOME=${OPENCLAW_HOME:-$HOME/.openclaw}; launcher=\"$OPENCLAW_HOME/agent-wallet-runtime/current/codex/plugins/agent-wallet/scripts/run_mcp.sh\"; if [ ! -f \"$launcher\" ]; then if ! command -v npx >/dev/null 2>&1; then echo 'AgentLayer requires Node.js and npx for first-time wallet runtime setup.' >&2; exit 1; fi; AGENT_WALLET_INSTALL_SOURCE=codex_marketplace_bootstrap npx --yes @agentlayer.tech/wallet@latest install --yes --runtime-only >&2 || exit 1; fi; exec sh \"$launcher\""
       ],
       "env": {
         "FASTMCP_SHOW_SERVER_BANNER": "false",
