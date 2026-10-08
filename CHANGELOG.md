@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added a public Git marketplace source for the local AgentLayer wallet plugin
+  in ChatGPT desktop and Codex. It is an additional two-command install path;
+  first MCP use prepares the existing npm wallet runtime when needed. The npm
+  installer remains the primary install and update path.
+
 ## v0.1.117 - 2026-10-01
 
 - **EVM transfers now retain their approved preview through execution.** A

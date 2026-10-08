@@ -30,14 +30,25 @@ Primary design rules:
 
 ## Runtime requirements
 
-- install the AgentLayer runtime first with `npx @agentlayer.tech/wallet install --yes`
+- The primary route is `npx @agentlayer.tech/wallet install --yes`.
+- The alternative Git marketplace route is:
+
+  ```bash
+  codex plugin marketplace add lopushok9/Agent-Layer
+  codex plugin add agent-wallet@agentlayer
+  ```
+
+  The marketplace plugin installs the shared runtime through the npm package
+  on first MCP start if it is missing. Node.js 24, npm, and Python 3 are
+  required. Restart ChatGPT desktop or Codex after installation.
 - keep the local wallet files and `~/.openclaw/sealed_keys.json` in place
-- use `wallet codex install --yes` to install this plugin into Codex
+- `wallet codex install --yes` remains available for the npm-managed local
+  plugin path
 
 ## Bundled skills
 
-After `wallet codex install --yes` and a Codex restart, the plugin ships
-bundled skills:
+After either installation route and a host restart, the plugin ships bundled
+skills:
 
 - `wallet-sol` — invoke from the slash menu or explicitly as `$wallet-sol`
   to render the connected Solana wallet portfolio as a compact chat table.

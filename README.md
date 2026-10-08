@@ -209,6 +209,27 @@ Claude Code users can also install the plugin from its marketplace:
 
 Restart Claude Code after installation.
 
+## ChatGPT desktop and Codex marketplace
+
+As an alternative to the npm installer, add the public AgentLayer Git
+marketplace and install the local wallet plugin:
+
+```bash
+codex plugin marketplace add lopushok9/Agent-Layer
+codex plugin add agent-wallet@agentlayer
+```
+
+Restart ChatGPT desktop or Codex, then select Agent Wallet from the AgentLayer
+source in the Plugins Directory. On first MCP start, the plugin installs the
+shared wallet runtime through `@agentlayer.tech/wallet` if it is missing. This
+requires Node.js 24, npm, and Python 3. The wallet and signing policy stay on
+your machine. The npm installer above remains the primary installation path;
+it can also update and repair the runtime installed through this marketplace.
+
+The marketplace plugin uses the same local wallet as the npm installation. If
+you already installed `agent-wallet@local`, use one of the two plugin entries in
+a session to avoid duplicate wallet tools.
+
 ## OpenClaw plugin
 
 OpenClaw users can also install the native plugin from ClawHub:
