@@ -28,6 +28,27 @@ The CDP account signer is paired with the project's authenticated Base RPC for r
 
 Spend limits are disabled by default. The existing 1 USDC per-payment and 5 USDC rolling-24-hour controls can be restored with `SPEND_LIMITS_ENABLED=true`; when enabled, `unknown` outcomes remain charged against the daily limit because a timeout after signing can still have settled. A preview can be consumed only once in either mode.
 
+## Link wallet (optional)
+
+The service can connect a user's own [Stripe Link](https://docs.stripe.com/agentic-commerce/agents/link-agent-wallet/oauth) wallet so the agent can request card and bank purchases that the user approves in Link. Link Agent Wallet serves US and Canadian customers. It is enabled when all four variables are set: `LINK_CLIENT_ID`, `LINK_CLIENT_SECRET` (issued by Stripe), `STRIPE_PUBLISHABLE_KEY` (`pk_live_…` from the Stripe dashboard, never a secret key) and `LINK_TOKEN_ENCRYPTION_KEY` (32 random bytes, base64). The redirect URI registered with Stripe must be exactly `https://YOUR_DOMAIN/auth/link/callback`.
+
+Connecting:
+
+1. `link_connect` returns a 10-minute `connect_url` on this domain.
+2. The user signs in again with Google or GitHub. The identity must be the one the MCP session belongs to, so a link forwarded to someone else cannot attach their wallet to this account.
+3. The service redirects to `login.link.com` with PKCE (S256), a random `state`, and an HttpOnly cookie that binds the callback to this browser.
+4. `/auth/link/callback` consumes the single-use attempt, checks the cookie, exchanges the code with the client secret, requires the `payment_methods.agentic` scope, and stores the tokens AES-256-GCM sealed. One Link account per user; switching accounts needs `link_disconnect` first.
+
+Access tokens refresh a minute before expiry under a per-user row lock, because Link rotates refresh tokens. Only `invalid_grant` drops a connection. `link_disconnect` revokes the grant at Link and forgets it only after Link confirms.
+
+Purchasing:
+
+- `link_create_spend_request` always requests approval and needs an idempotency key and a context of at least 100 characters. The user approves at `approval_url`.
+- `link_get_spend_request`, `link_update_spend_request` (a new total needs new approval) and `link_cancel_spend_request` follow the request. None of them returns credentials.
+- `link_get_pay_token` returns the Link Pay Token of an approved `link_pay_token` request, for Stripe checkouts that accept one. The token is bound to that merchant and amount and expires within 30 minutes.
+- Card numbers are never returned. This hosted service has no browser of its own to fill a card form server-side, and putting a PAN in the agent's context would expose it in transcripts.
+- `link_status` shows spend limits, verification requirements, and payment methods (brand and last four digits only). `link_shipping_addresses` lists saved addresses.
+
 ## Arc (basic receive and send)
 
 The same CDP account address also works on Arc mainnet (chain id 5042), where
