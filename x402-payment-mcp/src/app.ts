@@ -7,6 +7,7 @@ import { createTokenVerifier } from "./auth.js";
 import { LinkService, linkRouter } from "./link.js";
 import type { Config } from "./config.js";
 import { connectorDiagnostics } from "./diagnostics.js";
+import { homeRouter } from "./home.js";
 import { createUserMcp } from "./mcp.js";
 import { oauthRouter } from "./oauth.js";
 import { PaymentService } from "./payments.js";
@@ -26,6 +27,7 @@ export async function createApp(config:Config){
   app.use(express.urlencoded({extended:false,limit:"32kb"}));
   app.use(oauthRouter(config,store,tokens,link));
   if(link)app.use(linkRouter(link,config,store,tokens));
+  app.use(homeRouter(config));
   app.get("/healthz",async(_req,res)=>{try{await store.pool.query("SELECT 1");res.json({ok:true});}catch{res.status(503).json({ok:false});}});
   app.use(tokenManagerRouter(config,store,tokens));
   const verifier=createTokenVerifier(config,tokens,store);
