@@ -111,15 +111,17 @@ export class TokenService {
 
   // Connecting a Link wallet re-confirms the user's identity through the same
   // Google/GitHub callbacks, so this state is another distinct JWT type.
-  async linkConnectState(attemptId: string, provider: "google" | "github"): Promise<string> {
-    return new SignJWT({ attempt: attemptId, provider })
+  // attemptId is null for the standing /link page, where the attempt is
+  // created for whoever signs in.
+  async linkConnectState(attemptId: string | null, provider: "google" | "github"): Promise<string> {
+    return new SignJWT({ attempt: attemptId ?? "", provider })
       .setProtectedHeader({ alg: "ES256", kid: this.kid, typ: LINK_CONNECT_STATE_TYP })
       .setIssuer(this.config.issuer).setAudience("link-connect-callback")
       .setIssuedAt().setExpirationTime("10m").setJti(randomToken(16))
       .sign(this.privateKey);
   }
 
-  async verifyLinkConnectState(token: string, provider: "google" | "github"): Promise<string> {
+  async verifyLinkConnectState(token: string, provider: "google" | "github"): Promise<string | null> {
     const { payload } = await jwtVerify(token, this.publicKey, {
       issuer: this.config.issuer,
       audience: "link-connect-callback",
@@ -127,7 +129,7 @@ export class TokenService {
       typ: LINK_CONNECT_STATE_TYP,
     });
     if (payload.provider !== provider || typeof payload.attempt !== "string") throw new Error("invalid Link connect state");
-    return payload.attempt;
+    return payload.attempt || null;
   }
 
   async serviceRef(resource: string): Promise<string> {

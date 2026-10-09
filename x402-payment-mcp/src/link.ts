@@ -114,6 +114,10 @@ export class LinkService {
 
   async attemptValid(attemptId: string) { return Boolean(await this.store.getLinkAttempt(attemptId)); }
 
+  // The standing /link page: the attempt belongs to whoever just signed in,
+  // in this browser, so nothing can be prepared for someone else.
+  async webAttempt(userId: string) { return (await this.store.createLinkAttempt(userId, ATTEMPT_TTL_SECONDS)).id; }
+
   // MCP: link_connect. The returned page makes the user sign in again with the
   // identity this MCP session belongs to before Link is ever opened.
   async connect(userId: string, reconnect: boolean) {
@@ -373,6 +377,11 @@ export function linkRouter(service: LinkService, config: Config, store: Store, t
   const router = express.Router();
   const providers: Provider[] = [...(config.GOOGLE_CLIENT_ID ? ["google" as const] : []), ...(config.GITHUB_CLIENT_ID ? ["github" as const] : [])];
 
+  router.get("/link", asyncRoute(async (req, res) => {
+    if (!await withinOAuthLimits(req, store, "link_connect", 60, 600, 5000)) return rateLimited(res);
+    sendPage(res, confirmPage(null, providers));
+  }));
+
   router.get("/link/connect", asyncRoute(async (req, res) => {
     if (!await withinOAuthLimits(req, store, "link_connect", 60, 600, 5000)) return rateLimited(res);
     const attemptId = attemptParam(req);
@@ -383,8 +392,9 @@ export function linkRouter(service: LinkService, config: Config, store: Store, t
   router.get("/link/auth/:provider/start", asyncRoute(async (req, res) => {
     const provider = req.params.provider;
     if ((provider !== "google" && provider !== "github") || !providers.includes(provider)) return oauthJsonError(res, 400, "invalid_request", "identity provider is not configured");
-    const attemptId = attemptParam(req);
-    if (!attemptId || !await service.attemptValid(attemptId)) return sendPage(res, messagePage("This link has expired", "Ask your agent for a new Link connection link."), 400);
+    // Without an attempt this is the standing /link page.
+    const attemptId = req.query.attempt === undefined ? null : attemptParam(req);
+    if (req.query.attempt !== undefined && (!attemptId || !await service.attemptValid(attemptId))) return sendPage(res, messagePage("This link has expired", "Ask your agent for a new Link connection link."), 400);
     res.set("Cache-Control", "no-store").redirect(providerAuthorizationUrl(provider, await tokens.linkConnectState(attemptId, provider), config));
   }));
 
@@ -408,7 +418,8 @@ export async function linkConnectCallback(req: Request, res: Response, service: 
   try {
     const attemptId = await tokens.verifyLinkConnectState(requiredQuery(req, "state"), provider);
     if (typeof req.query.error === "string") throw new LinkFlowError("Sign-in was not completed. Nothing was connected.");
-    const { authorizeUrl, binding } = await service.begin(attemptId, await identity());
+    const userId = await identity();
+    const { authorizeUrl, binding } = await service.begin(attemptId ?? await service.webAttempt(userId), userId);
     res.cookie(bindingCookieName(issuer), binding, { httpOnly: true, secure: issuer.startsWith("https:"), sameSite: "lax", path: "/", maxAge: ATTEMPT_TTL_SECONDS * 1000 });
     res.set("Cache-Control", "no-store").redirect(303, authorizeUrl);
   } catch (e) {
@@ -431,9 +442,9 @@ function stringParam(v: unknown) { return typeof v === "string" && v ? v : undef
 function rateLimited(res: Response) { return res.status(429).set("Retry-After", "600").json({ error: "temporarily_unavailable", error_description: "too many requests" }); }
 function sendPage(res: Response, page: (nonce: string) => string, status = 200) { const nonce = randomToken(16); secureHtml(res, nonce, "'none'").status(status).send(page(nonce)); }
 function shell(title: string, body: string) { return `<!doctype html><html><head><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="light"><title>${html(title)} · AgentLayer</title><style>${pageStyles()}a.action{display:flex;color:#111!important;-webkit-text-fill-color:#111;background:#fff;border:1px solid #d6d6d1}a.action:hover{border-color:#9b9b95;background:#fafaf8}</style></head><body><main>${brand()}${body}</main></body></html>`; }
-function confirmPage(attemptId: string, providers: Provider[]) {
-  const q = encodeURIComponent(attemptId);
-  const links = providers.map((p) => `<a class="action" href="/link/auth/${p}/start?attempt=${q}">Continue with ${p === "google" ? "Google" : "GitHub"}</a>`).join("");
+function confirmPage(attemptId: string | null, providers: Provider[]) {
+  const q = attemptId ? `?attempt=${encodeURIComponent(attemptId)}` : "";
+  const links = providers.map((p) => `<a class="action" href="/link/auth/${p}/start${q}">Continue with ${p === "google" ? "Google" : "GitHub"}</a>`).join("");
   return (_nonce: string) => shell("Connect Link", `<div class="eyebrow">Link wallet</div><h1>Connect your Link wallet</h1><p class="intro">First confirm it is you: sign in with the same account your agent uses. Then Link asks you to approve the connection.</p><div class="actions">${links}</div><p class="footnote">Connecting lets your agent request purchases. Each purchase still needs your approval in Link, and card numbers are never shared with the agent.</p>`);
 }
 function messagePage(title: string, detail: string, eyebrow = "Link wallet") {

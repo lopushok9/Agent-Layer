@@ -277,3 +277,24 @@ test("Link calls without a connection ask the agent to connect", async () => {
   assert.deepEqual((await service.status(USER)).connected, false);
   await assert.rejects(service.accessToken(USER), LinkConnectionRequiredError);
 });
+
+test("the standing /link page connects the wallet of whoever signs in, without an agent", async () => {
+  const cfg = await config(); const tokens = await TokenService.create(cfg); const { store, connections } = memoryStore(); const link = fakeLink();
+  const service = new LinkService(cfg.issuer, LINK, store, link.fetchImpl); const { base, close } = await serve(cfg, store, tokens, service);
+  const realFetch = globalThis.fetch;
+  try {
+    const page = await realFetch(`${base}/link`); const html = await page.text();
+    assert.equal(page.status, 200); assert.match(html, /href="\/link\/auth\/github\/start"/);
+    const start = await realFetch(`${base}/link/auth/github/start`, { redirect: "manual" }); assert.equal(start.status, 302);
+    const state = new URL(start.headers.get("location")!).searchParams.get("state")!;
+    assert.equal(await tokens.verifyLinkConnectState(state, "github"), null);
+    globalThis.fetch = async (input, init) => String(input) === "https://github.com/login/oauth/access_token" ? Response.json({ access_token: "p" }) : String(input) === "https://api.github.com/user" ? Response.json({ id: 1, login: "u" }) : realFetch(input, init);
+    const toLink = await realFetch(`${base}/auth/github/callback?state=${encodeURIComponent(state)}&code=c`, { redirect: "manual" });
+    globalThis.fetch = realFetch;
+    assert.equal(toLink.status, 303); assert.ok(toLink.headers.get("location")!.startsWith("https://login.link.com/auth?"));
+    const linkState = new URL(toLink.headers.get("location")!).searchParams.get("state")!;
+    const done = await realFetch(`${base}/auth/link/callback?code=c&state=${encodeURIComponent(linkState)}`, { headers: { cookie: cookieFrom(toLink) } });
+    assert.equal(done.status, 200); assert.ok(connections.get(USER), "the wallet is connected to the signed-in user");
+    const bad = await realFetch(`${base}/link/auth/github/start?attempt=not-a-uuid`, { redirect: "manual" }); assert.equal(bad.status, 400, "a malformed attempt is not treated as the standing page");
+  } finally { globalThis.fetch = realFetch; await close(); }
+});
