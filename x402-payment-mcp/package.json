@@ -21,6 +21,7 @@
     "@modelcontextprotocol/express": "2.0.0",
     "@modelcontextprotocol/node": "^2.0.0",
     "@modelcontextprotocol/server": "2.0.0",
+    "@stripe/link-sdk": "0.13.0",
     "@x402/core": "2.25.0",
     "@x402/evm": "2.25.0",
     "@x402/extensions": "^2.25.0",

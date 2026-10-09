@@ -30,12 +30,22 @@ const Env = z.object({
   ARC_MAX_TRANSFER_USDC_ATOMIC: z.string().regex(/^\d+$/).default("50000000"),
   ARC_MAX_DAILY_TRANSFER_USDC_ATOMIC: z.string().regex(/^\d+$/).default("200000000"),
   PAYMENT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(45000),
+  // Optional Link Agent Wallet. All four are set together or not at all; the
+  // registered redirect URI is always ${PUBLIC_BASE_URL}/auth/link/callback.
+  LINK_CLIENT_ID: z.string().min(1).optional(),
+  LINK_CLIENT_SECRET: z.string().min(1).optional(),
+  STRIPE_PUBLISHABLE_KEY: z.string().regex(/^pk_(live|test)_[A-Za-z0-9]+$/,"STRIPE_PUBLISHABLE_KEY must be a Stripe publishable key (pk_live_… or pk_test_…), never a secret key").optional(),
+  // 32 random bytes, base64. Encrypts stored Link tokens; rotating it disconnects every Link wallet.
+  LINK_TOKEN_ENCRYPTION_KEY: z.string().min(1).optional(),
 }).superRefine((value,ctx)=>{
   const google=Boolean(value.GOOGLE_CLIENT_ID&&value.GOOGLE_CLIENT_SECRET);
   const github=Boolean(value.GITHUB_CLIENT_ID&&value.GITHUB_CLIENT_SECRET);
   if(Boolean(value.GOOGLE_CLIENT_ID)!==Boolean(value.GOOGLE_CLIENT_SECRET))ctx.addIssue({code:"custom",message:"Google OAuth requires both client ID and secret"});
   if(Boolean(value.GITHUB_CLIENT_ID)!==Boolean(value.GITHUB_CLIENT_SECRET))ctx.addIssue({code:"custom",message:"GitHub OAuth requires both client ID and secret"});
   if(!google&&!github)ctx.addIssue({code:"custom",message:"At least one OAuth provider must be configured"});
+  const link=[value.LINK_CLIENT_ID,value.LINK_CLIENT_SECRET,value.STRIPE_PUBLISHABLE_KEY,value.LINK_TOKEN_ENCRYPTION_KEY].filter(Boolean).length;
+  if(link!==0&&link!==4)ctx.addIssue({code:"custom",message:"Link requires LINK_CLIENT_ID, LINK_CLIENT_SECRET, STRIPE_PUBLISHABLE_KEY and LINK_TOKEN_ENCRYPTION_KEY together"});
+  if(value.LINK_TOKEN_ENCRYPTION_KEY&&Buffer.from(value.LINK_TOKEN_ENCRYPTION_KEY,"base64").length!==32)ctx.addIssue({code:"custom",message:"LINK_TOKEN_ENCRYPTION_KEY must be 32 random bytes encoded as base64"});
 });
 
 export type Config = ReturnType<typeof loadConfig>;
@@ -51,7 +61,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     throw new Error("OAUTH_SIGNING_PRIVATE_JWK must be a private P-256 JWK");
   }
   const resource = `${value.PUBLIC_BASE_URL}/mcp`;
-  return { ...value, privateJwk, issuer: value.PUBLIC_BASE_URL, resource };
+  return { ...value, privateJwk, issuer: value.PUBLIC_BASE_URL, resource, link: linkConfig(value) };
+}
+
+export type LinkConfig = { clientId: string; clientSecret: string; publishableKey: string; encryptionKey: Buffer };
+function linkConfig(value: z.infer<typeof Env>): LinkConfig | null {
+  if (!value.LINK_CLIENT_ID || !value.LINK_CLIENT_SECRET || !value.STRIPE_PUBLISHABLE_KEY || !value.LINK_TOKEN_ENCRYPTION_KEY) return null;
+  return { clientId: value.LINK_CLIENT_ID, clientSecret: value.LINK_CLIENT_SECRET, publishableKey: value.STRIPE_PUBLISHABLE_KEY, encryptionKey: Buffer.from(value.LINK_TOKEN_ENCRYPTION_KEY, "base64") };
 }
 
 export const BASE_NETWORK = "eip155:8453" as const;

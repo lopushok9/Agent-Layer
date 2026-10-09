@@ -13,6 +13,10 @@ const TOKEN_MANAGER_STATE_TYP = "token-manager-state+jwt";
 export function isTokenManagerState(value: string): boolean {
   try { return decodeProtectedHeader(value).typ === TOKEN_MANAGER_STATE_TYP; } catch { return false; }
 }
+const LINK_CONNECT_STATE_TYP = "link-connect-state+jwt";
+export function isLinkConnectState(value: string): boolean {
+  try { return decodeProtectedHeader(value).typ === LINK_CONNECT_STATE_TYP; } catch { return false; }
+}
 export const sha256 = (value: string) => createHash("sha256").update(value).digest("base64url");
 export const pkceChallenge = sha256;
 
@@ -103,6 +107,27 @@ export class TokenService {
     });
     if (payload.provider !== provider || typeof payload.login_state !== "string") throw new Error("invalid token manager state");
     return payload.login_state;
+  }
+
+  // Connecting a Link wallet re-confirms the user's identity through the same
+  // Google/GitHub callbacks, so this state is another distinct JWT type.
+  async linkConnectState(attemptId: string, provider: "google" | "github"): Promise<string> {
+    return new SignJWT({ attempt: attemptId, provider })
+      .setProtectedHeader({ alg: "ES256", kid: this.kid, typ: LINK_CONNECT_STATE_TYP })
+      .setIssuer(this.config.issuer).setAudience("link-connect-callback")
+      .setIssuedAt().setExpirationTime("10m").setJti(randomToken(16))
+      .sign(this.privateKey);
+  }
+
+  async verifyLinkConnectState(token: string, provider: "google" | "github"): Promise<string> {
+    const { payload } = await jwtVerify(token, this.publicKey, {
+      issuer: this.config.issuer,
+      audience: "link-connect-callback",
+      algorithms: ["ES256"],
+      typ: LINK_CONNECT_STATE_TYP,
+    });
+    if (payload.provider !== provider || typeof payload.attempt !== "string") throw new Error("invalid Link connect state");
+    return payload.attempt;
   }
 
   async serviceRef(resource: string): Promise<string> {

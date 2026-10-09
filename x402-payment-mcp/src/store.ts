@@ -43,7 +43,7 @@ export class Store {
     await this.cleanupOAuthArtifacts();this.oauthCleanupTimer=setInterval(()=>{void this.cleanupOAuthArtifacts().catch(error=>console.error("OAuth cleanup failed",error));},15*60*1000);this.oauthCleanupTimer.unref();
   }
   async cleanupOAuthArtifacts(){
-    await this.pool.query(`UPDATE payment_previews SET request_headers=NULL WHERE request_headers IS NOT NULL AND expires_at<=now(); DELETE FROM oauth_login_states WHERE expires_at<=now(); DELETE FROM oauth_pending_consents WHERE expires_at<=now(); DELETE FROM oauth_codes WHERE expires_at<=now(); DELETE FROM refresh_tokens WHERE expires_at<=now() OR (revoked_at IS NOT NULL AND revoked_at<=now()-interval '1 day'); DELETE FROM oauth_rate_limits WHERE window_start<=now()-interval '1 day'; DELETE FROM token_login_states WHERE expires_at<=now(); DELETE FROM token_manager_sessions WHERE expires_at<=now(); DELETE FROM personal_access_tokens WHERE expires_at<=now()-interval '30 days' OR revoked_at<=now()-interval '30 days'; DELETE FROM oauth_clients c WHERE COALESCE(c.last_used_at,c.created_at)<=now()-interval '90 days' AND NOT EXISTS(SELECT 1 FROM oauth_login_states s WHERE s.client_id=c.client_id) AND NOT EXISTS(SELECT 1 FROM oauth_pending_consents p WHERE p.client_id=c.client_id) AND NOT EXISTS(SELECT 1 FROM oauth_codes o WHERE o.client_id=c.client_id) AND NOT EXISTS(SELECT 1 FROM refresh_tokens r WHERE r.client_id=c.client_id);`);
+    await this.pool.query(`UPDATE payment_previews SET request_headers=NULL WHERE request_headers IS NOT NULL AND expires_at<=now(); DELETE FROM oauth_login_states WHERE expires_at<=now(); DELETE FROM oauth_pending_consents WHERE expires_at<=now(); DELETE FROM oauth_codes WHERE expires_at<=now(); DELETE FROM refresh_tokens WHERE expires_at<=now() OR (revoked_at IS NOT NULL AND revoked_at<=now()-interval '1 day'); DELETE FROM oauth_rate_limits WHERE window_start<=now()-interval '1 day'; DELETE FROM token_login_states WHERE expires_at<=now(); DELETE FROM token_manager_sessions WHERE expires_at<=now(); DELETE FROM link_connect_attempts WHERE expires_at<=now(); DELETE FROM personal_access_tokens WHERE expires_at<=now()-interval '30 days' OR revoked_at<=now()-interval '30 days'; DELETE FROM oauth_clients c WHERE COALESCE(c.last_used_at,c.created_at)<=now()-interval '90 days' AND NOT EXISTS(SELECT 1 FROM oauth_login_states s WHERE s.client_id=c.client_id) AND NOT EXISTS(SELECT 1 FROM oauth_pending_consents p WHERE p.client_id=c.client_id) AND NOT EXISTS(SELECT 1 FROM oauth_codes o WHERE o.client_id=c.client_id) AND NOT EXISTS(SELECT 1 FROM refresh_tokens r WHERE r.client_id=c.client_id);`);
   }
   async createLoginState(data: Omit<LoginState, "id">): Promise<string> {
     const id = randomUUID();
@@ -140,7 +140,39 @@ export class Store {
   async reservePayment(userId:string,previewId:string,dailyLimit:bigint|null,purpose:string){const c=await this.pool.connect();try{await c.query("BEGIN");await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`,[userId]);const p=await c.query(`UPDATE payment_previews SET used_at=now() WHERE id=$1 AND user_id=$2 AND used_at IS NULL AND expires_at>now() RETURNING *`,[previewId,userId]);if(!p.rowCount){const why=await c.query(`SELECT used_at IS NOT NULL AS used,expires_at<=now() AS expired FROM payment_previews WHERE id=$1 AND user_id=$2`,[previewId,userId]);await c.query("ROLLBACK");throw new Error(previewUnavailableMessage(why.rows[0]));}const amount=BigInt(p.rows[0].amount);if(dailyLimit!==null){const spent=await c.query(`SELECT COALESCE(sum(amount::numeric),0)::text total FROM payments WHERE user_id=$1 AND created_at>now()-interval '24 hours' AND status IN ('reserved','settled','unknown')`,[userId]);if(BigInt(spent.rows[0].total)+amount>dailyLimit){await c.query("ROLLBACK");throw new Error("daily spend limit exceeded");}}const paymentId=randomUUID();await c.query(`INSERT INTO payments(id,user_id,preview_id,scheme,amount,purpose,status) VALUES($1,$2,$3,$4,$5,$6,'reserved')`,[paymentId,userId,previewId,p.rows[0].scheme,amount.toString(),purpose]);await c.query("COMMIT");const x=p.rows[0];return{paymentId,preview:{id:x.id,userId:x.user_id,method:x.method,url:x.url,headers:x.request_headers??null,body:x.request_body,textBody:x.request_text_body??null,paymentRequired:x.payment_required??null,fingerprint:x.fingerprint,scheme:x.scheme,amount:x.amount,payTo:x.pay_to,expiresAt:x.expires_at} as Preview};}catch(e){await c.query("ROLLBACK");throw e;}finally{c.release();}}
   async scrubPreview(id:string){await this.pool.query(`UPDATE payment_previews SET request_headers=NULL WHERE id=$1 AND request_headers IS NOT NULL`,[id]);}
   async finishPayment(id:string,status:"settled"|"failed"|"unknown",transaction:string|null,responseStatus:number|null,error:string|null,settledAmount:string|null=null){await this.pool.query(`UPDATE payments SET status=$2,transaction_hash=$3,response_status=$4,error=$5,settled_amount=$6,completed_at=now() WHERE id=$1`,[id,status,transaction,responseStatus,error,settledAmount]);}
+
+  // Link Agent Wallet. An attempt is created by the MCP tool, started once by
+  // the same user after re-confirming their identity, and consumed once by
+  // Link's callback, which matches it by the hash of the OAuth state.
+  async createLinkAttempt(userId:string,ttlSeconds:number):Promise<{id:string;expiresAt:Date}>{const id=randomUUID();const r=await this.pool.query(`INSERT INTO link_connect_attempts(id,user_id,expires_at) VALUES($1,$2,now()+($3*interval '1 second')) RETURNING expires_at`,[id,userId,ttlSeconds]);return{id,expiresAt:r.rows[0].expires_at as Date};}
+  async getLinkAttempt(id:string):Promise<{userId:string}|null>{const r=await this.pool.query(`SELECT user_id FROM link_connect_attempts WHERE id=$1 AND started_at IS NULL AND expires_at>now()`,[id]);return r.rowCount?{userId:r.rows[0].user_id as string}:null;}
+  async startLinkAttempt(id:string,userId:string,stateHash:string,bindingHash:string,verifierEnc:string):Promise<boolean>{const r=await this.pool.query(`UPDATE link_connect_attempts SET started_at=now(),oauth_state_hash=$3,browser_binding_hash=$4,code_verifier_enc=$5 WHERE id=$1 AND user_id=$2 AND started_at IS NULL AND expires_at>now()`,[id,userId,stateHash,bindingHash,verifierEnc]);return Boolean(r.rowCount);}
+  async consumeLinkAttempt(stateHash:string):Promise<LinkAttempt|null>{const r=await this.pool.query(`DELETE FROM link_connect_attempts WHERE oauth_state_hash=$1 AND started_at IS NOT NULL AND expires_at>now() RETURNING id,user_id,browser_binding_hash,code_verifier_enc`,[stateHash]);if(!r.rowCount)return null;const x=r.rows[0];return{id:x.id,userId:x.user_id,bindingHash:x.browser_binding_hash,verifierEnc:x.code_verifier_enc};}
+  async getLinkConnection(userId:string):Promise<LinkConnection|null>{const r=await this.pool.query(`SELECT * FROM link_connections WHERE user_id=$1`,[userId]);return r.rowCount?mapLinkConnection(r.rows[0]):null;}
+  // Refresh tokens rotate, so every read-refresh-write and every revocation of
+  // one user's grant runs under a row lock: two concurrent refreshes would
+  // otherwise spend the same refresh token and lose the connection.
+  async withLinkConnection<T>(userId:string,action:(current:LinkConnection|null,tx:LinkConnectionTx)=>Promise<T>):Promise<T>{
+    const c=await this.pool.connect();
+    try{await c.query("BEGIN");await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`,[`link:${userId}`]);
+      const r=await c.query(`SELECT * FROM link_connections WHERE user_id=$1 FOR UPDATE`,[userId]);
+      const tx:LinkConnectionTx={
+        save:async(x)=>{await c.query(`INSERT INTO link_connections(user_id,link_user_id,email,scope,access_token_enc,access_expires_at,refresh_token_enc) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(user_id) DO UPDATE SET link_user_id=excluded.link_user_id,email=excluded.email,scope=excluded.scope,access_token_enc=excluded.access_token_enc,access_expires_at=excluded.access_expires_at,refresh_token_enc=excluded.refresh_token_enc,updated_at=now()`,[userId,x.linkUserId,x.email,x.scope,x.accessTokenEnc,x.accessExpiresAt,x.refreshTokenEnc]);},
+        remove:async()=>{await c.query(`DELETE FROM link_connections WHERE user_id=$1`,[userId]);},
+      };
+      const result=await action(r.rowCount?mapLinkConnection(r.rows[0]):null,tx);
+      await c.query("COMMIT");return result;
+    }catch(e){await c.query("ROLLBACK");throw e;}finally{c.release();}
+  }
+  async recordLinkSpendRequest(x:LinkSpendRequestRecord){await this.pool.query(`INSERT INTO link_spend_requests(id,user_id,credential_type,amount,currency,merchant_name,merchant_url,merchant_account_id,context,test) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(id) DO NOTHING`,[x.id,x.userId,x.credentialType,x.amount,x.currency,x.merchantName,x.merchantUrl,x.merchantAccountId,x.context,x.test]);}
 }
+
+export type LinkAttempt = { id: string; userId: string; bindingHash: string; verifierEnc: string };
+export type LinkConnection = { userId: string; linkUserId: string | null; email: string | null; scope: string; accessTokenEnc: string; accessExpiresAt: Date; refreshTokenEnc: string; createdAt: Date };
+export type LinkConnectionInput = Omit<LinkConnection, "userId" | "createdAt">;
+export type LinkConnectionTx = { save(connection: LinkConnectionInput): Promise<void>; remove(): Promise<void> };
+export type LinkSpendRequestRecord = { id: string; userId: string; credentialType: string; amount: number; currency: string; merchantName: string | null; merchantUrl: string | null; merchantAccountId: string | null; context: string; test: boolean };
+function mapLinkConnection(x:any):LinkConnection{return{userId:x.user_id,linkUserId:x.link_user_id??null,email:x.email??null,scope:x.scope,accessTokenEnc:x.access_token_enc,accessExpiresAt:new Date(x.access_expires_at),refreshTokenEnc:x.refresh_token_enc,createdAt:new Date(x.created_at)};}
 
 // Tells the agent which recovery applies: a used preview must never be retried as-is, an expired one only needs a fresh preview.
 export function previewUnavailableMessage(row:{used?:boolean;expired?:boolean}|undefined){
@@ -151,7 +183,7 @@ export function previewUnavailableMessage(row:{used?:boolean;expired?:boolean}|u
 }
 
 // Applied in order on every start; each file must stay idempotent.
-export const MIGRATIONS = ["001_initial.sql", "002_personal_tokens.sql", "003_arc_transfers.sql", "004_request_headers.sql", "005_preview_challenge.sql"] as const;
+export const MIGRATIONS = ["001_initial.sql", "002_personal_tokens.sql", "003_arc_transfers.sql", "004_request_headers.sql", "005_preview_challenge.sql", "006_link_wallet.sql"] as const;
 export async function migrationSql(){return (await Promise.all(MIGRATIONS.map(name=>readFile(new URL(`../migrations/${name}`,import.meta.url),"utf8")))).join("\n");}
 
 function mapClient(x:any):OAuthClient{return{clientId:x.client_id,clientName:x.client_name,redirectUris:x.redirect_uris};}
