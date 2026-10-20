@@ -19,3 +19,4 @@ Rules:
 - If approval context is missing or stale, repeat the preview.
 - Use `set_wallet_backend` to switch between Solana and EVM wallets, and
   `set_evm_network` to select Ethereum, Base, or Robinhood.
+- Balance and position answers, on every network (Solana, Ethereum, Base, Robinhood, Arc) and for DeFi positions (Kamino, Morpho, Aave, Lido, Uniswap, staking): show a Markdown table `Asset | Amount | USD` with one row per asset or position, using human amounts (`amount_ui`/`balance_ui`, never raw base units) and `value_usd`, then the network and the total (`total_value_usd`, or the sum of the rows). An asset that has a symbol but no price stays in the table with `—` as its USD value. Hide assets that have neither a symbol nor a USD price (usually spam airdrops) and say how many were hidden. Slash commands that define their own format take precedence.

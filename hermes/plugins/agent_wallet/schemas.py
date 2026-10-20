@@ -27,7 +27,12 @@ AGENT_WALLET_INVOKE = {
         "Invoke one existing AgentLayer/OpenClaw wallet tool through the local "
         "Python wallet backend. Prefer read-only tools and preview modes first. "
         "Execute modes require an approval_token from agent_wallet_approve bound "
-        "to the exact previewed operation after explicit user confirmation."
+        "to the exact previewed operation after explicit user confirmation. "
+        "Present balance and position results on every network (Solana and EVM) and for "
+        "DeFi positions as a Markdown table `Asset | Amount | USD` built from human amounts "
+        "and `value_usd`, followed by the network and `total_value_usd`; keep assets that have "
+        "a symbol but no price (USD `—`), and hide assets with neither a symbol nor a USD "
+        "price, saying how many were hidden."
     ),
     "parameters": {
         "type": "object",
