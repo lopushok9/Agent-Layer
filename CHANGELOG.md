@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## v0.1.124 - 2026-10-20
+
+- **Balances and positions answered as a USD table on every network.** Plain
+  balance and position questions (Solana, Ethereum, Base, Robinhood, Arc, and
+  DeFi positions) now get a `Asset | Amount | USD` table with human amounts,
+  the network and `total_value_usd`. Assets with a symbol but no price stay
+  with a dash; assets with neither a symbol nor a price (usually spam
+  airdrops) are hidden and counted. The rule ships in the shared MCP
+  instructions, every host's `wallet-operator` skill, and the Hermes invoke
+  tool description.
+- **Cursor wallet plugin installs automatically.** The universal installer
+  detects Cursor and connects it to the shared local runtime.
+- **Telemetry covers every tool call.** The MCP bridge records each tool
+  invoke and session start with preview/execute mode and a coarse error class,
+  broken down by framework.
+
 ## v0.1.123 - 2026-10-17
 
 - **EVM transaction activity on Ethereum, Base, and Robinhood Chain.** The new
