@@ -28,6 +28,23 @@ Primary design rules:
   for discovering and paying arbitrary x402 services via CDP Bazaar or
   Agentic Market
 
+## MCP tool approvals
+
+The bridge publishes the backend's `read_only` classification as MCP
+`readOnlyHint` and `destructiveHint` annotations. Balance reads, active-wallet
+inspection, service discovery and x402 previews are advertised as reads.
+Payments and other writes remain potentially destructive; tools without an
+explicit read-only classification are treated as writes.
+
+These hints help Codex classify calls, but do not override its MCP approval
+settings. A host that requires approval while its session disallows approval
+prompts can still reject a call before it reaches this bridge. After updating
+the plugin, restart the host to reload tool metadata. Wallet payment approval
+tokens and execution checks are independent and still apply.
+
+See the [Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
+for per-server and per-tool approval settings.
+
 ## Runtime requirements
 
 - The primary route is `npx @agentlayer.tech/wallet install --yes`.

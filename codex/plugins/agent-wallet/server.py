@@ -1709,6 +1709,7 @@ def _update_notice_instructions(base: str) -> str:
 def build_server():
     from fastmcp import FastMCP
     from fastmcp.tools import FunctionTool
+    from mcp.types import ToolAnnotations
 
     mcp = FastMCP(
         "Agent Wallet",
@@ -1755,6 +1756,12 @@ def build_server():
                     "additionalProperties": True,
                 },
                 fn=_tool_handler_factory(tool_name),
+                # Publish the backend's safety classification to the host.
+                # Unknown tools remain writes; never infer safety from a name.
+                annotations=ToolAnnotations(
+                    readOnlyHint=spec.get("read_only") is True,
+                    destructiveHint=spec.get("read_only") is not True,
+                ),
             )
         )
     return mcp
