@@ -374,6 +374,121 @@ class FakeClient:
 json_module = json
 
 
+def _siwx_challenge(host: str, *, accepts: list[dict]) -> str:
+    from datetime import datetime, timezone
+
+    return base64.b64encode(
+        json_module.dumps(
+            {
+                "x402Version": 2,
+                "accepts": accepts,
+                "extensions": {
+                    "sign-in-with-x": {
+                        "info": {
+                            "domain": host,
+                            "uri": f"https://{host}/report",
+                            "version": "1",
+                            "nonce": "siwxflownonce1234567890ab",
+                            "issuedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                            "resources": [f"https://{host}/report"],
+                        },
+                        "supportedChains": [{"chainId": "eip155:8453", "type": "eip191"}],
+                    }
+                },
+            }
+        ).encode("utf-8")
+    ).decode("ascii")
+
+
+SIWX_BASE_ACCEPT = {
+    "scheme": "exact",
+    "network": "eip155:8453",
+    "asset": "0x833589fCD6EDb6E08f4c7C32D4f71b54bdA02913",
+    "amount": "250000",
+    "payTo": "0x9999999999999999999999999999999999999999",
+    "maxTimeoutSeconds": 60,
+    "extra": {"name": "USD Coin", "version": "2", "assetTransferMethod": "eip3009"},
+}
+
+
+class SiwxClient:
+    """Merchant that grants SIWx access per host: paid.siwx / auth.siwx grant, others deny."""
+
+    def __init__(self, *, grant: bool) -> None:
+        self.grant = grant
+        self.sent: list[dict] = []
+
+    async def request(self, method: str, url: str, *, headers=None, json=None, content=None, timeout=None):
+        headers = dict(headers or {})
+        self.sent.append(headers)
+        host = url.split("/")[2]
+        auth_only = host.startswith("auth.")
+        if headers.get("PAYMENT-SIGNATURE") == "paid-with-siwx":
+            return FakeResponse(200, {"ok": True, "result": "paid"}, headers={"PAYMENT-RESPONSE": "settled-siwx"})
+        if headers.get("sign-in-with-x") and self.grant:
+            return FakeResponse(200, {"ok": True, "result": "signed-in"})
+        encoded = _siwx_challenge(host, accepts=[] if auth_only else [SIWX_BASE_ACCEPT])
+        return FakeResponse(402, {"error": "payment required"}, headers={"PAYMENT-REQUIRED": encoded})
+
+
+async def _siwx_flow_checks() -> None:
+    original_get_client = x402.get_client
+    original_create_payment_headers = x402._create_payment_headers
+    payment_calls: list[dict] = []
+
+    async def fake_create_payment_headers(*, backend, payment_required_header, selected_payment, siwx_headers=None):
+        payment_calls.append(dict(siwx_headers or {}))
+        return {"PAYMENT-SIGNATURE": "paid-with-siwx", **(siwx_headers or {})}
+
+    x402._create_payment_headers = fake_create_payment_headers
+    try:
+        backend = SiwxFakeEvmBackend()
+
+        # Already-purchased resource: sign-in grants access, nothing is paid.
+        client = SiwxClient(grant=True)
+        x402.get_client = lambda: client
+        preview = await x402.preview_request(backend=backend, url="https://paid.siwx.example.com/report")
+        assert preview["payment_required"] is True
+        assert preview["siwx_available"] is True
+        assert preview["siwx"]["domain"] == "paid.siwx.example.com"
+        result = await x402.pay_and_fetch(backend=backend, url="https://paid.siwx.example.com/report")
+        assert result["paid"] is False and result["siwx_authenticated"] is True
+        assert result["response_preview"] == {"ok": True, "result": "signed-in"}
+        assert payment_calls == []
+        assert "PAYMENT-SIGNATURE" not in client.sent[-1]
+
+        # Not yet purchased: sign-in is rejected, payment follows with the same SIWx header.
+        client = SiwxClient(grant=False)
+        x402.get_client = lambda: client
+        result = await x402.pay_and_fetch(backend=backend, url="https://paid.siwx.example.com/report")
+        assert result["paid"] is True and not result.get("siwx_authenticated")
+        assert len(payment_calls) == 1 and "sign-in-with-x" in payment_calls[0]
+        assert client.sent[-1]["sign-in-with-x"] == client.sent[-2]["sign-in-with-x"]
+
+        # Auth-only route (empty accepts[]): previewable, and sign-in alone executes it.
+        client = SiwxClient(grant=True)
+        x402.get_client = lambda: client
+        preview = await x402.preview_request(backend=backend, url="https://auth.siwx.example.com/report")
+        assert preview["payment_required"] is False and preview["siwx_available"] is True
+        assert preview["execute_available"] is True
+        result = await x402.pay_and_fetch(backend=backend, url="https://auth.siwx.example.com/report")
+        assert result["paid"] is False and result["siwx_authenticated"] is True
+
+        # Auth-only route that refuses the sign-in must fail without any payment.
+        client = SiwxClient(grant=False)
+        x402.get_client = lambda: client
+        try:
+            await x402.pay_and_fetch(backend=backend, url="https://auth.siwx.example.com/report")
+        except ProviderError as exc:
+            assert "Sign-In-With-X did not grant access" in str(exc)
+        else:
+            raise AssertionError("auth-only SIWx refusal must raise")
+        assert len(payment_calls) == 1
+    finally:
+        x402.get_client = original_get_client
+        x402._create_payment_headers = original_create_payment_headers
+
+
 async def main() -> None:
     original_get_client = x402.get_client
     original_create_payment_headers = x402._create_payment_headers
@@ -435,7 +550,7 @@ async def main() -> None:
         x402._load_x402_solana_sdk = original_load_x402_solana_sdk
         x402._build_solana_sdk_signer = original_build_solana_sdk_signer
         x402.get_client = lambda: fake_client
-        async def fake_create_payment_headers(*, backend, payment_required_header, selected_payment):
+        async def fake_create_payment_headers(*, backend, payment_required_header, selected_payment, siwx_headers=None):
             assert payment_required_header
             assert selected_payment["scheme"] == "exact"
             if getattr(backend, "chain", "") == "evm":
@@ -831,6 +946,7 @@ async def main() -> None:
             payment_required=siwx_payment_required,
             signer=siwx_evm_signer,
             headers={"PAYMENT-SIGNATURE": "existing-payment-signature"},
+            request_url="https://paid-base-mainnet.example.com/report?topic=base",
         )
         assert siwx_headers["PAYMENT-SIGNATURE"] == "existing-payment-signature"
         assert "sign-in-with-x" in siwx_headers
@@ -850,6 +966,7 @@ async def main() -> None:
             payment_required=plain_payment_required,
             signer=siwx_evm_signer,
             headers={"PAYMENT-SIGNATURE": "unchanged"},
+            request_url="https://paid-base-mainnet.example.com/report",
         )
         assert plain_headers == {"PAYMENT-SIGNATURE": "unchanged"}
 
@@ -893,11 +1010,25 @@ async def main() -> None:
             payment_required=solana_siwx_payment_required,
             signer=solana_siwx_signer,
             headers={"PAYMENT-SIGNATURE": "solana-payment-signature"},
+            request_url="https://paid.example.com/report",
         )
         assert solana_siwx_headers["PAYMENT-SIGNATURE"] == "solana-payment-signature"
         decoded_solana_siwx = parse_siwx_header(solana_siwx_headers["sign-in-with-x"])
         assert decoded_solana_siwx.address == solana_siwx_backend.signer.address
         assert decoded_solana_siwx.chain_id == "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
+
+        # A challenge bound to another origin must never be signed for this one.
+        SiwxFakeEvmBackend.last_message = None
+        foreign_headers = await x402._maybe_attach_siwx_header(
+            payment_required=siwx_payment_required,
+            signer=siwx_evm_signer,
+            headers={},
+            request_url="https://evil.example.com/report",
+        )
+        assert foreign_headers == {}
+        assert SiwxFakeEvmBackend.last_message is None
+
+        await _siwx_flow_checks()
     finally:
         x402.get_client = original_get_client
         x402._create_payment_headers = original_create_payment_headers

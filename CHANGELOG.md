@@ -29,6 +29,17 @@
 
 ## Unreleased
 
+- **x402 Sign-In-With-X now actually signs, and signs in before paying.** The
+  SIWx header was silently dropped on current x402 SDKs (the challenge's origin
+  binding needs the request URL, which was never passed). `x402_pay_request`
+  now follows the upstream client order: sign in with the wallet first and pay
+  only if the merchant still answers 402, so resources this wallet already
+  bought cost nothing again; a rejected sign-in reuses the same signed header
+  alongside the payment. Auth-only endpoints (empty `accepts[]` plus a SIWx
+  challenge) are now previewable and executable. Previews expose `siwx` /
+  `siwx_available`; results carry `siwx_authenticated` with `paid: false`.
+  `requirements.txt` now includes the `extensions` extra like `pyproject.toml`.
+
 ## v0.1.124 - 2026-10-20
 
 - **Balances and positions answered as a USD table on every network.** Plain

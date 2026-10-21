@@ -2139,7 +2139,20 @@ class OpenClawWalletAdapter:
         *,
         mode: str,
     ) -> dict[str, Any]:
+        if mode == "execute" and payload.get("siwx_authenticated"):
+            annotated = dict(payload)
+            annotated["siwx_note"] = (
+                "Access was granted by Sign-In-With-X (wallet signature only). No payment was made."
+            )
+            return annotated
         if not payload.get("payment_required"):
+            if payload.get("siwx_available") and mode == "preview":
+                annotated = dict(payload)
+                annotated["siwx_note"] = (
+                    "This endpoint offers Sign-In-With-X only (no payment). x402_pay_request signs a "
+                    "login message with the active wallet; no funds move."
+                )
+                return annotated
             return dict(payload)
         annotated = self._annotate_sensitive_payload(
             payload,
@@ -2170,6 +2183,11 @@ class OpenClawWalletAdapter:
             if annotated.get("is_mainnet") and not de_minimis:
                 annotated["preview_note"] = (
                     "This is a paid mainnet endpoint preview only. Review the service URL, network, asset, amount, and payment destination before calling x402_pay_request."
+                )
+            if annotated.get("siwx_available"):
+                annotated["siwx_note"] = (
+                    "This endpoint supports Sign-In-With-X. x402_pay_request signs in with the wallet first "
+                    "and pays only if access is not granted (e.g. not previously purchased by this wallet)."
                 )
             return annotated
         annotated["confirmation_requirements"] = requirements

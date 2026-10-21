@@ -207,13 +207,58 @@ def _decode_payment_required(header_value: str) -> dict[str, Any]:
         x402_version = payload.get("x402Version")
     else:
         raise ProviderError("x402-http", "PAYMENT-REQUIRED payload must decode to JSON.")
-    if not isinstance(accepts, list) or not accepts:
+    extensions = payload.get("extensions") if isinstance(payload, dict) else None
+    extensions = extensions if isinstance(extensions, dict) else {}
+    # Auth-only routes advertise an empty accepts[] plus a Sign-In-With-X challenge.
+    if not isinstance(accepts, list) or (not accepts and _siwx_declaration(extensions) is None):
         raise ProviderError("x402-http", "PAYMENT-REQUIRED payload does not contain accepts[].")
     return {
         "x402_version": x402_version,
         "accepts": accepts,
+        "extensions": extensions,
         "raw": payload,
         "encoded": raw,
+    }
+
+
+SIWX_EXTENSION_KEY = "sign-in-with-x"
+
+
+def _siwx_declaration(extensions: Any) -> dict[str, Any] | None:
+    """Return the merchant's Sign-In-With-X challenge, if it declares one."""
+    if not isinstance(extensions, dict):
+        return None
+    declaration = extensions.get(SIWX_EXTENSION_KEY)
+    if not isinstance(declaration, dict) or not isinstance(declaration.get("info"), dict):
+        return None
+    chains = declaration.get("supportedChains")
+    if not isinstance(chains, list) or not chains:
+        return None
+    return declaration
+
+
+def _siwx_signature_type(backend: AgentWalletBackend) -> str | None:
+    chain = _backend_chain(backend)
+    if chain == "evm":
+        return "eip191"
+    if chain == "solana":
+        return "ed25519"
+    return None
+
+
+def _siwx_summary(extensions: Any, backend: AgentWalletBackend) -> dict[str, Any] | None:
+    declaration = _siwx_declaration(extensions)
+    if declaration is None:
+        return None
+    chains = [chain for chain in declaration["supportedChains"] if isinstance(chain, dict)]
+    signature_type = _siwx_signature_type(backend)
+    info = declaration["info"]
+    return {
+        "declared": True,
+        "domain": info.get("domain") if isinstance(info.get("domain"), str) else None,
+        "chain_ids": [chain.get("chainId") for chain in chains if isinstance(chain.get("chainId"), str)],
+        "signature_types": sorted({chain.get("type") for chain in chains if isinstance(chain.get("type"), str)}),
+        "wallet_compatible": any(chain.get("type") == signature_type for chain in chains),
     }
 
 
@@ -723,12 +768,17 @@ def _parse_payment_required_response(
         selected_payment=selected,
         accepted_payments=compatibility,
     )
+    siwx = _siwx_summary(decoded.get("extensions"), backend)
+    siwx_available = bool(siwx and siwx["wallet_compatible"])
     preview.update(
         {
-            "execute_available": bool(
+            "execute_available": siwx_available or bool(
                 isinstance(selected, dict)
                 and _requirement_compatibility(selected, backend)["currently_executable"]
             ),
+            # Execute signs in first; it pays only if the sign-in does not grant access.
+            "siwx": siwx,
+            "siwx_available": siwx_available,
             "x402_version": decoded["x402_version"],
             "response_headers": {
                 "payment-required": decoded["encoded"],
@@ -998,14 +1048,15 @@ async def _maybe_attach_siwx_header(
     payment_required: Any,
     signer: Any,
     headers: dict[str, str],
+    request_url: str,
 ) -> dict[str, str]:
     """Attach a Sign-In-With-X header when the merchant declares that extension.
 
-    Some x402 gateways require proving wallet ownership via SIWx alongside the
-    payment signature; without it those requests are rejected even with a
-    valid payment. Best-effort: any failure to build the SIWx credential falls
-    back to paying without it, matching the upstream SDK's own
-    on_payment_required hook contract (which swallows exceptions the same way).
+    *request_url* is the URL the header will be sent to: the SDK refuses to
+    sign a challenge whose domain/uri is bound to a different origin.
+    Best-effort: any failure to build the SIWx credential leaves *headers*
+    unchanged, matching the upstream SDK's on_payment_required hook contract
+    (which swallows exceptions the same way).
     """
     extensions = getattr(payment_required, "extensions", None) or {}
     if not extensions:
@@ -1013,13 +1064,14 @@ async def _maybe_attach_siwx_header(
     try:
         sdk = _load_x402_siwx_sdk()
     except ProviderError:
+        log.warning("x402 SIWx challenge ignored: the SDK sign-in-with-x extension is unavailable")
         return headers
     if sdk["SIGN_IN_WITH_X"] not in extensions:
         return headers
     extension = sdk["create_siwx_client_extension"](
         sdk["CreateSIWxClientExtensionOptions"](signers=[signer])
     )
-    context = SimpleNamespace(payment_required=payment_required)
+    context = SimpleNamespace(payment_required=payment_required, request_url=request_url)
     try:
         result = await extension.transport_hooks.http.on_payment_required(None, context)
     except Exception as exc:
@@ -1030,8 +1082,51 @@ async def _maybe_attach_siwx_header(
         return headers
     siwx_headers = getattr(result, "headers", None) if result is not None else None
     if not siwx_headers:
+        log.warning(
+            "x402 SIWx challenge could not be signed by the active wallet; continuing without it",
+            extra={"request_url": request_url},
+        )
         return headers
     return {**headers, **siwx_headers}
+
+
+async def _build_x402_wallet_signer(backend: AgentWalletBackend) -> Any:
+    chain = _backend_chain(backend)
+    if chain == "solana":
+        return _build_solana_sdk_signer(backend)
+    if chain == "evm":
+        address = await backend.get_address()
+        if not isinstance(address, str) or not address.strip():
+            raise ProviderError("x402-evm", "The active EVM backend did not resolve a payer address.")
+        return _build_evm_sdk_signer(backend, address.strip())
+    raise ProviderError("x402-http", "Only Solana and EVM wallets can sign in with x402.", details={"chain": chain})
+
+
+async def _build_siwx_headers(
+    *,
+    backend: AgentWalletBackend,
+    payment_required_header: str,
+    request_url: str,
+) -> dict[str, str]:
+    """Sign the merchant's SIWx challenge once; reused for the sign-in and paid retries.
+
+    The server records a nonce only when it grants access, so an unaccepted
+    sign-in leaves the same header valid to accompany the payment.
+    """
+    extensions = _decode_payment_required(payment_required_header).get("extensions")
+    if _siwx_declaration(extensions) is None:
+        return {}
+    try:
+        signer = await _build_x402_wallet_signer(backend)
+    except ProviderError as exc:
+        log.warning("x402 SIWx signer unavailable; continuing without sign-in", extra={"error": str(exc)})
+        return {}
+    return await _maybe_attach_siwx_header(
+        payment_required=SimpleNamespace(extensions=extensions),
+        signer=signer,
+        headers={},
+        request_url=request_url,
+    )
 
 
 def _build_solana_sdk_signer(backend: AgentWalletBackend) -> Any:
@@ -1138,6 +1233,7 @@ async def _create_payment_headers(
     backend: AgentWalletBackend,
     payment_required_header: str,
     selected_payment: dict[str, Any],
+    siwx_headers: dict[str, str] | None = None,
 ) -> dict[str, str]:
     chain = _backend_chain(backend)
     if chain == "solana":
@@ -1176,9 +1272,7 @@ async def _create_payment_headers(
                 },
             ) from exc
         headers = sdk["x402HTTPClientBase"]().encode_payment_signature_header(payment_payload)
-        return await _maybe_attach_siwx_header(
-            payment_required=payment_required, signer=solana_signer, headers=headers
-        )
+        return {**headers, **(siwx_headers or {})}
 
     if chain == "evm":
         sdk = _load_x402_evm_sdk()
@@ -1200,9 +1294,7 @@ async def _create_payment_headers(
         client.register(network, sdk["UptoEvmScheme"](evm_signer))
         payment_payload = await client.create_payment_payload(selected_payload)
         headers = sdk["x402HTTPClientBase"]().encode_payment_signature_header(payment_payload)
-        return await _maybe_attach_siwx_header(
-            payment_required=payment_required, signer=evm_signer, headers=headers
-        )
+        return {**headers, **(siwx_headers or {})}
 
     raise ProviderError(
         "x402-http",
@@ -1734,13 +1826,60 @@ async def pay_and_fetch(
             json_body=json_body,
             text_body=text_body,
         )
-    if not preview.get("payment_required"):
+    if not preview.get("payment_required") and not preview.get("siwx_available"):
         executed = dict(preview)
         executed["mode"] = "execute"
         executed["paid"] = False
         executed["broadcasted"] = False
         executed["confirmed"] = False
         return executed
+
+    payment_required_header = (
+        dict(preview.get("response_headers") or {}).get("payment-required")
+    )
+    if not isinstance(payment_required_header, str) or not payment_required_header.strip():
+        raise ProviderError("x402-http", "Missing PAYMENT-REQUIRED header in preview state.")
+
+    client = get_client()
+    siwx_headers: dict[str, str] = {}
+    if preview.get("siwx_available"):
+        # Same order as the upstream SDK client: prove wallet ownership first, so
+        # auth-only routes and resources this wallet already paid for cost nothing.
+        siwx_headers = await _build_siwx_headers(
+            backend=backend,
+            payment_required_header=payment_required_header,
+            request_url=request["url"],
+        )
+    if siwx_headers:
+        response = await _send_request(
+            client=client,
+            request=request,
+            extra_headers=siwx_headers,
+            timeout=X402_EXECUTE_TIMEOUT_SECONDS,
+        )
+        if response.status_code != 402:
+            _log_x402_execute(request=request, selected_payment=None, response=response, settlement=None)
+            executed = dict(preview)
+            executed.update(
+                {
+                    "mode": "execute",
+                    "paid": False,
+                    "broadcasted": False,
+                    "confirmed": False,
+                    "siwx_authenticated": True,
+                    "reused_approved_preview": reused_approved_preview,
+                    "status_code": response.status_code,
+                    "response_preview": _response_preview(response),
+                    "response_headers": {"content-type": response.headers.get("content-type")},
+                }
+            )
+            return executed
+    if not preview.get("payment_required"):
+        raise ProviderError(
+            "x402-http",
+            "Sign-In-With-X did not grant access and this endpoint offers no compatible payment option.",
+            details={"request_url": request["url"], "siwx_attempted": bool(siwx_headers)},
+        )
 
     selected_payment = _validate_payment_requirement(
         preview.get("selected_payment")
@@ -1749,19 +1888,14 @@ async def pay_and_fetch(
         backend=backend,
         request_url=str(preview.get("request_url") or url),
     )
-    payment_required_header = (
-        dict(preview.get("response_headers") or {}).get("payment-required")
-    )
-    if not isinstance(payment_required_header, str) or not payment_required_header.strip():
-        raise ProviderError("x402-http", "Missing PAYMENT-REQUIRED header in preview state.")
 
     _validate_request_execution_policy(request=request, backend=backend)
     payment_headers = await _create_payment_headers(
         backend=backend,
         payment_required_header=payment_required_header,
         selected_payment=selected_payment,
+        siwx_headers=siwx_headers,
     )
-    client = get_client()
     response = await _send_request(
         client=client,
         request=request,
