@@ -54,6 +54,7 @@ Usage:
   openclaw-agent-wallet rollback [--to <version>]
   openclaw-agent-wallet doctor
   openclaw-agent-wallet connectors <command>
+  openclaw-agent-wallet vault <status|list|show|reveal|refresh|remove|migrate|kernel-connect|kernel-status|kernel-disconnect> [reference] [--user-id <id>]
   openclaw-agent-wallet --version
 
 Common install options:
@@ -3132,6 +3133,23 @@ function runConnectorsCommand(args, env = process.env) {
   return result.status ?? 1;
 }
 
+function runVaultCommand(args, env = process.env) {
+  const activeRoot = resolvedCurrentRuntimeRoot(env);
+  const runtimeRoot = activeRoot && fs.existsSync(path.join(activeRoot, "agent-wallet", "agent_wallet"))
+    ? activeRoot : packageRoot;
+  const walletRoot = path.join(runtimeRoot, "agent-wallet");
+  const pythonBin = resolveVenvPython(runtimeRoot) || resolveAgentWalletPython(walletRoot);
+  const pythonPath = String(env.PYTHONPATH || "").trim();
+  const result = spawnSync(pythonBin, ["-m", "agent_wallet.card_vault_cli", ...args], {
+    cwd: walletRoot,
+    env: { ...env, PYTHONPATH: pythonPath ? `${walletRoot}${path.delimiter}${pythonPath}` : walletRoot },
+    // Preserve the owner's terminal; never buffer secrets in the installer or telemetry.
+    stdio: "inherit",
+  });
+  if (result.error) console.error("Could not start card vault CLI. Check the installed Python runtime.");
+  return result.status ?? 1;
+}
+
 const args = process.argv.slice(2);
 const command = args[0] || "install";
 
@@ -3164,6 +3182,10 @@ if (command === "--self-verify") {
 
 if (command === "status") {
   process.exit(runStatus(args.slice(1)));
+}
+
+if (command === "vault") {
+  process.exit(runVaultCommand(args.slice(1)));
 }
 
 if (command === "connectors") {

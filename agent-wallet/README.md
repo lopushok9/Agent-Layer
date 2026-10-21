@@ -535,3 +535,65 @@ The package now supports:
 - Jupiter-based swap preview and execution on mainnet
 - compact swap `fee_summary` in preview/prepare/execute, including known network fees and route fee bps when Jupiter provides them
 - zero-balance token account cleanup
+
+## Private prepaid card vault
+
+The installer and updater automatically create a local card vault on macOS;
+card issuance also provisions a missing vault for the actual runtime user.
+No separate initialization or new password is required. The private decryption
+key is protected by the macOS login Keychain, with system password authentication
+on access. Wallet boot-key storage is independent and cannot open this vault.
+
+Laso `/cards` responses are encrypted inside Python before host output. Use
+`wallet vault list`, `wallet vault refresh <reference>` and
+`wallet vault reveal <reference>` in your own terminal. macOS collects the
+Keychain password in its own dialog. The CLI resolves the configured wallet
+user ID automatically; `--user-id` can select a different runtime identity.
+A legacy password vault can be moved with `wallet vault migrate` without
+changing its card encryption keys. Other OS platforms currently have no
+system-authenticated card vault implementation and use no plaintext fallback.
+
+See [CARD_VAULT.md](CARD_VAULT.md) for architecture, commands, backup limitations,
+research references and the future browser autofill boundary.
+
+The agent can use `list_saved_cards`, `get_saved_card_status` and
+`refresh_saved_card` without owner Keychain authentication. The catalog exposes
+only references and masked metadata; balances/status are timestamped snapshots.
+Pending issuance credentials are stored separately under a user-scoped runtime
+encryption key until the card is ready, terminal, or the seven-day retrieval
+window expires. Free refresh receives and encrypts details for the owner without
+returning them to the model. This gives the backend an issuer-retrieval capability
+while pending; it is not cryptographic isolation from a compromised runtime.
+Refresh happens on tool calls, honors persisted retry timing and never purchases
+another card. System authentication remains necessary for owner reveal.
+
+### Private card use
+
+`use_saved_card` previews an exact HTTPS request with card-field placeholders
+and can combine Laso issuance and use under one normal host confirmation.
+Execute with its `operation_id`. `continue_vault_operation` resumes an already
+authorized delayed task without a second approval or owner unlock;
+`get_vault_operation` reads its cached state. The fixed executor substitutes
+fields internally and returns HTTP status only. It never exposes PAN/CVV or
+raw provider output and never automatically repeats an uncertain payment.
+
+Runtime-encrypted `.use` card capsules enable this path without a Keychain
+prompt per use. They are decryptable by the wallet runtime, including after
+issuance; this is a different boundary from the owner-authenticated reveal CLI.
+Authorization lasts 48 hours and binds the exact request/card/wallet. This
+supports private HTTPS use and managed Kernel checkout; local Chrome autofill remains separate.
+
+### Kernel browser connection
+
+Run `wallet vault kernel-connect` in your own terminal and paste the dashboard
+API key at the hidden prompt. The key is saved in the encrypted runtime bundle,
+never in plugin config or chat. `wallet vault kernel-status` reports configuration;
+`wallet vault kernel-disconnect` removes the saved key.
+
+`kernel_browser` prepares a billable cloud checkout with public form data.
+`use_saved_card(checkout=...)` binds the browser, exact page, USD total, field
+selectors and submit action to the existing host confirmation. It can issue a
+card in that same task. The backend fills privately, locks observations and
+closes the session after one attempt. Kernel and the merchant process the real
+card data; the model receives only safe status. No local browser installation
+is needed. See [the vault guide](CARD_VAULT.md) for limits and cleanup behavior.

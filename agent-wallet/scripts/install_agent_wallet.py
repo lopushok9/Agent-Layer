@@ -840,6 +840,46 @@ def _runtime_env_for_onboard(package_root: Path) -> dict[str, str]:
     return env
 
 
+def _bootstrap_card_vault(python_bin: Path, package_root: Path, args: argparse.Namespace) -> dict[str, object]:
+    """Provision card recipients during every install/update, without reading keys."""
+    if args.dry_run:
+        return {"status": "skipped_dry_run"}
+    if platform.system() != "Darwin":
+        return {"status": "unsupported_platform", "reason": "Interactive card-vault system authentication currently requires macOS."}
+    user_ids = sorted({
+        value for value in (
+            args.user_id, os.getenv("USER"), os.getenv("AGENT_WALLET_USER_ID"),
+            os.getenv("OPENCLAW_AGENT_WALLET_USER_ID"),
+        ) if value
+    })
+    try:
+        config_path = Path(getattr(args, "config_path", _resolve_openclaw_home() / "openclaw.json")).expanduser()
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        configured_user = config["plugins"]["entries"]["agent-wallet"]["config"].get("userId")
+        if isinstance(configured_user, str) and configured_user.strip() and configured_user.strip() not in user_ids:
+            user_ids.append(configured_user.strip())
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        pass
+    results = []
+    for user_id in user_ids:
+        try:
+            env = dict(os.environ)
+            env["PYTHONPATH"] = str(package_root)
+            result = subprocess.run(
+                [str(python_bin), "-m", "agent_wallet.card_vault_cli", "provision", "--user-id", user_id],
+                cwd=str(package_root), env=env, capture_output=True, text=True,
+                timeout=30, check=True,
+            )
+            payload = json.loads(result.stdout)
+            if not isinstance(payload, dict) or payload.get("ok") is not True or payload.get("status") not in {"ready", "migration_required"}:
+                raise ValueError("invalid provisioning result")
+            results.append({"user_id": user_id, **payload})
+        except (OSError, ValueError, subprocess.SubprocessError):
+            # No provider responses, native errors or secret-bearing subprocess output.
+            results.append({"user_id": user_id, "ok": False, "status": "unavailable"})
+    return {"status": "ready" if results and all(item.get("status") == "ready" for item in results) else "attention_required", "users": results}
+
+
 def _bootstrap_solana_wallet(
     python_bin: Path,
     package_root: Path,
@@ -1247,6 +1287,15 @@ def main() -> None:
                 file=sys.stderr,
             )
 
+    card_vault_result = _bootstrap_card_vault(python_bin, package_root, args)
+    if card_vault_result["status"] == "attention_required":
+        print(
+            "warning: card vault provisioning needs attention; existing cards are preserved. "
+            "Unlock the macOS login Keychain and retry, or run wallet vault migrate for a legacy vault. "
+            "Card issuance will check vault readiness before payment.",
+            file=sys.stderr,
+        )
+
     if args.invite.strip():
         if args.dry_run:
             invite_binding_result = {
@@ -1289,6 +1338,7 @@ def main() -> None:
                 "solana_wallet": solana_onboard_result,
                 "evm_wallet": evm_onboard_result,
                 "invite_binding": invite_binding_result,
+                "card_vault": card_vault_result,
                 "next_configure_command": _build_next_steps(
                     python_bin,
                     install_config_script,

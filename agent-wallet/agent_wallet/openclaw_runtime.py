@@ -164,8 +164,8 @@ def onboard_openclaw_user_wallet(
             "wallet_id": wallet_id,
             "label": str(wallet_meta.get("label") or (binding or {}).get("label") or "EVM Wallet"),
         }
-        adapter = OpenClawWalletAdapter(backend)
-        plugin_bundle = build_openclaw_plugin_bundle(backend)
+        adapter = OpenClawWalletAdapter(backend, user_id=user_id)
+        plugin_bundle = build_openclaw_plugin_bundle(backend, user_id=user_id)
         return OpenClawWalletRuntimeContext(
             user_id=user_id,
             wallet_info=wallet_info,
@@ -182,8 +182,8 @@ def onboard_openclaw_user_wallet(
         network=network,
         rpc_url=rpc_url,
     )
-    adapter = OpenClawWalletAdapter(backend)
-    plugin_bundle = build_openclaw_plugin_bundle(backend)
+    adapter = OpenClawWalletAdapter(backend, user_id=user_id)
+    plugin_bundle = build_openclaw_plugin_bundle(backend, user_id=user_id)
     return OpenClawWalletRuntimeContext(
         user_id=user_id,
         wallet_info=wallet_info,

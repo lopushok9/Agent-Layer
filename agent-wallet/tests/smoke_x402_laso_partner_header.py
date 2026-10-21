@@ -41,7 +41,9 @@ class RecordingClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, str]]] = []
 
-    async def request(self, method, url, *, headers=None, json=None, content=None, timeout=None):
+    async def request(self, method, url, *, headers=None, json=None, content=None, timeout=None, follow_redirects=None):
+        if url.startswith("https://laso.finance/"):
+            assert follow_redirects is False
         self.calls.append((url, dict(headers or {})))
         if "PAYMENT-SIGNATURE" in (headers or {}):
             return Response(200, {"content-type": "application/json"}, {"card_id": "c1"})

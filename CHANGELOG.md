@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased — Private card vault
+
+- Capture Laso prepaid order responses in a per-user encrypted local vault before
+  returning agent tool output; keep payment approval behavior unchanged.
+- Provision the card vault during install/update on macOS; protect its private
+  key with login Keychain system authentication, with no separate vault password.
+- Add `wallet vault` masked inspection, private refresh/reveal, explicit file
+  export, legacy password migration and local removal.
+- Add an agent-safe card catalog and free, rate-limited delayed retrieval through
+  `list_saved_cards`, `get_saved_card_status` and `refresh_saved_card`.
+- Separate pending issuer credentials from owner-only card ciphertext; retire
+  working credentials after ready/terminal status, preserve rotated tokens and
+  document the temporary backend retrieval capability.
+- Add backend-only encrypted card-use capsules and fixed HTTPS execution with
+  opaque field placeholders, no PAN/CVV or remote bodies in agent output.
+- Add `use_saved_card`, `continue_vault_operation` and `get_vault_operation`:
+  one host confirmation can cover issuance and private use, with durable
+  continuations and no additional owner unlock. Persist attempts before sending
+  and never automatically repeat uncertain payments.
+- Add managed Kernel browsers and private checkout plans under the same host
+  approval: exact page/fields/USD total, locked observations during private use,
+  one submit attempt and cleanup. No local Chromium or Kernel SDK required.
+- Add terminal-only `wallet vault kernel-connect/status/disconnect`; keep the API
+  key in the sealed runtime bundle and out of host configuration and chat.
+- Document runtime/cloud trust boundaries, 48-hour authorization versus browser
+  idle lifetime, UI-marker result semantics and delayed issuance limitations.
+
 ## Unreleased
 
 ## v0.1.124 - 2026-10-20

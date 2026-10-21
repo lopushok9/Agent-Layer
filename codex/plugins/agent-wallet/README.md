@@ -97,3 +97,46 @@ The bridge resolves the wallet runtime from:
 3. `~/.openclaw/agent-wallet-runtime/current/agent-wallet`
 
 If the runtime lives elsewhere, set one of the env overrides before starting Codex.
+
+## Saved card catalog
+
+`list_saved_cards` returns this runtime user's references and masked metadata.
+`get_saved_card_status` refreshes pending issuance when due by default;
+`refresh=false` is a cached read. `refresh_saved_card` performs the same free,
+rate-limited retrieval explicitly. No owner unlock, signing or payment is needed.
+Outputs never contain PAN, CVV or provider tokens. Once issuance is complete,
+working credentials are retired and statuses/balances remain cached snapshots.
+These tools are advertised as reads: issuer retrieval may update local encrypted
+cache files but never places orders or moves funds. Host MCP approval settings
+still apply. Full reveal remains an owner CLI operation with macOS authentication.
+
+### Private card use
+
+`use_saved_card` previews an exact HTTPS request with card-field placeholders
+and can combine Laso issuance and use under one normal host confirmation.
+Execute with its `operation_id`. `continue_vault_operation` resumes an already
+authorized delayed task without a second approval or owner unlock;
+`get_vault_operation` reads its cached state. The fixed executor substitutes
+fields internally and returns HTTP status only. It never exposes PAN/CVV or
+raw provider output and never automatically repeats an uncertain payment.
+
+Runtime-encrypted `.use` card capsules enable this path without a Keychain
+prompt per use. They are decryptable by the wallet runtime, including after
+issuance; this is a different boundary from the owner-authenticated reveal CLI.
+Authorization lasts 48 hours and binds the exact request/card/wallet. This
+supports private HTTPS use and managed Kernel checkout; local Chrome autofill remains separate.
+
+### Kernel browser connection
+
+Run `wallet vault kernel-connect` in your own terminal and paste the dashboard
+API key at the hidden prompt. The key is saved in the encrypted runtime bundle,
+never in plugin config or chat. `wallet vault kernel-status` reports configuration;
+`wallet vault kernel-disconnect` removes the saved key.
+
+`kernel_browser` prepares a billable cloud checkout with public form data.
+`use_saved_card(checkout=...)` binds the browser, exact page, USD total, field
+selectors and submit action to the existing host confirmation. It can issue a
+card in that same task. The backend fills privately, locks observations and
+closes the session after one attempt. Kernel and the merchant process the real
+card data; the model receives only safe status. No local browser installation
+is needed. See [the vault guide](../../../agent-wallet/CARD_VAULT.md) for limits and cleanup behavior.

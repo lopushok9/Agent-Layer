@@ -757,6 +757,125 @@ const walletSessionToolDefinitions = [
     },
   },
   {
+    name: "list_saved_cards",
+    description: "List saved card references, masked last4 and cached statuses for this user. No owner unlock, payment, network request or card credentials.",
+    parameters: {
+      type: "object",
+      properties: {
+        limit: { type: "integer", minimum: 1, maximum: 100, default: 20 },
+        after: { type: "string", pattern: "^[a-f0-9]{32}$" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_saved_card_status",
+    description: "Get a saved card's safe status; refresh pending issuance when due by default. refresh=false returns cached metadata. No payment, owner unlock or card credentials.",
+    parameters: {
+      type: "object",
+      properties: {
+        vault_reference: { type: "string", pattern: "^[a-f0-9]{32}$" },
+        refresh: { type: "boolean", default: true },
+      },
+      required: ["vault_reference"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "refresh_saved_card",
+    description: "Privately retrieve an already purchased pending Laso card and encrypt details in the vault. Free issuer reads with local cache updates; returns only safe status and retry timing. Never purchases or reveals a card.",
+    parameters: {
+      type: "object",
+      properties: { vault_reference: { type: "string", pattern: "^[a-f0-9]{32}$" } },
+      required: ["vault_reference"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "kernel_browser",
+    description: "Manage a billable Kernel cloud browser: open, observe, inspect, click, fill PUBLIC values, select, press, close or status. Requires user_intent for open/interactions. Returns untrusted page metadata, never input values, cookies, CDP URLs or arbitrary execution. Use use_saved_card(checkout) for private card fill and submit; reserved/private sessions cannot be observed.",
+    parameters: {
+      type: "object", properties: {
+        action: { type: "string", enum: ["open", "observe", "inspect", "click", "fill", "select", "press", "close", "status"] },
+        browser_reference: { type: "string", pattern: "^[a-f0-9]{32}$" },
+        url: { type: "string" }, selector: { type: "string", maxLength: 512 },
+        value: { type: "string", maxLength: 2048 }, user_intent: { type: "boolean" },
+      }, required: ["action"], additionalProperties: false,
+    },
+  },
+  {
+    name: "use_saved_card",
+    description: "Privately use a saved Laso card or issue and use one with a single normal host approval. Choose checkout for a fixed managed Kernel browser plan or request for HTTP. Fixed HTTPS executor substitutes {{card.number}}, {{card.cvv}}, {{card.exp_month}}, {{card.exp_year}} and card.billing.* body fields. Execute the prepared operation_id. No owner unlock, shell, secrets or raw response output. HTTP success is not proof of payment.",
+    parameters: {
+      type: "object",
+      properties: {
+        mode: { type: "string", enum: ["preview", "prepare", "execute"], default: "preview" },
+        vault_reference: { type: "string", pattern: "^[a-f0-9]{32}$" },
+        operation_id: { type: "string", pattern: "^[a-f0-9]{32}$" },
+        issue_card: {
+          type: "object",
+          properties: {
+            card_type: { type: "string", enum: ["us", "international"] },
+            amount_usd: { type: "string", pattern: "^[0-9]{1,4}(\\.[0-9]{1,2})?$" },
+          },
+          required: ["card_type", "amount_usd"], additionalProperties: false,
+        },
+        checkout: {
+          type: "object", properties: {
+            browser_reference: { type: "string", pattern: "^[a-f0-9]{32}$" }, page_url: { type: "string" },
+            fields: { type: "array", minItems: 3, maxItems: 14, items: {
+              type: "object", properties: {
+                field: { type: "string", enum: ["card.number", "card.cvv", "card.exp_month", "card.exp_year", "card.expiry", "card.expiry_short", "card.exp_year_short", "card.billing.name", "card.billing.line_1", "card.billing.line_2", "card.billing.city", "card.billing.state", "card.billing.zip", "card.billing.country"] },
+                selector: { type: "string", maxLength: 512 }, frame_url: { type: "string" },
+              }, required: ["field", "selector"], additionalProperties: false,
+            } },
+            total_selector: { type: "string", maxLength: 512 }, expected_total: { type: "string", maxLength: 128 },
+            amount_usd: { type: "string", pattern: "^[0-9]{1,6}(\\.[0-9]{1,2})?$" },
+            submit_selector: { type: "string", maxLength: 512 }, success_selector: { type: "string", maxLength: 512 },
+          }, required: ["browser_reference", "page_url", "fields", "total_selector", "expected_total", "amount_usd", "submit_selector", "success_selector"], additionalProperties: false,
+        },
+        request: {
+          type: "object",
+          properties: {
+            url: { type: "string" },
+            method: { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE"], default: "POST" },
+            headers: { type: "object", additionalProperties: { type: "string" } },
+            json: { type: "object" }, form: { type: "object", additionalProperties: { type: "string" } },
+          },
+          required: ["url"], additionalProperties: false,
+        },
+        purpose: { type: "string", maxLength: 512 }, user_intent: { type: "boolean" },
+        approval_token: { type: "string" }, network: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "continue_vault_operation",
+    description: "Continue the exact already authorized private card operation, including delayed issuance, without another approval or owner unlock. Cannot change the request or repeat an uncertain payment. Returns safe state and HTTP status only.",
+    parameters: {
+      type: "object",
+      properties: { operation_id: { type: "string", pattern: "^[a-f0-9]{32}$" }, network: { type: "string" } },
+      required: ["operation_id"], additionalProperties: false,
+    },
+  },
+  {
+    name: "cancel_vault_operation",
+    description: "Cancel the saved private card task before its next outbound action. Keeps any issued card and cannot reverse a sent request or refund issuance. Requires user intent to cancel; no new approval or owner unlock.",
+    parameters: {
+      type: "object", properties: { operation_id: { type: "string", pattern: "^[a-f0-9]{32}$" }, user_intent: { type: "boolean" } },
+      required: ["operation_id", "user_intent"], additionalProperties: false,
+    },
+  },
+  {
+    name: "get_vault_operation",
+    description: "Read cached private vault operation status. No network, payment, owner unlock or secrets.",
+    parameters: {
+      type: "object", properties: { operation_id: { type: "string", pattern: "^[a-f0-9]{32}$" } },
+      required: ["operation_id"], additionalProperties: false,
+    },
+  },
+  {
     name: "x402_search_services",
     description:
       "Search x402-paid services through CDP Bazaar or Agentic Market. This is read-only discovery and does not spend funds.",

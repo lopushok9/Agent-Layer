@@ -31,11 +31,14 @@ def main() -> None:
     first_session = first.session_metadata()
     first_bundle = first.serializable_bundle()
 
+    assert first.adapter.user_id == "runtime-user@example.com"
+    assert first.plugin_bundle["invoke"].__self__.user_id == "runtime-user@example.com"
     assert first.created_now is True
     assert first_session.user_id == "runtime-user@example.com"
     assert first_session.network == "mainnet"
     assert first_session.sign_only is False
     assert first_session.storage_format == "encrypted"
+    assert {"list_saved_cards", "get_saved_card_status", "refresh_saved_card"} <= set(first_session.tool_names)
     assert "get_wallet_address" in first_session.tool_names
     assert "launch_bags_token" in first_session.tool_names
     assert first_bundle["session"]["created_now"] is True

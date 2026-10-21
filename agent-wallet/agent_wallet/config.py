@@ -175,6 +175,23 @@ def resolve_openclaw_home() -> Path:
     return Path(raw).expanduser()
 
 
+def resolve_card_vault_user_id() -> str:
+    """Use the same default identity as the Codex wallet bridge for owner CLI access."""
+    import json
+
+    explicit = os.getenv("AGENT_WALLET_USER_ID") or os.getenv("OPENCLAW_AGENT_WALLET_USER_ID")
+    if explicit:
+        return explicit
+    try:
+        payload = json.loads((resolve_openclaw_home() / "openclaw.json").read_text(encoding="utf-8"))
+        configured = payload["plugins"]["entries"]["agent-wallet"]["config"].get("userId")
+        if isinstance(configured, str) and configured.strip():
+            return configured.strip()
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        pass
+    return os.getenv("USER") or "codex-local-user"
+
+
 # Installers before the unix-socket transport persisted the then-default TCP
 # address into openclaw.json as an explicit wdkEvmServiceUrl, and updates never
 # rewrite that config. Treated literally it keeps those installs on the shared
@@ -608,6 +625,11 @@ def _resolve_sealed_secret(*names: str) -> str:
         if isinstance(value, str) and value.strip():
             return value.strip()
     return ""
+
+
+def resolve_kernel_api_key() -> str:
+    """Kernel credentials stay in the sealed runtime bundle, never host config."""
+    return _resolve_sealed_secret("kernel_api_key")
 
 
 def resolve_wallet_master_key() -> str:

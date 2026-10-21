@@ -632,6 +632,7 @@ async def _send_request(
         json=request["json_body"] if request["json_body"] is not None else None,
         content=request["text_body"] if request["text_body"] is not None else None,
         timeout=timeout,
+        **({"follow_redirects": False} if host == LASO_PARTNER_HOST else {}),
     )
 
 
@@ -1709,6 +1710,7 @@ async def pay_and_fetch(
     json_body: Any | None = None,
     text_body: str | None = None,
     approved_preview: dict[str, Any] | None = None,
+    require_approved_preview: bool = False,
 ) -> dict[str, Any]:
     request = _build_request_metadata(
         url=url,
@@ -1719,6 +1721,8 @@ async def pay_and_fetch(
         text_body=text_body,
     )
     preview = _reusable_approved_preview(approved_preview, request=request)
+    if require_approved_preview and preview is None:
+        raise ProviderError("x402-http", "The approved payment quote no longer matches this request; no payment was attempted.")
     reused_approved_preview = preview is not None
     if preview is None:
         preview = await preview_request(

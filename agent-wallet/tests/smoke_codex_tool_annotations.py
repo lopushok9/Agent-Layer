@@ -36,6 +36,7 @@ async def main() -> None:
             reads = {
                 "get_active_wallet_backend", "get_wallet_overview", "get_wallet_balance",
                 "x402_search_services", "x402_get_service_details", "x402_preview_request",
+                "list_saved_cards", "get_saved_card_status", "refresh_saved_card",
             }
             writes = {
                 "x402_pay_request", "transfer_evm_native", "swap_solana_tokens",

@@ -26,9 +26,11 @@ def get_skill_text() -> str:
     return skill_path.read_text(encoding="utf-8")
 
 
-def build_openclaw_plugin_bundle(backend: AgentWalletBackend) -> dict[str, Any]:
+def build_openclaw_plugin_bundle(
+    backend: AgentWalletBackend, *, user_id: str | None = None
+) -> dict[str, Any]:
     """Build a runtime-ready bundle for OpenClaw-style plugin registration."""
-    adapter = OpenClawWalletAdapter(backend)
+    adapter = OpenClawWalletAdapter(backend, user_id=user_id)
     return {
         "manifest": get_plugin_manifest(),
         "instructions": "\n\n".join(
