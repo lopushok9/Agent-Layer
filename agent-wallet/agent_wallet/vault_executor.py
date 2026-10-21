@@ -419,7 +419,9 @@ class VaultExecutor:
 
         browser = KernelBrowser(self.vault)
         fields = capsule.load_for_executor(state["vault_reference"])
+        selected: list[str] = []
         try:
+            selected = browser.select_fields(state["checkout"], fields)
             await browser.preflight(state["checkout"], operation_id=reference)
             if time.time() >= state["valid_until"]:
                 state["status"] = "expired"
@@ -428,7 +430,7 @@ class VaultExecutor:
                 state["status"] = "dispatching"
                 state.pop("retry_after_seconds", None)
                 self.storage.save(reference, state)
-                result = await browser.checkout(state["checkout"], fields, reference)
+                result = await browser.checkout(state["checkout"], selected, reference)
                 state.update(result)
         except asyncio.CancelledError:
             state["status"] = "outcome_unknown" if state["status"] == "dispatching" else "checkout_unavailable"
@@ -437,6 +439,7 @@ class VaultExecutor:
         except Exception:
             state["status"] = "outcome_unknown" if state["status"] == "dispatching" else "checkout_unavailable"
         finally:
+            selected.clear()
             fields.clear()
             await self._cleanup_browser(reference, state)
         state["finished_at"] = int(time.time())

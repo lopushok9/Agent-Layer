@@ -479,7 +479,10 @@ Totals currently require an unambiguous USD string such as `$19.99` or `19.99 US
    issuance, checks the exact page, displayed total, field targets and initially
    absent/hidden success marker, then issues/saves/waits for the card if needed.
    Reservation disables ordinary browser inspection and interaction.
-5. Before private fill, persist `dispatching` and set the browser to `private`.
+5. Resolve all requested card fields locally before setting `dispatching` or
+   making the browser `private`. Missing billing/other fields terminate as
+   `checkout_unavailable`, without any private fill request. Once fields are
+   resolved, persist `dispatching` and set the browser to `private` before fill.
    The trusted backend sends only bound card values to a fixed Playwright script
    through Kernel. It rechecks page and displayed total after filling, clicks
    once and waits for the specified merchant success marker on the same origin.

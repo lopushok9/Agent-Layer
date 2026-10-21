@@ -284,7 +284,21 @@ for(let i=0;i<targets.length;i++) for(let j=i+1;j<targets.length;j++)
  if(targetFrames[i]===targetFrames[j] && await targets[i].evaluate((e,other)=>e===other,await targets[j].elementHandle())) throw new Error('duplicate target');
 """
 
-    async def checkout(self, plan: dict, fields: dict[str, str], operation_id: str) -> dict:
+    @staticmethod
+    def select_fields(plan: dict, fields: dict[str, str]) -> list[str]:
+        """Resolve every requested secret before dispatch/private state changes."""
+        values = dict(fields)
+        try:
+            values.update({"card.expiry": fields["card.exp_month"] + "/" + fields["card.exp_year"],
+                           "card.expiry_short": fields["card.exp_month"] + "/" + fields["card.exp_year"][-2:],
+                           "card.exp_year_short": fields["card.exp_year"][-2:]})
+            return [values[b["field"]] for b in plan["fields"]]
+        except KeyError:
+            raise WalletBackendError("The saved card is missing a requested checkout field; no private fill was started.") from None
+        finally:
+            values.clear()
+
+    async def checkout(self, plan: dict, selected: list[str], operation_id: str) -> dict:
         ref = plan["browser_reference"]
         async with self.vault.async_record_lock(ref):
             state = self.storage.load(ref)
@@ -293,11 +307,6 @@ for(let i=0;i<targets.length;i++) for(let j=i+1;j<targets.length;j++)
             state["status"] = "private"
             self.storage.save(ref, state)  # No future DOM/observation access, including on crash.
             try:
-                values = dict(fields)
-                values.update({"card.expiry": fields["card.exp_month"] + "/" + fields["card.exp_year"],
-                               "card.expiry_short": fields["card.exp_month"] + "/" + fields["card.exp_year"][-2:],
-                               "card.exp_year_short": fields["card.exp_year"][-2:]})
-                selected = [values[b["field"]] for b in plan["fields"]]
                 # Values are encoded as JSON data literals, never inserted as executable JS.
                 # No logs or errors escape this call. Kernel still processes the request.
                 code = "try {\n" + self._check_code(plan) + "const values=" + _json(selected) + ";\n" + r"""
