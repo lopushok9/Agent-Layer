@@ -309,10 +309,12 @@ for(let i=0;i<targets.length;i++) for(let j=i+1;j<targets.length;j++)
             try:
                 # Values are encoded as JSON data literals, never inserted as executable JS.
                 # No logs or errors escape this call. Kernel still processes the request.
-                code = "try {\n" + self._check_code(plan) + "const values=" + _json(selected) + ";\n" + r"""
+                code = "let fillStarted=false; try {\n" + self._check_code(plan) + "const values=" + _json(selected) + ";\n" + r"""
 for(let i=0;i<targets.length;i++) {
- if(p.url()!==plan.page_url) return {outcome:'unknown'};
+ if(p.url()!==plan.page_url) return {outcome:fillStarted?'unknown':'not_started'};
  const tag=await targets[i].evaluate(e=>e.tagName);
+ // Input/change handlers may have effects even if this fill later fails.
+ fillStarted=true;
  if(tag==='SELECT') await targets[i].selectOption(values[i]); else await targets[i].fill(values[i]);
 }
 if(p.url()!==plan.page_url || (await total.innerText()).trim()!==plan.expected_total.trim()) return {outcome:'unknown'};
@@ -321,11 +323,14 @@ await submit.click({timeout:8000});
 await success.waitFor({state:'visible',timeout:20000});
 if(new URL(p.url()).origin!==new URL(plan.page_url).origin) return {outcome:'unknown'};
 return {outcome:'merchant_confirmation_observed'};
-} catch (_) { return {outcome:'unknown'}; }
+} catch (_) { return {outcome:fillStarted?'unknown':'not_started'}; }
 """
                 result = await KernelClient().execute(state["session_id"], code)
-                return {"status": "checkout_submitted" if result.get("outcome") == "merchant_confirmation_observed" else "outcome_unknown",
-                        "merchant_confirmation_observed": result.get("outcome") == "merchant_confirmation_observed"}
+                outcome = result.get("outcome")
+                status = {"merchant_confirmation_observed": "checkout_submitted",
+                          "not_started": "checkout_unavailable"}.get(outcome, "outcome_unknown")
+                return {"status": status,
+                        "merchant_confirmation_observed": outcome == "merchant_confirmation_observed"}
             finally:
                 await self.close(ref, state)
 

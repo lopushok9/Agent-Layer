@@ -497,8 +497,14 @@ Totals currently require an unambiguous USD string such as `$19.99` or `19.99 US
 `checkout_submitted` plus `merchant_confirmation_observed=true` means the chosen
 merchant UI marker appeared. It is not independent evidence of a bank charge;
 `payment_confirmed` remains false. Any indeterminate dispatch is
-`outcome_unknown`, never automatically refilled or resubmitted. A page/session
-that disappears before dispatch yields `checkout_unavailable`. Keep any issued
+`outcome_unknown`, never automatically refilled or resubmitted. The fixed script
+reports `not_started` if its checks fail before attempting the first fill; this
+maps to `checkout_unavailable`, including a page/total change after preflight.
+The attempt marker is set immediately before calling fill/select, since input
+handlers may cause effects even if the call fails. Exceptions after that marker,
+or a lost Kernel response with no reliable outcome, remain `outcome_unknown`.
+A page/session that disappears before dispatch also yields
+`checkout_unavailable`. Keep any issued
 card; do not purchase another to repair the browser flow.
 
 The 48-hour operation authorization does not keep a cloud browser alive for
