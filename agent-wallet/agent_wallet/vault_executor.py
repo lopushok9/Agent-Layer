@@ -146,7 +146,10 @@ async def resolve_public_destination(url: httpx.URL) -> str:
                              and (ip.ipv4_mapped is not None or ip.sixtofour is not None or ip.teredo is not None)))
         if not addresses or not all(public(address) for address in addresses):
             raise ValueError()
-        return addresses[0]
+        # Prefer IPv4 on dual-stack hosts; string ordering can otherwise pick
+        # IPv6 even when this machine has no usable IPv6 route.
+        return min(addresses, key=lambda address: (ipaddress.ip_address(address).version,
+                                                   int(ipaddress.ip_address(address))))
     except (ValueError, OSError, asyncio.TimeoutError):
         raise WalletBackendError("HTTPS executor destination must resolve only to public internet addresses.") from None
 
@@ -243,6 +246,7 @@ class VaultExecutor:
             "http_status": state.get("http_status"),
             "valid_until_epoch_seconds": state.get("valid_until"),
             "retry_after_seconds": state.get("retry_after_seconds"),
+            "last_attempt_not_sent": state.get("last_attempt_not_sent", False),
             "secrets_returned": False, "payment_confirmed": False,
             "merchant_confirmation_observed": state.get("merchant_confirmation_observed", False),
         }
@@ -377,6 +381,7 @@ class VaultExecutor:
                 # Before any request bytes can leave, record the attempt durably.
                 state["status"] = "dispatching"
                 state.pop("retry_after_seconds", None)
+                state.pop("last_attempt_not_sent", None)
                 self.storage.save(reference, state)
                 try:
                     code = await asyncio.wait_for(send_private_request(
@@ -384,6 +389,14 @@ class VaultExecutor:
                     ), timeout=40)
                     state["http_status"] = code
                     state["status"] = "request_succeeded" if 200 <= code < 300 else "request_rejected"
+                except (httpx.ConnectError, httpx.ConnectTimeout):
+                    # Fresh client, no proxy, redirects or transport retries:
+                    # connection establishment failed before HTTP bytes were sent.
+                    # Keep the exact durable authorization for a later explicit
+                    # continuation, without retrying inside this invocation.
+                    state["status"] = "authorized"
+                    state["last_attempt_not_sent"] = True
+                    state["retry_after_seconds"] = 5
                 except asyncio.CancelledError:
                     state["status"] = "outcome_unknown"
                     self.storage.save(reference, state)
@@ -395,7 +408,9 @@ class VaultExecutor:
                     self.storage.save(reference, state)
                 finally:
                     fields.clear()  # Best effort only; Python cannot promise zeroization.
-                state["finished_at"] = int(time.time())
+                state["last_attempt_at"] = int(time.time())
+                if state["status"] in FINAL_STATES:
+                    state["finished_at"] = state["last_attempt_at"]
                 self.storage.save(reference, state)
                 return self.safe(reference, state)
 

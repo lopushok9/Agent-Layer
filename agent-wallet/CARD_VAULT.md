@@ -252,8 +252,14 @@ Before sending secrets it validates all DNS answers as public addresses, pins
 the connection to one address and verifies TLS against the original hostname.
 Redirects, environment proxies and transport retries are disabled. It never
 returns provider bodies, headers, cookies, redirects or remote error messages.
-A persisted `dispatching` state precedes any outbound request; crashes or network
-errors lead to `outcome_unknown`, with no automatic resend. Completed operations
+IPv4 is preferred when validated DNS answers contain both address families.
+A persisted `dispatching` state precedes any outbound request. A caught
+`httpx.ConnectError` or `ConnectTimeout` on this fresh, retry-free connection
+returns to `authorized` with `last_attempt_not_sent=true` and a short retry hint;
+`continue_vault_operation` can retry the unchanged plan under its original
+unexpired authorization. This invocation does not retry automatically.
+Crashes, read/write failures, cancellation and other indeterminate transport
+errors remain `outcome_unknown`, with no automatic resend. Completed operations
 return their stored result on replay. A stable idempotency header is sent as
 an additional precaution, not as a guarantee that every merchant honors it.
 
