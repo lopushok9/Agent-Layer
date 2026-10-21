@@ -211,9 +211,10 @@ async def capture_request(*, call: Any, user_id: str | None, receipt_reference: 
     async with vault.async_record_lock(reference):
         try:
             result = await call(**kwargs)
-            if "response_preview" not in result:
-                # Ordinary 402 quote: no order or credentials yet.
-                vault._path(reference).unlink()
+            if result.get("status_code") != 200 or "response_preview" not in result:
+                # Quotes and explicit HTTP failures are not card receipts. Preserve
+                # the original status/error instead of replacing it with a fake card.
+                vault.remove_record(reference)
                 return result
             body = result.get("response_preview")
             record.update({"order": body if isinstance(body, dict) else {"unparsed_response": body}, "state": "response_saved", "http_status": result.get("status_code"), "payment_settlement": result.get("payment_settlement")})

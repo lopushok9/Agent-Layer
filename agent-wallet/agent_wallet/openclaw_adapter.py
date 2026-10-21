@@ -326,6 +326,10 @@ class OpenClawWalletAdapter:
                             "payment_summary": {**payment_summary, "card_type": card_type,
                                                 "card_amount_usd": format(amount_decimal, "f")}}
             else:
+                if preview.get("status_code") != 200:
+                    status = preview.get("status_code")
+                    status_label = str(status) if type(status) is int else "unknown"
+                    raise WalletBackendError("Laso card request failed (HTTP " + status_label + "); no card operation was prepared.")
                 response = preview.get("response_preview")
                 reference = response.get("vault_reference") if isinstance(response, dict) else None
                 if not reference:

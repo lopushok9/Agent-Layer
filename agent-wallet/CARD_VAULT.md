@@ -515,3 +515,11 @@ cards to Kernel credential vaults or integrate AgentCard. See the official
 [Python SDK](https://github.com/kernel/kernel-python-sdk),
 [Playwright API](https://www.kernel.sh/docs/api-reference/browser-playwright/execute-playwrighttypescript-code-against-the-browser)
 and [credential guidance](https://www.kernel.sh/docs/vaults/credentials).
+
+### Failed Laso responses
+
+Only HTTP 200 order responses become saved cards. Quotes and explicit non-200
+responses discard their provisional record and retain the original x402 status
+and response, so issuer validation/rate-limit errors do not become catalog cards.
+Combined issuance/use refuses to prepare an operation from a failed issuer response.
+Transport exceptions still preserve an encrypted receipt for outcome review.
