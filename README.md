@@ -5,11 +5,12 @@
 [![Node 24.x](https://img.shields.io/badge/node-24.x-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![docs](https://img.shields.io/badge/docs-agent--layer.tech-blue)](https://docs.agent-layer.tech/)
 
+Try AgentLayer — an agent-native, local crypto wallet with built-in tools from leading protocols: pay with x402, swap, earn yield, and issue fiat cards with stables.
+
 ## Install
-Run one command:
 
 ```bash
-npx --yes @agentlayer.tech/wallet@latest install
+npx --yes @agentlayer.tech/wallet@latest install --yes
 ```
 It works with:
 
@@ -19,24 +20,17 @@ It works with:
 - OpenClaw
 - Hermes
 
-The installer detects Cursor and installs its local plugin alongside the
-shared runtime. The package is at
-[`cursor/plugins/agent-wallet/`](cursor/plugins/agent-wallet/).
-
 You need:
 
 - Node.js 24
 - npm
 - Python 3
 
-AgentLayer detects the supported agent frameworks on your machine and asks
-where you want to install the plugin.
+Restart your agents after installation.
 
-Restart the selected applications after installation.
+### x402 payments only (no install, MCP)
 
-### x402 payments only (no install)
-
-If you only need x402 payments, connect this remote MCP instead:
+If you only need x402 payments on base, connect this remote MCP instead:
 
 ```text
 https://x402.agent-layer.tech/mcp
@@ -52,14 +46,6 @@ example Claude) and sign in with Google or GitHub.
 personal access token. The page gives you a ready prompt for Muse; enter the
 token only in Muse's secure credential prompt, not in the chat. See
 [Hosted x402 payment MCP](#hosted-x402-payment-mcp) for details.
-
-### Install automatically
-
-To install into every detected framework without questions:
-
-```bash
-npx --yes @agentlayer.tech/wallet@latest install --yes
-```
 
 ### Choose frameworks explicitly
 
@@ -156,9 +142,8 @@ After an install or update, restart the connected agent applications when
 Connect URL: `https://x402.agent-layer.tech/mcp`
 
 Cloud-agent and mobile-host users can be served by the separate
-[`x402-payment-mcp/`](x402-payment-mcp/README.md). It is a new remote MCP with
-first-party OAuth (Google/GitHub login), one CDP-managed Base wallet per user,
-CDP Bazaar-only discovery, and Base USDC x402 payments. It does not replace or
+[`x402-payment-mcp/`](x402-payment-mcp/README.md). It is remote MCP with
+first-party OAuth (Google/GitHub login), one CDP-managed Base wallet per user, and Base USDC x402 payments. It does not replace or
 share custody assumptions with the local wallet runtime.
 
 ## Common commands
