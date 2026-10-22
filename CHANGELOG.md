@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased — Private card vault
+## v0.1.125 - 2026-10-22 (local release)
+
+### Private card vault
 
 - Capture Laso prepaid order responses in a per-user encrypted local vault before
   returning agent tool output; keep payment approval behavior unchanged.
@@ -26,8 +28,13 @@
   key in the sealed runtime bundle and out of host configuration and chat.
 - Document runtime/cloud trust boundaries, 48-hour authorization versus browser
   idle lifetime, UI-marker result semantics and delayed issuance limitations.
+- Fix failed Laso responses creating phantom cards, prefer IPv4, allow explicit
+  continuation after proven pre-send connection failures, and distinguish
+  missing fields/pre-fill checkout failures from uncertain payment outcomes.
+- Add offline regressions for receipt status, connection recovery, no-repeat
+  dispatch, missing billing and the generated Kernel checkout script.
 
-## Unreleased
+### x402
 
 - **x402 Sign-In-With-X now actually signs, and signs in before paying.** The
   SIWx header was silently dropped on current x402 SDKs (the challenge's origin

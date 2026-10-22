@@ -28,6 +28,7 @@ MANIFESTS = {
     "agent-wallet/openclaw.plugin.json": '{{"id": "agent-wallet", "version": "{v}"}}\n',
     ".openclaw/extensions/agent-wallet/openclaw.plugin.json": '{{"id": "aw", "version": "{v}"}}\n',
     "codex/plugins/agent-wallet/.codex-plugin/plugin.json": '{{"name": "aw", "version": "{v}"}}\n',
+    "cursor/plugins/agent-wallet/.cursor-plugin/plugin.json": '{{"name": "aw", "version": "{v}"}}\n',
     "claude-code/plugins/agent-wallet/.claude-plugin/plugin.json": '{{"name": "aw", "version": "{v}"}}\n',
     "hermes/plugins/agent_wallet/plugin.yaml": "name: agent-wallet\nversion: {v}\n",
     "wdk-evm-wallet/package.json": '{{"name": "wdk-evm", "version": "{v}"}}\n',
