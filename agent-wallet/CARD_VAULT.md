@@ -612,3 +612,7 @@ values, and input handlers can tokenize or send data. Keep the existing
 `outcome_unknown` treatment after partial fill or a lost executor response;
 never automatically retry. Private browsers remain inaccessible to general
 observe/inspect/click tools and are closed on success and failure.
+
+The exact USD total may also be a button label such as `Donate $1` or
+`Pay $19.99`. Only those fixed prefixes are accepted; the price must match
+`amount_usd`, and the complete label is compared before and after filling.

@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.129 - 2026-10-22 (local release)
+
+- Accept exact `Donate $1` / `Pay $19.99` total button labels while retaining
+  strict USD amount validation and full text comparisons around private fill.
+
 ## v0.1.128 - 2026-10-22 (local release)
 
 - Add approved private card filling with `checkout.action=fill_only`: no submit
