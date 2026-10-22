@@ -560,3 +560,27 @@ executor computes diagnostics before closing the session; filled sessions stay
 inaccessible to general browser tools. A confirmation timeout remains
 `outcome_unknown` even when validation errors are detected; diagnostics do not
 permit automatic resubmission or establish a charge/refund outcome.
+
+### Stripe design-preview investigation (2026-10-22)
+
+The public `https://checkout.stripe.dev/checkout` page is a design preview, not
+an end-to-end payment acceptance fixture. Its embedded frame's public Stripe
+JavaScript identifies `checkout.stripe.dev` via `document.referrer`; the payment
+submission handler immediately returns when that preview flag is set. Evidence:
+
+- [Preview-origin definition in embedded frame source](https://js.stripe.com/v3/embedded-checkout-inner.html)
+- [Payment submission handler in Stripe's embedded application bundle](https://js.stripe.com/v3/fingerprinted/js/checkout-embedded-app-init-e58bbe82a3662bf3c0e5c9d5e8eec362.js)
+
+In a live Kernel reproduction using the public Stripe sandbox Visa, all three
+card fields were filled, submit completed, native/ARIA invalid-field count was
+zero, and confirmation timed out after 20 seconds. A separate public-data-only
+UI reproduction identified the single alert as Next.js's route announcer, not a
+payment decline. Both private attempts remain `outcome_unknown`; no resubmission
+is authorized by these findings. Closed private sessions were not inspected.
+All diagnostic/public browser sessions were closed after use.
+
+This verifies private fill and button interaction but does not establish an
+end-to-end payment success. Use a functional Stripe test Checkout Session with
+an actual confirmation result for that acceptance check. Public sample stores
+may have other limits; the archived Stripe Payments Demo currently defaults to
+EUR, while this consumer currently supports USD totals only.
