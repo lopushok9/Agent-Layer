@@ -32,7 +32,7 @@ FIELDS = frozenset({"card.number", "card.cvv", "card.exp_month", "card.exp_year"
     "card.billing." + key for key in ("name", "line_1", "line_2", "city", "state", "zip", "country")
 )})
 PLACEHOLDER = re.compile(r"\{\{(card\.[a-z_0-9.]+)\}\}")
-FINAL_STATES = frozenset({"request_succeeded", "request_rejected", "outcome_unknown", "expired", "card_unavailable", "issuance_unknown", "cancelled", "checkout_submitted", "checkout_unavailable"})
+FINAL_STATES = frozenset({"request_succeeded", "request_rejected", "outcome_unknown", "expired", "card_unavailable", "issuance_unknown", "cancelled", "checkout_submitted", "checkout_unavailable", "checkout_filled"})
 BLOCKED_HEADERS = frozenset({"host", "content-length", "transfer-encoding", "connection", "upgrade", "te", "trailer", "expect", "proxy-authorization", "proxy-connection", "idempotency-key", "content-type"})
 
 
@@ -182,7 +182,8 @@ class VaultExecutor:
         checkout = state.get("checkout")
         payload = checkout or state["request"]
         return {
-            "operation": "Private Kernel checkout" if checkout else "Private saved card HTTPS request", "operation_id": reference,
+            "operation": ("Private card fill only (no submit; close browser)" if checkout and checkout.get("action") == "fill_only"
+                          else "Private Kernel checkout" if checkout else "Private saved card HTTPS request"), "operation_id": reference,
             "user_scope": self.vault.scope, "network": state["network"], "owner": state["owner"],
             "vault_reference": state["vault_reference"], "executor": "kernel_checkout" if checkout else EXECUTOR,
             "card_issuance": (state.get("issuance") or {}).get("payment_summary"),
@@ -252,6 +253,8 @@ class VaultExecutor:
             "secrets_returned": False, "payment_confirmed": False,
             "merchant_confirmation_observed": state.get("merchant_confirmation_observed", False),
             "checkout_diagnostics": safe_checkout_diagnostics(state.get("checkout_diagnostics")),
+            "checkout_action": state["checkout"].get("action", "submit") if state.get("checkout") else None,
+            "private_fill_completed": status == "checkout_filled",
         }
 
     def get(self, reference: str) -> dict[str, Any]:

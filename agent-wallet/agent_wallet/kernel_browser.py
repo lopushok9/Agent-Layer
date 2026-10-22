@@ -27,6 +27,8 @@ BROWSER_SCHEMA = {"type": "object", "properties": {
     "value": {"type": "string", "maxLength": 2048}, "user_intent": {"type": "boolean"},
 }, "required": ["action"], "additionalProperties": False}
 CHECKOUT_SCHEMA = {"type": "object", "properties": {
+    "action": {"type": "string", "enum": ["submit", "fill_only"], "default": "submit",
+               "description": "fill_only fills privately without clicking submit, then closes the browser."},
     "browser_reference": {"type": "string", "pattern": "^[a-f0-9]{32}$"},
     "page_url": {"type": "string"},
     "fields": {"type": "array", "minItems": 3, "maxItems": 14, "items": {
@@ -40,7 +42,7 @@ CHECKOUT_SCHEMA = {"type": "object", "properties": {
     "amount_usd": {"type": "string", "pattern": "^[0-9]{1,6}(\\.[0-9]{1,2})?$"},
     "submit_selector": {"type": "string", "maxLength": 512},
     "success_selector": {"type": "string", "maxLength": 512},
-}, "required": ["browser_reference", "page_url", "fields", "total_selector", "expected_total", "amount_usd", "submit_selector", "success_selector"], "additionalProperties": False}
+}, "required": ["browser_reference", "page_url", "fields", "total_selector", "expected_total", "amount_usd"], "additionalProperties": False}
 
 
 def _json(value: Any) -> str:
@@ -57,15 +59,24 @@ def validate_checkout(value: Any) -> dict[str, Any]:
     from decimal import Decimal
     from agent_wallet.vault_executor import _url, FIELDS
 
-    if not isinstance(value, dict) or set(value) != set(CHECKOUT_SCHEMA["required"]):
-        raise WalletBackendError("checkout requires the complete fixed browser, fields, total and submit plan.")
+    if (not isinstance(value, dict) or set(value) - set(CHECKOUT_SCHEMA["properties"])
+            or not set(CHECKOUT_SCHEMA["required"]) <= set(value)):
+        raise WalletBackendError("checkout requires a fixed browser, fields and total plan.")
+    action = value.get("action", "submit")
+    if action not in ("submit", "fill_only"):
+        raise WalletBackendError("checkout.action must be submit or fill_only.")
+    if action == "submit" and not {"submit_selector", "success_selector"} <= set(value):
+        raise WalletBackendError("Submitting checkout requires submit_selector and success_selector.")
+    if action == "fill_only" and set(value) & {"submit_selector", "success_selector"}:
+        raise WalletBackendError("fill_only must not include submit or success selectors.")
     result = json.loads(_json(value))
     if not isinstance(result["browser_reference"], str) or not re.fullmatch(r"[a-f0-9]{32}", result["browser_reference"]):
         raise WalletBackendError("Invalid browser reference.")
     _url(result["page_url"])
-    for key in ("total_selector", "submit_selector", "success_selector"):
+    selector_keys = ("total_selector", "submit_selector", "success_selector") if action == "submit" else ("total_selector",)
+    for key in selector_keys:
         _selector(result[key])
-    if len({result[k] for k in ("total_selector", "submit_selector", "success_selector")}) != 3:
+    if len({result[k] for k in selector_keys}) != len(selector_keys):
         raise WalletBackendError("Total, submit and success selectors must differ.")
     amount = result["amount_usd"]
     if not isinstance(amount, str) or not re.fullmatch(r"[0-9]{1,6}(?:\.[0-9]{1,2})?", amount) or Decimal(amount) <= 0:
@@ -103,7 +114,7 @@ def validate_checkout(value: Any) -> dict[str, Any]:
 DIAGNOSTIC_PHASES = {"precheck", "fill", "verify_total", "submit", "confirmation", "complete", "transport"}
 DIAGNOSTIC_REASONS = {"precheck_failed", "page_changed", "fill_failed", "total_changed",
                       "success_already_visible", "submit_failed", "confirmation_not_observed",
-                      "origin_changed", "completed", "executor_result_unavailable"}
+                      "origin_changed", "completed", "filled_without_submit", "executor_result_unavailable"}
 ERROR_CATEGORIES = {"card_declined", "card_invalid", "expiry_invalid", "cvv_invalid",
                     "authentication_required", "demo_restriction"}
 FIELD_CATEGORIES = {"email", "name", "address", "postal_code", "phone", "card_number", "card_expiry", "card_cvv", "other"}
@@ -296,10 +307,11 @@ class KernelBrowser:
         # Exact page and displayed total checked both before approval and dispatch.
         return PAGE + "const plan=" + _json(plan) + ";\n" + r"""
 if(p.url()!==plan.page_url) throw new Error('page changed');
-const total=p.locator(plan.total_selector), submit=p.locator(plan.submit_selector), success=p.locator(plan.success_selector);
+const fillOnly=plan.action==='fill_only';
+const total=p.locator(plan.total_selector), submit=fillOnly?null:p.locator(plan.submit_selector), success=fillOnly?null:p.locator(plan.success_selector);
 if(await total.count()!==1 || (await total.innerText()).trim()!==plan.expected_total.trim()) throw new Error('total changed');
-if(await submit.count()!==1 || !(await submit.isVisible())) throw new Error('submit unavailable');
-if(await success.count()>1 || await success.isVisible()) throw new Error('success already present');
+if(!fillOnly && (await submit.count()!==1 || !(await submit.isVisible()))) throw new Error('submit unavailable');
+if(!fillOnly && (await success.count()>1 || await success.isVisible())) throw new Error('success already present');
 const targets=[], targetFrames=[];
 for(const b of plan.fields){
  const frames=b.frame_url?p.frames().filter(f=>f.url()===b.frame_url):[p.mainFrame()];
@@ -393,6 +405,7 @@ for(let i=0;i<targets.length;i++) {
 phase='verify_total';
 if(p.url()!==plan.page_url) return await finish('unknown','page_changed');
 if((await total.innerText()).trim()!==plan.expected_total.trim()) return await finish('unknown','total_changed');
+if(fillOnly) { phase='complete'; return await finish('fields_filled','filled_without_submit'); }
 if(await success.count()>1 || await success.isVisible()) return await finish('unknown','success_already_visible');
 phase='submit'; submitAttempted=true;
 await submit.click({timeout:8000}); submitCompleted=true;
@@ -407,11 +420,21 @@ phase='complete'; return await finish('merchant_confirmation_observed','complete
 """
                 result = await KernelClient().execute(state["session_id"], code)
                 outcome = result.get("outcome")
-                status = {"merchant_confirmation_observed": "checkout_submitted",
-                          "not_started": "checkout_unavailable"}.get(outcome, "outcome_unknown")
+                diagnostics = safe_checkout_diagnostics(result.get("diagnostic"))
+                fill_only = plan.get("action") == "fill_only"
+                status = "outcome_unknown"
+                if outcome == "not_started":
+                    status = "checkout_unavailable"
+                elif fill_only and outcome == "fields_filled":
+                    if (diagnostics.get("filled_fields") == len(plan["fields"])
+                            and diagnostics.get("submit_attempted") is False
+                            and diagnostics.get("submit_completed") is False):
+                        status = "checkout_filled"
+                elif not fill_only and outcome == "merchant_confirmation_observed":
+                    status = "checkout_submitted"
                 return {"status": status,
-                        "merchant_confirmation_observed": outcome == "merchant_confirmation_observed",
-                        "checkout_diagnostics": safe_checkout_diagnostics(result.get("diagnostic"))}
+                        "merchant_confirmation_observed": status == "checkout_submitted",
+                        "checkout_diagnostics": diagnostics}
             finally:
                 await self.close(ref, state)
 

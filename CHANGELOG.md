@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.128 - 2026-10-22 (local release)
+
+- Add approved private card filling with `checkout.action=fill_only`: no submit
+  click, safe completion diagnostics, terminal `checkout_filled` state and
+  browser cleanup. Preserve the existing submit flow and approval binding.
+
 ## v0.1.127 - 2026-10-22 (local release)
 
 - Add safe private-checkout diagnostics: fixed stage/reason codes, field counts,

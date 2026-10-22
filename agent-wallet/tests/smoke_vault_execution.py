@@ -18,7 +18,7 @@ import httpx
 from agent_wallet.card_catalog import CardCatalog
 from agent_wallet.card_runtime_secrets import CardRuntimeSecrets
 from agent_wallet.card_vault import CardVault
-from agent_wallet.kernel_browser import KernelBrowser, safe_checkout_diagnostics
+from agent_wallet.kernel_browser import KernelBrowser, safe_checkout_diagnostics, validate_checkout
 from agent_wallet.laso_card_vault import capture_request
 from agent_wallet.vault_executor import VaultExecutor, resolve_public_destination
 from smoke_card_vault import FakeSystemStore, READY, PAN
@@ -131,8 +131,14 @@ class ExecutionChecks(unittest.IsolatedAsyncioTestCase):
         selected = browser.select_fields(plan, fields)
         client = Mock()
         client.call = AsyncMock(return_value={})
-        for scenario, expected in (("changed", "checkout_unavailable"), ("fill_error", "outcome_unknown"), ("submit_error", "outcome_unknown"), ("confirmation_timeout", "outcome_unknown"), ("success", "checkout_submitted")):
+        for scenario, expected in (("changed", "checkout_unavailable"), ("fill_error", "outcome_unknown"), ("submit_error", "outcome_unknown"), ("confirmation_timeout", "outcome_unknown"), ("success", "checkout_submitted"), ("fill_only", "checkout_filled")):
             with self.subTest(scenario=scenario):
+                plan = self.plan()
+                if scenario == "fill_only":
+                    plan["action"] = "fill_only"
+                    plan.pop("submit_selector")
+                    plan.pop("success_selector")
+                    validate_checkout(plan)
                 browser.storage.save(plan["browser_reference"], {"status": "reserved", "operation_id": "op", "session_id": "fixture"})
                 async def run_script(session, code):
                     fixture = r'''
@@ -156,6 +162,9 @@ const browser={contexts:()=>[{pages:()=>[p]}]};
                     if scenario == "changed":
                         self.assertFalse(outcome["filled"])
                         self.assertFalse(outcome["clicked"])
+                    if scenario == "fill_only":
+                        self.assertTrue(outcome["filled"])
+                        self.assertFalse(outcome["clicked"])
                     if scenario == "fill_error":
                         self.assertTrue(outcome["filled"])
                         self.assertFalse(outcome["clicked"])
@@ -165,15 +174,55 @@ const browser={contexts:()=>[{pages:()=>[p]}]};
                     result = await browser.checkout(plan, selected, "op")
                 self.assertEqual(result["status"], expected)
                 diagnostic = result["checkout_diagnostics"]
-                expected_phase = {"changed": "precheck", "fill_error": "fill", "submit_error": "submit", "confirmation_timeout": "confirmation", "success": "complete"}[scenario]
+                expected_phase = {"changed": "precheck", "fill_error": "fill", "submit_error": "submit", "confirmation_timeout": "confirmation", "success": "complete", "fill_only": "complete"}[scenario]
                 self.assertEqual(diagnostic["phase"], expected_phase)
                 self.assertEqual(diagnostic["filled_fields"], 0 if scenario in {"changed", "fill_error"} else 3)
+                if scenario == "fill_only":
+                    self.assertFalse(result["merchant_confirmation_observed"])
+                    self.assertFalse(diagnostic["submit_attempted"])
+                    self.assertFalse(diagnostic["submit_completed"])
                 if scenario == "confirmation_timeout":
                     self.assertTrue(diagnostic["submit_completed"])
                     self.assertEqual(diagnostic["invalid_field_categories"], ["phone"])
                     self.assertEqual(diagnostic["reason"], "confirmation_not_observed")
                 self.assertEqual(browser.storage.load(plan["browser_reference"])["status"], "closed")
                 self.assertNotIn(PAN, json.dumps(result))
+
+    def test_fill_only_validation_and_action_binding(self):
+        plan = self.plan()
+        plan["action"] = "fill_only"
+        with self.assertRaises(Exception):
+            validate_checkout(plan)
+        plan.pop("submit_selector")
+        plan.pop("success_selector")
+        self.assertEqual(validate_checkout(plan)["action"], "fill_only")
+        invalid = dict(plan, action="submit")
+        with self.assertRaises(Exception):
+            validate_checkout(invalid)
+        prepared = self.prepare(plan)
+        ref = prepared["operation_id"]
+        state = self.executor._load(ref)
+        state["checkout"]["action"] = "submit"
+        self.executor.storage.save(ref, state)
+        with self.assertRaises(Exception):
+            self.executor.get(ref)
+
+    async def test_filled_operation_cannot_be_replayed(self):
+        plan = self.plan()
+        plan["action"] = "fill_only"
+        plan.pop("submit_selector")
+        plan.pop("success_selector")
+        prepared = self.prepare(plan)
+        ref = prepared["operation_id"]
+        checkout = AsyncMock(return_value={"status": "checkout_filled"})
+        with patch.object(KernelBrowser, "preflight", AsyncMock()), patch.object(KernelBrowser, "checkout", checkout), patch.object(VaultExecutor, "_cleanup_browser", AsyncMock()):
+            result = await self.execute(ref)
+            self.assertEqual(result["status"], "checkout_filled")
+            self.assertTrue(result["private_fill_completed"])
+            self.assertFalse(result["can_continue"])
+            again = await self.execute(ref, Mock(side_effect=AssertionError("No replay")))
+            self.assertEqual(again["status"], "checkout_filled")
+            checkout.assert_awaited_once()
 
     def test_checkout_diagnostics_drop_all_free_text_and_unknown_fields(self):
         raw = {"phase": "confirmation", "reason": "confirmation_not_observed", "filled_fields": 3,

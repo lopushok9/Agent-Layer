@@ -584,3 +584,31 @@ end-to-end payment success. Use a functional Stripe test Checkout Session with
 an actual confirmation result for that acceptance check. Public sample stores
 may have other limits; the archived Stripe Payments Demo currently defaults to
 EUR, while this consumer currently supports USD totals only.
+
+### Private fill without submission
+
+Use `checkout.action = "fill_only"` with an existing saved card to rehearse
+private filling. Omit `submit_selector` and `success_selector`; the backend
+rejects them in this mode. The browser reference, exact page URL, field bindings,
+displayed USD total and amount remain required. For example, take the checkout
+plan above, add `"action": "fill_only"`, and remove both submission selectors.
+Omitting `action`, or setting it to `submit`, retains the existing payment flow
+and requires both submission selectors.
+
+The normal preview/prepare/execute approval binds the action to the immutable
+plan. Fill approval cannot be changed into submission approval. After filling,
+the executor verifies the page and total, returns only safe diagnostics and
+closes the session. Successful completion has final status `checkout_filled`,
+`private_fill_completed=true`, `merchant_confirmation_observed=false`, and
+`submit_attempted=false` / `submit_completed=false` in diagnostics. Validation
+counts describe form validity separately; completion does not imply that the
+merchant accepted the card. Repeating or continuing the operation returns its
+saved final result and cannot refill or submit. A later payment needs a fresh
+browser and a separate approved plan.
+
+This mode issues no submit click or Enter key. It is **not** an offline test or
+a guarantee of no merchant activity: Kernel and the page receive real card
+values, and input handlers can tokenize or send data. Keep the existing
+`outcome_unknown` treatment after partial fill or a lost executor response;
+never automatically retry. Private browsers remain inaccessible to general
+observe/inspect/click tools and are closed on success and failure.

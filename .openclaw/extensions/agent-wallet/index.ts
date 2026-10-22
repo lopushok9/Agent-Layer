@@ -805,7 +805,7 @@ const walletSessionToolDefinitions = [
   },
   {
     name: "use_saved_card",
-    description: "Privately use a saved Laso card or issue and use one with a single normal host approval. Choose checkout for a fixed managed Kernel browser plan or request for HTTP. Fixed HTTPS executor substitutes {{card.number}}, {{card.cvv}}, {{card.exp_month}}, {{card.exp_year}} and card.billing.* body fields. Execute the prepared operation_id. No owner unlock, shell, secrets or raw response output. HTTP success is not proof of payment.",
+    description: "Privately use a saved Laso card or issue and use one with a single normal host approval. Choose checkout for a fixed managed Kernel browser plan or request for HTTP. checkout.action=fill_only fills without clicking submit, then closes the session; omit submit/success selectors in this mode. Fixed HTTPS executor substitutes {{card.number}}, {{card.cvv}}, {{card.exp_month}}, {{card.exp_year}} and card.billing.* body fields. Execute the prepared operation_id. No owner unlock, shell, secrets or raw response output. HTTP success is not proof of payment.",
     parameters: {
       type: "object",
       properties: {
@@ -822,6 +822,7 @@ const walletSessionToolDefinitions = [
         },
         checkout: {
           type: "object", properties: {
+            action: { type: "string", enum: ["submit", "fill_only"], default: "submit", description: "fill_only fills privately without clicking submit, then closes the browser." },
             browser_reference: { type: "string", pattern: "^[a-f0-9]{32}$" }, page_url: { type: "string" },
             fields: { type: "array", minItems: 3, maxItems: 14, items: {
               type: "object", properties: {
@@ -832,7 +833,7 @@ const walletSessionToolDefinitions = [
             total_selector: { type: "string", maxLength: 512 }, expected_total: { type: "string", maxLength: 128 },
             amount_usd: { type: "string", pattern: "^[0-9]{1,6}(\\.[0-9]{1,2})?$" },
             submit_selector: { type: "string", maxLength: 512 }, success_selector: { type: "string", maxLength: 512 },
-          }, required: ["browser_reference", "page_url", "fields", "total_selector", "expected_total", "amount_usd", "submit_selector", "success_selector"], additionalProperties: false,
+          }, required: ["browser_reference", "page_url", "fields", "total_selector", "expected_total", "amount_usd"], additionalProperties: false,
         },
         request: {
           type: "object",

@@ -174,7 +174,7 @@ class OpenClawWalletAdapter:
             ),
             AgentToolSpec(
                 name="use_saved_card",
-                description="Privately use a saved Laso card, or issue and use one under a single host approval, through Kernel checkout or the fixed HTTPS executor. Choose checkout for a managed browser or request for HTTP. Preview/prepare an exact request with {{card.number}}, {{card.cvv}}, {{card.exp_month}}, {{card.exp_year}} or {{card.billing.name|line_1|line_2|city|state|zip|country}} body placeholders. Execute with operation_id and the normal wallet approval. No owner unlock, shell, raw response or secrets in output. HTTP success is not payment confirmation.",
+                description="Privately use a saved Laso card, or issue and use one under a single host approval, through Kernel checkout or the fixed HTTPS executor. Choose checkout for a managed browser or request for HTTP. checkout.action=fill_only fills without clicking submit, then closes the session; omit submit/success selectors in this mode. Preview/prepare an exact request with {{card.number}}, {{card.cvv}}, {{card.exp_month}}, {{card.exp_year}} or {{card.billing.name|line_1|line_2|city|state|zip|country}} body placeholders. Execute with operation_id and the normal wallet approval. No owner unlock, shell, raw response or secrets in output. HTTP success is not payment confirmation.",
                 input_schema={"type": "object", "properties": {
                     "mode": {"type": "string", "enum": ["preview", "prepare", "execute"], "default": "preview"},
                     "vault_reference": reference, "operation_id": reference,

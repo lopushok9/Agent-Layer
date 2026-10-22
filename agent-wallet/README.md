@@ -597,3 +597,11 @@ card in that same task. The backend fills privately, locks observations and
 closes the session after one attempt. Kernel and the merchant process the real
 card data; the model receives only safe status. No local browser installation
 is needed. See [the vault guide](CARD_VAULT.md) for limits and cleanup behavior.
+
+For a private fill rehearsal, set `checkout.action` to `fill_only` and omit
+`submit_selector` and `success_selector`. Keep the exact page, displayed USD
+total and card-field bindings. The usual preview/approval flow authorizes only
+that fill. The executor fills, checks the total again and closes the browser
+without clicking submit. `checkout_filled` and `private_fill_completed=true`
+report completion, not payment. No DOM or card values are returned. The page
+and Kernel still receive card data and may react to input events.
