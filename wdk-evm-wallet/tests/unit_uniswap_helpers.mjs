@@ -62,13 +62,13 @@ test("universal router allow-list has the expected addresses per network", () =>
 
 test("router execution profiles fail closed for an unapproved network/version pair", () => {
   assert.equal(UNISWAP_EXECUTION_PROFILES.robinhood.wrappedNative, "0x0bd7d308f8e1639fab988df18a8011f41eacad73");
-  assert.deepEqual(UNISWAP_EXECUTION_PROFILES.robinhood.ammProtocols, ["V3"]);
+  assert.deepEqual(UNISWAP_EXECUTION_PROFILES.robinhood.ammProtocols, ["V2", "V3", "V4"]);
   assert.equal(
-    resolveUniswapRouterExecutionProfile("robinhood", "2.0").router,
+    resolveUniswapRouterExecutionProfile("robinhood", "2.1.1").router,
     "0x8876789976decbfcbbbe364623c63652db8c0904"
   );
   assert.throws(
-    () => resolveUniswapRouterExecutionProfile("robinhood", "2.1.1"),
+    () => resolveUniswapRouterExecutionProfile("robinhood", "2.0"),
     (err) => err.errorCode === "uniswap_router_version_unsupported"
   );
 });
