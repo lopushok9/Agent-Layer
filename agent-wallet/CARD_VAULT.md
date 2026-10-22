@@ -549,3 +549,14 @@ It does not unlock the owner key or make an issuer/payment request. Legacy vault
 must be migrated first. Imported details are owner-provided, not issuer-verified;
 no balance or Laso retrieval credentials are fabricated. Optional billing fields
 are not inferred from the card. Use the returned reference with `use_saved_card`.
+
+### Private checkout diagnostics
+
+`checkout_diagnostics` contains only fixed phase/reason enums, number of fields
+filled, submit-attempt/completion booleans, visible validation/alert counts and
+allowlisted field/error categories. It never includes input values, DOM, page
+text, remote exceptions, stdout/stderr or arbitrary provider fields. The fixed
+executor computes diagnostics before closing the session; filled sessions stay
+inaccessible to general browser tools. A confirmation timeout remains
+`outcome_unknown` even when validation errors are detected; diagnostics do not
+permit automatic resubmission or establish a charge/refund outcome.

@@ -100,6 +100,35 @@ def validate_checkout(value: Any) -> dict[str, Any]:
     return result
 
 
+DIAGNOSTIC_PHASES = {"precheck", "fill", "verify_total", "submit", "confirmation", "complete", "transport"}
+DIAGNOSTIC_REASONS = {"precheck_failed", "page_changed", "fill_failed", "total_changed",
+                      "success_already_visible", "submit_failed", "confirmation_not_observed",
+                      "origin_changed", "completed", "executor_result_unavailable"}
+ERROR_CATEGORIES = {"card_declined", "card_invalid", "expiry_invalid", "cvv_invalid",
+                    "authentication_required", "demo_restriction"}
+FIELD_CATEGORIES = {"email", "name", "address", "postal_code", "phone", "card_number", "card_expiry", "card_cvv", "other"}
+
+
+def safe_checkout_diagnostics(value: Any) -> dict:
+    """Treat provider results as untrusted; never return free text or field values."""
+    if not isinstance(value, dict):
+        return {}
+    safe = {}
+    for key, allowed in (("phase", DIAGNOSTIC_PHASES), ("reason", DIAGNOSTIC_REASONS)):
+        if isinstance(value.get(key), str) and value[key] in allowed:
+            safe[key] = value[key]
+    for key, maximum in (("filled_fields", 14), ("invalid_fields", 1000), ("visible_alerts", 1000)):
+        if type(value.get(key)) is int and 0 <= value[key] <= maximum:
+            safe[key] = value[key]
+    for key in ("submit_attempted", "submit_completed"):
+        if type(value.get(key)) is bool:
+            safe[key] = value[key]
+    for key, allowed in (("invalid_field_categories", FIELD_CATEGORIES), ("error_categories", ERROR_CATEGORIES)):
+        if isinstance(value.get(key), list):
+            safe[key] = sorted({item for item in value[key][:32] if isinstance(item, str) and item in allowed})
+    return safe
+
+
 class KernelClient:
     def __init__(self, key: str | None = None):
         self.key = key or resolve_kernel_api_key()
@@ -309,28 +338,80 @@ for(let i=0;i<targets.length;i++) for(let j=i+1;j<targets.length;j++)
             try:
                 # Values are encoded as JSON data literals, never inserted as executable JS.
                 # No logs or errors escape this call. Kernel still processes the request.
-                code = "let fillStarted=false; try {\n" + self._check_code(plan) + "const values=" + _json(selected) + ";\n" + r"""
+                code = r"""
+let fillStarted=false, phase='precheck', filledFields=0, submitAttempted=false, submitCompleted=false;
+async function finish(outcome,reason){
+ const diagnostic={phase,reason,filled_fields:filledFields,submit_attempted:submitAttempted,submit_completed:submitCompleted};
+ let invalid=0, alerts=0; const categories=new Set(), errors=new Set();
+ // Read only inside the private executor; return fixed categories/counts, never text/values.
+ try {
+  for(const context of browser.contexts()) for(const page of context.pages()) for(const frame of page.frames().slice(0,20)) {
+   try {
+    const d=await frame.evaluate(()=>{
+     const visible=e=>!!e.getClientRects().length && getComputedStyle(e).visibility!=='hidden';
+     const invalid=Array.from(document.querySelectorAll('input:invalid,select:invalid,textarea:invalid,[aria-invalid="true"]')).filter(visible);
+     const categories=invalid.map(e=>{
+      const a=e.getAttribute('autocomplete')||'', id=e.id.toLowerCase();
+      if(a==='cc-number'||id==='cardnumber') return 'card_number';
+      if(a==='cc-exp'||id==='cardexpiry') return 'card_expiry';
+      if(a==='cc-csc'||id==='cardcvc') return 'card_cvv';
+      if(a.includes('email')||e.type==='email'||id==='email') return 'email';
+      if(a.includes('tel')||e.type==='tel'||id.includes('phone')) return 'phone';
+      if(a.includes('postal-code')||id.includes('postal')) return 'postal_code';
+      if(a.includes('name')||id.includes('name')) return 'name';
+      if(a.includes('address')||a.includes('country')||id.includes('shipping')) return 'address';
+      return 'other';
+     });
+     const text=(document.body?.innerText||'').slice(0,65536), errors=[];
+     if(/card (?:was |has been )?declined/i.test(text)) errors.push('card_declined');
+     if(/(?:invalid|incorrect) card number|card number is (?:invalid|incorrect|incomplete)/i.test(text)) errors.push('card_invalid');
+     if(/(?:invalid|incorrect|expired) expir|expir(?:y|ation).*?(?:invalid|incorrect|incomplete)/i.test(text)) errors.push('expiry_invalid');
+     if(/(?:security code|cvc|cvv).*?(?:invalid|incorrect|incomplete)/i.test(text)) errors.push('cvv_invalid');
+     if(/authentication required|verify your identity|3d secure/i.test(text)) errors.push('authentication_required');
+     if(/(?:payments?|checkout).*?(?:disabled|not supported).*?demo|cannot (?:pay|process).*?demo/i.test(text)) errors.push('demo_restriction');
+     return {invalid:invalid.length,categories,errors,alerts:Array.from(document.querySelectorAll('[role="alert"]')).filter(visible).length};
+    });
+    invalid+=d.invalid; alerts+=d.alerts; d.categories.forEach(x=>categories.add(x)); d.errors.forEach(x=>errors.add(x));
+   } catch (_) {}
+  }
+  diagnostic.invalid_fields=Math.min(1000,invalid); diagnostic.visible_alerts=Math.min(1000,alerts);
+  diagnostic.invalid_field_categories=[...categories]; diagnostic.error_categories=[...errors];
+ } catch (_) {}
+ return {outcome,diagnostic};
+}
+try {
+""" + self._check_code(plan) + "const values=" + _json(selected) + ";\n" + r"""
+phase='fill';
 for(let i=0;i<targets.length;i++) {
- if(p.url()!==plan.page_url) return {outcome:fillStarted?'unknown':'not_started'};
+ if(p.url()!==plan.page_url) return await finish(fillStarted?'unknown':'not_started','page_changed');
  const tag=await targets[i].evaluate(e=>e.tagName);
  // Input/change handlers may have effects even if this fill later fails.
  fillStarted=true;
  if(tag==='SELECT') await targets[i].selectOption(values[i]); else await targets[i].fill(values[i]);
+ filledFields++;
 }
-if(p.url()!==plan.page_url || (await total.innerText()).trim()!==plan.expected_total.trim()) return {outcome:'unknown'};
-if(await success.count()>1 || await success.isVisible()) return {outcome:'unknown'};
-await submit.click({timeout:8000});
+phase='verify_total';
+if(p.url()!==plan.page_url) return await finish('unknown','page_changed');
+if((await total.innerText()).trim()!==plan.expected_total.trim()) return await finish('unknown','total_changed');
+if(await success.count()>1 || await success.isVisible()) return await finish('unknown','success_already_visible');
+phase='submit'; submitAttempted=true;
+await submit.click({timeout:8000}); submitCompleted=true;
+phase='confirmation';
 await success.waitFor({state:'visible',timeout:20000});
-if(new URL(p.url()).origin!==new URL(plan.page_url).origin) return {outcome:'unknown'};
-return {outcome:'merchant_confirmation_observed'};
-} catch (_) { return {outcome:fillStarted?'unknown':'not_started'}; }
+if(new URL(p.url()).origin!==new URL(plan.page_url).origin) return await finish('unknown','origin_changed');
+phase='complete'; return await finish('merchant_confirmation_observed','completed');
+} catch (_) {
+ const reason={precheck:'precheck_failed',fill:'fill_failed',verify_total:'total_changed',submit:'submit_failed',confirmation:'confirmation_not_observed'}[phase]||'precheck_failed';
+ return await finish(fillStarted?'unknown':'not_started',reason);
+}
 """
                 result = await KernelClient().execute(state["session_id"], code)
                 outcome = result.get("outcome")
                 status = {"merchant_confirmation_observed": "checkout_submitted",
                           "not_started": "checkout_unavailable"}.get(outcome, "outcome_unknown")
                 return {"status": status,
-                        "merchant_confirmation_observed": outcome == "merchant_confirmation_observed"}
+                        "merchant_confirmation_observed": outcome == "merchant_confirmation_observed",
+                        "checkout_diagnostics": safe_checkout_diagnostics(result.get("diagnostic"))}
             finally:
                 await self.close(ref, state)
 

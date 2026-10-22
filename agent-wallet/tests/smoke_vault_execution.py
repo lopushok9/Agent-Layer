@@ -18,7 +18,7 @@ import httpx
 from agent_wallet.card_catalog import CardCatalog
 from agent_wallet.card_runtime_secrets import CardRuntimeSecrets
 from agent_wallet.card_vault import CardVault
-from agent_wallet.kernel_browser import KernelBrowser
+from agent_wallet.kernel_browser import KernelBrowser, safe_checkout_diagnostics
 from agent_wallet.laso_card_vault import capture_request
 from agent_wallet.vault_executor import VaultExecutor, resolve_public_destination
 from smoke_card_vault import FakeSystemStore, READY, PAN
@@ -131,7 +131,7 @@ class ExecutionChecks(unittest.IsolatedAsyncioTestCase):
         selected = browser.select_fields(plan, fields)
         client = Mock()
         client.call = AsyncMock(return_value={})
-        for scenario, expected in (("changed", "checkout_unavailable"), ("fill_error", "outcome_unknown"), ("success", "checkout_submitted")):
+        for scenario, expected in (("changed", "checkout_unavailable"), ("fill_error", "outcome_unknown"), ("submit_error", "outcome_unknown"), ("confirmation_timeout", "outcome_unknown"), ("success", "checkout_submitted")):
             with self.subTest(scenario=scenario):
                 browser.storage.save(plan["browser_reference"], {"status": "reserved", "operation_id": "op", "session_id": "fixture"})
                 async def run_script(session, code):
@@ -140,13 +140,13 @@ const scenario=SCENARIO;
 let filled=false, clicked=false;
 const handle={};
 const p={url:()=> 'https://merchant.example/checkout',setDefaultTimeout:()=>{},
- mainFrame:()=>p,frames:()=>[p],locator:s=>({
+ mainFrame:()=>p,frames:()=>[p],evaluate:async()=>({invalid:scenario==='confirmation_timeout'?1:0,categories:scenario==='confirmation_timeout'?['phone']:[],errors:[],alerts:0}),locator:s=>({
  count:async()=>s==='#success'?(clicked?1:0):1,
  innerText:async()=>scenario==='changed'?'$29.99':'$19.99',
  isVisible:async()=>s!=='#success'||clicked,isEnabled:async()=>true,isEditable:async()=>true,
  evaluate:async(fn,other)=>other?false:'INPUT',elementHandle:async()=>handle,
  fill:async()=>{filled=true;if(scenario==='fill_error')throw Error('fixture');},
- selectOption:async()=>{},click:async()=>{clicked=true;},waitFor:async()=>{}
+ selectOption:async()=>{},click:async()=>{if(scenario==='submit_error')throw Error('fixture');clicked=true;},waitFor:async()=>{if(scenario==='confirmation_timeout')throw Error('fixture');}
  })};
 const browser={contexts:()=>[{pages:()=>[p]}]};
 (async()=>{const result=await (async()=>{CODE})();process.stdout.write(JSON.stringify({result,filled,clicked}));})().catch(()=>process.exit(1));
@@ -164,8 +164,30 @@ const browser={contexts:()=>[{pages:()=>[p]}]};
                 with patch("agent_wallet.kernel_browser.KernelClient", return_value=client):
                     result = await browser.checkout(plan, selected, "op")
                 self.assertEqual(result["status"], expected)
+                diagnostic = result["checkout_diagnostics"]
+                expected_phase = {"changed": "precheck", "fill_error": "fill", "submit_error": "submit", "confirmation_timeout": "confirmation", "success": "complete"}[scenario]
+                self.assertEqual(diagnostic["phase"], expected_phase)
+                self.assertEqual(diagnostic["filled_fields"], 0 if scenario in {"changed", "fill_error"} else 3)
+                if scenario == "confirmation_timeout":
+                    self.assertTrue(diagnostic["submit_completed"])
+                    self.assertEqual(diagnostic["invalid_field_categories"], ["phone"])
+                    self.assertEqual(diagnostic["reason"], "confirmation_not_observed")
                 self.assertEqual(browser.storage.load(plan["browser_reference"])["status"], "closed")
                 self.assertNotIn(PAN, json.dumps(result))
+
+    def test_checkout_diagnostics_drop_all_free_text_and_unknown_fields(self):
+        raw = {"phase": "confirmation", "reason": "confirmation_not_observed", "filled_fields": 3,
+               "submit_attempted": True, "submit_completed": True,
+               "invalid_field_categories": ["phone", PAN, {"secret": PAN}],
+               "error_categories": ["card_declined", PAN], "body": PAN, "stdout": PAN,
+               "invalid_fields": True, "visible_alerts": -1}
+        safe = safe_checkout_diagnostics(raw)
+        self.assertEqual(safe["invalid_field_categories"], ["phone"])
+        self.assertEqual(safe["error_categories"], ["card_declined"])
+        self.assertNotIn(PAN, json.dumps(safe))
+        self.assertNotIn("body", safe)
+        self.assertNotIn("invalid_fields", safe)
+        self.assertNotIn("visible_alerts", safe)
 
 
 if __name__ == "__main__":

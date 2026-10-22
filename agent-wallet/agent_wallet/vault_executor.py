@@ -234,6 +234,8 @@ class VaultExecutor:
 
     @staticmethod
     def safe(reference: str, state: dict[str, Any]) -> dict[str, Any]:
+        from agent_wallet.kernel_browser import safe_checkout_diagnostics
+
         status = state.get("status")
         if status not in FINAL_STATES and status not in {"dispatching", "issuing"} and time.time() >= state["valid_until"]:
             status = "expired"
@@ -249,6 +251,7 @@ class VaultExecutor:
             "last_attempt_not_sent": state.get("last_attempt_not_sent", False),
             "secrets_returned": False, "payment_confirmed": False,
             "merchant_confirmation_observed": state.get("merchant_confirmation_observed", False),
+            "checkout_diagnostics": safe_checkout_diagnostics(state.get("checkout_diagnostics")),
         }
 
     def get(self, reference: str) -> dict[str, Any]:
@@ -437,7 +440,10 @@ class VaultExecutor:
             self.storage.save(reference, state)
             raise
         except Exception:
-            state["status"] = "outcome_unknown" if state["status"] == "dispatching" else "checkout_unavailable"
+            dispatched = state["status"] == "dispatching"
+            state["status"] = "outcome_unknown" if dispatched else "checkout_unavailable"
+            if dispatched:
+                state["checkout_diagnostics"] = {"phase": "transport", "reason": "executor_result_unavailable"}
         finally:
             selected.clear()
             fields.clear()

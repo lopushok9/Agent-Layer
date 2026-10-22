@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.127 - 2026-10-22 (local release)
+
+- Add safe private-checkout diagnostics: fixed stage/reason codes, field counts,
+  submit flags and allowlisted validation categories, without DOM, values or
+  provider error text. Keep uncertain outcomes non-repeatable.
+- Cover precheck/fill/submit/confirmation failures and diagnostic redaction in
+  offline regression tests.
+
 ## v0.1.126 - 2026-10-22 (local release)
 
 - Add `wallet vault import --card-type us|international` for existing cards with
