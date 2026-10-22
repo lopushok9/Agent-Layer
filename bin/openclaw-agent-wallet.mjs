@@ -54,7 +54,7 @@ Usage:
   openclaw-agent-wallet rollback [--to <version>]
   openclaw-agent-wallet doctor
   openclaw-agent-wallet connectors <command>
-  openclaw-agent-wallet vault <status|list|show|reveal|refresh|remove|migrate|kernel-connect|kernel-status|kernel-disconnect> [reference] [--user-id <id>]
+  openclaw-agent-wallet vault <import|status|list|show|reveal|refresh|remove|migrate|kernel-connect|kernel-status|kernel-disconnect> [reference] [--user-id <id>]
   openclaw-agent-wallet --version
 
 Common install options:

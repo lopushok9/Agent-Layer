@@ -538,3 +538,14 @@ responses discard their provisional record and retain the original x402 status
 and response, so issuer validation/rate-limit errors do not become catalog cards.
 Combined issuance/use refuses to prepare an operation from a failed issuer response.
 Transport exceptions still preserve an encrypted receipt for outcome review.
+
+## Import an existing card
+
+`wallet vault import --card-type us` (or `international`) accepts PAN, expiry
+and CVV through hidden input in the owner's terminal. It does not accept secret
+arguments, redirected input, or echoed fallback input. It writes an owner-sealed
+record and runtime use capsule and prints only catalog metadata/last4/reference.
+It does not unlock the owner key or make an issuer/payment request. Legacy vaults
+must be migrated first. Imported details are owner-provided, not issuer-verified;
+no balance or Laso retrieval credentials are fabricated. Optional billing fields
+are not inferred from the card. Use the returned reference with `use_saved_card`.

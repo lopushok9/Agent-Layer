@@ -63,12 +63,15 @@ def import_owner_record(vault: CardVault, reference: str, record: dict) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="wallet vault")
-    parser.add_argument("command", choices=["kernel-connect", "kernel-status", "kernel-disconnect", "provision", "init", "migrate", "status", "list", "show", "reveal", "refresh", "remove", "change-password"])
+    parser.add_argument("command", choices=["kernel-connect", "kernel-status", "kernel-disconnect", "import", "provision", "init", "migrate", "status", "list", "show", "reveal", "refresh", "remove", "change-password"])
     parser.add_argument("reference", nargs="?")
     parser.add_argument("--user-id", default=None)
     parser.add_argument("--output", type=Path, help="Explicitly export card details to a NEW private JSON file (reveal only).")
+    parser.add_argument("--card-type", choices=["us", "international"], default=None, help="Imported card type (import only, default us).")
     args = parser.parse_args(argv)
     try:
+        if args.card_type is not None and args.command != "import":
+            raise WalletBackendError("--card-type is only valid with import.")
         if args.command.startswith("kernel-"):
             if args.reference or args.output or args.user_id:
                 raise WalletBackendError("Kernel connection is shared by the local runtime and accepts no card arguments.")
@@ -79,6 +82,13 @@ def main(argv: list[str] | None = None) -> int:
             raise WalletBackendError("--output is only valid with reveal.")
         if args.command in {"show", "reveal", "refresh", "remove"} and not args.reference:
             raise WalletBackendError("A vault reference is required.")
+        if args.command == "import":
+            if args.reference:
+                raise WalletBackendError("Import accepts no card credentials or reference as arguments.")
+            from agent_wallet.card_vault_import import import_interactive
+            card_type = "Non-Reloadable International" if args.card_type == "international" else "Non-Reloadable U.S."
+            print(json.dumps(import_interactive(vault, card_type), indent=2))
+            return 0
         if args.command == "status":
             config = vault._config() if vault.config_path.exists() else {}
             print(json.dumps({"initialized": bool(config), "protection": config.get("protection", "legacy-password" if config else None), "scope": vault.scope, "path": str(vault.root)}))

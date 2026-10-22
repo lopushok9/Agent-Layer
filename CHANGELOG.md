@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.126 - 2026-10-22 (local release)
+
+- Add `wallet vault import --card-type us|international` for existing cards with
+  hidden owner terminal input, validated number/expiry/CVV, encrypted receipt
+  and runtime-use storage, masked output and cleanup after partial failures.
+- Verify the live Kernel browser connection against the official Stripe demo,
+  including payment-field iframe discovery; no real card values or charge sent.
+
 ## v0.1.125 - 2026-10-22 (local release)
 
 ### Private card vault
