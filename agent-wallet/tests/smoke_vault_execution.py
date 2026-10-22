@@ -196,7 +196,7 @@ const browser={contexts:()=>[{pages:()=>[p]}]};
         plan.pop("submit_selector")
         plan.pop("success_selector")
         self.assertEqual(validate_checkout(plan)["action"], "fill_only")
-        for total in ("Donate $19.99", "Pay $19.99"):
+        for total in ("Donate $19.99", "Pay $19.99", "DONATE $19.99", "PAY $19.99"):
             self.assertEqual(validate_checkout(dict(plan, expected_total=total))["expected_total"], total)
         for total in ("Donate $29.99", "Donate $19.99 monthly", "Pay $19.99 + $2"):
             with self.assertRaises(Exception):

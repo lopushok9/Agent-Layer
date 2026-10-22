@@ -85,7 +85,7 @@ def validate_checkout(value: Any) -> dict[str, Any]:
     total = result["expected_total"]
     if not isinstance(total, str) or len(total) > 128:
         raise WalletBackendError("Provide the exact displayed USD total.")
-    match = re.fullmatch(r"(?:USD\s*\$?|US\$|\$)\s*([0-9]+(?:\.[0-9]{2})?)|([0-9]+(?:\.[0-9]{2})?)\s*USD", re.sub(r"^(?:Donate|Pay)\s+", "", total.strip()))
+    match = re.fullmatch(r"(?:USD\s*\$?|US\$|\$)\s*([0-9]+(?:\.[0-9]{2})?)|([0-9]+(?:\.[0-9]{2})?)\s*USD", re.sub(r"^(?:Donate|Pay)\s+", "", total.strip(), flags=re.IGNORECASE))
     if not match or Decimal(match.group(1) or match.group(2)) != Decimal(amount):
         raise WalletBackendError("expected_total must be an unambiguous USD price matching amount_usd, e.g. $19.99 or 19.99 USD.")
     fields = result["fields"]

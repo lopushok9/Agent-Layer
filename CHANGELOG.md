@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.130 - 2026-10-22 (local release)
+
+- Accept uppercase Pay/Donate prefixes in displayed totals (CSS text transforms);
+  retain exact full-label comparisons before and after private filling.
+
 ## v0.1.129 - 2026-10-22 (local release)
 
 - Accept exact `Donate $1` / `Pay $19.99` total button labels while retaining
