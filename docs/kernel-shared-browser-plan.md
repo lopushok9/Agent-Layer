@@ -1,9 +1,10 @@
 # Shared Kernel browsers: upgrade and installation contract
 
-Status: stable 0.1.131 candidate. Broker deployed to Railway with a persistent
-volume. Real two-browser isolation/scoped-key/expiry checks and isolated macOS
-upgrades from published 0.1.53 and 0.1.124 passed on 2026-10-23. Public capability
-is enabled by the operator after release gates pass.
+Status: stable releases 0.1.131 and 0.1.132 published on 2026-10-23. The latter
+adds a Windows backend startup compatibility fix. Shared Kernel is enabled on
+Railway with a persistent volume. Real browser isolation, production automatic
+client access and cleanup, published-package upgrades, and macOS/Linux/Windows
+keystore checks passed.
 
 ## Product requirement
 
@@ -101,6 +102,17 @@ Acceptance evidence (2026-10-23):
   upgrading; no real user data or login Keychain is accessed. The old 0.1.53
   bootstrap lacks its FastMCP dependency, so only its historical handshake is
   skipped during fixture reconstruction; candidate verification remains enabled.
+- Final 0.1.132 upgrades also passed locally from both public source versions,
+  including encrypted EVM vault decryption and an unchanged seed-derived address
+  and wallet ID. Both used the exact final archive (SHA-256
+  `76e0a63963949939314600ab89d6ff87ce9bb2f7fa8dd7b1926209da70712d84`).
+- Production shared access passed without a personal Kernel key: signed Railway
+  allocation, direct scoped Playwright calls, page observation and confirmed
+  browser deletion. No card data or payment was used in these probes.
+- Local installation into all five managed hosts finished at 0.1.132; 69 existing
+  wallet/vault/secret files retained identical hashes after installation.
+- Windows DPAPI and the complete keystore matrix passed after loading POSIX
+  vault locks lazily. Unsupported vault writes fail before creating files.
 - Native macOS ACL checks passed in a disposable keychain without changing the
   user's login/default keychain. Full payment/3DS success is outside these checks.
 - Both published upgrade paths and offline vault/broker tests gate stable npm
@@ -114,3 +126,12 @@ Acceptance evidence (2026-10-23):
 - https://www.kernel.sh/docs/info/projects
 - https://www.kernel.sh/docs/security
 - https://www.kernel.sh/docs/browsers/profiles
+
+## Published evidence
+
+- Stable release and checksums: https://github.com/lopushok9/Agent-Layer/releases/tag/v0.1.132
+- Release verification, both isolated Ubuntu upgrades and npm publication:
+  https://github.com/lopushok9/Agent-Layer/actions/runs/40020328791
+- macOS, Linux and Windows keystore matrix:
+  https://github.com/lopushok9/Agent-Layer/actions/runs/40020324459
+- Production capability: https://agent-layer-production.up.railway.app/v1/kernel/capabilities
