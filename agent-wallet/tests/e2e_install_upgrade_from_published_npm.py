@@ -14,6 +14,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -136,7 +137,8 @@ def main() -> None:
     new_version = (REPO_ROOT / "VERSION").read_text(encoding="utf-8").strip()
     assert new_version != old_version
 
-    temp_root = Path(tempfile.mkdtemp(prefix="agentlayer-published-upgrade-"))
+    # Keep per-home Unix socket paths below the macOS sun_path limit as well.
+    temp_root = Path(tempfile.mkdtemp(prefix="al-upgrade-", dir="/tmp"))
     atexit.register(shutil.rmtree, temp_root, ignore_errors=True)
     home = temp_root / "home"
     openclaw_home = home / ".openclaw"
@@ -158,6 +160,9 @@ def main() -> None:
             "AGENT_WALLET_KEYSTORE_SERVICE": "ai.agentlayer.wallet.published-upgrade-test",
             "AGENT_WALLET_NO_TELEMETRY": "1",
             "USER": USER_ID,
+            "AGENT_WALLET_USER_ID": USER_ID,
+            "OPENCLAW_AGENT_WALLET_USER_ID": USER_ID,
+            "OPENCLAW_AGENT_WALLET_PYTHON": sys.executable,
             "AGENT_WALLET_DISABLE_UPDATE_CHECK": "1",
             "npm_config_cache": str(temp_root / "npm-cache"),
             "PIP_DEFAULT_TIMEOUT": "120",
@@ -195,6 +200,12 @@ def main() -> None:
         "AGENT_WALLET_MASTER_KEY": "published-floor-test-master-key",
         "AGENT_WALLET_APPROVAL_SECRET": "published-floor-test-approval-secret",
     }
+    # 0.1.53 predates the required FastMCP dependency in pyproject.toml. This
+    # bootstrap reconstructs an existing old installation, not a new-user
+    # acceptance test of that historical release. Only its MCP handshake is
+    # skipped; the candidate installation below runs all verification normally.
+    if old_version == '0.1.53':
+        old_install_env['AGENT_WALLET_VERIFY_DISABLE'] = '1'
 
     run(
         [
@@ -266,7 +277,7 @@ secrets = unseal_keys(boot)
 secrets['kernel_api_key'] = 'isolated-existing-personal-key'
 seal_keys(boot, secrets)
 print(json.dumps({'ref': ref, 'root': str(vault.root)}))
-''', runtime_root=old_root, env=fixture_env)
+''', runtime_root=candidate_package.parent, env=fixture_env)
     vault_root = Path(str(seed['root']))
     preserved_files = {p: sha256_file(p) for p in vault_root.iterdir() if p.is_file()}
     # Include encrypted EVM seed/config files created by the original installer.
