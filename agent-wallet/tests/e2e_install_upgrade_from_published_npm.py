@@ -132,6 +132,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--old-version', default=OLD_VERSION)
     parser.add_argument('--candidate', type=Path, help='Exact previously packed release artifact')
+    parser.add_argument('--evm-dependencies', type=Path,
+                        help='Optional read-only SDK dependency cache for encrypted EVM identity verification')
     args = parser.parse_args()
     old_version = args.old_version
     new_version = (REPO_ROOT / "VERSION").read_text(encoding="utf-8").strip()
@@ -255,6 +257,31 @@ def main() -> None:
     old_address = str(created["address"])
     assert wallet_path.is_file()
     wallet_hash_before = sha256_file(wallet_path)
+    evm_identity = None
+    evm_probe = '''
+import { LocalEvmVault } from './src/local_vault.js';
+import { HDNodeWallet } from 'ethers';
+const [dataDir, existingId] = process.argv.slice(2);
+const vault = new LocalEvmVault({dataDir, network: 'base'});
+const walletId = existingId || (await vault.createWallet({password: 'isolated-evm-password', network: 'base'})).walletId;
+const value = await vault.revealSeedPhrase({walletId, password: 'isolated-evm-password'});
+const address = HDNodeWallet.fromPhrase(value.seedPhrase).address;
+console.log(JSON.stringify({walletId, address}));
+'''
+    def probe_evm(root, wallet_id=''):
+        project = root / 'wdk-evm-wallet'
+        dependencies = project / 'node_modules'
+        if not dependencies.exists():
+            dependencies.symlink_to(args.evm_dependencies.resolve(), target_is_directory=True)
+        script = project / 'upgrade-identity-probe.mjs'
+        script.write_text(evm_probe)
+        try:
+            return json.loads(run(['node', str(script), str(openclaw_home / 'wdk-evm-wallet'), wallet_id],
+                                  cwd=project, env=env, timeout=180).stdout)
+        finally:
+            script.unlink(missing_ok=True)
+    if args.evm_dependencies:
+        evm_identity = probe_evm(old_root)
     # These old public releases predate card custody. Seed an already-existing
     # encrypted vault using the candidate's format, then exercise the real
     # installer over it. No real card, OS Keychain or developer state is used.
@@ -356,6 +383,8 @@ assert resolve_kernel_api_key() == 'isolated-existing-personal-key'
 print(json.dumps({{'vault_decrypted': True}}))
 ''', runtime_root=new_root, env=env)
     assert restored['vault_decrypted'] is True
+    if evm_identity:
+        assert probe_evm(new_root, evm_identity['walletId']) == evm_identity, 'EVM seed/address changed'
 
     new_env_path = new_root / "agent-wallet" / ".env"
     if new_env_path.exists():
@@ -366,6 +395,8 @@ print(json.dumps({{'vault_decrypted': True}}))
         f"{old_version} -> {new_version}, wallets, boot key, encrypted vault, operations, personal Kernel key and settings preserved; "
         f"candidate sha256={sha256_file(new_archive)}"
     )
+    if evm_identity:
+        print('Encrypted EVM vault decrypted with the candidate; seed-derived address and wallet ID unchanged')
 
 
 if __name__ == "__main__":
