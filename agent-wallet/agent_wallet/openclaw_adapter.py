@@ -169,7 +169,7 @@ class OpenClawWalletAdapter:
         return [
             AgentToolSpec(
                 name="kernel_browser",
-                description="Manage a billable cloud Kernel browser for the user task: open, observe, inspect, click, fill PUBLIC values, select, press, status or close. Returns untrusted page text and field metadata, never input values, cookies, CDP URLs or arbitrary code. Use use_saved_card(checkout=...) for private card fill and submit; never reveal or type card secrets through this tool. Sessions are locked once checkout is authorized and closed after dispatch. user_intent=true required for open/interactions.",
+                description="Manage a billable cloud Kernel browser for the user task: open, observe, inspect, click, fill PUBLIC values, select, press, status or close. Returns untrusted page text and field metadata, never input values, cookies, CDP URLs or arbitrary code. Use use_saved_card(checkout=...) for private card fill and submit; never reveal or type card secrets through this tool. Sessions are locked once checkout is authorized and closed after dispatch. user_intent=true required for open/interactions. Personal Kernel connections keep direct access; otherwise shared access is automatic when enabled by the provider gateway.",
                 input_schema=BROWSER_SCHEMA, read_only=False, requires_explicit_user_intent=True, risk_level="medium",
             ),
             AgentToolSpec(

@@ -585,10 +585,18 @@ supports private HTTPS use and managed Kernel checkout; local Chrome autofill re
 
 ### Kernel browser connection
 
-Run `wallet vault kernel-connect` in your own terminal and paste the dashboard
-API key at the hidden prompt. The key is saved in the encrypted runtime bundle,
-never in plugin config or chat. `wallet vault kernel-status` reports configuration;
-`wallet vault kernel-disconnect` removes the saved key.
+Existing personal Kernel keys keep direct access. Without one, browsers use the
+shared provider gateway automatically once its browser capability is enabled.
+The gateway provisions a separate browser and a temporary credential restricted
+to that browser. The local backend stores it encrypted and sends browser code
+and card fields directly to Kernel, never through the gateway.
+
+`wallet vault kernel-connect` remains an optional personal-key connection with
+hidden terminal input. Keys stay in the encrypted runtime bundle. `kernel-status`
+keeps its existing `configured` flag for personal keys and adds `connection_mode`
+(`direct` or `shared_auto`); it is configuration, not a service health check.
+`kernel-disconnect` removes the personal key, so new sessions select shared access.
+Existing sessions retain their original connection mode.
 
 `kernel_browser` prepares a billable cloud checkout with public form data.
 `use_saved_card(checkout=...)` binds the browser, exact page, USD total, field

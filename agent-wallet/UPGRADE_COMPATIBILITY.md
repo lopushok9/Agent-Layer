@@ -29,6 +29,15 @@ Raising the floor requires all of the following:
 
 ## Safety Rules
 
+Shared Kernel access is additive: personal keys and old browser records retain
+their direct-connection meaning. New shared records add a fixed connection mode,
+gateway origin, lease ID, expiry and encrypted session key. Never rewrite an
+existing operation or approval summary to select shared access. Installation
+identity is a separate encrypted `browser_identity` record; old versions ignore
+it. Wallet keys and vault recipients do not change. Existing provider routes and
+their authentication are preserved. The direct-upgrade floor remains `0.1.53`.
+Release gates in `../docs/kernel-shared-browser-plan.md` remain to be exercised.
+
 - Legacy adoption requires independent registration and manifest evidence.
 - Unknown or externally managed integrations are never adopted automatically.
 - Compatibility paths must not weaken boot-key, sealed-state, approval, or

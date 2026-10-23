@@ -79,9 +79,12 @@ or attempt to evade the exact operation approval.
 
 If a browser is needed, use `kernel_browser` to open the merchant URL with
 `user_intent=true`, inspect public content/field metadata, and complete ordinary
-public setup. Kernel is a billable cloud browser. The owner connects once with
-`wallet vault kernel-connect` and enters the API key at a hidden terminal prompt;
-never ask for the key in chat or pass it through tool arguments.
+public setup. Kernel is a billable cloud browser. Existing personal keys keep
+direct access; otherwise shared access is automatic when the provider gateway
+enables it. No Kernel account or key entry is needed for shared access. Report
+a temporary gateway outage as a service error, not a request to enter a key.
+`wallet vault kernel-connect` remains an optional personal connection with hidden
+terminal input. Never ask for a key in chat or tool arguments.
 
 Use `use_saved_card` with `checkout` instead of `request`. Bind the returned
 `browser_reference`, exact `page_url`, `fields` (card field name plus selector,

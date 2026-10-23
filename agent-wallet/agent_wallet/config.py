@@ -632,6 +632,26 @@ def resolve_kernel_api_key() -> str:
     return _resolve_sealed_secret("kernel_api_key")
 
 
+def resolve_kernel_gateway_url() -> str:
+    """Reuse the existing public gateway setting; no new install-time prompt."""
+    from urllib.parse import urlsplit
+
+    value = os.getenv("PROVIDER_GATEWAY_URL", settings.provider_gateway_url).strip().rstrip("/")
+    try:
+        parsed = urlsplit(value)
+        local = parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+        if (not value.isascii() or any(ord(c) <= 32 for c in value) or "\\" in value
+                or not parsed.hostname or parsed.username is not None or parsed.password is not None
+                or parsed.query or parsed.fragment or "%" in parsed.path
+                or any(part in {".", ".."} for part in parsed.path.split("/"))
+                or (parsed.scheme != "https" and not (local and parsed.scheme == "http"))):
+            raise ValueError()
+        parsed.port
+    except ValueError:
+        raise RuntimeError("Shared browser gateway requires an HTTPS origin (HTTP is allowed only on localhost).") from None
+    return value
+
+
 def resolve_wallet_master_key() -> str:
     """Resolve the master key used for encrypting per-user wallet files."""
     _reject_legacy_runtime_secret_env("AGENT_WALLET_MASTER_KEY")

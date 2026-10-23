@@ -416,7 +416,29 @@ Kernel runs the browser in its cloud. No local Chromium, Playwright installation
 Kernel SDK or Vercel browser account is required; the wallet uses the fixed
 `https://api.onkernel.com` REST API with the existing HTTP client.
 
-Connect once in the owner's terminal:
+Existing personal connections retain direct access. Without a personal key,
+the runtime automatically uses shared access through `providerGatewayUrl` /
+`PROVIDER_GATEWAY_URL` when the gateway advertises `agentlayer-kernel-v1`.
+The default gateway URL is already supplied by the installer. No new host config,
+Kernel account, user API key, or vault migration is required for shared setup.
+
+The gateway authenticates an automatically generated per-runtime-user Ed25519
+identity, creates a browser without a profile, and returns a temporary key scoped
+only to that browser. The identity and temporary key stay encrypted locally;
+neither appears in tool output. Browser code and PAN/CVV go directly over TLS to
+Kernel. The gateway handles provisioning and cleanup only. Kernel and Kernel
+organization administrators remain trusted processors.
+
+Connection mode is fixed at browser creation. Old browser records remain direct
+and approval summaries are never rewritten. Shared leases have an absolute
+server lifetime independent of activity while the gateway worker is running.
+Cleanup deletes the browser and revokes
+its key: key expiry alone does not invalidate existing connection URLs. Client
+close may leave `cleanup_pending=true` during outages; the server worker retries.
+Neither checkout nor allocation is automatically repeated after an uncertain
+response. A service outage does not require a user to obtain a personal API key.
+
+Optional personal connection in the owner's terminal:
 
 ```bash
 wallet vault kernel-connect

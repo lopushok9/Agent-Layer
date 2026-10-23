@@ -144,7 +144,7 @@ class KernelClient:
     def __init__(self, key: str | None = None):
         self.key = key or resolve_kernel_api_key()
         if not self.key:
-            raise WalletBackendError("Connect Kernel in your terminal: wallet vault kernel-connect")
+            raise WalletBackendError("This direct Kernel session needs its original personal connection. It was not moved to the shared service.")
 
     async def call(self, method: str, path: str, body: Any = None, *, missing_ok: bool = False) -> dict:
         try:
@@ -204,7 +204,19 @@ class KernelBrowser:
 
     def safe(self, ref: str, state: dict) -> dict:
         return {"browser_reference": ref, "status": state["status"], "cleanup_pending": bool(state.get("cleanup_pending")),
-                "secrets_returned": False, "provider": "kernel"}
+                "secrets_returned": False, "provider": "kernel",
+                "connection_mode": state.get("connection_mode", "direct")}
+
+    @staticmethod
+    def client(state: dict) -> KernelClient:
+        if state.get("connection_mode", "direct") == "direct":
+            return KernelClient()
+        key = state.get("session_key")
+        if state.get("connection_mode") != "shared" or not isinstance(key, str) or not key:
+            raise WalletBackendError("Shared browser credentials are unavailable; no replacement session was opened.")
+        if time.time() >= state.get("lease_expires_at", 0):
+            raise WalletBackendError("Shared browser session expired; no private request was sent.")
+        return KernelClient(key=key)
 
     async def close(self, ref: str, state: dict) -> None:
         state["status"] = "closed"
@@ -216,8 +228,15 @@ class KernelBrowser:
 
     async def _delete_remote(self, ref: str, state: dict) -> None:
         try:
-            await KernelClient().call("DELETE", "/browsers/" + quote(state["session_id"], safe=""), missing_ok=True)
+            if state.get("connection_mode") == "shared":
+                from agent_wallet.kernel_gateway import KernelGateway
+                closed = await KernelGateway(self.vault, state["gateway_url"]).close(state["lease_id"])
+                if not closed:
+                    return
+            else:
+                await KernelClient().call("DELETE", "/browsers/" + quote(state["session_id"], safe=""), missing_ok=True)
             state["cleanup_pending"] = False
+            state.pop("session_key", None)
             self.storage.save(ref, state)
         except Exception:
             pass  # Retry via close; remote session also has a short inactivity TTL.
@@ -233,19 +252,33 @@ class KernelBrowser:
                 raise WalletBackendError("Opening a billable Kernel browser requires user_intent=true.")
             from agent_wallet.vault_executor import _url, resolve_public_destination
             await resolve_public_destination(_url(args.get("url")))
+            if not self.vault.config_path.exists():
+                self.vault.ensure_system()  # Missing runtime-user vault, no owner unlock/UI.
             self.vault._config()
             self.storage._key()  # Require working encryption before creating a paid resource.
             ref = uuid.uuid4().hex
-            client = KernelClient()
-            data = await client.call("POST", "/browsers", {"headless": True, "timeout_seconds": 300,
-                                                          "telemetry": {"enabled": False}})
-            session = data.get("session_id")
-            if not isinstance(session, str) or not 1 <= len(session) <= 256:
-                raise WalletBackendError("Kernel did not return a usable browser session.")
-            state = {"status": "open", "session_id": session, "created_at": int(time.time())}
+            state = {"status": "allocating", "created_at": int(time.time())}
             try:
+                if resolve_kernel_api_key():
+                    # Existing personal keys and old browser records retain the
+                    # original direct path. Shared access is selected only here.
+                    data = await KernelClient().call("POST", "/browsers", {
+                        "headless": True, "timeout_seconds": 300, "telemetry": {"enabled": False}})
+                    session = data.get("session_id")
+                    if not isinstance(session, str) or not 1 <= len(session) <= 256:
+                        raise WalletBackendError("Kernel did not return a usable browser session.")
+                    state.update(connection_mode="direct", session_id=session)
+                else:
+                    from agent_wallet.kernel_gateway import KernelGateway
+                    gateway = KernelGateway(self.vault)
+                    state.update(connection_mode="shared", gateway_url=gateway.url, lease_id=ref)
+                    # Durable allocation identity BEFORE the billable request.
+                    # A lost response is closed by this lease, never reallocated.
+                    self.storage.save(ref, state)
+                    state.update(await gateway.allocate(ref))
+                state["status"] = "open"
                 self.storage.save(ref, state)
-                result = await client.execute(session, PAGE + "await p.goto(" + _json(args["url"]) + ", {waitUntil:'domcontentloaded',timeout:30000});\n" + SNAPSHOT)
+                result = await self.client(state).execute(state["session_id"], PAGE + "await p.goto(" + _json(args["url"]) + ", {waitUntil:'domcontentloaded',timeout:30000});\n" + SNAPSHOT)
             except BaseException:
                 await self.close(ref, state)
                 raise
@@ -273,7 +306,7 @@ class KernelBrowser:
             if action == "inspect":
                 selector = _selector(args.get("selector"))
                 code += "return {elements:await p.locator(" + _json(selector) + ").evaluateAll(es=>es.slice(0,40).map(e=>{const c=e.cloneNode(true); c.querySelectorAll('input,textarea,select,script,style').forEach(x=>x.remove()); return {tag:e.tagName,id:e.id,testid:e.getAttribute('data-testid'),text:['INPUT','TEXTAREA','SELECT'].includes(e.tagName)?'':String(c.textContent||'').replace(/(?:\\d[ -]?){12,19}/g,'[redacted]').slice(0,512)};}))};"
-                result = await KernelClient().execute(state["session_id"], code)
+                result = await self.client(state).execute(state["session_id"], code)
                 return {**self.safe(ref, state), "page": result, "untrusted_page_content": True}
             if action != "observe":
                 if args.get("user_intent") is not True:
@@ -286,7 +319,7 @@ class KernelBrowser:
                     raise WalletBackendError("Unsupported browser key.")
                 method = {"click": "click", "fill": "fill", "select": "selectOption", "press": "press"}[action]
                 code += "const el=p.locator(" + _json(selector) + "); if(await el.count()!==1) throw new Error('target count'); await el." + method + "(" + (_json(value) if action != "click" else "") + ");\n"
-            result = await KernelClient().execute(state["session_id"], code + SNAPSHOT)
+            result = await self.client(state).execute(state["session_id"], code + SNAPSHOT)
             return {**self.safe(ref, state), "page": result, "untrusted_page_content": True}
 
     async def preflight(self, plan: dict, *, operation_id: str | None = None) -> None:
@@ -295,7 +328,7 @@ class KernelBrowser:
             state = self.storage.load(ref)
             if state["status"] != "open" and not (state["status"] == "reserved" and state.get("operation_id") == operation_id):
                 raise WalletBackendError("Kernel browser is unavailable or reserved for another operation.")
-            result = await KernelClient().execute(state["session_id"], self._check_code(plan) + "return {ready:true};")
+            result = await self.client(state).execute(state["session_id"], self._check_code(plan) + "return {ready:true};")
             if result.get("ready") is not True:
                 raise WalletBackendError("Checkout page is not ready.")
             if operation_id:
@@ -418,7 +451,7 @@ phase='complete'; return await finish('merchant_confirmation_observed','complete
  return await finish(fillStarted?'unknown':'not_started',reason);
 }
 """
-                result = await KernelClient().execute(state["session_id"], code)
+                result = await self.client(state).execute(state["session_id"], code)
                 outcome = result.get("outcome")
                 diagnostics = safe_checkout_diagnostics(result.get("diagnostic"))
                 fill_only = plan.get("action") == "fill_only"

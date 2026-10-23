@@ -19,6 +19,85 @@ This service is deliberately narrow:
 
 Signing stays on the user machine in `agent-wallet`.
 
+## Shared Kernel browsers (opt-in)
+
+The browser broker provisions resources; it is not a browser/JavaScript proxy.
+Card fields and Playwright requests go directly from the local wallet backend
+to Kernel. The gateway never receives PAN/CVV, wallet keys or checkout plans.
+
+- `GET /v1/kernel/capabilities` — public version and availability, no secrets.
+- `POST /v1/kernel/browser-sessions` — signed `{ "lease_id": "<32 hex>" }`;
+  creates one profile-free headless browser and returns its expiring, scoped key.
+- `POST /v1/kernel/browser-sessions/{lease_id}/close` — signed empty object;
+  checks ownership, deletes the browser and revokes the key. Returns `202` while
+  cleanup is pending. There is no cross-user session listing or raw relay.
+
+### Operator configuration and rollout
+
+Set `KERNEL_API_KEY`, `KERNEL_PROJECT_ID`, and `KERNEL_BROKER_DB_PATH` through the
+deployment's secret/environment settings. Use an isolated production project
+and an unrestricted project-scoped operator key capable of creating scoped keys.
+Never put a real key in this repository or in a plugin manifest.
+The SQLite path must live on a persistent writable volume; retain that database
+across deployments, including when rolling the plugin back. Run one gateway
+deployment against that database; separate replicas/databases would not share
+ownership, replay tracking or quotas. Do not deploy it on ephemeral per-replica
+storage. A cleanup task runs every 15 seconds in the application lifespan.
+Absolute expiry is enforced by that worker, so keep the gateway running and
+restore it promptly after outages. Kernel's inactivity timeout is a separate
+fallback; an active CDP connection can keep it alive. Key expiry alone is not a
+hard browser shutdown. Operators needing a deletion deadline during a gateway
+outage must also run cleanup independently against the same durable lease data.
+
+Deploy with `KERNEL_SHARED_ENABLED=false`, verify the provider accepts the exact
+scoped policy and the isolation/upgrade gates, then enable it and release the
+new plugin. Disabling the flag stops new allocations while close and cleanup
+continue as long as the operator credential, project and database remain set.
+Old RPC/provider endpoints keep their existing behavior and authentication.
+Users with personal Kernel keys retain direct connections; users without keys
+use the shared capability automatically after updating and restarting the host.
+
+Defaults: 900-second absolute leases, 300-second browser inactivity timeout,
+10 active leases globally, 2 per installation, 100 allocations per rolling day,
+10 per installation and 20 per source IP. `KERNEL_MAX_*` and
+`KERNEL_SESSION_TTL_SECONDS` configure these bounded limits. Ensure proxy trust
+is configured correctly for `request.client.host`; never accept arbitrary
+forwarded IP headers. Installation quotas alone are not Sybil resistance, so
+retain the global caps. Provider outages can delay deletion; keys expire and
+the durable cleanup worker retries. Do not enable public access before checking
+these settings against the service budget.
+
+### Installation authentication
+
+Browser routes always require Ed25519 proof, independently of
+`REQUIRE_BEARER_AUTH` and the legacy common bearer. An installation generates its
+own key automatically, stores it encrypted, and proves possession on each POST.
+No separate account-registration step is needed. The authenticated identity is
+SHA-256 of its public key, never a caller-supplied user ID.
+
+Headers: `X-AgentLayer-Client-Key` (32-byte public key, hex),
+`X-AgentLayer-Timestamp` (Unix seconds), `X-AgentLayer-Nonce` (32 hex), and
+`X-AgentLayer-Signature` (64-byte Ed25519 signature, hex). Sign UTF-8 bytes of:
+
+```text
+agentlayer-kernel-v1\nMETHOD\nPATH\nTIMESTAMP\nNONCE\nSHA256_OF_EXACT_BODY
+```
+
+The timestamp window is 90 seconds past / 30 seconds future; nonces are stored
+transactionally and cannot be reused. Bodies are capped at 1 KiB. Allocation IDs
+are durable and never automatically replay an upstream create. A lost response
+is cleaned up through the same lease and deterministic Kernel browser name.
+SQLite stores ownership, resource/key IDs, expiry and cleanup state, never the
+temporary plaintext key. Responses containing keys use `Cache-Control: no-store`;
+do not enable HTTP body logging at the deployment proxy.
+
+The scoped key grants only `browsers:use` on
+`projects/<project>/browsers/<session_id>`. The server validates the returned
+policy, project and expiry before sending it to a client, failing closed if an
+older upstream ignores the restriction. Clients receive neither browser-create
+nor key-management permissions. Cleanup deletes the browser, since revoking a
+key alone does not invalidate previously issued connection URLs.
+
 Shared RPC mode is intentionally mainnet-only. Devnet and testnet should use direct public RPC endpoints instead of the gateway.
 
 ## Current scope

@@ -8,7 +8,7 @@ import json
 import os
 import stat
 
-from agent_wallet.config import resolve_boot_key, resolve_kernel_api_key, clear_secret_caches
+from agent_wallet.config import resolve_boot_key, resolve_kernel_api_key, resolve_kernel_gateway_url, clear_secret_caches
 from agent_wallet.kernel_browser import KernelClient
 from agent_wallet.sealed_keys import resolve_sealed_keys_path, seal_keys, unseal_keys
 from agent_wallet.wallet_layer.base import WalletBackendError
@@ -16,7 +16,10 @@ from agent_wallet.wallet_layer.base import WalletBackendError
 
 def run(command: str) -> int:
     if command == "kernel-status":
-        print(json.dumps({"configured": bool(resolve_kernel_api_key()), "provider": "kernel"}))
+        personal = bool(resolve_kernel_api_key())
+        print(json.dumps({"configured": personal, "provider": "kernel",
+                          "connection_mode": "direct" if personal else "shared_auto",
+                          "shared_gateway_url": resolve_kernel_gateway_url() if not personal else None}))
         return 0
     from agent_wallet.card_vault_cli import require_terminal
     require_terminal()
@@ -49,5 +52,5 @@ def run(command: str) -> int:
         key = ""
         os.close(fd)
     print("Kernel connected. API key stored in the encrypted runtime bundle." if command == "kernel-connect"
-          else "Kernel disconnected. Existing remote sessions expire under their inactivity timeout.")
+          else "Personal Kernel key removed. New browsers use shared access automatically when available. Existing direct sessions keep their inactivity timeout.")
     return 0

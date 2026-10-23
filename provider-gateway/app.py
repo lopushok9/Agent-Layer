@@ -1,9 +1,11 @@
+import asyncio
 import html
 import json
 import os
 import re
 import time
 from collections import deque
+from contextlib import asynccontextmanager, suppress
 from typing import Any
 
 import httpx
@@ -15,6 +17,7 @@ from starlette.responses import HTMLResponse, JSONResponse, Response
 from starlette.routing import Route
 
 import telemetry_store
+import kernel_broker
 
 load_dotenv()
 
@@ -1086,6 +1089,7 @@ def _status_payload() -> dict[str, Any]:
         "service": APP_NAME,
         "version": APP_VERSION,
         "auth_required": _bool_env("REQUIRE_BEARER_AUTH", False),
+        "shared_kernel": {"available": kernel_broker.enabled(), "protocol": kernel_broker.PROTOCOL},
         "bags_configured": bool(_trim(os.getenv("BAGS_API_KEY"))),
         "rpc_upstreams": configured_rpc,
         "allowed_rpc_methods": sorted(ALLOWED_RPC_METHODS),
@@ -2555,7 +2559,18 @@ routes = [
     Route("/v1/telemetry/stats", telemetry_stats, methods=["GET"]),
 ]
 
-app = Starlette(debug=False, routes=routes)
+@asynccontextmanager
+async def lifespan(_):
+    cleanup_task = asyncio.create_task(kernel_broker.cleanup_loop())
+    try:
+        yield
+    finally:
+        cleanup_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await cleanup_task
+
+
+app = Starlette(debug=False, routes=routes + kernel_broker.routes, lifespan=lifespan)
 
 allowed_origins = _split_csv("ALLOWED_ORIGINS")
 if allowed_origins:

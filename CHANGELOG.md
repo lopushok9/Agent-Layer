@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Add an opt-in shared Kernel broker: signed installation identity, nonce replay
+  protection, persisted ownership, bounded quotas, browser-specific expiring
+  keys and background cleanup. Card payloads bypass the gateway.
+- Select shared access automatically for new browsers without personal keys;
+  preserve direct sessions, approvals, vault data and the upgrade floor.
+  The shared service requires operator configuration and is not deployed yet.
+
 ## v0.1.130 - 2026-10-22 (local release)
 
 - Accept uppercase Pay/Donate prefixes in displayed totals (CSS text transforms);

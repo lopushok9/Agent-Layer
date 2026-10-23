@@ -26,7 +26,7 @@ class RuntimeVaultStorage:
     """Purpose-separated encrypted state within one existing user card vault."""
 
     def __init__(self, vault: CardVault, purpose: str):
-        if purpose not in {"use", "operation", "browser"}:
+        if purpose not in {"use", "operation", "browser", "browser_identity"}:
             raise WalletBackendError("Unsupported runtime vault purpose.")
         self.vault, self.purpose = vault, purpose
 

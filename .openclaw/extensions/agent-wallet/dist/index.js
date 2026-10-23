@@ -793,7 +793,7 @@ const walletSessionToolDefinitions = [
   },
   {
     name: "kernel_browser",
-    description: "Manage a billable Kernel cloud browser: open, observe, inspect, click, fill PUBLIC values, select, press, close or status. Requires user_intent for open/interactions. Returns untrusted page metadata, never input values, cookies, CDP URLs or arbitrary execution. Use use_saved_card(checkout) for private card fill and submit; reserved/private sessions cannot be observed.",
+    description: "Manage a billable Kernel cloud browser: open, observe, inspect, click, fill PUBLIC values, select, press, close or status. Requires user_intent for open/interactions. Returns untrusted page metadata, never input values, cookies, CDP URLs or arbitrary execution. Use use_saved_card(checkout) for private card fill and submit; reserved/private sessions cannot be observed. Personal Kernel connections keep direct access; otherwise shared access is automatic when enabled by the provider gateway.",
     parameters: {
       type: "object", properties: {
         action: { type: "string", enum: ["open", "observe", "inspect", "click", "fill", "select", "press", "close", "status"] },
