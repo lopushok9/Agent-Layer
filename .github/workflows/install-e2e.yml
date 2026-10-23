@@ -106,7 +106,11 @@ jobs:
         run: python agent-wallet/tests/e2e_install_upgrade.py
 
   published-floor-upgrade:
-    name: published 0.1.53 upgrade
+    strategy:
+      fail-fast: false
+      matrix:
+        old_version: ["0.1.53", "0.1.124"]
+    name: published ${{ matrix.old_version }} upgrade
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -121,4 +125,4 @@ jobs:
           python-version: "3.11"
 
       - name: Upgrade published compatibility floor to packed candidate
-        run: python agent-wallet/tests/e2e_install_upgrade_from_published_npm.py
+        run: python agent-wallet/tests/e2e_install_upgrade_from_published_npm.py --old-version "${{ matrix.old_version }}"

@@ -8,6 +8,7 @@ developer's OS keystore or AgentLayer runtime.
 from __future__ import annotations
 
 import atexit
+import argparse
 import hashlib
 import json
 import os
@@ -127,8 +128,13 @@ def sha256_file(path: Path) -> str:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--old-version', default=OLD_VERSION)
+    parser.add_argument('--candidate', type=Path, help='Exact previously packed release artifact')
+    args = parser.parse_args()
+    old_version = args.old_version
     new_version = (REPO_ROOT / "VERSION").read_text(encoding="utf-8").strip()
-    assert new_version != OLD_VERSION
+    assert new_version != old_version
 
     temp_root = Path(tempfile.mkdtemp(prefix="agentlayer-published-upgrade-"))
     atexit.register(shutil.rmtree, temp_root, ignore_errors=True)
@@ -151,6 +157,7 @@ def main() -> None:
             "AGENT_WALLET_KEYSTORE_BACKEND": "plaintext",
             "AGENT_WALLET_KEYSTORE_SERVICE": "ai.agentlayer.wallet.published-upgrade-test",
             "AGENT_WALLET_NO_TELEMETRY": "1",
+            "USER": USER_ID,
             "AGENT_WALLET_DISABLE_UPDATE_CHECK": "1",
             "npm_config_cache": str(temp_root / "npm-cache"),
             "PIP_DEFAULT_TIMEOUT": "120",
@@ -171,16 +178,16 @@ def main() -> None:
         env.pop(name, None)
 
     old_archive = npm_pack(
-        f"@agentlayer.tech/wallet@{OLD_VERSION}",
+        f"@agentlayer.tech/wallet@{old_version}",
         destination=artifacts,
         env=env,
     )
-    new_archive = npm_pack(".", destination=artifacts, env=env)
+    new_archive = args.candidate.resolve() if args.candidate else npm_pack(".", destination=artifacts, env=env)
     old_cli = install_cli(old_archive, destination=temp_root / "old-cli", env=env)
     new_cli = install_cli(new_archive, destination=temp_root / "new-cli", env=env)
 
     runtime_base = openclaw_home / "agent-wallet-runtime"
-    old_root = runtime_base / "releases" / OLD_VERSION
+    old_root = runtime_base / "releases" / old_version
     new_root = runtime_base / "releases" / new_version
     old_install_env = {
         **env,
@@ -211,11 +218,15 @@ def main() -> None:
     assert (runtime_base / "current").resolve() == old_root.resolve()
 
     old_env_path = old_root / "agent-wallet" / ".env"
-    old_boot_key = read_env_value(old_env_path, "AGENT_WALLET_BOOT_KEY")
-    assert old_boot_key, "published 0.1.53 install did not persist its boot key"
+    old_python = runtime_python(old_root)
+    old_boot_key = read_env_value(old_env_path, "AGENT_WALLET_BOOT_KEY") if old_env_path.exists() else ''
+    if not old_boot_key:
+        old_boot_key = str(python_json(old_python,
+            "import json; from agent_wallet.config import resolve_boot_key; print(json.dumps({'key': resolve_boot_key()}))",
+            runtime_root=old_root, env=env)['key'])
+    assert old_boot_key, f"published {old_version} install did not persist its boot key"
     old_boot_fingerprint = hashlib.sha256(old_boot_key.encode("utf-8")).hexdigest()
 
-    old_python = runtime_python(old_root)
     sealed_path = openclaw_home / "sealed_keys.json"
     assert sealed_path.is_file(), "published 0.1.53 did not create sealed secrets"
     old_wallet_env = {**env, "AGENT_WALLET_BOOT_KEY": old_boot_key}
@@ -233,6 +244,44 @@ def main() -> None:
     old_address = str(created["address"])
     assert wallet_path.is_file()
     wallet_hash_before = sha256_file(wallet_path)
+    # These old public releases predate card custody. Seed an already-existing
+    # encrypted vault using the candidate's format, then exercise the real
+    # installer over it. No real card, OS Keychain or developer state is used.
+    candidate_package = new_cli.parents[1] / 'agent-wallet'
+    fixture_env = {**old_wallet_env, 'PYTHONPATH': str(candidate_package)}
+    seed = python_json(old_python, '''
+import json
+from agent_wallet.card_vault import CardVault
+from agent_wallet.card_runtime_secrets import RuntimeVaultStorage
+from agent_wallet.sealed_keys import seal_keys, unseal_keys
+from agent_wallet.config import resolve_boot_key
+vault = CardVault('published-floor-upgrade')
+vault.initialize('isolated-fixture-password')
+ref = vault.deposit({'fixture': 'encrypted-owner-card', 'number': '4242424242424242'})
+RuntimeVaultStorage(vault, 'use').save(ref, {'fields': {'card.number': '4242424242424242'}})
+RuntimeVaultStorage(vault, 'operation').save('a' * 32, {'status': 'outcome_unknown', 'attempts': 1})
+RuntimeVaultStorage(vault, 'browser').save('b' * 32, {'session_id': 'old-direct-browser', 'state': 'closed'})
+boot = resolve_boot_key()
+secrets = unseal_keys(boot)
+secrets['kernel_api_key'] = 'isolated-existing-personal-key'
+seal_keys(boot, secrets)
+print(json.dumps({'ref': ref, 'root': str(vault.root)}))
+''', runtime_root=old_root, env=fixture_env)
+    vault_root = Path(str(seed['root']))
+    preserved_files = {p: sha256_file(p) for p in vault_root.iterdir() if p.is_file()}
+    # Include encrypted EVM seed/config files created by the original installer.
+    for directory in ('wallets', 'wdk-evm-wallet', 'evm-wallets'):
+        for file in (openclaw_home / directory).rglob('*'):
+            if file.is_file() and file.suffix != '.sock':
+                preserved_files[file] = sha256_file(file)
+    config_path = openclaw_home / 'openclaw.json'
+    config = json.loads(config_path.read_text())
+    config['upgrade_test_custom_setting'] = {'theme': 'preserve', 'limits': [5, 10]}
+    config_path.write_text(json.dumps(config))
+    settings_path = home / '.codex' / 'config.toml'
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text('model = "user-chosen-model"\n[custom]\nkeep = true\n')
+    preserved_files[settings_path] = sha256_file(settings_path)
     sealed_hash_before = sha256_file(sealed_path)
 
     run(
@@ -279,6 +328,23 @@ def main() -> None:
     assert wallet["pinned_address"] == old_address, "wallet pin changed during upgrade"
     assert sha256_file(wallet_path) == wallet_hash_before, "wallet file bytes changed"
     assert sha256_file(sealed_path) == sealed_hash_before, "sealed secret bundle changed"
+    for file, digest in preserved_files.items():
+        assert sha256_file(file) == digest, f'upgrade modified existing state: {file.relative_to(home)}'
+    assert json.loads(config_path.read_text())['upgrade_test_custom_setting'] == config['upgrade_test_custom_setting']
+    restored = python_json(new_python, f'''
+import json
+from agent_wallet.card_vault import CardVault
+from agent_wallet.card_runtime_secrets import RuntimeVaultStorage
+from agent_wallet.config import resolve_kernel_api_key
+vault = CardVault({USER_ID!r})
+assert vault.read({seed['ref']!r}, vault.unlock('isolated-fixture-password'))['fixture'] == 'encrypted-owner-card'
+assert RuntimeVaultStorage(vault, 'use').load({seed['ref']!r})['fields']['card.number'] == '4242424242424242'
+assert RuntimeVaultStorage(vault, 'operation').load('a' * 32)['status'] == 'outcome_unknown'
+assert RuntimeVaultStorage(vault, 'browser').load('b' * 32)['session_id'] == 'old-direct-browser'
+assert resolve_kernel_api_key() == 'isolated-existing-personal-key'
+print(json.dumps({{'vault_decrypted': True}}))
+''', runtime_root=new_root, env=env)
+    assert restored['vault_decrypted'] is True
 
     new_env_path = new_root / "agent-wallet" / ".env"
     if new_env_path.exists():
@@ -286,7 +352,8 @@ def main() -> None:
 
     print(
         "e2e_install_upgrade_from_published_npm OK: "
-        f"{OLD_VERSION} -> {new_version}, wallet and boot-key identity preserved"
+        f"{old_version} -> {new_version}, wallets, boot key, encrypted vault, operations, personal Kernel key and settings preserved; "
+        f"candidate sha256={sha256_file(new_archive)}"
     )
 
 

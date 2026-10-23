@@ -497,6 +497,7 @@ function integrationSyncStatus(env = process.env) {
 
 function hostIntegrations(env = process.env) {
   return createHostIntegrationManager({
+    packageVersion,
     env,
     packageRoot,
     registry: integrations(env),

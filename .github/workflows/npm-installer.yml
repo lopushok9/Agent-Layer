@@ -150,8 +150,41 @@ jobs:
       - name: Validate npm package contents
         run: npm pack --dry-run
 
+  private-card-and-browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: python -m pip install -e agent-wallet -r provider-gateway/requirements.txt
+      - run: python agent-wallet/tests/smoke_card_vault.py
+      - run: python agent-wallet/tests/smoke_vault_execution.py
+      - run: python provider-gateway/tests/test_kernel_broker.py
+
+  published-upgrade:
+    name: Upgrade published ${{ matrix.old_version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        old_version: ["0.1.53", "0.1.124"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python agent-wallet/tests/e2e_install_upgrade_from_published_npm.py --old-version "${{ matrix.old_version }}"
+
   publish:
-    needs: verify
+    needs: [verify, private-card-and-browser, published-upgrade]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     concurrency:

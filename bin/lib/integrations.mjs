@@ -234,6 +234,7 @@ export function createIntegrationManager({ runtimeBase, packageVersion, activeVe
 }
 
 export function createHostIntegrationManager({
+  packageVersion,
   env,
   packageRoot,
   registry,

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { syncCursorPluginBundle } from "./integrations.mjs";
+import { createHostIntegrationManager, syncCursorPluginBundle } from "./integrations.mjs";
 
 test("Cursor install preserves an unmanaged plugin and refreshes its own copy", () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "agentlayer-cursor-install-"));
@@ -44,6 +44,36 @@ test("Cursor install preserves an unmanaged plugin and refreshes its own copy", 
     syncCursorPluginBundle({ source, target, packageVersion: "0.1.124" });
     assert.equal(fs.readFileSync(path.join(target, "server.py"), "utf8"), "second\n");
     assert.equal(JSON.parse(fs.readFileSync(path.join(target, ".agentlayer-managed.json"))).version, "0.1.124");
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+
+test("managed Cursor refresh stamps the new runtime version", () => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "agentlayer-cursor-refresh-"));
+  try {
+    const current = path.join(temp, "runtime", "current");
+    const source = path.join(current, "cursor/plugins/agent-wallet");
+    const target = path.join(temp, "cursor/agent-wallet");
+    fs.mkdirSync(path.join(source, ".cursor-plugin"), { recursive: true });
+    fs.writeFileSync(path.join(source, ".cursor-plugin/plugin.json"), '{"name":"agent-wallet"}');
+    fs.writeFileSync(path.join(source, "mcp.json"), '{"mcpServers":{"agent-wallet":{}}}');
+    syncCursorPluginBundle({ source, target, packageVersion: "0.1.124" });
+    const registry = {
+      managed: name => name === "cursor" ? { plugin_target: target } : null,
+      record: () => {},
+      refreshAll: refreshers => Object.values(refreshers).map(fn => fn()),
+    };
+    const manager = createHostIntegrationManager({
+      env: {}, packageVersion: "0.1.131", registry,
+      currentRuntimePath: current, cursorPluginRoot: path.dirname(target),
+      openclawHome: path.join(temp, "home"), expandHome: value => value,
+    });
+    const results = manager.refreshAll(["cursor"]);
+    assert.equal(results.length, 1);
+    assert.equal(results[0].ok, true);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(target, ".agentlayer-managed.json"))).version, "0.1.131");
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
   }

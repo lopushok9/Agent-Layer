@@ -1,13 +1,25 @@
 # Changelog
 
-## Unreleased
+## v0.1.131 - 2026-10-23
+
+Stable release of the private card vault and Kernel checkout features developed
+in local releases 0.1.125–0.1.130, plus shared browser access.
+
+- Save Laso cards privately, list masked cards, resume delayed issuance, and
+  import/reveal/export cards through the owner's CLI.
+- Use encrypted backend capsules for approved HTTPS requests and Kernel checkout
+  without exposing card values to the model. Support fill-only and submit modes;
+  preserve non-repeatable uncertain outcomes. 3DS and CAPTCHA are not automated.
+- Preserve existing wallets, settings, vaults, operations and personal Kernel
+  connections on direct upgrades from 0.1.53 and 0.1.124.
+- Fix managed Cursor refresh so updates stamp and copy the new plugin version.
 
 - Add an opt-in shared Kernel broker: signed installation identity, nonce replay
   protection, persisted ownership, bounded quotas, browser-specific expiring
   keys and background cleanup. Card payloads bypass the gateway.
 - Select shared access automatically for new browsers without personal keys;
   preserve direct sessions, approvals, vault data and the upgrade floor.
-  The shared service requires operator configuration and is not deployed yet.
+  Shared service availability is controlled by the gateway operator.
 
 ## v0.1.130 - 2026-10-22 (local release)
 
