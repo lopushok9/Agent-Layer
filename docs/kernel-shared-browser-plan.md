@@ -1,7 +1,9 @@
 # Shared Kernel browsers: upgrade and installation contract
 
-Status: broker and automatic client connection implemented in source; deployment,
-live isolation checks and upgrade regression checks are pending.
+Status: stable 0.1.131 candidate. Broker deployed to Railway with a persistent
+volume. Real two-browser isolation/scoped-key/expiry checks and isolated macOS
+upgrades from published 0.1.53 and 0.1.124 passed on 2026-10-23. Public capability
+is enabled by the operator after release gates pass.
 
 ## Product requirement
 
@@ -81,7 +83,29 @@ Before enabling the shared capability for public installs, verify:
 - Upgrade, restart, expiration, and rollback never refill or resubmit an
   operation that reached private dispatch or `outcome_unknown`.
 
-These are future release gates, not claims of completed verification.
+Acceptance evidence (2026-10-23):
+
+- `provider-gateway/tests/test_kernel_broker.py`: signed proofs, ownership,
+  replay, quota reservation, exact policy confirmation, restart/expiry cleanup.
+- Its opt-in `--live LiveIsolationTests` passed against real Kernel: own-browser
+  inspection allowed; another browser, browser creation and key management denied;
+  list filtered; gateway close ownership enforced; all test resources closed.
+- `agent-wallet/tests/smoke_kernel_gateway.py`: actual client/broker contract,
+  automatic shared access, encrypted local credentials, no key in tool output,
+  personal-key priority, legacy direct records and fail-closed expiry.
+- Real published-package upgrades from 0.1.53 and 0.1.124 to the same packed
+  candidate passed in separate temporary homes. Tests verify wallet/address and
+  boot-key identity, ciphertext hashes, owner/runtime capsule decryption, saved
+  uncertain operations, personal Kernel key and user settings. Old public
+  versions predate card custody, so encrypted vault fixtures are seeded before
+  upgrading; no real user data or login Keychain is accessed. The old 0.1.53
+  bootstrap lacks its FastMCP dependency, so only its historical handshake is
+  skipped during fixture reconstruction; candidate verification remains enabled.
+- Native macOS ACL checks passed in a disposable keychain without changing the
+  user's login/default keychain. Full payment/3DS success is outside these checks.
+- Both published upgrade paths and offline vault/broker tests gate stable npm
+  publication in `.github/workflows/npm-installer.yml`.
+
 
 ## Kernel references
 

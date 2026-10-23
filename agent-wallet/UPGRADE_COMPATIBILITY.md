@@ -36,7 +36,9 @@ existing operation or approval summary to select shared access. Installation
 identity is a separate encrypted `browser_identity` record; old versions ignore
 it. Wallet keys and vault recipients do not change. Existing provider routes and
 their authentication are preserved. The direct-upgrade floor remains `0.1.53`.
-Release gates in `../docs/kernel-shared-browser-plan.md` remain to be exercised.
+Acceptance evidence and deployment constraints are recorded in
+`../docs/kernel-shared-browser-plan.md`. Both published upgrade paths are required
+by the stable npm publication workflow.
 
 - Legacy adoption requires independent registration and manifest evidence.
 - Unknown or externally managed integrations are never adopted automatically.
