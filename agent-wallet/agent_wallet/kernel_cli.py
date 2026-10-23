@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import fcntl
 import getpass
 import json
 import os
@@ -21,6 +20,8 @@ def run(command: str) -> int:
                           "connection_mode": "direct" if personal else "shared_auto",
                           "shared_gateway_url": resolve_kernel_gateway_url() if not personal else None}))
         return 0
+    from agent_wallet.card_vault import _file_locks
+    fcntl = _file_locks()
     from agent_wallet.card_vault_cli import require_terminal
     require_terminal()
     boot = resolve_boot_key()

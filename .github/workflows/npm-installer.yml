@@ -165,6 +165,7 @@ jobs:
       - run: python agent-wallet/tests/smoke_vault_execution.py
       - run: python agent-wallet/tests/smoke_kernel_gateway.py
       - run: python agent-wallet/tests/smoke_install_card_vault.py
+      - run: python agent-wallet/tests/smoke_vault_platform_import.py
       - run: python provider-gateway/tests/test_kernel_broker.py
 
   published-upgrade:

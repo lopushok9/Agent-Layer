@@ -137,6 +137,7 @@ class VaultChecks(unittest.IsolatedAsyncioTestCase):
         # A three-digit CVV can occur coincidentally in a timestamp or UUID.
         # Reject the secret-bearing field; PAN/token checks above cover values.
         self.assertNotIn('"cvv"', output.lower())
+        self.assertNotRegex(output, r'(?<![A-Za-z0-9])731(?![A-Za-z0-9])')
         safe = result["response_preview"]
         self.assertEqual(safe["last4"], "1111")
         self.assertTrue(result["confirmed"])

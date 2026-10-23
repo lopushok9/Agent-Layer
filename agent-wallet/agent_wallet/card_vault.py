@@ -7,7 +7,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
-import fcntl
 import json
 import os
 import re
@@ -29,6 +28,17 @@ KIND = "agentlayer-card-vault"
 VERSION = 1
 SYSTEM_VERSION = 2
 MAX_BYTES = 2 * 1024 * 1024
+
+
+def _file_locks():
+    # Unsupported card custody must not prevent the rest of the wallet backend
+    # (including Windows DPAPI startup) from importing. Never fall back to an
+    # unlocked vault operation on platforms without these locks.
+    try:
+        import fcntl
+    except ImportError:
+        raise WalletBackendError("Card vault operations require macOS or Linux file locking.") from None
+    return fcntl
 
 
 def _b64(value: bytes) -> str:
@@ -80,6 +90,7 @@ class CardVault:
 
     @contextmanager
     def record_lock(self, reference: str):
+        fcntl = _file_locks()
         path = self._path(reference).with_suffix(".lock")
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         try:
@@ -90,6 +101,7 @@ class CardVault:
 
     @asynccontextmanager
     async def async_record_lock(self, reference: str):
+        fcntl = _file_locks()
         path = self._path(reference).with_suffix(".lock")
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         deadline = time.monotonic() + 5
@@ -182,6 +194,7 @@ class CardVault:
 
     @contextmanager
     def owner_lock(self):
+        fcntl = _file_locks()
         self.root.mkdir(parents=True, mode=0o700, exist_ok=True)
         self._check_directory()
         fd = os.open(self.root / ".owner.lock", os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)

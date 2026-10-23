@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.132 - 2026-10-23
+
+- Restore Windows wallet backend startup by loading POSIX file locks only when
+  card-vault or Kernel connection writes require them. Unsupported vault writes
+  fail before changing files; no unlocked fallback is introduced.
+- Keep vault formats, wallet keys, approvals and shared-browser behavior unchanged.
+
 ## v0.1.131 - 2026-10-23
 
 Stable release of the private card vault and Kernel checkout features developed
