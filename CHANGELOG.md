@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.133 - 2026-10-24 (local release)
+
+- Use native Codex question menus for missing choices, respecting host mode,
+  schema and purpose restrictions, with chat fallback. Reuse supplied inputs
+  and require submitted answers before dependent actions.
+- Preserve existing payment consent, preview, approval, retry and shared Kernel
+  instructions. No new MCP tools or backend policy changes.
+
 ## v0.1.132 - 2026-10-23
 
 - Restore Windows wallet backend startup by loading POSIX file locks only when
