@@ -13,9 +13,27 @@ works when the active wallet backend is **Base** (`eip155:8453`) or
 networks (Ethereum, Robinhood) or testnets can discover and preview
 but cannot currently pay.
 
-Codex has no native multiple-choice menu, so present options as a numbered
-text list and wait for the user's reply in chat instead of calling a UI
-tool.
+## Question menus
+
+Use the host's native question menu (`request_user_input_async` or
+`request_user_input`) for missing choices only when the tool is exposed and
+its current mode and purpose restrictions allow it. Follow that tool's actual
+schema; use short options and free text where supported. Otherwise ask in chat
+in a format allowed by the host. Reuse choices and amounts the user already
+provided; do not ask them again. Do not request keys, passwords, card details
+or approval tokens through a question menu.
+
+For a confirmation required below, show the same preview and terms, then use a
+menu only if the host permits that tool for confirmations; otherwise ask in
+chat. Keep the workflow's existing consent rules and confirmation exceptions.
+A service/type/amount selection is not payment consent. An async call returning,
+a preselected option, an empty answer, cancellation or elapsed time is not
+consent: wait for the user's submitted answer before any dependent action.
+Question menus do not replace host approval or backend checks or authorize
+changed parameters. Keep existing approval scope, expiry, batch/continuation
+and retry rules; a menu never expands them. Do not add another confirmation
+solely to display a menu. Never switch modes just to open a menu or promise a
+keyboard shortcut controlled by the host.
 
 ## Step 1: Resolve what to pay for
 
@@ -46,8 +64,12 @@ wants only to ignore what they already typed.
     more"). Network and provider still surface naturally in Step 2's
     preview and Step 3's confirm — they're just not repeated in this first
     table.
-- Wait for the user's reply with a row number, or a request to refine the
-  search if none fit.
+- Ask which row to use under the question-menu rules above. If a permitted
+  menu supports free text, offer up to three rows with their original row
+  numbers, service names and prices; let the user enter any other displayed
+  row or a refinement request. Otherwise ask in chat. Map the submitted choice
+  to the original table; do not silently substitute a different service.
+  This selection does not itself authorize payment.
 - If the chosen item doesn't already carry a directly-callable URL (CDP
   Bazaar's `resource`, or an Agentic Market `endpoints[].url`), call
   `x402_get_service_details` with that item's reference to resolve one.
@@ -93,11 +115,13 @@ and `x402_pay_to` for the next steps.
   this small. This is this skill's own UX threshold, independent of any
   host- or session-level approval policy elsewhere in the wallet.
 - Otherwise (amount is $1.00 or more, or the asset isn't confidently USDC
-  so its USD value is unknown), state in plain text the amount
+  so its USD value is unknown), state the amount
   (`x402_amount_display`, or the raw amount + asset if unavailable),
   network (`x402_network`), recipient domain (resolved from `x402_pay_to`/
   the request URL), and service description, and ask the user to reply
-  "confirm" or "cancel".
+  "confirm" or "cancel" under the question-menu confirmation rules above.
+  If permitted, offer `Confirm` / `Cancel`; a submitted `Confirm` maps to the
+  existing `confirm` reply. Keep the sub-$1 exception above unchanged.
 - Only continue to Step 4 on an explicit "confirm" (or on the sub-$1
   auto-skip above). An ambiguous or missing reply is not consent.
 

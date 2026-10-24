@@ -42,6 +42,28 @@ Call `get_morpho_monitor_schedule` with `host: "codex"` and give the user the
 returned `user_steps` (a Codex automation that runs `$yield` every
 3 days). Set it up only when the user asks for it.
 
+## Question menus
+
+Use the host's native question menu (`request_user_input_async` or
+`request_user_input`) for missing choices only when the tool is exposed and
+its current mode and purpose restrictions allow it. Follow that tool's actual
+schema; use short options and free text where supported. Otherwise ask in chat
+in a format allowed by the host. Reuse choices and amounts the user already
+provided; do not ask them again. Do not request keys, passwords, card details
+or approval tokens through a question menu.
+
+For a confirmation required below, show the same preview and terms, then use a
+menu only if the host permits that tool for confirmations; otherwise ask in
+chat. Keep the workflow's existing consent rules and confirmation exceptions.
+A service/type/amount selection is not payment consent. An async call returning,
+a preselected option, an empty answer, cancellation or elapsed time is not
+consent: wait for the user's submitted answer before any dependent action.
+Question menus do not replace host approval or backend checks or authorize
+changed parameters. Keep existing approval scope, expiry, batch/continuation
+and retry rules; a menu never expands them. Do not add another confirmation
+solely to display a menu. Never switch modes just to open a menu or promise a
+keyboard shortcut controlled by the host.
+
 ## Move a position
 
 1. Call `rebalance_evm_morpho_vault_position` with `mode: "intent_preview"`,
@@ -49,8 +71,9 @@ returned `user_steps` (a Codex automation that runs `$yield` every
    `amount_raw` (omit it to move the whole position) and a short `purpose`.
 2. Show the preview: both vaults with their rates, the amount, the withdraw
    gas estimate, whether an approval runs before the supply, and any
-   `target_risk_flags`. Ask with `AskUserQuestion` (header `Move funds`),
-   options `Move` / `Cancel`. Only `Move` is consent.
+   `target_risk_flags`. Ask under the question-menu confirmation rules above,
+   using `Move` / `Cancel` when a menu is permitted. Only the submitted `Move`
+   choice or the existing explicit chat confirmation `Move` is consent.
 3. On `Move`: the same call with `mode: "intent_execute"` and identical
    arguments. The plugin attaches the approval for the previewed move.
 4. Report each step's transaction hash. If `status` is `partial`, the funds
