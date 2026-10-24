@@ -45,16 +45,6 @@ tokens and execution checks are independent and still apply.
 See the [Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
 for per-server and per-tool approval settings.
 
-## Native question menus
-
-Bundled skills prefer the host's native question UI for missing choices when
-the current mode, tool schema and purpose restrictions permit it. They reuse
-parameters already supplied by the user and fall back to chat when needed.
-Payment confirmations use a menu only when the host permits that purpose;
-previews, consent rules, approvals and backend validation keep their existing
-meaning. Async tool return and preselected options are not submitted answers.
-Menu support is provided by the Codex host; no extra MCP question tool is added.
-
 ## Runtime requirements
 
 - The primary route is `npx @agentlayer.tech/wallet install --yes`.

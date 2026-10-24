@@ -17,27 +17,9 @@ Hardcoded endpoints (do not vary these):
 - `https://laso.finance/order-intl-card` -- international prepaid card, $100-$1,000 + 3.8% fee
 - `https://laso.finance/get-card-data` -- free, retrieves card details once ready
 
-## Question menus
-
-Use the host's native question menu (`request_user_input_async` or
-`request_user_input`) for missing choices only when the tool is exposed and
-its current mode and purpose restrictions allow it. Follow that tool's actual
-schema; use short options and free text where supported. Otherwise ask in chat
-in a format allowed by the host. Reuse choices and amounts the user already
-provided; do not ask them again. Do not request keys, passwords, card details
-or approval tokens through a question menu.
-
-For a confirmation required below, show the same preview and terms, then use a
-menu only if the host permits that tool for confirmations; otherwise ask in
-chat. Keep the workflow's existing consent rules and confirmation exceptions.
-A service/type/amount selection is not payment consent. An async call returning,
-a preselected option, an empty answer, cancellation or elapsed time is not
-consent: wait for the user's submitted answer before any dependent action.
-Question menus do not replace host approval or backend checks or authorize
-changed parameters. Keep existing approval scope, expiry, batch/continuation
-and retry rules; a menu never expands them. Do not add another confirmation
-solely to display a menu. Never switch modes just to open a menu or promise a
-keyboard shortcut controlled by the host.
+Codex has no native multiple-choice menu, so present options as a numbered
+text list and wait for the user's reply in chat instead of calling a UI
+tool.
 
 ## Private system vault
 
@@ -127,22 +109,18 @@ are not automatically solved. Close unused browsers; retry `close` when
 
 ## Step 1: Ask which card
 
-If the user has not specified a card type, offer `US Prepaid` and
-`International Prepaid` using the question-menu rules above. Include these terms
-in the question or option descriptions:
+Present, as plain text, and wait for a reply:
 
-- US: $5–$1,000 USDC, ready in about 10 seconds; USD only, U.S. merchants and
-  U.S. shipping addresses only.
-- International: $100–$1,000 plus 3.8%, queued for about 24 hours of admin
-  fulfillment; works globally and is non-reloadable.
+```
+Which Laso Finance card would you like?
+1. US Prepaid -- $5-$1,000 USDC, ready in ~10 seconds. USD only, U.S. merchants and U.S. shipping addresses only.
+2. International Prepaid -- $100-$1,000 + 3.8% fee, queued for ~24h admin fulfillment. Works globally, non-reloadable.
+```
 
 ## Step 2: Ask the amount
 
-Keep an amount the user already supplied. If missing, ask within the chosen
-card's range (US: $5–$1,000; International: $100–$1,000 plus 3.8% on top).
-Where the permitted menu supports free text, suggest `$25`, `$50`, `$100` for
-US cards or `$100`, `$250`, `$500` for International cards, and allow a custom
-amount. Otherwise ask for an amount in chat.
+Ask in plain text for an amount within the chosen card's range (US:
+$5-$1,000; International: $100-$1,000, plus 3.8% fee added on top).
 Validate the reply against the range before continuing; if out of range,
 ask again with the exact range restated -- do not call any tool with an
 invalid amount.
@@ -178,14 +156,12 @@ a genuine error, follow the fallback in Step 5's error handling.
 
 ## Step 4: Confirm before paying
 
-Restate the total debit -- computed from Step 3's preview
+Restate, in plain text, the total debit -- computed from Step 3's preview
 `amount` field (smallest units, 6 decimals for USDC; this figure already
 includes any fee, not just the amount the user entered) -- the network,
 `pay_to` address, and domain (`laso.finance`), and ask the user to reply
-"confirm" or "cancel" under the question-menu confirmation rules above.
-If permitted, offer `Confirm` / `Cancel`; a submitted `Confirm` is the same
-explicit confirmation as the existing chat reply. Only continue to Step 5 on
-that explicit confirmation; an ambiguous or missing reply is not consent.
+"confirm" or "cancel". Only continue to Step 5 on an explicit "confirm" --
+an ambiguous or missing reply is not consent.
 
 ## Step 5: Pay
 
