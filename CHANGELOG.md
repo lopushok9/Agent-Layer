@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.134 - 2026-10-24 (local release)
+
+- Revert the native question-menu skill changes from local 0.1.133. Restore
+  Codex skills and plugin README to their stable 0.1.132 contents.
+- Preserve backend policies, shared Kernel access and encrypted wallet/vault data.
+
 ## v0.1.133 - 2026-10-24 (local release)
 
 - Use native Codex question menus for missing choices, respecting host mode,
