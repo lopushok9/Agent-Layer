@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.1.140 - 2026-10-25
+
+Codex integration polish.
+
+- Ask wallet, x402, IMD, cards and yield questions through Codex's native async
+  question menu and keep the turn open until the user answers; a timeout is
+  never treated as consent.
+- Render write previews as a compact `Item | Preview` table before the
+  confirmation menu. Swaps show four core rows (spent, received, slippage, gas);
+  material warnings stay below the table and exact execution values are kept.
+- State the preview confirmation step in the wallet tool result (`next_step`)
+  instead of the skill, so Codex no longer cites and quotes SKILL.md before
+  every confirmation. Approval binding and execution are unchanged.
+
 ## v0.1.132 - 2026-10-23
 
 - Restore Windows wallet backend startup by loading POSIX file locks only when

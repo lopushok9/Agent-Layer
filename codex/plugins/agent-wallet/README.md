@@ -103,11 +103,6 @@ skills:
   wallet's Morpho vault positions on Base and Ethereum for better-yielding
   vaults with the same asset, set the scan up as a Codex automation every 3
   days, or move a position after an explicit confirmation.
-- `wallet-sandbox` -- invoke as `$wallet-sandbox` to run the bounded
-  real-mainnet release checks: Solana Jupiter, Base Velora and Uniswap, Morpho
-  vault supply/withdrawal, and Kamino lending deposit/withdrawal. It requires
-  an already active `agentlayer_autonomous_approve` permission and never
-  changes that permission itself.
 
 ## Path resolution
 
