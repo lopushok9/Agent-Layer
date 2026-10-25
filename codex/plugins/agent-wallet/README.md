@@ -45,6 +45,21 @@ tokens and execution checks are independent and still apply.
 See the [Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
 for per-server and per-tool approval settings.
 
+## Question menus in Codex
+
+Like Claude's explicit `AskUserQuestion` calls, Codex skills call the native
+`functions.request_user_input_async` at the relevant choice/confirmation step.
+The payload uses `questions[].title` and string `options`; it is not a wallet
+MCP tool and is not configured through Claude's `allowed-tools` metadata.
+Claude's `mcp__plugin_wallet_agent-wallet__*` aliases are not copied: resolve
+wallet tool names against the active Codex MCP surface (for example,
+`mcp__agent_wallet__swap_evm_tokens`). The short names in skills refer to those
+existing wallet tools, not new wrapper commands.
+`wallet-operator` also covers plain-language swaps, transfers and other wallet
+writes after their preview. Existing consent and backend approvals still apply;
+chat is the fallback when the async tool is absent or disallows the purpose.
+Host-mandated explanations and skill citations remain controlled by the host.
+
 ## Runtime requirements
 
 - The primary route is `npx @agentlayer.tech/wallet install --yes`.

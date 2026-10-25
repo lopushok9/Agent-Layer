@@ -25,9 +25,14 @@ Facts to state plainly when they matter:
 
 Treat whatever the user wrote with `/imd` or `$imd` as the inline arguments.
 
-Codex has no native multiple-choice menu: wherever this skill says
-`AskUserQuestion`, present the options as a numbered plain-text list and wait
-for the user's reply in chat. Treat only an explicit choice as consent.
+Use `functions.request_user_input_async` for the question calls below. Its
+Codex payload is `{"questions":[{"title":"<question>","options":["<choice>","<choice>"]}]}`;
+use `title` and string options, not Claude's `header`, `question`, or option
+objects. Reuse parameters the user already supplied. If this tool is absent or
+its instructions prohibit the question's purpose, ask in chat instead; do not
+substitute the Plan-only `request_user_input` for payment confirmation.
+Wait for the submitted answer: the async acknowledgement, a preselected option,
+or no answer does not authorize execution. Keep existing preview/approval rules.
 
 ## Step 0: Route
 
@@ -37,7 +42,7 @@ for the user's reply in chat. Treat only an explicit choice as consent.
 
 ## Step 1: Readiness
 
-1. `get_active_wallet_backend`. If the active wallet is not EVM, ask (`AskUserQuestion`, header `Wallet`) whether to switch to the EVM wallet; on yes call `set_wallet_backend` with `backend: "evm"`. The IMD tools always work on Ethereum mainnet, whichever EVM network is selected.
+1. `get_active_wallet_backend`. If the active wallet is not EVM, call `functions.request_user_input_async` with `title: "Switch to the EVM wallet for IMD on Ethereum?"`, `options: ["Switch","Cancel"]`; on a submitted `Switch` call `set_wallet_backend` with `backend: "evm"`. The IMD tools always work on Ethereum mainnet, whichever EVM network is selected.
 2. `imd_status`. Show one short line: IMD balance, allowance for Permit2, price per action, IMD signed in the last 24h.
    - `pinned_terms_match: false` → IMD changed its token, treasury or price terms. Stop and report `pinned_terms_problem`; do not try to pay.
    - `needs_imd: true` → report the balance and the `address` to fund on Ethereum, and stop. Do not offer a swap.
@@ -45,14 +50,19 @@ for the user's reply in chat. Treat only an explicit choice as consent.
 
 ## Step 2: What to order
 
-Ask with `AskUserQuestion` (header `Job`). Mark the option that fits the inline text as recommended:
+Keep the job type when the inline request already specifies it. Otherwise
+call `functions.request_user_input_async` with `title: "What would you like IMD
+to do? You can also enter an image request or custom job."` and `options:
+["Research report","Audit a GitHub repo","Build a website"]`. Map free text
+to the matching supported job below:
 
 - `Research report` — sourced Markdown report.
 - `Audit a GitHub repo` — four specialist auditors and a judge on a public repo; report only, no fixes.
 - `Build a website` — static site, optionally hosted on IPFS.
 - `Custom` — bigger work: a multi-step job, a batch of jobs, or a schedule.
 
-("Other" covers `Create image` and anything else; map it to the closest body below.)
+(Free text covers `Create image`, `Custom`, and other requests; do not add an
+`Other` option manually.)
 
 Get the objective if you don't have it yet, then build the body. Default to IMD's own delivery settings (do not force `github`), and state in Step 5 what will be public.
 
@@ -66,7 +76,8 @@ Get the objective if you don't have it yet, then build the body. Default to IMD'
 ### Custom mode
 
 The price is per action, so a bigger job does not cost more: one action can
-carry a lot of work. Ask (`AskUserQuestion`, header `Custom`) which shape:
+carry a lot of work. Call `functions.request_user_input_async` with `title: "Which custom job
+shape?"` and `options: ["One multi-step job","Batch of jobs","Schedule"]`:
 
 - `One multi-step job` — still **0.5 IMD**. Either a `template` (`impl_tests`, `impl_tests_review`, `multi_contract`, `fuzz`, `research`, `audit`) or `steps` (1–6, each with one `skill`, and `shape`: `chain`, `fan_out_join` or `dag` with `key`/`dependsOn`). Add `repoUrl`/`baseCommit` from `imd_import_repo` when building on a repo, `paths` for skills that write code.
 - `Batch of jobs` — N separate `job.open` bodies, **N × 0.5 IMD**, each paid on its own.
@@ -90,18 +101,18 @@ Total = 0.5 IMD × actions (schedules: × runs). If `permit2_allowance_raw`
 from `imd_status` is below the total:
 
 1. `imd_prepare_allowance` with `mode: "intent_preview"` and `amount_raw` = **exactly the total** (0.5 IMD = `500000000000000000`). The allowance is set to this value; it replaces the old one.
-2. `AskUserQuestion` (header `Allowance`): `Allow Permit2 to move <total> IMD from your wallet? One Ethereum transaction, gas ≈ <estimatedFeeWei as ETH> paid in ETH (you have <ethBalanceWei as ETH>).` Options `Approve` / `Cancel`.
+2. Call `functions.request_user_input_async` with this `title`: `Allow Permit2 to move <total> IMD from your wallet? One Ethereum transaction, gas ≈ <estimatedFeeWei as ETH> paid in ETH (you have <ethBalanceWei as ETH>).` Use `options: ["Approve","Cancel"]`.
 3. On `Approve`: same call with `mode: "intent_execute"`. If ETH is short for the gas, say so and stop.
 
 ## Step 5: Confirm the payment
 
 Call `imd_open_request` with `mode: "intent_preview"`, the `action`, the
 `input` and a short `purpose`. For a batch, preview the first item now. Then
-`AskUserQuestion` (header `Pay IMD`):
+call `functions.request_user_input_async` with this `title`:
 
 `Pay <total> IMD on Ethereum to IMD (<pay_to>) for: <request_summary, or the batch list>? Non-refundable, result not guaranteed, results will be public<, plus a public GitHub repo if github is on>.`
 
-Options `Pay` / `Cancel`. Always ask — there is no small-amount shortcut here.
+Use `options: ["Pay","Cancel"]`. Always ask — there is no small-amount shortcut here.
 Only `Pay` is consent; anything else stops.
 
 ## Step 6: Pay

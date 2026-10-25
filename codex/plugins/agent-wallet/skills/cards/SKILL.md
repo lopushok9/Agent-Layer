@@ -17,9 +17,14 @@ Hardcoded endpoints (do not vary these):
 - `https://laso.finance/order-intl-card` -- international prepaid card, $100-$1,000 + 3.8% fee
 - `https://laso.finance/get-card-data` -- free, retrieves card details once ready
 
-Codex has no native multiple-choice menu, so present options as a numbered
-text list and wait for the user's reply in chat instead of calling a UI
-tool.
+Use `functions.request_user_input_async` for the question calls below. Its
+Codex payload is `{"questions":[{"title":"<question>","options":["<choice>","<choice>"]}]}`;
+use `title` and string options, not Claude's `header`, `question`, or option
+objects. Reuse parameters the user already supplied. If this tool is absent or
+its instructions prohibit the question's purpose, ask in chat instead; do not
+substitute the Plan-only `request_user_input` for payment confirmation.
+Wait for the submitted answer: the async acknowledgement, a preselected option,
+or no answer does not authorize execution. Keep existing preview/approval rules.
 
 ## Private system vault
 
@@ -109,18 +114,19 @@ are not automatically solved. Close unused browsers; retry `close` when
 
 ## Step 1: Ask which card
 
-Present, as plain text, and wait for a reply:
+If the card type is missing, call `functions.request_user_input_async`:
 
-```
-Which Laso Finance card would you like?
-1. US Prepaid -- $5-$1,000 USDC, ready in ~10 seconds. USD only, U.S. merchants and U.S. shipping addresses only.
-2. International Prepaid -- $100-$1,000 + 3.8% fee, queued for ~24h admin fulfillment. Works globally, non-reloadable.
+```json
+{"questions":[{"title":"Which card? US: $5–$1,000 USDC, about 10 seconds, USD/U.S. merchants and shipping only. International: $100–$1,000 plus 3.8%, about 24 hours, global and non-reloadable.","options":["US Prepaid","International Prepaid"]}]}
 ```
 
 ## Step 2: Ask the amount
 
-Ask in plain text for an amount within the chosen card's range (US:
-$5-$1,000; International: $100-$1,000, plus 3.8% fee added on top).
+If the amount is missing, call `functions.request_user_input_async` with a
+`title` stating the chosen card's range and fee. Use `options` of `["$25",
+"$50","$100"]` for US or `["$100","$250","$500"]` for International; the
+host supplies free text for a custom amount. US range is $5–$1,000;
+International is $100–$1,000 plus 3.8% on top.
 Validate the reply against the range before continuing; if out of range,
 ask again with the exact range restated -- do not call any tool with an
 invalid amount.
@@ -156,12 +162,13 @@ a genuine error, follow the fallback in Step 5's error handling.
 
 ## Step 4: Confirm before paying
 
-Restate, in plain text, the total debit -- computed from Step 3's preview
-`amount` field (smallest units, 6 decimals for USDC; this figure already
-includes any fee, not just the amount the user entered) -- the network,
-`pay_to` address, and domain (`laso.finance`), and ask the user to reply
-"confirm" or "cancel". Only continue to Step 5 on an explicit "confirm" --
-an ambiguous or missing reply is not consent.
+Compute the total debit from Step 3's preview
+`amount` field (smallest units, 6 decimals for USDC; already includes fees).
+Call `functions.request_user_input_async` with `options: ["Confirm","Cancel"]`.
+The `title` must ask whether to pay that total in USDC on the previewed network
+to `laso.finance`, include the `pay_to` address, and identify the card type/load
+and fee. Only a submitted `Confirm` or an explicit `confirm` chat reply permits
+Step 5. An ambiguous or missing reply is not consent.
 
 ## Step 5: Pay
 

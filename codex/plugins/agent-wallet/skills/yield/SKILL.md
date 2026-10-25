@@ -49,8 +49,12 @@ returned `user_steps` (a Codex automation that runs `$yield` every
    `amount_raw` (omit it to move the whole position) and a short `purpose`.
 2. Show the preview: both vaults with their rates, the amount, the withdraw
    gas estimate, whether an approval runs before the supply, and any
-   `target_risk_flags`. Ask with `AskUserQuestion` (header `Move funds`),
-   options `Move` / `Cancel`. Only `Move` is consent.
+   `target_risk_flags`. Call `functions.request_user_input_async` with
+   `title` asking whether to move those funds between those vaults at the shown
+   rates, fees and risks, and `options: ["Move","Cancel"]`. Only a submitted
+   `Move` or the explicit chat reply `Move` is consent; wait for the answer,
+   not the async acknowledgement. If the tool is absent or disallows this
+   purpose, ask in chat; do not use Plan-only `request_user_input` instead.
 3. On `Move`: the same call with `mode: "intent_execute"` and identical
    arguments. The plugin attaches the approval for the previewed move.
 4. Report each step's transaction hash. If `status` is `partial`, the funds
