@@ -28,6 +28,13 @@ call `functions.request_user_input_async`:
 {"questions":[{"title":"<actual preview summary>. Confirm <operation>?","options":["Confirm","Cancel"]}]}
 ```
 
+After the request is accepted, keep the turn open: call
+`clock.sleep({"duration_ms":30000})` and repeat while the question is unanswered.
+Sleep wakes early for new user input. Do not send a final answer or repeat the
+question in chat while waiting; handle the submitted answer first. A sleep
+finishing is not an answer and never authorizes execution. Use only the native
+wake-on-input wait tool, not a shell sleep.
+
 Fill `title` from the actual preview: network, assets, amount and destination,
 plus minimum received, fees and risks when applicable. Do not invent missing
 fields or send placeholders. Wait for the submitted answer before executing;
@@ -35,5 +42,6 @@ the tool acknowledgement or preselected
 option is not consent. A submitted `Confirm` or an unambiguous affirmative chat
 reply approves only that preview. `Cancel` stops. Keep the existing workflow's
 approval scope, exceptions, expiry and retry rules; the menu adds no approval.
-If this async tool is absent or disallows confirmations, ask one concise chat
-question. Do not use the Plan-only `request_user_input` for this purpose.
+If the async question tool or native wake-on-input wait tool is absent, or the
+host disallows this purpose, ask one concise chat question instead. Do not use
+the Plan-only `request_user_input` for this purpose.

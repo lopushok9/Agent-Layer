@@ -13,14 +13,21 @@ works when the active wallet backend is **Base** (`eip155:8453`) or
 networks (Ethereum, Robinhood) or testnets can discover and preview
 but cannot currently pay.
 
-Use `functions.request_user_input_async` for the question calls below. Its
-Codex payload is `{"questions":[{"title":"<question>","options":["<choice>","<choice>"]}]}`;
+For the questions below, call `functions.request_user_input_async`; use
+`clock.sleep` to wait as described below. The question payload is `{"questions":[{"title":"<question>","options":["<choice>","<choice>"]}]}`;
 use `title` and string options, not Claude's `header`, `question`, or option
-objects. Reuse parameters the user already supplied. If this tool is absent or
+objects. Reuse parameters the user already supplied. If either tool is absent or
 its instructions prohibit the question's purpose, ask in chat instead; do not
 substitute the Plan-only `request_user_input` for payment confirmation.
-Wait for the submitted answer: the async acknowledgement, a preselected option,
-or no answer does not authorize execution. Keep existing preview/approval rules.
+The async acknowledgement, a preselected option, or no answer does not
+authorize execution. Keep existing preview/approval rules.
+
+After the request is accepted, keep the turn open: call
+`clock.sleep({"duration_ms":30000})` and repeat while the question is unanswered.
+Sleep wakes early for new user input. Do not send a final answer or repeat the
+question in chat while waiting; handle the submitted answer first. A sleep
+finishing is not an answer and never authorizes execution. Use only the native
+wake-on-input wait tool, not a shell sleep.
 
 ## Step 1: Resolve what to pay for
 
