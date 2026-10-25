@@ -13,9 +13,14 @@ works when the active wallet backend is **Base** (`eip155:8453`) or
 networks (Ethereum, Robinhood) or testnets can discover and preview
 but cannot currently pay.
 
-Codex has no native multiple-choice menu, so present options as a numbered
-text list and wait for the user's reply in chat instead of calling a UI
-tool.
+Use `functions.request_user_input_async` for the question calls below. Its
+Codex payload is `{"questions":[{"title":"<question>","options":["<choice>","<choice>"]}]}`;
+use `title` and string options, not Claude's `header`, `question`, or option
+objects. Reuse parameters the user already supplied. If this tool is absent or
+its instructions prohibit the question's purpose, ask in chat instead; do not
+substitute the Plan-only `request_user_input` for payment confirmation.
+Wait for the submitted answer: the async acknowledgement, a preselected option,
+or no answer does not authorize execution. Keep existing preview/approval rules.
 
 ## Step 1: Resolve what to pay for
 
@@ -34,7 +39,9 @@ wants only to ignore what they already typed.
   Bazaar first.
 - Only if the triggering message carried no description or URL at all (a
   bare `$x402`), ask the user what they want to find or pay for before
-  calling any tool.
+  calling any wallet tool. Call `functions.request_user_input_async` with
+  `title: "What service or URL would you like to find or pay for?"` and omit
+  `options` for free text.
 - Present the top ~10 returned `items` as a compact Markdown table with a
   leading `#` column, columns `# | Service | Price`:
   - Service — CDP Bazaar: `description` (fall back to `resource`'s host +
@@ -46,8 +53,11 @@ wants only to ignore what they already typed.
     more"). Network and provider still surface naturally in Step 2's
     preview and Step 3's confirm — they're just not repeated in this first
     table.
-- Wait for the user's reply with a row number, or a request to refine the
-  search if none fit.
+- After the table, call `functions.request_user_input_async`. Set `title` to
+  ask which service to use and explain that free text can select any displayed
+  row or refine the search. Use up to three `options`, each containing the
+  original row number, service name and price. Map the submitted selection to
+  that table; choosing a service is not permission to pay.
 - If the chosen item doesn't already carry a directly-callable URL (CDP
   Bazaar's `resource`, or an Agentic Market `endpoints[].url`), call
   `x402_get_service_details` with that item's reference to resolve one.
@@ -93,11 +103,11 @@ and `x402_pay_to` for the next steps.
   this small. This is this skill's own UX threshold, independent of any
   host- or session-level approval policy elsewhere in the wallet.
 - Otherwise (amount is $1.00 or more, or the asset isn't confidently USDC
-  so its USD value is unknown), state in plain text the amount
-  (`x402_amount_display`, or the raw amount + asset if unavailable),
-  network (`x402_network`), recipient domain (resolved from `x402_pay_to`/
-  the request URL), and service description, and ask the user to reply
-  "confirm" or "cancel".
+  so its USD value is unknown), call `functions.request_user_input_async`
+  with `options: ["Confirm","Cancel"]`. Set `title` to ask whether to pay the
+  previewed amount (`x402_amount_display`, or raw amount + asset), on
+  `x402_network`, to the recipient domain and `x402_pay_to` address, for the
+  selected service. A submitted `Confirm` maps to the explicit `confirm` reply.
 - Only continue to Step 4 on an explicit "confirm" (or on the sub-$1
   auto-skip above). An ambiguous or missing reply is not consent.
 
