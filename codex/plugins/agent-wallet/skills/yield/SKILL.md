@@ -55,6 +55,10 @@ returned `user_steps` (a Codex automation that runs `$yield` every
    `Move` or the explicit chat reply `Move` is consent; wait for the answer,
    not the async acknowledgement. If the tool is absent or disallows this
    purpose, ask in chat; do not use Plan-only `request_user_input` instead.
+   After the async acknowledgement, call `clock.sleep({"duration_ms":30000})`
+   and repeat until the user answers. Keep the turn open without a final answer
+   or duplicate chat question. Sleep expiry is not consent. If native
+   wake-on-input waiting is unavailable, use the chat fallback instead.
 3. On `Move`: the same call with `mode: "intent_execute"` and identical
    arguments. The plugin attaches the approval for the previewed move.
 4. Report each step's transaction hash. If `status` is `partial`, the funds
