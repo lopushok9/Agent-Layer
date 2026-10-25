@@ -12,7 +12,7 @@ Rules:
 - Do not create a new wallet unless the user explicitly asks for wallet provisioning outside this plugin.
 - Prefer wallet tools over shelling out to chain CLIs, curl, or ad hoc scripts.
 - For writes, start with `preview` or `intent_preview` when the tool supports it.
-- Execute only after the user explicitly confirms the shown summary. For ordinary requests, including swaps and transfers, use the confirmation call below.
+- For write operations, including ordinary swaps and transfers, follow the preview and confirmation flow below.
 - On mainnet, restate the network, asset, amount, and destination before execute.
 - Do not ask the user for `approval_token`. The bridge manages approval binding internally.
 - If approval context is missing or stale, repeat preview instead of improvising.
@@ -26,20 +26,24 @@ Markdown table, not a prose paragraph or only the question-menu title. Use a
 short heading with the operation, network and provider, then columns `Item |
 Preview` (localized to the user's language).
 
-For swaps, include rows for amount spent, estimated amount received, minimum
-received, slippage, gas estimate, allowance and recipient. Include USD values,
-price impact, platform/provider fees, and returned risk assessments when the
-preview supplies them; omit inapplicable rows and mark unavailable estimates
-as unavailable rather than inventing them. For other writes, use the same
-layout with the relevant action details, amounts, fees and destination.
+For swaps, keep the default table to these four rows: amount spent,
+estimated amount received, slippage, and estimated gas (label approval + swap
+when both are included). Put supplied USD estimates in the same value cells,
+not extra rows. Use readable display precision, never long raw-unit decimals;
+preserve exact execution values internally.
 
-Include the actual simulation status and material warnings. For example,
-`pending allowance` means simulation has not passed yet. Distinguish estimates
-from guaranteed minimums, separate fees from the input amount, and label whether
-gas covers approval, the main transaction, or both. Use human token units and
-readable display precision; preserve exact execution arguments and approval
-scope internally. Never invent USD conversions, safety scores or green statuses.
-Show material warnings once below the table if they do not fit a row.
+Do not add default rows for minimum received, allowance, zero provider fees,
+the user's own recipient address, or simulation pending the ordinary token
+approval. Keep those values in the exact preview/approval binding and execution
+arguments. Nonzero extra fees, an unexpected recipient, unusually broad
+allowance, failed simulation or other material warnings must still be disclosed
+briefly below the table when present. Pending allowance is not a passed
+simulation and must not be presented as one.
+
+Omit optional fields the tool did not return; do not pad the table with empty
+or unavailable risk/price-impact rows. Never invent USD conversions, safety
+scores or green statuses. For other writes, show only the relevant core action,
+amount, estimated fee and destination, with material warnings below.
 
 Send the table before opening the question menu; the menu supplements the table
 and must not replace it. Do not repeat the preview as another prose summary.

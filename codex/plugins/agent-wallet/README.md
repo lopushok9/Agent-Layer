@@ -57,7 +57,9 @@ wallet tool names against the active Codex MCP surface (for example,
 existing wallet tools, not new wrapper commands.
 `wallet-operator` also covers plain-language swaps, transfers and other wallet
 writes: render a compact transaction-preview table in chat before opening the
-confirmation menu, retaining estimates, simulation status and material warnings. Existing consent and backend approvals still apply;
+confirmation menu. Swap tables normally have four rows (spend, estimated receive,
+slippage, gas); disclose exceptional fees or material warnings below instead of
+adding routine allowance, self-recipient, zero-fee or pending-simulation rows. Existing consent and backend approvals still apply;
 chat is the fallback when the async tool is absent or disallows the purpose.
 After an async question is accepted, skills keep the turn open using native
 wake-on-input `clock.sleep` calls, without a final answer until the user replies.
