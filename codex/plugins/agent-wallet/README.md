@@ -56,7 +56,8 @@ wallet tool names against the active Codex MCP surface (for example,
 `mcp__agent_wallet__swap_evm_tokens`). The short names in skills refer to those
 existing wallet tools, not new wrapper commands.
 `wallet-operator` also covers plain-language swaps, transfers and other wallet
-writes after their preview. Existing consent and backend approvals still apply;
+writes: render a compact transaction-preview table in chat before opening the
+confirmation menu, retaining estimates, simulation status and material warnings. Existing consent and backend approvals still apply;
 chat is the fallback when the async tool is absent or disallows the purpose.
 After an async question is accepted, skills keep the turn open using native
 wake-on-input `clock.sleep` calls, without a final answer until the user replies.
