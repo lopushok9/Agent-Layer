@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.137 - 2026-10-25 (local release)
+
+- Render transaction previews as compact Markdown tables before native
+  confirmation menus, including supplied estimates, allowance, simulation
+  status and material warnings. Do not invent risk scores or USD conversions.
+- Keep native question waiting, approval bindings and execution arguments unchanged.
+
 ## v0.1.136 - 2026-10-25 (local release)
 
 - Keep native async question turns open with wake-on-input waiting until the
