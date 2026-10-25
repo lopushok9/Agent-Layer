@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.135 - 2026-10-25 (local release)
+
+- Port core Claude question flows to explicit Codex async question calls with
+  native title/string-option payloads, including ordinary wallet confirmations
+  after previews. Keep current host restrictions and chat fallback.
+- Preserve current vault/Kernel workflows, payment consent, backend approvals
+  and execution arguments.
+
 ## v0.1.134 - 2026-10-24 (local release)
 
 - Revert the native question-menu skill changes from local 0.1.133. Restore
