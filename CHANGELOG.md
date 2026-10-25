@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.139 - 2026-10-25 (local release)
+
+- Codex: state the preview confirmation gate in the write preview result
+  (`next_step`) instead of the wallet-operator skill, so Codex no longer cites
+  and quotes the SKILL.md before the confirmation menu. Confirmation and
+  approval binding are unchanged.
+
 ## v0.1.138 - 2026-10-25 (local release)
 
 - Keep default swap previews to four core rows; omit routine allowance, zero
