@@ -1,6 +1,6 @@
 {
   "name": "agent-wallet",
-  "version": "0.1.137",
+  "version": "0.1.138",
   "description": "Connect Cursor to your existing local AgentLayer wallet runtime for Solana and EVM. The plugin does not create a wallet.",
   "author": {
     "name": "AgentLayer"

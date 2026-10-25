@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.138 - 2026-10-25 (local release)
+
+- Keep default swap previews to four core rows; omit routine allowance, zero
+  fee, self-recipient, pending-simulation and minimum-received rows. Retain
+  material warnings and exact preview/approval/execution values.
+- Remove duplicate confirmation wording; preserve the existing confirmation
+  and native waiting flow. Host citation requirements remain independent.
+
 ## v0.1.137 - 2026-10-25 (local release)
 
 - Render transaction previews as compact Markdown tables before native
