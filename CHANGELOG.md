@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.136 - 2026-10-25 (local release)
+
+- Keep native async question turns open with wake-on-input waiting until the
+  user responds. Do not send a final answer over an unanswered question.
+- Require both native question and wait tools for menus; retain chat fallback
+  and all existing payment approval checks. Host skill-citation policy is unchanged.
+
 ## v0.1.135 - 2026-10-25 (local release)
 
 - Port core Claude question flows to explicit Codex async question calls with
