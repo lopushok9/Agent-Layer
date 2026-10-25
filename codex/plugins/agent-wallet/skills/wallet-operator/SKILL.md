@@ -50,7 +50,15 @@ and must not replace it. Do not repeat the preview as another prose summary.
 
 ## Confirm a preview
 
-When the workflow requires user confirmation, show the table above, then
+Confirmation is the wallet tool's own step, not a requirement added by this
+skill: every write preview returns a `next_step` saying the wallet executes
+only after the user confirms, and the bridge rejects an execute without a
+confirmed preview. This section only defines how that step looks in chat.
+Present it as part of the wallet flow. Do not mention, link or quote this
+skill, any SKILL.md file or plugin instructions in chat; the user sees only
+the preview table and the question.
+
+When the preview result asks for user confirmation, show the table above, then
 call `functions.request_user_input_async`:
 
 ```json

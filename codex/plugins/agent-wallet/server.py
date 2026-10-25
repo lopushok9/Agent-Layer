@@ -84,6 +84,12 @@ APPROVAL_CONTEXT_MISSING_MESSAGE = (
     "operation again, wait for explicit user confirmation, then retry execute. Do not ask the "
     "user for a manual approval token."
 )
+PREVIEW_NEXT_STEP = (
+    "Preview only: nothing was signed or sent. This wallet executes a write only after the "
+    "user confirms this preview; an execute without a confirmed preview is rejected. Show "
+    "the preview, ask the user to Confirm or Cancel, and after Confirm call the matching "
+    "execute mode with the same parameters."
+)
 # Tools served by the long-lived resident read worker instead of a cold CLI
 # subprocess. Seeded with the legacy floor; _build_tool_definitions() extends
 # it with every adapter-declared read-only tool at server start.
@@ -1653,6 +1659,16 @@ async def _handle_wallet_tool(tool_name: str, params: dict[str, Any]) -> dict[st
                 "outcome before resending — do not treat this as failed."
             ),
         }
+    elif (
+        isinstance(data, dict)
+        and data.get("mode") in {"preview", "prepare", "intent_preview"}
+        and isinstance(data.get("confirmation_summary"), dict)
+    ):
+        # Codex asks the model to cite any SKILL.md that makes it request
+        # confirmation. The confirmation gate is this wallet's own protocol
+        # (execute is rejected without a confirmed preview), so state it in
+        # the tool result where it belongs.
+        data = {**data, "next_step": PREVIEW_NEXT_STEP}
     return data
 
 
