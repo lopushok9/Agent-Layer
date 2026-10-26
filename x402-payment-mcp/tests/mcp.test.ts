@@ -4,10 +4,10 @@ import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { createUserMcp, INSTRUCTIONS, LINK_INSTRUCTIONS } from "../src/mcp.js";
 
 // Drives the real MCP server over JSON-RPC so the published schemas and argument handling are what a host actually sees.
-async function connect(payments:Record<string,(...args:any[])=>unknown>,link:Record<string,(...args:any[])=>unknown>|null=null){
+async function connect(payments:Record<string,(...args:any[])=>unknown>,link:Record<string,(...args:any[])=>unknown>|null=null,scopes:string[]=["x402:pay"],transactions?:any,wallets?:any){
   const [client,server]=InMemoryTransport.createLinkedPair();const pending=new Map<number,(value:any)=>void>();let id=0;
   client.onmessage=(message:any)=>{pending.get(message.id)?.(message);pending.delete(message.id);};
-  await createUserMcp("user-1",payments as any,{} as any,link as any).connect(server);await client.start();
+  await createUserMcp("user-1",payments as any,link as any,wallets,transactions,scopes).connect(server);await client.start();
   const request=(method:string,params:unknown={})=>new Promise<any>(resolve=>{const n=++id;pending.set(n,resolve);void client.send({jsonrpc:"2.0",id:n,method,params} as any);});
   const init=await request("initialize",{protocolVersion:"2025-06-18",capabilities:{},clientInfo:{name:"test",version:"0"}});
   await client.send({jsonrpc:"2.0",method:"notifications/initialized"} as any);
@@ -23,6 +23,22 @@ test("the server publishes its workflow and a url-based preview schema",async()=
   for(const key of ["url","service_ref","method","query","headers","body","text_body","scheme"])assert.ok(preview.properties[key],key);
   assert.deepEqual(preview.properties.method.enum,["GET","POST","PUT","PATCH","DELETE"]);
   assert.deepEqual(tools.find(t=>t.name==="x402_search")!.inputSchema.properties.provider.enum,["bazaar","agentic_market"]);
+});
+
+test("legacy scopes cannot list or invoke contract execution and Arc is absent", async()=>{
+  const seen:unknown[]=[];
+  const transactions={execute:async(...args:unknown[])=>{seen.push(args);return{status:"submitted"};}};
+  const legacy=await connect({},null,["x402:pay"],transactions,{});
+  const tools=(await legacy.request("tools/list")).result.tools as {name:string}[];
+  assert.ok(!tools.some(t=>t.name.startsWith("arc_")||t.name.startsWith("transaction_")||t.name==="contract_read"));
+  const denied=await legacy.call("transaction_execute",{operation_id:"3f0a3c2e-6f0b-4c53-9f4e-0d3a1a2b3c4d",purpose:"test"});
+  assert.ok(denied.error||denied.result.isError);assert.equal(seen.length,0);
+  const granted=await connect({},null,["wallet:transact"],transactions,{});
+  const grantedTools=(await granted.request("tools/list")).result.tools as {name:string}[];
+  assert.ok(grantedTools.some(t=>t.name==="transaction_prepare"));
+  assert.ok(!grantedTools.some(t=>t.name==="x402_pay"));
+  const ok=await granted.call("transaction_execute",{operation_id:"3f0a3c2e-6f0b-4c53-9f4e-0d3a1a2b3c4d",purpose:"test"});
+  assert.equal(ok.result.isError,undefined);assert.equal(seen.length,1);
 });
 
 test("x402_preview forwards a plain url request and rejects ambiguous or unknown arguments",async()=>{

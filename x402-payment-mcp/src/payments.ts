@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
-import { CdpClient, searchX402Resources } from "@coinbase/cdp-sdk";
-import { getDefaultEvmRpcUrls } from "@coinbase/cdp-sdk/x402";
+import { searchX402Resources } from "@coinbase/cdp-sdk";
+import { getDefaultEvmRpcUrls, fromCdpSmartWallet } from "@coinbase/cdp-sdk/x402";
+import { SmartWalletService } from "./smart-wallet.js";
+import { WalletStore } from "./wallet-store.js";
 import { x402Client, x402HTTPClient } from "@x402/core/client";
 import { decodePaymentRequiredHeader } from "@x402/core/http";
 import type { PaymentRequired, PaymentRequirements } from "@x402/core/types";
@@ -31,17 +33,17 @@ const UNLISTED_WARNING="This URL is not a CDP Bazaar listing. Pay only if the us
 export type PaymentScheme="exact"|"upto"|"batch-settlement"|"auth-capture";
 
 export class PaymentService{
-  private readonly cdp:CdpClient;
+  private readonly wallets:SmartWalletService;
   private readonly baseRpcUrl:Promise<string|undefined>;
-  constructor(private config:Config,private store:Store,private tokens:TokenService){this.cdp=new CdpClient({apiKeyId:config.CDP_API_KEY_ID,apiKeySecret:config.CDP_API_KEY_SECRET,walletSecret:config.CDP_WALLET_SECRET});this.baseRpcUrl=getDefaultEvmRpcUrls().then(urls=>urls[BASE_NETWORK]?.rpcUrl);}
+  constructor(private config:Config,private store:Store,private tokens:TokenService,wallets?:SmartWalletService){this.wallets=wallets??new SmartWalletService(config,new WalletStore(store.pool));this.baseRpcUrl=getDefaultEvmRpcUrls().then(urls=>config.BASE_RPC_URL??urls[BASE_NETWORK]?.rpcUrl);}
 
-  async search(query:string,limit:number,provider:DiscoveryProvider="bazaar"){if(provider==="agentic_market")return this.searchAgenticMarket(query,limit);const found=await searchX402Resources({query:query.slice(0,400),network:BASE_NETWORK,asset:BASE_USDC,...(this.config.SPEND_LIMITS_ENABLED?{maxUsdPrice:atomicUsd(this.config.MAX_PAYMENT_USDC_ATOMIC)}:{})});const eligible=found.resources.map(r=>({resource:r,accepts:(r.accepts??[]).filter(isAllowedLike) as unknown as RequirementLike[]})).filter(r=>r.accepts.length>0).slice(0,limit);const resources=eligible.map(({resource:r,accepts})=>({url:r.resource,service_name:r.serviceName,description:r.description,type:r.type,accepts:accepts.map(publicRequirementLike),quality:r.quality,tags:r.tags,...inputHint(r.extensions)}));return{provider:"bazaar",resources,partial_results:found.partialResults,search_method:found.searchMethod};}
+  async search(query:string,limit:number,provider:DiscoveryProvider="bazaar"){if(provider==="agentic_market")return this.searchAgenticMarket(query,limit);const found=await searchX402Resources({query:query.slice(0,400),network:BASE_NETWORK,asset:BASE_USDC,...(this.config.SPEND_LIMITS_ENABLED?{maxUsdPrice:atomicUsd(this.config.MAX_PAYMENT_USDC_ATOMIC)}:{})});const eligible=found.resources.map(r=>({resource:r,accepts:(r.accepts??[]).filter(r=>isAllowedLike(r)&&smartAccountRequirement(r)) as unknown as RequirementLike[]})).filter(r=>r.accepts.length>0).slice(0,limit);const resources=eligible.map(({resource:r,accepts})=>({url:r.resource,service_name:r.serviceName,description:r.description,type:r.type,accepts:accepts.map(publicRequirementLike),quality:r.quality,tags:r.tags,...inputHint(r.extensions)}));return{provider:"bazaar",resources,partial_results:found.partialResults,search_method:found.searchMethod};}
 
-  private async searchAgenticMarket(query:string,limit:number){const response=await safeFetch(`${AGENTIC_MARKET_API}/services/search?q=${encodeURIComponent(query.slice(0,400))}`,{headers:{accept:"application/json"},signal:AbortSignal.timeout(DISCOVERY_TIMEOUT_MS)});const body=await limitedBody(response);if(!response.ok)throw new Error(`Agentic Market search failed (HTTP ${response.status})`);return{provider:"agentic_market",resources:agenticMarketResources(body,limit)};}
+  private async searchAgenticMarket(query:string,limit:number){const response=await safeFetch(`${AGENTIC_MARKET_API}/services/search?q=${encodeURIComponent(query.slice(0,400))}`,{headers:{accept:"application/json"},signal:AbortSignal.timeout(DISCOVERY_TIMEOUT_MS)});const body=await limitedBody(response);if(!response.ok)throw new Error(`Agentic Market search failed (HTTP ${response.status})`);return{provider:"agentic_market",resources:agenticMarketResources(body,limit).filter(r=>r.scheme==="exact")};}
 
-  async walletStatus(userId:string){const account=await this.account(userId);const scoped=await account.useNetwork("base");const result=await scoped.listTokenBalances({pageSize:100});const usdc=result.balances.find(b=>b.token.contractAddress.toLowerCase()===BASE_USDC);return{network:BASE_NETWORK,address:account.address,usdc_atomic:usdc?.amount.amount.toString()??"0",usdc_decimals:usdc?.amount.decimals??6,spend_limits_enabled:this.config.SPEND_LIMITS_ENABLED,per_payment_limit_atomic:this.config.SPEND_LIMITS_ENABLED?this.config.MAX_PAYMENT_USDC_ATOMIC:null,daily_limit_atomic:this.config.SPEND_LIMITS_ENABLED?this.config.MAX_DAILY_USDC_ATOMIC:null};}
+  async walletStatus(userId:string){const account=await this.account(userId);const scoped=await account.useNetwork("base");const result=await scoped.listTokenBalances({pageSize:100});const usdc=result.balances.find(b=>b.token.contractAddress.toLowerCase()===BASE_USDC);return{network:BASE_NETWORK,account_type:"cdp_smart_account",address:account.address,supported_x402_schemes:["exact/eip3009"],usdc_atomic:usdc?.amount.amount.toString()??"0",usdc_decimals:usdc?.amount.decimals??6,spend_limits_enabled:this.config.SPEND_LIMITS_ENABLED,per_payment_limit_atomic:this.config.SPEND_LIMITS_ENABLED?this.config.MAX_PAYMENT_USDC_ATOMIC:null,daily_limit_atomic:this.config.SPEND_LIMITS_ENABLED?this.config.MAX_DAILY_USDC_ATOMIC:null};}
 
-  async preview(userId:string,target:ResourceTarget,input:PreviewSpec,scheme:"auto"|PaymentScheme="auto"){if(hasBody(input)&&input.textBody!==undefined)throw new Error("provide either body or text_body, not both");const headers=normalizeRequestHeaders(input.headers);const request:PreviewSpec={...input,...(headers?{headers}:{})};const baseUrl=await this.resolveTarget(target);const requested=buildResourceUrl(baseUrl,request.query);const listing=await this.bazaarListing(baseUrl);const listed=listing.listed;const {method,url,header,challenge}=await preflight(safeFetchManual,requested,request,request.method?[request.method]:methodCandidates(listing.method,hasBody(request)),Math.min(this.config.PAYMENT_TIMEOUT_MS,PREFLIGHT_TIMEOUT_MS));const spec:RequestSpec={...request,method};const selected=selectRequirement(challenge,this.config,scheme);const fingerprint=requirementFingerprint(challenge,selected,url,spec);const saved=await this.store.createPreview({userId,method:spec.method,url,headers:spec.headers??null,body:spec.body??null,textBody:spec.textBody??null,paymentRequired:header,fingerprint,scheme:selected.scheme,amount:selected.amount,payTo:selected.payTo},this.config.PREVIEW_TTL_SECONDS);return{preview_id:saved.id,expires_at:saved.expiresAt.toISOString(),resource:{url,...(url!==requested?{redirected_from:requested}:{}),description:challenge.resource.description,service_name:challenge.resource.serviceName,bazaar_listed:listed,...(listed===true?{}:{warning:UNLISTED_WARNING})},payment:publicRequirement(selected),request:{method:spec.method,query:spec.query??{},header_names:Object.keys(spec.headers??{}),has_body:hasBody(spec)||spec.textBody!==undefined}};}
+  async preview(userId:string,target:ResourceTarget,input:PreviewSpec,scheme:"auto"|PaymentScheme="auto"){if(hasBody(input)&&input.textBody!==undefined)throw new Error("provide either body or text_body, not both");const headers=normalizeRequestHeaders(input.headers);const request:PreviewSpec={...input,...(headers?{headers}:{})};const baseUrl=await this.resolveTarget(target);const requested=buildResourceUrl(baseUrl,request.query);const listing=await this.bazaarListing(baseUrl);const listed=listing.listed;const {method,url,header,challenge}=await preflight(safeFetchManual,requested,request,request.method?[request.method]:methodCandidates(listing.method,hasBody(request)),Math.min(this.config.PAYMENT_TIMEOUT_MS,PREFLIGHT_TIMEOUT_MS));const spec:RequestSpec={...request,method};const selected=selectSmartAccountRequirement(challenge,this.config,scheme);const fingerprint=requirementFingerprint(challenge,selected,url,spec);const saved=await this.store.createPreview({userId,method:spec.method,url,headers:spec.headers??null,body:spec.body??null,textBody:spec.textBody??null,paymentRequired:header,fingerprint,scheme:selected.scheme,amount:selected.amount,payTo:selected.payTo},this.config.PREVIEW_TTL_SECONDS);return{preview_id:saved.id,expires_at:saved.expiresAt.toISOString(),resource:{url,...(url!==requested?{redirected_from:requested}:{}),description:challenge.resource.description,service_name:challenge.resource.serviceName,bazaar_listed:listed,...(listed===true?{}:{warning:UNLISTED_WARNING})},payment:publicRequirement(selected),request:{method:spec.method,query:spec.query??{},header_names:Object.keys(spec.headers??{}),has_body:hasBody(spec)||spec.textBody!==undefined}};}
 
   async pay(userId:string,previewId:string,purpose:string){return this.store.withPaymentLock(userId,()=>this.payLocked(userId,previewId,purpose));}
 
@@ -50,7 +52,7 @@ export class PaymentService{
     try{
       if(!preview.paymentRequired)throw new Error("preview was created before a server upgrade; call x402_preview again");
       const paymentRequired=decodePaymentRequiredHeader(preview.paymentRequired);
-      const client=await this.client(userId,preview);
+      const client=await this.client(userId,preview,()=>{signed=true;});
       client.onBeforePaymentCreation(async({paymentRequired:terms,selectedRequirements})=>{if(requirementFingerprint(terms,selectedRequirements,preview.url,stored)!==preview.fingerprint)return{abort:true,reason:"stored payment terms do not match the preview"};});
       client.onAfterPaymentCreation(async()=>{signed=true;});
       const {response,paid}=await payStoredChallenge({client,fetchImpl:safeFetch,url:preview.url,request:stored,paymentRequired,timeout:this.config.PAYMENT_TIMEOUT_MS});
@@ -67,16 +69,21 @@ export class PaymentService{
     finally{await this.store.scrubPreview(previewId).catch(error=>console.error("preview scrub failed",errorMessage(error)));}
   }
 
-  private async client(userId:string,preview:import("./store.js").Preview){
-    const account=await this.account(userId);const rpcUrl=await this.baseRpcUrl;const publicClient=createPublicClient({chain:base,transport:http(rpcUrl)});const signer=toClientEvmSigner(account,publicClient);const schemeOptions=rpcUrl?{rpcUrl}:undefined;
-    const client=new x402Client((_version,requirements)=>selectPreviewRequirement(requirements,preview));client.setSpendControls(this.config.SPEND_LIMITS_ENABLED?{maxAmountPerPayment:`$${atomicUsd(this.config.MAX_PAYMENT_USDC_ATOMIC)}`,allowedAssets:[]}:false);
-    registerExactEvmScheme(client,{signer,networks:[BASE_NETWORK],...(schemeOptions?{schemeOptions}:{})});client.register(BASE_NETWORK,new UptoEvmScheme(signer,schemeOptions));client.register(BASE_NETWORK,new BatchSettlementEvmScheme(signer,{storage:new PostgresBatchChannelStorage(this.store,userId),...(rpcUrl?{rpcUrl}:{})}));client.register(BASE_NETWORK,new AuthCaptureEvmScheme(signer));client.registerPolicy((_v,reqs)=>reqs.filter(isAllowed));
-    client.registerExtension(createSIWxClientExtension({signers:[{address:account.address,signMessage:({message}:{message:string})=>account.signMessage({message})}]}));
+  private async client(userId:string,preview:import("./store.js").Preview,beforeSigning:()=>void){
+    if(!smartAccountRequirement({scheme:preview.scheme,extra:decodePaymentRequiredHeader(preview.paymentRequired!).accepts.find(r=>r.scheme===preview.scheme)?.extra}))throw new Error("payment scheme is not supported by this smart account");
+    const account=await this.account(userId);const rpcUrl=await this.baseRpcUrl;
+    const signer=fromCdpSmartWallet(account);
+    const signTypedData=signer.signTypedData.bind(signer);
+    signer.signTypedData=async options=>{beforeSigning();return signTypedData(options);};
+    const client=new x402Client((_version,requirements)=>selectPreviewRequirement(requirements.filter(smartAccountRequirement),preview));
+    client.setSpendControls(this.config.SPEND_LIMITS_ENABLED?{maxAmountPerPayment:`$${atomicUsd(this.config.MAX_PAYMENT_USDC_ATOMIC)}`,allowedAssets:[]}:false);
+    registerExactEvmScheme(client,{signer,networks:[BASE_NETWORK],...(rpcUrl?{schemeOptions:{rpcUrl}}:{})});
+    client.registerPolicy((_v,reqs)=>reqs.filter(r=>isAllowed(r)&&smartAccountRequirement(r)));
+    // No EOA SIWx fallback: owner address is never the payment identity.
     return client;
   }
 
-  // One CDP EVM account per user, shared by Base x402 payments and Arc transfers.
-  async account(userId:string){const name=`x402-${createHash("sha256").update(userId).digest("hex").slice(0,24)}`;const existing=await this.store.getWallet(userId);const account=await this.cdp.evm.getOrCreateAccount({name:existing?.accountName??name});if(!existing?.address)await this.store.saveWallet(userId,name,account.address);return account;}
+  async account(userId:string){return this.wallets.account(userId);}
   // Any public HTTPS x402 endpoint can be paid, as in the local wallet. service_ref is still accepted from clients holding an older search result.
   private async resolveTarget(target:ResourceTarget){const raw=target.url??(target.serviceRef?await this.tokens.verifyServiceRef(target.serviceRef):undefined);if(!raw)throw new Error("provide the url of the x402 resource");assertNoPathPlaceholders(raw);return assertSafeResourceUrl(raw).toString();}
   // Informational only: a Bazaar outage must not block a payment the user asked for.
@@ -208,4 +215,11 @@ export class PostgresBatchChannelStorage implements ClientChannelStorage{
   get(key:string){return this.store.getBatchChannel(this.userId,key);}
   set(key:string,context:BatchSettlementClientContext){return this.store.setBatchChannel(this.userId,key,context);}
   delete(key:string){return this.store.deleteBatchChannel(this.userId,key);}
+}
+
+export function smartAccountRequirement(r:{scheme:string;extra?:Record<string,unknown>|undefined}){return r.scheme==="exact"&&(r.extra?.assetTransferMethod===undefined||r.extra.assetTransferMethod==="eip3009")&&(r.extra?.paymentFlow===undefined||r.extra.paymentFlow==="authorization");}
+export function selectSmartAccountRequirement(challenge:PaymentRequired,config:Config,requested:"auto"|PaymentScheme="auto"){
+  const accepts=challenge.accepts.filter(smartAccountRequirement);
+  if(requested!=="auto"&&requested!=="exact"||!accepts.length)throw new Error("CDP smart wallet currently supports only x402 exact/EIP-3009 authorization; no EOA fallback is available");
+  return selectRequirement({...challenge,accepts},config,requested);
 }
