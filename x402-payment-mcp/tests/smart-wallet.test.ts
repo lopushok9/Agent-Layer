@@ -18,17 +18,24 @@ test("fresh smart wallet uses a separate namespace and never exposes owner as re
 });
 
 test("the exact UserOperation hash must be durably recorded before owner signing", async () => {
+  // Exercise the actual pinned SDK implementation, not a copy of its signing
+  // sequence. This test must fail if an SDK update bypasses owner.sign(hash).
+  const { sendUserOperation } = await import(new URL("./actions/evm/sendUserOperation.js", import.meta.resolve("@coinbase/cdp-sdk")).href);
   const order: string[] = [];
   const owner = { address: ownerAddress, sign: async () => { order.push("sign"); return "0x12"; } };
+  const api = {
+    prepareUserOperation: async () => ({ userOpHash: hash, status: "pending" }),
+    sendUserOperation: async (_address: string, h: string, body: any, id: string) => { assert.equal(h, hash); assert.equal(body.signature, "0x12"); assert.equal(id, "idempotency-key"); order.push("submit"); return { status: "broadcast" }; },
+  };
   const cdp = { evm: {
     getOrCreateAccount: async () => owner, getOrCreateSmartAccount: async () => ({ address, owners: [owner] }),
-    sendUserOperation: async (p: any) => { await p.smartAccount.owners[0].sign({ hash }); order.push("submit"); return { userOpHash: hash }; },
+    sendUserOperation: async (p: any) => sendUserOperation(api, p),
   } };
-  const wallets = new SmartWalletService({} as any, { wallet: async () => null, saveWallet: async () => {} }, cdp as any);
+  const wallets = new SmartWalletService({ BASE_PAYMASTER_URL: "https://paymaster.example" } as any, { wallet: async () => null, saveWallet: async () => {} }, cdp as any);
   await wallets.send("user", "base", [{ to: ownerAddress, value: "0", data: "0x" }], "idempotency-key", async h => { assert.equal(h, hash); order.push("persist"); });
   assert.deepEqual(order, ["persist", "sign", "submit"]);
   order.length = 0;
-  await assert.rejects(wallets.send("user", "base", [], "id", async () => { throw new Error("database unavailable"); }), /database unavailable/);
+  await assert.rejects(wallets.send("user", "base", [{ to: ownerAddress, value: "0", data: "0x" }], "id", async () => { throw new Error("database unavailable"); }), /database unavailable/);
   assert.deepEqual(order, [], "failed durable write must prevent signing and submission");
 });
 

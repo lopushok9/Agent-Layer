@@ -1,12 +1,77 @@
-# Hosted x402 Payment MCP
+# Hosted Smart Wallet MCP
 
-A standalone buyer-side MCP for cloud agents. It pays any public HTTPS x402 endpoint, found through CDP Bazaar, Agentic Market, or given by the user, using x402 v2 `exact`, `upto`, `batch-settlement`, and `auth-capture` requirements with canonical USDC on Base (`eip155:8453`). It never receives payments and never exposes a generic signing method.
+Managed CDP smart accounts on Ethereum and Base, with Google/GitHub login and
+transaction confirmation in chat. Each user has a public smart-account receive
+address and an internal CDP-managed EOA owner. The owner address is never a funding
+address. This is a fresh wallet namespace: legacy wallets are preserved but are
+not imported, swept, renamed or displayed as the new smart wallet.
+
+The service exposes universal ABI/raw contract CALL batches through
+`transaction_prepare` -> `transaction_execute` -> `transaction_status`.
+Optional Stripe Link remains a separate approved-purchase integration.
+Arc tools are removed. No passkey ceremony or autonomous session keys are included.
+
+Base USDC x402 payments initially support **exact/EIP-3009 authorization only**.
+Other schemes and SIWx are disabled for this smart-account path until compatibility
+is independently established; there is no hidden owner-EOA fallback.
+
+See [SMART_ACCOUNTS.md](SMART_ACCOUNTS.md) for design and source references.
+
+## Universal contract workflow
+
+Request OAuth scopes `x402:pay wallet:transact` (or only `wallet:transact`). The
+consent page explicitly describes arbitrary-contract execution. Existing tokens,
+refresh grants and personal access tokens retain their existing x402-only scope;
+reconnect with the new scope to access contract tools.
+
+1. `smart_wallet_status({network:"base"})` returns the receive address, native
+   balance and deployment state. Ethereum uses `network:"ethereum"`.
+2. `contract_read` accepts `network`, `to`, `abi`, `function_name`, and `args`.
+   It never signs. Returned strings and caller-provided ABI are untrusted.
+3. `transaction_prepare` accepts up to 16 ordered calls on one network. Each call
+   is `{to,value,data}` or `{to,value,abi,function_name,args}`; `value` defaults to
+   `"0"`. All amounts use integer atomic-unit strings. No delegatecall, self-call,
+   owner-call, dynamic runtime amount or cross-chain mode is exposed.
+4. The service simulates calls sequentially with the smart account as sender and
+   persists a user-owned, expiring immutable preview. Show calls, values,
+   allowances, simulated asset changes and warnings to the user before approval.
+5. After the user's chat confirmation, call `transaction_execute` with the exact
+   `operation_id` and a purpose. An invocation trusts the host to obtain consent;
+   this is not an independent cryptographic proof of human confirmation.
+6. Poll `transaction_status`. It verifies the matching EntryPoint UserOperation
+   event rather than treating outer transaction success as execution success.
+   `confirmed` means observed inclusion, not irreversible chain finality.
+
+RPC simulation requires `eth_simulateV1` and fails closed if unavailable. It covers
+sequential call effects, not account deployment/signature validation; tx.origin and deployment callbacks can differ; CDP prepares
+and validates the UserOperation separately. Asset traces can be incomplete.
+Successful simulation does not establish contract safety or future price.
+
+Base SDK execution requests CDP gas sponsorship by default. A configured
+paymaster can override it. Ethereum can spend ETH from the smart account to pay
+fees when no paymaster is configured. CDP's managed API does not return the exact
+maximum fee, so previews show execution gas and disclose that validation,
+deployment and network overhead are excluded. No enforced fee ceiling is claimed.
+
+`wallet_operations` binds user/network/address/calls, single-use consumption,
+provider hash and idempotency ID. The hash is persisted before owner signing.
+Signing/submission timeouts remain `unknown`; never automatically rebuild or resend.
+An unresolved operation blocks another execution on the same user's network.
+Use status reconciliation; a dropped/not-found provider response does not prove
+that a signed operation can never land. A crash in reserved state without a hash
+requires operator investigation; no unsafe reset tool is exposed.
+
+Contract ABIs may come from verified registries or the caller; this first version
+accepts supplied ABI and raw calldata and labels their provenance explicitly. It
+does not automatically discover ABIs, quote swaps or certify protocol addresses.
+Any protocol can be composed with fixed calls; specialized quote/intent adapters
+and on-chain permissions are separate extensions.
 
 ## Identity model
 
 This service is its own OAuth 2.1 authorization server. Google and GitHub are used only to prove the human's identity; they do not issue MCP access tokens and no external identity-platform infrastructure is required.
 
-The stable database identity is `(provider, provider subject)`. Each identity owns one named CDP EVM account. New conversations and devices reconnect to that same wallet after OAuth. Losing a host application's connector session only requires signing in again; it does not lose the wallet. Google and GitHub identities are deliberately not auto-linked by email, so choosing a different provider creates a different wallet in this MVP.
+The stable database identity is `(provider, provider subject)`. Each identity owns one named CDP smart account and its internal owner EOA. New conversations and devices reconnect to that same wallet after OAuth. Losing a host application's connector session only requires signing in again; it does not lose the wallet. Google and GitHub identities are deliberately not auto-linked by email, so choosing a different provider creates a different wallet in this MVP.
 
 The MCP client receives a 15-minute ES256 access token plus a rotating opaque refresh token. It never receives a CDP credential, private key, wallet secret, or signing capability.
 
@@ -15,16 +80,16 @@ The provider choice uses ordinary links so it works reliably in mobile and embed
 ## Payment flow
 
 1. `x402_search` searches CDP Bazaar (default) or Agentic Market and returns each resource's `url`, price, and the provider's untrusted input hint.
-2. `x402_preview` takes a `url`: one from search, or any public HTTPS x402 endpoint the user supplied. It reports whether the url is a Bazaar listing, detects the HTTP method (Bazaar hint, then one retry on 405), applies query parameters, caller headers and a JSON or text body, follows redirects through the SSRF guard, performs the unpaid request, selects one supported scheme, and stores the request together with the provider's `PAYMENT-REQUIRED` challenge. Provider validation errors are returned with a bounded, explicitly untrusted response preview so callers can correct parameters before any payment is signed.
-3. `x402_pay` atomically consumes the preview, reserves the user's rolling 24-hour limit when that optional control is enabled, signs the stored challenge, and sends one paid request. Only the amount and recipient shown in the preview can be signed. If the provider declares Sign-In-With-X, the wallet sign-in is tried first and a granted request is not charged.
+2. `x402_preview` takes a `url`: one from search, or any public HTTPS x402 endpoint the user supplied. It reports whether the url is a Bazaar listing, detects the HTTP method (Bazaar hint, then one retry on 405), applies query parameters, caller headers and a JSON or text body, follows redirects through the SSRF guard, performs the unpaid request, selects exact/EIP-3009 authorization, and stores the request together with the provider's `PAYMENT-REQUIRED` challenge. Provider validation errors are returned with a bounded, explicitly untrusted response preview so callers can correct parameters before any payment is signed.
+3. `x402_pay` atomically consumes the preview, reserves the user's rolling 24-hour limit when that optional control is enabled, signs the stored challenge, and sends one paid request. Only the amount and recipient shown in the preview can be signed. SIWx is disabled on this smart-account path; it must never sign with the owner EOA identity.
 
 `x402_pay` returns `settled` when the provider reported a settlement, `not_charged` when access was granted without payment, and `unknown` with the provider's reason when a payment was signed but no settlement was reported. A failure before signing is an error stating that nothing was charged.
 
 Previews last `PREVIEW_TTL_SECONDS` (default 600) and each provider request has its own `PAYMENT_TIMEOUT_MS` (default 45000) budget. Caller-supplied headers are stored only until the preview is paid or expires.
 
-Batch-settlement channel state is stored durably in PostgreSQL, and payments are serialized per user with a PostgreSQL advisory lock so concurrent requests cannot sign conflicting cumulative vouchers. The SDK's default channel deposit is five times the advertised per-request maximum; this funds subsequent voucher-only calls and is distinct from the amount the seller may charge for the current request.
-
-The CDP account signer is paired with the project's authenticated Base RPC for read-only allowance checks and standard gas-sponsoring extensions. This lets Permit2-based `upto` routes use seller-advertised approval sponsorship without exposing a generic transaction-signing MCP tool.
+New x402 previews are bound to the smart-account payer address. Old previews from
+before the wallet transition must be recreated. Batch-settlement, auth-capture,
+upto and Permit2 routes are unavailable on the new smart-wallet path.
 
 Spend limits are disabled by default. The existing 1 USDC per-payment and 5 USDC rolling-24-hour controls can be restored with `SPEND_LIMITS_ENABLED=true`; when enabled, `unknown` outcomes remain charged against the daily limit because a timeout after signing can still have settled. A preview can be consumed only once in either mode.
 
@@ -48,26 +113,6 @@ Purchasing:
 - `link_get_pay_token` returns the Link Pay Token of an approved `link_pay_token` request, for Stripe checkouts that accept one. The token is bound to that merchant and amount and expires within 30 minutes.
 - Card numbers are never returned. This hosted service has no browser of its own to fill a card form server-side, and putting a PAN in the agent's context would expose it in transcripts.
 - `link_status` shows spend limits, verification requirements, and payment methods (brand and last four digits only). `link_shipping_addresses` lists saved addresses.
-
-## Arc (basic receive and send)
-
-The same CDP account address also works on Arc mainnet (chain id 5042), where
-USDC is the gas asset.
-
-- `arc_wallet_status` returns the receive address, the Arc USDC balance, and
-  the transfer limits.
-- `arc_transfer_preview` validates the recipient and amount, estimates the
-  network fee (paid in USDC), and stores a single-use preview. It never signs.
-- `arc_transfer` consumes that preview and sends exactly one USDC
-  `transfer(to, amount)` through the USDC interface at
-  `0x3600000000000000000000000000000000000000`.
-
-CDP has no Arc network yet, so the CDP account signs the fully built EIP-1559
-transaction and the service broadcasts it through `ARC_RPC_URL`. Limits are
-always on: `ARC_MAX_TRANSFER_USDC_ATOMIC` (default 50 USDC) per transfer and
-`ARC_MAX_DAILY_TRANSFER_USDC_ATOMIC` (default 200 USDC) per rolling 24 hours.
-A transfer whose outcome cannot be confirmed after signing is recorded as
-`unknown` and is never retried automatically.
 
 ## OAuth endpoints
 
@@ -130,7 +175,7 @@ Set `PUBLIC_BASE_URL=https://YOUR_DOMAIN`. For local HTTP only, set `MCP_DANGERO
 
 ## Railway
 
-Create a new Railway service from this directory and add a PostgreSQL service. Configure every variable from `.env.example`; `DATABASE_URL` can use the Railway Postgres reference. Set `ARC_RPC_URL` as a service secret to the Alchemy Arc Mainnet endpoint (`https://arc-mainnet.g.alchemy.com/v2/<API_KEY>`). It is required and deliberately has no public-RPC fallback. The included Dockerfile builds on Node 24, and `railway.json` runs the migration before deployment.
+Create a new Railway service from this directory and add a PostgreSQL service. Configure every variable from `.env.example`; `DATABASE_URL` can use the Railway Postgres reference. Set `BASE_RPC_URL` and `ETHEREUM_RPC_URL` as service secrets to RPCs supporting eth_simulateV1. Contract reads and previews have no public-RPC fallback. The included Dockerfile builds on Node 24, and `railway.json` runs the migration before deployment.
 
 Generate the signing JWK locally and store it as a Railway secret. Keep the same JWK across redeploys or all current access tokens will become invalid. CDP credentials must be service-level secrets with access only to this MCP.
 
@@ -145,6 +190,22 @@ The host discovers OAuth metadata, dynamically registers, opens Google/GitHub lo
 ## Production boundaries
 
 - Apply a Railway/network egress policy as a second SSRF barrier. The code requires HTTPS, rejects credentials/custom ports, and uses DNS resolution that rejects private/link-local answers. This matters more now that any public url can be previewed, including each redirect hop.
-- Back up Postgres. CDP remains the key custodian, while the DB contains the durable user-to-CDP-account mapping and OAuth grants.
+- Back up Postgres. CDP secures the owner signer keys; the DB contains smart-wallet mappings, operation attempts and OAuth grants. Server credentials can authorize spending; Google/GitHub login is not a financial signature.
 - Treat a payment timeout after signing as indeterminate and reconcile by transaction/payment audit data before allowing manual retries.
 - The initial migration is intentionally small; use additive numbered migrations after the first production deployment.
+
+## Validation and rollout
+
+Run `npm run check`, `npm test` and `npm run build`. Set `TEST_DATABASE_URL` to an
+isolated PostgreSQL database for migration/replay/concurrency integration tests.
+Never point test migrations at production.
+
+Before deploying: configure RPCs, verify their chain IDs and eth_simulateV1 support,
+validate CDP smart-account deployment and a bounded test transaction on each target
+network, and prove exact/EIP-3009 settlement with the intended facilitator. No live
+payment or production deployment is implied by passing offline tests.
+
+Migration 007 is additive. Rollback restores the previous application version;
+leave smart-wallet and operation records intact. Do not delete wallets or replay
+unknown operations. Deploying this branch changes receive addresses and available
+payment schemes; communicate that explicitly to connected clients.

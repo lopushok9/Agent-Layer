@@ -19,7 +19,8 @@ export function homeRouter(config: Config) {
 export function homePage(mcpUrl: string, link: boolean, nonce: string) {
   const features = [
     "Pay x402 APIs with USDC on Base",
-    "Send and receive USDC on Arc",
+    "Use a smart wallet on Ethereum and Base",
+    "Preview and confirm contract calls in chat",
     ...(link ? ["Purchases from your own Link wallet, approved by you"] : []),
   ];
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>AgentLayer x402</title><meta name="description" content="A hosted wallet that lets AI agents pay for APIs and make purchases you approve."><link rel="icon" href="${LOGO_URL}"><style>${STYLES}</style></head><body>

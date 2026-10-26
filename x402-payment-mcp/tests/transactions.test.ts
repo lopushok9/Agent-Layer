@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { TransactionService } from "../src/transactions.js";
 import { transactionFingerprint } from "../src/transaction-builder.js";
+import { encodeAbiParameters, encodeEventTopics, parseAbi } from "viem";
+import { entryPoint06Address } from "viem/account-abstraction";
 import type { WalletOperation } from "../src/wallet-store.js";
 
 const address = "0x1111111111111111111111111111111111111111";
@@ -29,7 +31,7 @@ function harness() {
     operation: async () => { throw new Error("provider offline"); },
   };
   const service = new TransactionService(wallets as any, store as any, { withPaymentLock: async (_user, fn) => fn() }, 600);
-  return { p, service, signed: () => signed, mode: (m: typeof mode) => { mode = m; }, changes: () => { assetChanges = ["changed"]; } };
+  return { p, service, wallets, signed: () => signed, mode: (m: typeof mode) => { mode = m; }, changes: () => { assetChanges = ["changed"]; } };
 }
 test("successful preview executes once, another user cannot execute or read it", async () => {
   const h = harness();
@@ -38,6 +40,22 @@ test("successful preview executes once, another user cannot execute or read it",
   assert.equal((await h.service.execute("alice", "id", "test")).status, "submitted");
   assert.equal(h.p.userOpHash, hash); assert.equal(h.signed(), 1);
   await assert.rejects(h.service.execute("alice", "id", "again"), /consumed/);
+});
+
+test("outer transaction success cannot confirm a missing or reverted UserOperation event", async () => {
+  const h = harness(); await h.service.execute("alice", "id", "test");
+  const txHash = `0x${"b".repeat(64)}` as const;
+  (h.wallets as any).operation = async () => ({ network: "base", status: "complete", transactionHash: txHash });
+  let logs: any[] = [];
+  (h.wallets as any).rpc = () => ({ getTransactionReceipt: async () => ({ status: "success", logs }) });
+  assert.equal((await h.service.status("alice", "id")).status, "submitted", "missing event is not confirmation");
+  const abi = parseAbi(["event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)"]);
+  const event = (success: boolean) => ({ address: entryPoint06Address, topics: encodeEventTopics({ abi, eventName: "UserOperationEvent", args: { userOpHash: hash, sender: address, paymaster: target } }), data: encodeAbiParameters([{ type: "uint256" }, { type: "bool" }, { type: "uint256" }, { type: "uint256" }], [0n, success, 100n, 100n]) });
+  logs = [{ ...event(true), address: target }];
+  assert.equal((await h.service.status("alice", "id")).status, "submitted", "a forged event from another contract must be ignored");
+  logs = [event(false)];
+  assert.equal((await h.service.status("alice", "id")).status, "failed");
+  assert.equal(h.signed(), 1);
 });
 test("lost response after signing stays unknown and polling never signs again", async () => {
   const h = harness(); h.mode("timeout");

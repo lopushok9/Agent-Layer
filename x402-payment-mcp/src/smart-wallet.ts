@@ -46,7 +46,7 @@ export class SmartWalletService {
     // as msg.sender. This is execution simulation, not ERC-4337 validation.
     const result = await rpc.simulateCalls({ account, calls: calls.map(c => ({ ...c, value: BigInt(c.value) })), blockNumber, traceAssetChanges: true, validation: false });
     if (result.results.some(r => r.status !== "success")) throw new Error("batch simulation reverted; nothing was signed");
-    return { status: "success", block_number: blockNumber.toString(), kind: "sequential_execution", asset_changes: jsonValue(result.assetChanges), gas_used_execution_only: result.results.reduce((n, r) => n + r.gasUsed, 0n).toString(), limitations: ["Not ERC-4337 signature/deployment validation.", "Gas is execution-only; it excludes account validation and network overhead.", "Asset changes inferred by RPC tracing can be incomplete. Simulation does not guarantee future execution."] };
+    return { status: "success", block_number: blockNumber.toString(), kind: "sequential_execution", asset_changes: jsonValue(result.assetChanges), gas_used_execution_only: result.results.reduce((n, r) => n + r.gasUsed, 0n).toString(), limitations: ["Not ERC-4337 signature/deployment validation; tx.origin and deployment-time callbacks may differ.", "Gas is execution-only; it excludes account validation and network overhead.", "Asset changes inferred by RPC tracing can be incomplete. Simulation does not guarantee future execution."] };
   }
   async send(userId: string, network: WalletNetwork, calls: NormalizedCall[], id: string, beforeSigning: (hash: Hex) => Promise<void>) {
     const account = await this.account(userId);

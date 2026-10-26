@@ -57,7 +57,7 @@ export class PaymentService{
     }catch(e){
       await this.store.finishPayment(paymentId,signed?"unknown":"failed",null,null,errorMessage(e));
       // Before signing nothing can be charged; after signing the provider holds a valid authorization, so the outcome is unknown rather than failed.
-      throw new Error(signed?`payment was signed but the paid request did not complete (${errorMessage(e)}). Settlement is unknown. ${UNKNOWN_NEXT_STEP}`:`payment was not made: ${errorMessage(e)}. Nothing was signed or charged; call x402_preview again to retry`);
+      throw new Error(signed?`payment signing was requested but signing or the paid request could not be confirmed (${errorMessage(e)}). Settlement is unknown. ${UNKNOWN_NEXT_STEP}`:`payment was not made: ${errorMessage(e)}. Nothing was signed or charged; call x402_preview again to retry`);
     }
     // Caller-supplied headers may be sensitive; drop them as soon as the single use is over.
     finally{await this.store.scrubPreview(previewId).catch(error=>console.error("preview scrub failed",errorMessage(error)));}
