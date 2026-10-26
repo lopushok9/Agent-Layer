@@ -44,6 +44,7 @@ export class ArcService {
   constructor(private config: Config, private store: ArcStore, private signerFor: (userId: string) => Promise<ArcSigner>, private chain: ArcChain) {}
 
   static create(config: Config, store: Store, signerFor: (userId: string) => Promise<ArcSigner>) {
+    if (!config.ARC_RPC_URL) throw new Error("Arc RPC not configured");
     const client = createPublicClient({ chain: arcChain(config.ARC_RPC_URL), transport: http(config.ARC_RPC_URL, { timeout: 15_000 }) });
     return new ArcService(config, store, signerFor, client as unknown as ArcChain);
   }

@@ -26,7 +26,11 @@ const Env = z.object({
   MAX_DAILY_USDC_ATOMIC: z.string().regex(/^\d+$/).default("5000000"),
   // Deployment-owned secret. Do not fall back to a public RPC for a service
   // that signs and broadcasts mainnet USDC transfers.
-  ARC_RPC_URL: z.string().url(),
+  ARC_RPC_URL: z.string().url().optional(),
+  BASE_RPC_URL: z.string().url().optional(),
+  ETHEREUM_RPC_URL: z.string().url().optional(),
+  BASE_PAYMASTER_URL: z.string().url().optional(),
+  ETHEREUM_PAYMASTER_URL: z.string().url().optional(),
   ARC_MAX_TRANSFER_USDC_ATOMIC: z.string().regex(/^\d+$/).default("50000000"),
   ARC_MAX_DAILY_TRANSFER_USDC_ATOMIC: z.string().regex(/^\d+$/).default("200000000"),
   PAYMENT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(45000),
