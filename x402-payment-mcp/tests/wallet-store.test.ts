@@ -1,0 +1,51 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import test from "node:test";
+import { Store } from "../src/store.js";
+import { WalletStore } from "../src/wallet-store.js";
+import { transactionFingerprint } from "../src/transaction-builder.js";
+
+test("Postgres: previews expire, are single-use and isolate users; pending operations block concurrent execution", { skip: !process.env.TEST_DATABASE_URL }, async () => {
+  const store = new Store(process.env.TEST_DATABASE_URL!);
+  try {
+    await store.migrate(); await store.migrate();
+    const wallets = new WalletStore(store.pool);
+    const alice = await store.upsertIdentity("github", `smart-a-${randomUUID()}`, null, null);
+    const bob = await store.upsertIdentity("github", `smart-b-${randomUUID()}`, null, null);
+    const address = `0x${randomUUID().replaceAll("-", "").slice(0, 32)}12345678` as const;
+    const owner = `0x${randomUUID().replaceAll("-", "").slice(0, 32)}87654321` as const;
+    const registry = { ownerName: `owner-${randomUUID()}`, ownerAddress: owner, accountName: `smart-${randomUUID()}`, address };
+    await wallets.saveWallet(alice, registry); await wallets.saveWallet(alice, registry);
+    assert.equal((await wallets.wallet(alice))!.address, address);
+    assert.equal(await wallets.wallet(bob), null);
+    await assert.rejects(wallets.saveWallet(alice, { ...registry, address: owner }), /mismatch/);
+    const calls = [{ to: owner, value: "0", data: "0x" }] as const;
+    const create = (network: "base" | "ethereum" = "base", ttl = 600) => wallets.createOperation({ userId: alice, network, address, calls: [...calls], descriptions: [], fingerprint: transactionFingerprint(network, address, [...calls]), simulation: { asset_changes: [] } }, ttl);
+    const a = await create(); const b = await create();
+    assert.equal(await wallets.operation(bob, a.id), null);
+    await assert.rejects(wallets.reserve(bob, a.id, "foreign"), /not found/);
+    const attempts = await Promise.allSettled([wallets.reserve(alice, a.id, "first"), wallets.reserve(alice, b.id, "second")]);
+    assert.equal(attempts.filter(r => r.status === "fulfilled").length, 1);
+    const winner = (attempts.find(r => r.status === "fulfilled") as PromiseFulfilledResult<any>).value;
+    const hash = `0x${"a".repeat(64)}` as const;
+    await wallets.beforeSigning(winner.id, hash);
+    assert.equal((await wallets.operation(alice, winner.id))!.userOpHash, hash);
+    await assert.rejects(wallets.beforeSigning(winner.id, hash), /no longer available/);
+    await wallets.finish(winner.id, "unknown");
+    const c = await create();
+    await assert.rejects(wallets.reserve(alice, c.id, "retry"), /unresolved/);
+    const otherNetwork = await create("ethereum");
+    assert.equal((await wallets.reserve(alice, otherNetwork.id, "other network")).network, "ethereum");
+    await wallets.finish(winner.id, "confirmed", hash);
+    await assert.rejects(wallets.reserve(alice, winner.id, "replay"), /consumed/);
+    const expired = await create("base", -1);
+    await assert.rejects(wallets.reserve(alice, expired.id, "expired"), /expired/);
+    assert.equal((await wallets.operation(alice, expired.id))!.status, "prepared", "failed reservation rolls back");
+    const beforeSignExpiry = await create();
+    await wallets.reserve(alice, beforeSignExpiry.id, "test signing expiry");
+    await store.pool.query("UPDATE wallet_operations SET expires_at=now()-interval '1 second' WHERE id=$1", [beforeSignExpiry.id]);
+    await assert.rejects(wallets.beforeSigning(beforeSignExpiry.id, hash), /no longer available/);
+    const payment = await store.createPreview({ userId: alice, payerAddress: address, method: "GET", url: "https://api.example.com", headers: null, body: null, textBody: null, paymentRequired: "challenge", fingerprint: "test", scheme: "exact", amount: "1", payTo: owner }, 600);
+    assert.equal((await store.reservePayment(alice, payment.id, null, "test")).preview.payerAddress, address, "x402 preview keeps its original payer");
+  } finally { await store.close(); }
+});

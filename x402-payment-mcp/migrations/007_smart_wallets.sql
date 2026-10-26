@@ -27,3 +27,5 @@ CREATE TABLE IF NOT EXISTS wallet_operations (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS wallet_operations_pending ON wallet_operations(user_id,network,status);
+
+ALTER TABLE payment_previews ADD COLUMN IF NOT EXISTS payer_address text;

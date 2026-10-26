@@ -6,14 +6,8 @@ import { WalletStore } from "./wallet-store.js";
 import { x402Client, x402HTTPClient } from "@x402/core/client";
 import { decodePaymentRequiredHeader } from "@x402/core/http";
 import type { PaymentRequired, PaymentRequirements } from "@x402/core/types";
-import { AuthCaptureEvmScheme } from "@x402/evm/auth-capture/client";
-import { BatchSettlementEvmScheme, type BatchSettlementClientContext, type ClientChannelStorage } from "@x402/evm/batch-settlement/client";
+import { type BatchSettlementClientContext, type ClientChannelStorage } from "@x402/evm/batch-settlement/client";
 import { registerExactEvmScheme } from "@x402/evm/exact/client";
-import { UptoEvmScheme } from "@x402/evm/upto/client";
-import { toClientEvmSigner } from "@x402/evm";
-import { createSIWxClientExtension } from "@x402/extensions/sign-in-with-x";
-import { createPublicClient, http } from "viem";
-import { base } from "viem/chains";
 import { BASE_NETWORK, BASE_USDC, type Config } from "./config.js";
 import { assertSafeResourceUrl, limitedBody, safeFetch, safeFetchManual } from "./network.js";
 import { TokenService } from "./security.js";
@@ -43,7 +37,7 @@ export class PaymentService{
 
   async walletStatus(userId:string){const account=await this.account(userId);const scoped=await account.useNetwork("base");const result=await scoped.listTokenBalances({pageSize:100});const usdc=result.balances.find(b=>b.token.contractAddress.toLowerCase()===BASE_USDC);return{network:BASE_NETWORK,account_type:"cdp_smart_account",address:account.address,supported_x402_schemes:["exact/eip3009"],usdc_atomic:usdc?.amount.amount.toString()??"0",usdc_decimals:usdc?.amount.decimals??6,spend_limits_enabled:this.config.SPEND_LIMITS_ENABLED,per_payment_limit_atomic:this.config.SPEND_LIMITS_ENABLED?this.config.MAX_PAYMENT_USDC_ATOMIC:null,daily_limit_atomic:this.config.SPEND_LIMITS_ENABLED?this.config.MAX_DAILY_USDC_ATOMIC:null};}
 
-  async preview(userId:string,target:ResourceTarget,input:PreviewSpec,scheme:"auto"|PaymentScheme="auto"){if(hasBody(input)&&input.textBody!==undefined)throw new Error("provide either body or text_body, not both");const headers=normalizeRequestHeaders(input.headers);const request:PreviewSpec={...input,...(headers?{headers}:{})};const baseUrl=await this.resolveTarget(target);const requested=buildResourceUrl(baseUrl,request.query);const listing=await this.bazaarListing(baseUrl);const listed=listing.listed;const {method,url,header,challenge}=await preflight(safeFetchManual,requested,request,request.method?[request.method]:methodCandidates(listing.method,hasBody(request)),Math.min(this.config.PAYMENT_TIMEOUT_MS,PREFLIGHT_TIMEOUT_MS));const spec:RequestSpec={...request,method};const selected=selectSmartAccountRequirement(challenge,this.config,scheme);const fingerprint=requirementFingerprint(challenge,selected,url,spec);const saved=await this.store.createPreview({userId,method:spec.method,url,headers:spec.headers??null,body:spec.body??null,textBody:spec.textBody??null,paymentRequired:header,fingerprint,scheme:selected.scheme,amount:selected.amount,payTo:selected.payTo},this.config.PREVIEW_TTL_SECONDS);return{preview_id:saved.id,expires_at:saved.expiresAt.toISOString(),resource:{url,...(url!==requested?{redirected_from:requested}:{}),description:challenge.resource.description,service_name:challenge.resource.serviceName,bazaar_listed:listed,...(listed===true?{}:{warning:UNLISTED_WARNING})},payment:publicRequirement(selected),request:{method:spec.method,query:spec.query??{},header_names:Object.keys(spec.headers??{}),has_body:hasBody(spec)||spec.textBody!==undefined}};}
+  async preview(userId:string,target:ResourceTarget,input:PreviewSpec,scheme:"auto"|PaymentScheme="auto"){if(hasBody(input)&&input.textBody!==undefined)throw new Error("provide either body or text_body, not both");const headers=normalizeRequestHeaders(input.headers);const request:PreviewSpec={...input,...(headers?{headers}:{})};const baseUrl=await this.resolveTarget(target);const requested=buildResourceUrl(baseUrl,request.query);const listing=await this.bazaarListing(baseUrl);const listed=listing.listed;const {method,url,header,challenge}=await preflight(safeFetchManual,requested,request,request.method?[request.method]:methodCandidates(listing.method,hasBody(request)),Math.min(this.config.PAYMENT_TIMEOUT_MS,PREFLIGHT_TIMEOUT_MS));const spec:RequestSpec={...request,method};const selected=selectSmartAccountRequirement(challenge,this.config,scheme);const fingerprint=requirementFingerprint(challenge,selected,url,spec);const payer=await this.account(userId);const saved=await this.store.createPreview({userId,payerAddress:payer.address,method:spec.method,url,headers:spec.headers??null,body:spec.body??null,textBody:spec.textBody??null,paymentRequired:header,fingerprint,scheme:selected.scheme,amount:selected.amount,payTo:selected.payTo},this.config.PREVIEW_TTL_SECONDS);return{preview_id:saved.id,expires_at:saved.expiresAt.toISOString(),resource:{url,...(url!==requested?{redirected_from:requested}:{}),description:challenge.resource.description,service_name:challenge.resource.serviceName,bazaar_listed:listed,...(listed===true?{}:{warning:UNLISTED_WARNING})},payer_address:payer.address,payment:publicRequirement(selected),request:{method:spec.method,query:spec.query??{},header_names:Object.keys(spec.headers??{}),has_body:hasBody(spec)||spec.textBody!==undefined}};}
 
   async pay(userId:string,previewId:string,purpose:string){return this.store.withPaymentLock(userId,()=>this.payLocked(userId,previewId,purpose));}
 
@@ -70,8 +64,8 @@ export class PaymentService{
   }
 
   private async client(userId:string,preview:import("./store.js").Preview,beforeSigning:()=>void){
-    if(!smartAccountRequirement({scheme:preview.scheme,extra:decodePaymentRequiredHeader(preview.paymentRequired!).accepts.find(r=>r.scheme===preview.scheme)?.extra}))throw new Error("payment scheme is not supported by this smart account");
-    const account=await this.account(userId);const rpcUrl=await this.baseRpcUrl;
+    if(preview.scheme!=="exact")throw new Error("payment scheme is not supported by this smart account");
+    const account=await this.account(userId);if(!preview.payerAddress||preview.payerAddress.toLowerCase()!==account.address.toLowerCase())throw new Error("preview belongs to a different wallet version; create a new preview");const rpcUrl=await this.baseRpcUrl;
     const signer=fromCdpSmartWallet(account);
     const signTypedData=signer.signTypedData.bind(signer);
     signer.signTypedData=async options=>{beforeSigning();return signTypedData(options);};
@@ -208,7 +202,7 @@ function atomicUsd(value:string){const n=value.padStart(7,"0");return`${n.slice(
 function stable(value:unknown):string{if(Array.isArray(value))return`[${value.map(stable).join(",")}]`;if(value&&typeof value==="object")return`{${Object.entries(value as Record<string,unknown>).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>`${JSON.stringify(k)}:${stable(v)}`).join(",")}}`;return JSON.stringify(value);}
 export function requirementFingerprint(p:PaymentRequired,r:PaymentRequirements,url:string,spec:RequestSpec){return createHash("sha256").update(stable({v:p.x402Version,resource:p.resource.url,url,method:spec.method,body:spec.body??null,textBody:spec.textBody??null,scheme:r.scheme,network:r.network,asset:r.asset.toLowerCase(),amount:r.amount,payTo:r.payTo.toLowerCase(),timeout:r.maxTimeoutSeconds,extra:r.extra})).digest("base64url");}
 function decodeSettlement(response:Response):{success:boolean;transaction?:string;network?:string;amount?:string}|null{const h=response.headers.get("payment-response")??response.headers.get("x-payment-response");if(!h)return null;try{const value=JSON.parse(Buffer.from(h,"base64").toString("utf8")) as Record<string,unknown>;const extra=value.extra&&typeof value.extra==="object"?value.extra as Record<string,unknown>:{};const amount=typeof value.amount==="string"?value.amount:extra.chargedAmount;return typeof value.success==="boolean"?{success:value.success,...(typeof value.transaction==="string"?{transaction:value.transaction}:{}),...(typeof value.network==="string"?{network:value.network}:{}),...(typeof amount==="string"&&/^\d+$/.test(amount)?{amount}:{})}:null;}catch{return null;}}
-function errorMessage(e:unknown){return e instanceof Error?e.message:String(e);}
+function errorMessage(e:unknown){return (e instanceof Error?e.message:String(e)).replace(/https?:\/\/[^\s<>"']+/gi,"[provider endpoint]");}
 
 export class PostgresBatchChannelStorage implements ClientChannelStorage{
   constructor(private store:Store,private userId:string){}
