@@ -1,4 +1,5 @@
 import { getAddress, parseAbi, parseEventLogs, type Abi, type Hex } from "viem";
+import { isDeepStrictEqual } from "node:util";
 import { entryPoint06Address, entryPoint07Address, entryPoint08Address } from "viem/account-abstraction";
 import { z } from "zod";
 import type { SmartWalletService } from "./smart-wallet.js";
@@ -37,7 +38,9 @@ export class TransactionService {
         const account = await this.wallets.account(userId);
         if (account.address.toLowerCase() !== p.address.toLowerCase() || transactionFingerprint(p.network, p.address, p.calls) !== p.fingerprint) throw new Error("preview no longer matches this wallet and calls");
         const fresh = await this.wallets.simulate(p.network, p.address, p.calls);
-        if (JSON.stringify(fresh.asset_changes) !== JSON.stringify(p.simulation.asset_changes)) throw new Error("simulated asset changes differ from preview; prepare and confirm a new operation");
+        // PostgreSQL JSONB reorders object keys. Compare values structurally;
+        // token identities, balances, amounts and array order must still match.
+        if (!isDeepStrictEqual(fresh.asset_changes, p.simulation.asset_changes)) throw new Error("simulated asset changes differ from preview; prepare and confirm a new operation");
         const result = await this.wallets.send(userId, p.network, p.calls, p.id, async hash => {
           await this.store.beforeSigning(p.id, hash);
           signing = true;

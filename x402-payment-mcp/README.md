@@ -109,6 +109,9 @@ Separately preview/confirm it through the transaction builder, wait for confirma
 then preview the swap again. No approval or unlimited allowance is submitted
 silently. Some tokens require approving zero first; use an explicitly confirmed
 batch for that token's approval pattern. Native ETH needs no Permit2 approval.
+The builder compares fresh simulated asset changes structurally with the persisted
+preview: JSONB object-key ordering is ignored, while changed token identities,
+balances, amounts and array order still stop execution before signing.
 
 These are user-directed execution tools: the user chooses the trade parameters
 and confirms the exact preview in the host. A preview-only request never approves
