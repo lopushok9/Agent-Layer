@@ -319,3 +319,25 @@ A reconciliation search is capped at 100,000 blocks and fails closed beyond that
 older cases require an extended operator search, not a ledger reset.
 Legacy CDP operations without raw nonce proof cannot be cancelled by these tools.
 Expiry of CDP preparation or a swap quote does not substitute for nonce proof.
+
+## User-authorized fresh wallet (operator only)
+
+A user can explicitly request a fresh smart account without replacing their OAuth
+identity. Deploy migration 011 and the address-scoped operation guard first, then
+run `node dist/scripts/replace-smart-wallet.js` with stdin JSON containing
+`old_address` and a fresh UUID `request_id`. Reuse that UUID after an interrupted
+run; CDP owner/account names are deterministic for this request. Hold the same
+user lock as signing and payments while provisioning and replacing the registry.
+The script validates factory derivation on Base and Ethereum before switching.
+
+The former wallet and signer names are archived in `smart_wallet_history`. Its
+balances, signed authorizations and unresolved operation statuses remain attached
+to its original address; this is not cancellation or a fund transfer. Old status
+lookups use the original smart address. Only unresolved operations on the same
+user/network/**address** block a new execution. The new account remains protected
+by the same preview, scope, signing and unresolved-operation rules.
+Existing OAuth/PAT grants retain their scopes; old payment previews remain bound
+to their original payer address and cannot spend from the new wallet. This script
+is not exposed as an MCP tool and must only be run for an explicitly authorized
+replacement of the specified wallet. Creation is offchain; deployment occurs with
+a separately confirmed first UserOperation.

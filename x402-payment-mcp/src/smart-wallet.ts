@@ -11,7 +11,7 @@ import { validateSwapQuote } from "./managed-swaps.js";
 import { coinbaseAccount, sendAlchemyOperation, alchemyBundler } from "./alchemy-executor.js";
 import type { PreparedOperation } from "./user-operation.js";
 
-type Registry = { wallet(userId: string): Promise<SmartWalletRecord | null>; saveWallet(userId: string, record: SmartWalletRecord): Promise<void> };
+type Registry = { wallet(userId: string): Promise<SmartWalletRecord | null>; saveWallet(userId: string, record: SmartWalletRecord): Promise<void>; walletByAddress?(userId: string, address: Address): Promise<SmartWalletRecord | null> };
 export class SmartWalletService {
   constructor(private config: Config, private registry: Registry, readonly cdp: CdpClient = new CdpClient({ apiKeyId: config.CDP_API_KEY_ID, apiKeySecret: config.CDP_API_KEY_SECRET, walletSecret: config.CDP_WALLET_SECRET })) {}
   async account(userId: string): Promise<EvmSmartAccount> {
@@ -68,9 +68,12 @@ export class SmartWalletService {
     this.requireOperationKey();
     return sendAlchemyOperation(this.rpc(network), this.bundlerUrl(network), await this.account(userId), network, calls, beforeSigning, nonceKey);
   }
-  async operation(userId: string, userOpHash: Hex) {
-    const account = await this.account(userId);
-    return account.getUserOperation({ userOpHash });
+  async operation(userId: string, userOpHash: Hex, ledgerAddress?: Address) {
+    const current = await this.registry.wallet(userId);
+    const address = ledgerAddress ?? current?.address;
+    if (!address) throw new Error("smart wallet not found");
+    if (current?.address.toLowerCase() !== address.toLowerCase() && !await this.registry.walletByAddress?.(userId, address)) throw new Error("operation wallet is not registered for this user");
+    return this.cdp.evm.getUserOperation({ smartAccount: address, userOpHash });
   }
   async swapPrice(userId: string, p: Omit<SwapPlan, "minimumOutput">) {
     if (await this.rpc(p.network).getChainId() !== chainIds[p.network]) throw new Error("RPC chain ID mismatch");

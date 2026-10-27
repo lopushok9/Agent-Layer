@@ -25,6 +25,37 @@ export class WalletStore {
     const x = r.rows[0];
     return x ? { ownerName: x.owner_name, ownerAddress: x.owner_address, accountName: x.account_name, address: x.address } : null;
   }
+  async walletByAddress(userId: string, address: Address): Promise<SmartWalletRecord | null> {
+    const r = await this.pool.query(`SELECT owner_name,owner_address,account_name,address FROM smart_wallets WHERE user_id=$1 AND lower(address)=lower($2)
+      UNION ALL SELECT owner_name,owner_address,account_name,address FROM smart_wallet_history WHERE user_id=$1 AND lower(address)=lower($2) LIMIT 1`, [userId, address]);
+    const x = r.rows[0];
+    return x ? { ownerName: x.owner_name, ownerAddress: x.owner_address, accountName: x.account_name, address: x.address } : null;
+  }
+  // Operator-only: call under Store.withPaymentLock. No MCP endpoint exposes
+  // replacement. Compare-and-swap plus an immutable archive makes retries safe.
+  async replaceWallet(userId: string, expected: Address, next: SmartWalletRecord, requestId: string, reason: string) {
+    if (next.address.toLowerCase() === expected.toLowerCase() || next.address.toLowerCase() === next.ownerAddress.toLowerCase()) throw new Error("replacement must be a distinct smart account");
+    const c = await this.pool.connect();
+    try {
+      await c.query("BEGIN");
+      await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`smart-operation:${userId}`]);
+      const r = await c.query("SELECT * FROM smart_wallets WHERE user_id=$1 FOR UPDATE", [userId]);
+      const old = r.rows[0];
+      if (!old) throw new Error("smart wallet not found for replacement");
+      const prior = await c.query("SELECT * FROM smart_wallet_history WHERE replacement_request_id=$1", [requestId]);
+      if (prior.rows[0]) {
+        const p = prior.rows[0];
+        if (p.user_id !== userId || p.address.toLowerCase() !== expected.toLowerCase() || p.replacement_address.toLowerCase() !== next.address.toLowerCase() || old.address.toLowerCase() !== next.address.toLowerCase() || old.owner_address.toLowerCase() !== next.ownerAddress.toLowerCase() || old.owner_name !== next.ownerName || old.account_name !== next.accountName) throw new Error("replacement request does not match current wallet");
+        await c.query("COMMIT"); return;
+      }
+      if (old.address.toLowerCase() !== expected.toLowerCase()) throw new Error("active wallet changed; replacement stopped");
+      const used = await c.query("SELECT address FROM smart_wallet_history WHERE lower(address)=lower($1) UNION ALL SELECT address FROM smart_wallets WHERE lower(address)=lower($1)", [next.address]);
+      if (used.rowCount) throw new Error("replacement address is already registered");
+      await c.query(`INSERT INTO smart_wallet_history(address,user_id,owner_name,owner_address,account_name,original_created_at,replacement_address,replacement_request_id,reason) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [old.address,userId,old.owner_name,old.owner_address,old.account_name,old.created_at,next.address,requestId,reason]);
+      await c.query("UPDATE smart_wallets SET owner_name=$2,owner_address=$3,account_name=$4,address=$5,created_at=now() WHERE user_id=$1", [userId,next.ownerName,next.ownerAddress,next.accountName,next.address]);
+      await c.query("COMMIT");
+    } catch (e) { await c.query("ROLLBACK"); throw e; } finally { c.release(); }
+  }
   async saveWallet(userId: string, w: SmartWalletRecord) {
     await this.pool.query(`INSERT INTO smart_wallets(user_id,owner_name,owner_address,account_name,address) VALUES($1,$2,$3,$4,$5) ON CONFLICT(user_id) DO NOTHING`, [userId, w.ownerName, w.ownerAddress, w.accountName, w.address]);
     const actual = await this.wallet(userId);
@@ -49,7 +80,7 @@ export class WalletStore {
       const x = r.rows[0];
       if (x.kind !== kind) throw new Error("operation type does not match this execution tool");
       if (x.status !== "prepared" || x.consumed_at) throw new Error("preview already consumed; check transaction_status, never submit it again");
-      const pending = await c.query(`SELECT id FROM wallet_operations WHERE user_id=$1 AND network=$2 AND status IN ('reserved','signing','submitted','unknown') LIMIT 1`, [userId, x.network]);
+      const pending = await c.query(`SELECT id FROM wallet_operations WHERE user_id=$1 AND network=$2 AND lower(address)=lower($3) AND status IN ('reserved','signing','submitted','unknown') LIMIT 1`, [userId, x.network, x.address]);
       if (pending.rowCount) throw new Error("an unresolved operation exists on this network; reconcile it before another execution");
       const saved = await c.query(`UPDATE wallet_operations SET status='reserved',purpose=$3,consumed_at=now(),updated_at=now() WHERE id=$1 AND user_id=$2 AND expires_at>now() RETURNING *`, [id, userId, purpose]);
       if (!saved.rows[0]) throw new Error("preview expired; prepare a new operation");
@@ -69,7 +100,7 @@ export class WalletStore {
       const target = await c.query("SELECT * FROM wallet_operations WHERE id=$1 AND user_id=$2 AND network=$3 FOR UPDATE", [plan.targetId, userId, x.network]);
       const t = target.rows[0];
       if (!t || t.address.toLowerCase() !== x.address.toLowerCase() || t.kind === "cancel" || !["signing","submitted","unknown"].includes(t.status) || t.user_op_hash !== plan.targetHash || t.operation_proof?.nonce !== plan.targetNonce || !t.operation_ciphertext) throw new Error("cancellation target is no longer eligible");
-      const other = await c.query("SELECT id FROM wallet_operations WHERE user_id=$1 AND network=$2 AND status IN ('reserved','signing','submitted','unknown') AND id<>$3 LIMIT 1", [userId, x.network, plan.targetId]);
+      const other = await c.query("SELECT id FROM wallet_operations WHERE user_id=$1 AND network=$2 AND status IN ('reserved','signing','submitted','unknown') AND id<>$3 AND lower(address)=lower($4) LIMIT 1", [userId, x.network, plan.targetId, x.address]);
       if (other.rowCount) throw new Error("another unresolved operation prevents cancellation");
       const saved = await c.query("UPDATE wallet_operations SET status='reserved',purpose=$3,consumed_at=now(),updated_at=now() WHERE id=$1 AND user_id=$2 AND expires_at>now() RETURNING *", [id, userId, purpose]);
       if (!saved.rows[0]) throw new Error("preview expired; prepare a new operation");

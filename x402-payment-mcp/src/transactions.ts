@@ -126,7 +126,7 @@ export class TransactionService {
             }
             providerState = { status: event ? p.kind === "cancel" ? "included_check_cancellation_finality_and_permit_expiry" : "included" : "unresolved", prepared_expires_at: null };
           } else {
-          const result = await this.wallets.operation(userId, p.userOpHash);
+          const result = await this.wallets.operation(userId, p.userOpHash, p.address);
           if (result.network !== p.network) throw new Error("provider operation network mismatch");
           // A prepared-operation expiry or signed/dropped status is not proof
           // that an owner signature cannot later land. Never unlock on expiry.
