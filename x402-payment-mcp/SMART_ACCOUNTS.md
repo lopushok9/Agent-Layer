@@ -31,6 +31,25 @@ to owner EOA payments. SIWx must not identify the owner as the payment wallet.
 Existing OAuth/PAT grants retain x402 scope. Contract tools require a newly granted
 wallet:transact scope. User login alone is not contract-execution authorization.
 
+## Managed swap alternative (2026-10-27)
+
+CDP `swap()` is exposed as swap_preview/swap_execute under wallet:transact.
+Preview uses a non-binding price. Execution obtains a fresh quote and validates
+the approved input/output floor before passing the checked quote into SDK swap().
+We deliberately do not use the blind inline overload: it cannot inspect a newly
+generated route against the chat-approved floor before Permit2 signing.
+
+The existing operation ledger and network lock are shared with generic calls.
+Operation kinds prevent using the wrong execution tool. The quote is recorded
+before the SDK's direct Permit2 API signature, and the userOp hash before its
+owner signature. Unknown Permit2 outcomes without a hash require operator
+reconciliation. ERC-20 approvals remain separately previewed/confirmed; no hidden
+approval transaction, EOA fallback or silent unlimited allowance is introduced.
+
+References: https://docs.cdp.coinbase.com/wallets/using-wallets/swaps and
+https://docs.cdp.coinbase.com/trade-api/quickstart . Native ETH uses the documented
+sentinel address; only Ethereum/Base mainnets are exposed here.
+
 ## References studied
 
 - https://github.com/pimlicolabs/permissionless.js

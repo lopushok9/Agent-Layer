@@ -4,10 +4,10 @@ import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { createUserMcp, INSTRUCTIONS, LINK_INSTRUCTIONS } from "../src/mcp.js";
 
 // Drives the real MCP server over JSON-RPC so the published schemas and argument handling are what a host actually sees.
-async function connect(payments:Record<string,(...args:any[])=>unknown>,link:Record<string,(...args:any[])=>unknown>|null=null,scopes:string[]=["x402:pay"],transactions?:any,wallets?:any){
+async function connect(payments:Record<string,(...args:any[])=>unknown>,link:Record<string,(...args:any[])=>unknown>|null=null,scopes:string[]=["x402:pay"],transactions?:any,wallets?:any,swaps?:any){
   const [client,server]=InMemoryTransport.createLinkedPair();const pending=new Map<number,(value:any)=>void>();let id=0;
   client.onmessage=(message:any)=>{pending.get(message.id)?.(message);pending.delete(message.id);};
-  await createUserMcp("user-1",payments as any,link as any,wallets,transactions,scopes).connect(server);await client.start();
+  await createUserMcp("user-1",payments as any,link as any,wallets,transactions,scopes,swaps).connect(server);await client.start();
   const request=(method:string,params:unknown={})=>new Promise<any>(resolve=>{const n=++id;pending.set(n,resolve);void client.send({jsonrpc:"2.0",id:n,method,params} as any);});
   const init=await request("initialize",{protocolVersion:"2025-06-18",capabilities:{},clientInfo:{name:"test",version:"0"}});
   await client.send({jsonrpc:"2.0",method:"notifications/initialized"} as any);
@@ -23,6 +23,24 @@ test("the server publishes its workflow and a url-based preview schema",async()=
   for(const key of ["url","service_ref","method","query","headers","body","text_body","scheme"])assert.ok(preview.properties[key],key);
   assert.deepEqual(preview.properties.method.enum,["GET","POST","PUT","PATCH","DELETE"]);
   assert.deepEqual(tools.find(t=>t.name==="x402_search")!.inputSchema.properties.provider.enum,["bazaar","agentic_market"]);
+});
+
+test("managed swaps are an alternative to raw calls under the same wallet scope", async()=>{
+  const seen: unknown[]=[];
+  const swaps={preview:async(...args:unknown[])=>{seen.push(args);return{operation_id:"preview"};},execute:async(...args:unknown[])=>{seen.push(args);return{status:"submitted"};}};
+  const legacy=await connect({},null,["x402:pay"],{}, {},swaps);
+  assert.ok(!(await legacy.request("tools/list")).result.tools.some((t:any)=>t.name.startsWith("swap_")));
+  const granted=await connect({},null,["wallet:transact"],{}, {},swaps);
+  const tools=(await granted.request("tools/list")).result.tools;
+  assert.ok(tools.some((t:any)=>t.name==="swap_preview"));
+  assert.ok(tools.some((t:any)=>t.name==="transaction_prepare"));
+  assert.equal((await granted.call("swap_preview",{network:"base",from_token:"0x1111111111111111111111111111111111111111",to_token:"0x2222222222222222222222222222222222222222",from_amount_atomic:"1000000"})).result.isError,undefined);
+  assert.equal((seen[0] as any[])[1].slippage_bps,100);
+  for(const bad of [{network:"base-sepolia"},{from_amount_atomic:"1.2"},{slippage_bps:501},{recipient:"0x3333333333333333333333333333333333333333"}]) {
+    const r=await granted.call("swap_preview",{network:"base",from_token:"0x1111111111111111111111111111111111111111",to_token:"0x2222222222222222222222222222222222222222",from_amount_atomic:"1000000",...bad});
+    assert.ok(r.error||r.result.isError);
+  }
+  assert.equal(seen.length,1);
 });
 
 test("legacy scopes cannot list or invoke contract execution and Arc is absent", async()=>{

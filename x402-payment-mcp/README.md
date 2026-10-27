@@ -63,9 +63,65 @@ requires operator investigation; no unsafe reset tool is exposed.
 
 Contract ABIs may come from verified registries or the caller; this first version
 accepts supplied ABI and raw calldata and labels their provenance explicitly. It
-does not automatically discover ABIs, quote swaps or certify protocol addresses.
-Any protocol can be composed with fixed calls; specialized quote/intent adapters
-and on-chain permissions are separate extensions.
+does not automatically discover ABIs or certify protocol addresses.
+Any protocol can be composed with fixed calls. A CDP managed-swap alternative is
+available below; other intent adapters and on-chain permissions are separate extensions.
+
+## CDP managed swap alternative
+
+With the same `wallet:transact` scope, use `swap_preview` -> `swap_execute` ->
+`transaction_status` instead of constructing router ABI/calldata. Supported networks
+are Ethereum and Base mainnet; CDP Trade API does not support testnet swaps.
+
+Example `swap_preview` input (1 USDC on Base, output WETH):
+
+```json
+{
+  "network": "base",
+  "from_token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+  "to_token": "0x4200000000000000000000000000000000000006",
+  "from_amount_atomic": "1000000",
+  "slippage_bps": 100
+}
+```
+
+Use `0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE` for native ETH. Slippage defaults
+to 100 bps (1%) and is limited to 500 bps (5%). No custom recipient or signing
+payload is accepted: the user's smart account is always the taker.
+
+The preview uses non-binding `getSwapPrice`, not an executable quote, and shows
+expected output, a fixed minimum output, estimated fees and approval requirements.
+Confirm these terms in chat. The preview expires after at most five minutes.
+`swap_execute` consumes it once, obtains an executable quote, validates it and
+uses CDP SDK `swap()` for Permit2 signing and UserOperation submission. The caller
+does not assemble or sign a route.
+
+For safety, the backend uses the SDK's checked-quote overload rather than its blind
+inline overload: a fresh quote must preserve the approved tokens, input, slippage
+and output floor. A quote with a lower minimum is rejected before signing and
+requires a new preview/confirmation. Quote and submission have distinct
+idempotency keys. This adapter trusts CDP route metadata/calldata to enforce the
+quoted net output; it does not independently decode the aggregator route.
+
+ERC-20 Permit2 approval must already exist. When missing, preview returns an exact
+`approval_call` to the canonical Permit2 contract, for the input amount only.
+Separately preview/confirm it through the transaction builder, wait for confirmation,
+then preview the swap again. No approval or unlimited allowance is submitted
+silently. Some tokens require approving zero first; use an explicitly confirmed
+batch for that token's approval pattern. Native ETH needs no Permit2 approval.
+
+Before signing, the executable quote must have complete CDP simulation, no reported
+balance/allowance issue, a matching network and bounded Permit2 token/amount/domain.
+The price estimate is not the builder's sequential `eth_simulateV1` simulation.
+Both RPCs still need to be configured for chain checks and receipt verification.
+
+CDP signs Permit2 before it obtains the UserOperation hash. Migration 008 stores
+operation kind, approved swap plan and an executable-quote snapshot before that
+first signature request. If a response is lost after Permit2 signing, status stays
+`unknown` even without a UserOperation hash, and blocks other executions on that
+network. Such a case requires operator reconciliation; it must not be retried
+automatically. Normal swaps use the existing `transaction_status` and EntryPoint
+event verification. Calls and swaps cannot execute through each other's tool.
 
 ## Identity model
 

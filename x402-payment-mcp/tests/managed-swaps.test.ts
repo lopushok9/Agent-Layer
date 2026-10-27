@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ManagedSwapService, validateSwapQuote, type SwapQuote } from "../src/managed-swaps.js";
 import { NATIVE_TOKEN, PERMIT2, normalizeSwap, swapFingerprint, type SwapPlan } from "../src/swap-plan.js";
-import { jsonValue } from "../src/transaction-builder.js";
+import { jsonValue, normalizeTransaction } from "../src/transaction-builder.js";
 import { SmartWalletService } from "../src/smart-wallet.js";
 
 const account = "0x1111111111111111111111111111111111111111";
@@ -61,6 +61,13 @@ test("actual CDP SDK swap persists before Permit2 and UserOperation signing, wit
   order.length = 0; q = quote(); q.toAmount = 999n; q.minToAmount = 989n;
   await assert.rejects(wallets.swap("user", plan, "operation-id", async () => { order.push("persist-permit"); }, async () => {}), /below the confirmed minimum/);
   assert.deepEqual(order, ["quote"], "worsened quote never reaches any signing API");
+  order.length = 0; q = quote();
+  await assert.rejects(wallets.swap("user", plan, "operation-id", async () => { throw new Error("database unavailable"); }, async () => {}), /database unavailable/);
+  assert.deepEqual(order, ["quote"], "failed durable quote write must prevent the direct Permit2 signing API");
+  order.length = 0;
+  await assert.rejects(wallets.swap("user", plan, "operation-id", async () => { order.push("persist-permit"); }, async () => { throw new Error("hash persistence failed"); }), /hash persistence failed/);
+  assert.deepEqual(order, ["quote", "persist-permit", "permit-sign"], "failed hash write prevents UserOp signing and submission after Permit2");
+  assert.equal(smart.owners[0], signer, "signing wrapper is restored after a failure too");
 });
 
 test("swap preview never signs, allowance is explicit, and timeouts after Permit2 remain unknown", async () => {
@@ -78,7 +85,8 @@ test("swap preview never signs, allowance is explicit, and timeouts after Permit
   const swaps = new ManagedSwapService(backend as any, store as any, { withPaymentLock: async (_u, action) => action() }, 600);
   const preview = await swaps.preview("alice", { network: "base", from_token: sell, to_token: buy, from_amount_atomic: "100" });
   assert.equal(signatures, 0); assert.equal((preview.simulation as any).approval_required, true);
-  assert.equal((preview.simulation as any).approval_call.amount_atomic, "100");
+  assert.equal((preview.simulation as any).approval_details.amount_atomic, "100");
+  assert.doesNotThrow(() => normalizeTransaction({ network: "base", calls: [(preview.simulation as any).approval_call] }, account, owner), "approval_call must be accepted unchanged by the generic builder");
   await assert.rejects(swaps.execute("bob", "id", "foreign"), /not found/);
   assert.equal((await swaps.execute("alice", "id", "test")).status, "unknown");
   assert.equal(op.userOpHash, null, "Permit2 can have been signed before a UserOperation hash exists");

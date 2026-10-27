@@ -1,5 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import type { ManagedSwapService } from "./managed-swaps.js";
+import { swapInput } from "./swap-plan.js";
 import { publicWalletError } from "./wallet-errors.js";
 import type { SmartWalletService } from "./smart-wallet.js";
 import type { TransactionService } from "./transactions.js";
@@ -48,7 +50,7 @@ const linkTotal=z.strictObject({type:z.enum(["subtotal","tax","total","items_bas
 const linkLineItem=z.strictObject({name:z.string().min(1).max(500),quantity:z.number().int().positive().optional(),unit_amount:z.number().int().optional(),description:z.string().max(1000).optional(),sku:z.string().max(200).optional(),url:z.string().url().max(2048).optional(),image_url:z.string().url().max(2048).optional(),product_url:z.string().url().max(2048).optional()});
 const linkAmount=z.number().int().positive().max(500000).describe("Total in the currency's minor unit, such as cents: 3500 is 35.00 USD");
 
-export function createUserMcp(userId:string,payments:PaymentService,link:LinkService|null=null,wallets?:SmartWalletService,transactions?:TransactionService,scopes:readonly string[]=["x402:pay"]){
+export function createUserMcp(userId:string,payments:PaymentService,link:LinkService|null=null,wallets?:SmartWalletService,transactions?:TransactionService,scopes:readonly string[]=["x402:pay"],swaps?:ManagedSwapService){
   const server=new McpServer({name:"AgentLayer x402 Payments",version:"0.1.0"},{instructions:(scopes.includes("x402:pay")?INSTRUCTIONS:"")+(scopes.includes("wallet:transact")?TRANSACTION_INSTRUCTIONS:"")+(link&&scopes.includes("x402:pay")?LINK_INSTRUCTIONS:"")});
   if(scopes.includes("x402:pay")){
   server.registerTool("wallet_status",{title:"Base wallet status",description:"Return the authenticated user's CDP-managed Base wallet address, USDC balance, and whether optional spend limits are enabled.",inputSchema:z.object({}),annotations:{readOnlyHint:true}},async()=>{try{return text(await payments.walletStatus(userId));}catch(e){return failure("wallet_status",e);}});
@@ -63,6 +65,11 @@ export function createUserMcp(userId:string,payments:PaymentService,link:LinkSer
     server.registerTool("transaction_prepare",{title:"Preview contract calls",description:"Encode ABI or raw calls and simulate the ordered batch from the smart account. Amounts are integer atomic-unit strings. Returns an expiring single-use preview; never signs. No delegatecall, cross-chain batches or runtime placeholders.",inputSchema:transactionInput,annotations:{readOnlyHint:true}},async input=>{try{return text(await transactions.prepare(userId,input));}catch(e){return failure("transaction_prepare",publicWalletError(e));}});
     server.registerTool("transaction_execute",{title:"Execute confirmed contract calls",description:"Consume a prepared operation after user confirmation in chat. Sends exactly its calls on its network. Gas may be paid from the smart account ETH balance; CDP API does not quote an exact maximum fee. Never repeat after submitted/unknown; use transaction_status.",inputSchema:z.strictObject({operation_id:z.string().uuid(),purpose:z.string().min(3).max(500)}),annotations:{destructiveHint:true}},async({operation_id,purpose})=>{try{return text(await transactions.execute(userId,operation_id,purpose));}catch(e){return failure("transaction_execute",publicWalletError(e));}});
     server.registerTool("transaction_status",{title:"Transaction status",description:"Reconcile one operation's UserOperation hash; submitted is not executed. Never resends or signs. Unknown outcomes must not be paid again automatically.",inputSchema:z.strictObject({operation_id:z.string().uuid()}),annotations:{readOnlyHint:true}},async({operation_id})=>{try{return text(await transactions.status(userId,operation_id));}catch(e){return failure("transaction_status",publicWalletError(e));}});
+    if(swaps){
+      server.registerTool("swap_preview",{title:"Preview a CDP managed swap",description:"Alternative to raw contract calls: get an indicative CDP price on Ethereum/Base for exact-input tokens. No quote signing or spending. Amounts are atomic-unit strings; native ETH uses 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE. Default slippage 100 bps (1%), maximum 500 bps. Returns expected/minimum output and any required Permit2 approval.",inputSchema:swapInput,annotations:{readOnlyHint:true}},async input=>{try{return text(await swaps.preview(userId,input));}catch(e){return failure("swap_preview",publicWalletError(e));}});
+      server.registerTool("swap_execute",{title:"Execute a confirmed CDP managed swap",description:"After chat confirmation, consume a swap preview once. Backend checks a fresh quote against the approved input/minimum output, then uses SDK swap() to sign Permit2 and submit a UserOperation. Never silently lowers minimum output or submits token approvals. Use transaction_status after submitted/unknown; never retry automatically.",inputSchema:z.strictObject({operation_id:z.string().uuid(),purpose:z.string().min(3).max(500)}),annotations:{destructiveHint:true}},async({operation_id,purpose})=>{try{return text(await swaps.execute(userId,operation_id,purpose));}catch(e){return failure("swap_execute",publicWalletError(e));}});
+    }
+
   }
   return server;
 }
@@ -86,5 +93,6 @@ Ethereum/Base smart wallet workflow:
 3. Show exact calls, recipients, native values, token amounts/allowances, simulation results and warnings. Gas can be paid in ETH from the smart account. The CDP API does not quote an exact maximum fee; disclose this. Ask the user to confirm this exact preview unless already authorized.
 4. Call transaction_execute once with operation_id and purpose. A changed amount/recipient/call requires a new preview and approval.
 5. Use transaction_status until confirmed or failed. submitted/unknown are not failures; never create an automatic replacement. If uncertain, report the operation ID.
+Managed swap alternative: use swap_preview instead of building router calldata. Show exact tokens/input, expected and minimum output, slippage and fees. If approval_required is true, separately preview/confirm the returned exact approval_call through transaction_prepare/transaction_execute and wait for confirmation; then preview the swap again. After confirmation call swap_execute once. A worsened fresh quote requires a new preview/approval. Poll transaction_status for its outcome. Never infer swap success from submission.
 Batching uses fixed values. A successful simulation is not proof a contract is safe. Account self-calls, owner calls and delegatecall are unavailable. No generic message signing is exposed.
 `;
