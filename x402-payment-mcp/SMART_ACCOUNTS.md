@@ -109,3 +109,32 @@ Parallel nonce lanes are supported by Alchemy (up to four pending operations for
 an unstaked sender); this service permits only the original and one cancellation.
 Sources: https://www.alchemy.com/docs/wallets/reference/bundler-faqs and
 https://www.alchemy.com/docs/wallets/transactions/low-level-infra/bundler/overview .
+
+## Successful viem/Alchemy Base mainnet swap, 2026-10-27
+
+The user requested a fresh smart account after the unresolved opaque CDP swap.
+The new active address is `0xD09d6F783A9840E5Ca35E134912765dc11C895A1`;
+its former wallet remains archived with the original unresolved status and funds.
+Address-scoped pending-operation guards isolate the new wallet without resetting
+or invalidating the former wallet's signatures.
+
+Separately confirmed deployment + exact 0.1 USDC Permit2 approval succeeded at
+https://basescan.org/tx/0x49fc1a84978c59d7d9921942dba73c19868df046a5764e4c94bed9caea694e02 .
+The original ETH funding was insufficient for the subsequent swap's upfront gas;
+the check stopped before Permit2 signing and the user confirmed an additional
+0.000005 ETH transfer. No unknown swap was retried.
+
+The user-confirmed 0.1 USDC -> native ETH swap (1% slippage) then succeeded at
+https://basescan.org/tx/0x1f4d5dc8fd24025b49b33516872fad5e94ce69d424c741c6d465aac5df8ee70f .
+Its matching EntryPoint UserOperationEvent reports success, nonce 1 and gas cost
+2070225000000 wei (331236 gas). Native transfer tracing independently agrees with
+wallet balance + EntryPoint deposit + fee reconciliation: 42359865275888 wei ETH
+received, above the confirmed minimum 41936266619701 wei. USDC balance fell from
+1 to 0.9. The raw signed operation and Permit2 signature were not logged.
+
+This validates the full deployed Base call/swap path using CDP owner signatures,
+viem preparation and Alchemy submission. Ethereum execution, x402 settlement and
+nonce cancellation are separate flows; this probe did not execute them. Future
+previews should expose ERC-4337 gas/prefund checks before Permit2 signing; the
+current generic preview's execution-only gas and swap protocol fee are insufficient
+for determining total upfront ETH requirements.
