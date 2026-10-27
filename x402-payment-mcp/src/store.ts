@@ -130,6 +130,23 @@ export class Store {
     }catch(e){await c.query("ROLLBACK");throw e;}finally{c.release();}
   }
   async finishArcTransfer(id:string,status:"submitted"|"confirmed"|"failed"|"unknown",txHash:string|null,error:string|null){await this.pool.query(`UPDATE arc_transfers SET status=$2,tx_hash=COALESCE($3,tx_hash),error=$4,completed_at=CASE WHEN $2 IN ('confirmed','failed') THEN now() ELSE completed_at END WHERE id=$1`,[id,status,txHash,error]);}
+  async baseTransferredToday(userId:string):Promise<bigint>{const r=await this.pool.query(`SELECT COALESCE(sum(amount),0)::text total FROM base_transfers WHERE user_id=$1 AND created_at>now()-interval '24 hours' AND status IN ('reserved','submitted','confirmed','unknown')`,[userId]);return BigInt(r.rows[0].total);}
+  async createBasePreview(p:{userId:string;to:string;amount:bigint;fee:bigint;from:string},ttlSeconds:number){const id=randomUUID();const r=await this.pool.query(`INSERT INTO base_transfer_previews(id,user_id,to_address,amount,fee_estimate,from_address,expires_at) VALUES($1,$2,$3,$4,$5,$6,now()+($7*interval '1 second')) RETURNING expires_at`,[id,p.userId,p.to,p.amount.toString(),p.fee.toString(),p.from,ttlSeconds]);return{id,expiresAt:r.rows[0].expires_at as Date};}
+  // Consumes the preview and records the transfer in one transaction, under a
+  // per-user lock, so the daily cap cannot be raced and a preview pays once.
+  async reserveBaseTransfer(userId:string,previewId:string,purpose:string,dailyLimit:bigint):Promise<(ArcReservation & {from:string;fee:bigint})|null>{
+    const c=await this.pool.connect();
+    try{await c.query("BEGIN");await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`,[`base:${userId}`]);
+      const p=await c.query(`UPDATE base_transfer_previews SET used_at=now() WHERE id=$1 AND user_id=$2 AND used_at IS NULL AND expires_at>now() RETURNING to_address,amount,from_address,fee_estimate`,[previewId,userId]);
+      if(!p.rowCount){await c.query("ROLLBACK");return null;}
+      const amount=BigInt(p.rows[0].amount);
+      const spent=await c.query(`SELECT COALESCE(sum(amount),0)::text total FROM base_transfers WHERE user_id=$1 AND created_at>now()-interval '24 hours' AND status IN ('reserved','submitted','confirmed','unknown')`,[userId]);
+      if(BigInt(spent.rows[0].total)+amount>dailyLimit){await c.query("ROLLBACK");throw new Error("daily Base transfer limit exceeded");}
+      const id=randomUUID();await c.query(`INSERT INTO base_transfers(id,user_id,preview_id,to_address,amount,purpose,status) VALUES($1,$2,$3,$4,$5,$6,'reserved')`,[id,userId,previewId,p.rows[0].to_address,amount.toString(),purpose]);
+      await c.query("COMMIT");return{transferId:id,to:p.rows[0].to_address as string,amount,from:p.rows[0].from_address as string,fee:BigInt(p.rows[0].fee_estimate)};
+    }catch(e){await c.query("ROLLBACK");throw e;}finally{c.release();}
+  }
+  async finishBaseTransfer(id:string,status:"submitted"|"confirmed"|"failed"|"unknown",txHash:string|null,error:string|null){await this.pool.query(`UPDATE base_transfers SET status=$2,tx_hash=COALESCE($3,tx_hash),error=$4,completed_at=CASE WHEN $2 IN ('confirmed','failed') THEN now() ELSE completed_at END WHERE id=$1`,[id,status,txHash,error]);}
   async getWallet(userId:string){const r=await this.pool.query(`SELECT cdp_account_name,address FROM wallets WHERE user_id=$1`,[userId]);return r.rowCount?{accountName:r.rows[0].cdp_account_name as string,address:r.rows[0].address as string|null}:null;}
   async saveWallet(userId:string,accountName:string,address:string){await this.pool.query(`INSERT INTO wallets(user_id,cdp_account_name,address) VALUES($1,$2,$3) ON CONFLICT(user_id) DO UPDATE SET address=excluded.address`,[userId,accountName,address]);}
   async getBatchChannel(userId:string,channelId:string):Promise<BatchChannelContext|undefined>{const r=await this.pool.query(`SELECT context FROM batch_payment_channels WHERE user_id=$1 AND channel_id=$2`,[userId,channelId.toLowerCase()]);return r.rowCount?r.rows[0].context as BatchChannelContext:undefined;}
@@ -183,7 +200,7 @@ export function previewUnavailableMessage(row:{used?:boolean;expired?:boolean}|u
 }
 
 // Applied in order on every start; each file must stay idempotent.
-export const MIGRATIONS = ["001_initial.sql", "002_personal_tokens.sql", "003_arc_transfers.sql", "004_request_headers.sql", "005_preview_challenge.sql", "006_link_wallet.sql"] as const;
+export const MIGRATIONS = ["001_initial.sql", "002_personal_tokens.sql", "003_arc_transfers.sql", "004_request_headers.sql", "005_preview_challenge.sql", "006_link_wallet.sql", "007_base_transfers.sql"] as const;
 export async function migrationSql(){return (await Promise.all(MIGRATIONS.map(name=>readFile(new URL(`../migrations/${name}`,import.meta.url),"utf8")))).join("\n");}
 
 function mapClient(x:any):OAuthClient{return{clientId:x.client_id,clientName:x.client_name,redirectUris:x.redirect_uris};}

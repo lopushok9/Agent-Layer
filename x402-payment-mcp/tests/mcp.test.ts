@@ -4,10 +4,10 @@ import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { createUserMcp, INSTRUCTIONS, LINK_INSTRUCTIONS } from "../src/mcp.js";
 
 // Drives the real MCP server over JSON-RPC so the published schemas and argument handling are what a host actually sees.
-async function connect(payments:Record<string,(...args:any[])=>unknown>,link:Record<string,(...args:any[])=>unknown>|null=null){
+async function connect(payments:Record<string,(...args:any[])=>unknown>,link:Record<string,(...args:any[])=>unknown>|null=null,base:Record<string,(...args:any[])=>unknown>|null=null){
   const [client,server]=InMemoryTransport.createLinkedPair();const pending=new Map<number,(value:any)=>void>();let id=0;
   client.onmessage=(message:any)=>{pending.get(message.id)?.(message);pending.delete(message.id);};
-  await createUserMcp("user-1",payments as any,{} as any,link as any).connect(server);await client.start();
+  await createUserMcp("user-1",payments as any,{} as any,link as any,base as any).connect(server);await client.start();
   const request=(method:string,params:unknown={})=>new Promise<any>(resolve=>{const n=++id;pending.set(n,resolve);void client.send({jsonrpc:"2.0",id:n,method,params} as any);});
   const init=await request("initialize",{protocolVersion:"2025-06-18",capabilities:{},clientInfo:{name:"test",version:"0"}});
   await client.send({jsonrpc:"2.0",method:"notifications/initialized"} as any);
@@ -58,4 +58,30 @@ test("Link tools appear only when Link is configured, always request approval, a
     const r=await call("link_create_spend_request",bad);assert.ok(r.result?.isError||r.error,JSON.stringify(bad));
   }
   assert.equal(seen.length,1,"invalid purchases never reach Link");
+});
+
+
+test("Base transfer tools publish strict schemas, bind the authenticated user and preserve the preview workflow",async()=>{
+  const seen:unknown[][]=[];
+  const {request,call,init}=await connect({},null,{
+    preview:async(...args:unknown[])=>{seen.push(args);return{preview_id:"p",network:"eip155:8453"};},
+    transfer:async(...args:unknown[])=>{seen.push(args);return{status:"confirmed"};},
+  });
+  assert.match(init.result.instructions,/base_transfer_preview/);
+  const tools=(await request("tools/list")).result.tools;
+  for(const name of ["base_transfer_preview","base_transfer"]){
+    assert.equal(tools.find((t:any)=>t.name===name).inputSchema.additionalProperties,false);
+  }
+  const to="0x2222222222222222222222222222222222222222";
+  const id="11111111-1111-4111-8111-111111111111";
+  assert.equal((await call("base_transfer_preview",{to,amount_usdc:"1.851"})).result.isError,undefined);
+  assert.equal((await call("base_transfer",{preview_id:id,purpose:"requested transfer"})).result.isError,undefined);
+  assert.deepEqual(seen,[["user-1",to,"1.851"],["user-1",id,"requested transfer"]]);
+  for(const [name,args] of [
+    ["base_transfer_preview",{to,amount_usdc:"1",chain_id:5042}],
+    ["base_transfer",{preview_id:id,purpose:"test",to}],
+    ["base_transfer",{preview_id:id,purpose:"test",data:"0x"}],
+    ["base_transfer",{preview_id:"bad",purpose:"test"}],
+  ] as const){const r=await call(name,args);assert.ok(r.error||r.result?.isError);}
+  assert.equal(seen.length,2);
 });

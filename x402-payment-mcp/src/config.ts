@@ -29,6 +29,8 @@ const Env = z.object({
   ARC_RPC_URL: z.string().url(),
   ARC_MAX_TRANSFER_USDC_ATOMIC: z.string().regex(/^\d+$/).default("50000000"),
   ARC_MAX_DAILY_TRANSFER_USDC_ATOMIC: z.string().regex(/^\d+$/).default("200000000"),
+  BASE_MAX_TRANSFER_USDC_ATOMIC: z.string().regex(/^\d+$/).default("50000000"),
+  BASE_MAX_DAILY_TRANSFER_USDC_ATOMIC: z.string().regex(/^\d+$/).default("200000000"),
   PAYMENT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(45000),
   // Optional Link Agent Wallet. All four are set together or not at all; the
   // registered redirect URI is always ${PUBLIC_BASE_URL}/auth/link/callback.

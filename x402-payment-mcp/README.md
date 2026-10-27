@@ -49,6 +49,32 @@ Purchasing:
 - Card numbers are never returned. This hosted service has no browser of its own to fill a card form server-side, and putting a PAN in the agent's context would expose it in transcripts.
 - `link_status` shows spend limits, verification requirements, and payment methods (brand and last four digits only). `link_shipping_addresses` lists saved addresses.
 
+## Base (direct USDC transfers)
+
+`wallet_status` shows the Base receive address and USDC balance.
+`base_transfer_preview(to, amount_usdc)` creates a short-lived, single-use
+preview for a direct transfer of canonical Base USDC. Show the recipient,
+network, amount and estimated ETH fee to the user and obtain confirmation,
+then call `base_transfer(preview_id, purpose)` once. This does not use an x402
+endpoint, and Arc previews cannot authorize a Base transfer.
+
+Gas requires **ETH on Base** in the same wallet, separately from USDC. The fee
+estimate includes L1 data/operator fees and a gas buffer. The execution checks
+the sender, chain, balances and current fee again; a higher fee requires a new
+preview. There is no gas sponsorship or automatic bridge. With enough ETH,
+the full USDC balance can be transferred.
+
+Transfers always enforce `BASE_MAX_TRANSFER_USDC_ATOMIC` (default 50 USDC)
+and `BASE_MAX_DAILY_TRANSFER_USDC_ATOMIC` (default 200 USDC per rolling 24
+hours), independently of optional x402 limits. Previews and transfer history
+are stored in separate Base tables. The transaction hash is persisted before
+broadcast; `submitted` or `unknown` must never be retried automatically.
+The service uses CDP's authenticated Base RPC and only builds the fixed USDC
+`transfer(to, amount)` call on chain 8453. No generic signing is exposed.
+
+After upgrading the hosted service, refresh the connector's tool list or
+start a new session so the host discovers the two new Base tools.
+
 ## Arc (basic receive and send)
 
 The same CDP account address also works on Arc mainnet (chain id 5042), where
