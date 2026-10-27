@@ -64,6 +64,16 @@ test("lost response after signing stays unknown and polling never signs again", 
   await assert.rejects(h.service.execute("alice", "id", "retry"), /consumed/);
   assert.equal(h.signed(), 1);
 });
+test("an expired prepared operation still marked signed by CDP remains unresolved and cannot be retried", async () => {
+  const h = harness(); h.mode("timeout");
+  await h.service.execute("alice", "id", "test");
+  (h.wallets as any).operation = async () => ({ network: "base", status: "signed", expiresAt: "2000-01-01T00:00:00Z" });
+  const result = await h.service.status("alice", "id");
+  assert.equal(result.status, "unknown");
+  assert.deepEqual(result.provider_state, { status: "signed", prepared_expires_at: "2000-01-01T00:00:00Z" });
+  await assert.rejects(h.service.execute("alice", "id", "retry"), /consumed/);
+  assert.equal(h.signed(), 1);
+});
 test("tampered plan and changed simulation fail before owner signing", async () => {
   const h = harness(); h.p.calls[0]!.value = "123";
   await assert.rejects(h.service.execute("alice", "id", "test"), /no longer matches/);

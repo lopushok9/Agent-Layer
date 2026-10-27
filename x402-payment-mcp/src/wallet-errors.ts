@@ -31,3 +31,21 @@ export function publicWalletError(error: unknown): Error {
   const message = error instanceof Error ? error.message : "";
   return new Error(publicMessages.has(message) ? message : "Wallet request could not be completed. Check network, ABI and parameters; use transaction_status for any existing execution. Provider details are withheld.");
 }
+
+// Preserve useful failure categories without copying provider messages, URLs,
+// request bodies, signatures, headers or nested causes into logs or the ledger.
+export function walletErrorDiagnostic(error: unknown) {
+  const e = error instanceof Error ? error as Error & { statusCode?: unknown; errorType?: unknown; correlationId?: unknown; errorMessage?: unknown } : null;
+  const api = e?.name === "APIError" || e?.name === "NetworkError";
+  const types = new Set(["invalid_request", "invalid_signature", "malformed_transaction", "policy_violation", "forbidden", "unauthorized", "not_found", "rate_limit_exceeded", "idempotency_error", "internal_server_error", "bad_gateway", "service_unavailable", "timed_out", "request_canceled", "insufficient_funds"]);
+  const message = e ? `${e.message} ${typeof e.errorMessage === "string" ? e.errorMessage : ""}` : "";
+  const category = /AA21|AA31|didn.t pay prefund|insufficient (?:funds|balance)/i.test(message) ? "insufficient_funds"
+    : /signature.*expired|SignatureExpired/i.test(message) ? "signature_expired"
+    : /simulation.*revert|execution reverted/i.test(message) ? "simulation_reverted" : "other";
+  return {
+    error_type: api && typeof e.errorType === "string" && types.has(e.errorType) ? e.errorType : "unexpected_error",
+    category,
+    ...(api && typeof e.statusCode === "number" && Number.isInteger(e.statusCode) && e.statusCode >= 0 && e.statusCode <= 599 ? { status_code: e.statusCode } : {}),
+    ...(api && typeof e.correlationId === "string" && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(e.correlationId) ? { correlation_id: e.correlationId } : {}),
+  };
+}

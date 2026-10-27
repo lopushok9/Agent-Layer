@@ -133,6 +133,11 @@ first signature request. If a response is lost after Permit2 signing, status sta
 network. Such a case requires operator reconciliation; it must not be retried
 automatically. Normal swaps use the existing `transaction_status` and EntryPoint
 event verification. Calls and swaps cannot execute through each other's tool.
+`transaction_status` also reports the last queried CDP `provider_state`, including
+`signed` and the prepared-operation expiry. These do not prove onchain execution
+or automatically unlock an unresolved operation. Execution failures retain only
+allowlisted error categories, HTTP status and UUID correlation IDs in the ledger
+and logs; raw provider messages, calldata and signatures are never copied there.
 
 ## Identity model
 

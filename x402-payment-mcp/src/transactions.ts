@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { SmartWalletService } from "./smart-wallet.js";
 import { addressInput, chainIds, jsonValue, normalizeTransaction, transactionFingerprint, walletNetwork, type TransactionInput } from "./transaction-builder.js";
 import type { WalletStore, WalletOperation } from "./wallet-store.js";
+import { walletErrorDiagnostic } from "./wallet-errors.js";
 
 export const contractReadInput = z.strictObject({ network: walletNetwork, to: addressInput, abi: z.array(z.unknown()).min(1).max(200), function_name: z.string().min(1).max(200), args: z.array(z.unknown()).max(100).default([]) });
 type Backend = Pick<SmartWalletService, "account" | "status" | "simulate" | "send" | "operation" | "rpc">;
@@ -56,7 +57,9 @@ export class TransactionService {
       } catch (error) {
         // After owner signing starts, provider/network failures cannot prove no
         // submission. A durable hash lets status polling reconcile the outcome.
-        await this.store.finish(p.id, signing ? "unknown" : "failed", null, signing ? "Signing or submission outcome is unknown; reconcile before retrying." : "Execution stopped before signing.");
+        const diagnostic = walletErrorDiagnostic(error);
+        console.error(JSON.stringify({ event: "wallet_execution_failed", operation_id: p.id, kind: "calls", stage: signing ? "user_operation_signing_or_submission" : "before_signing", ...diagnostic }));
+        await this.store.finish(p.id, signing ? "unknown" : "failed", null, `${signing ? "Signing or submission outcome is unknown; reconcile before retrying." : "Execution stopped before signing."} Diagnostic: ${JSON.stringify(diagnostic)}`);
         if (signing) return { operation_id: p.id, status: "unknown", next_step: "Poll transaction_status. Do not create a replacement payment automatically." };
         throw error;
       }
@@ -66,10 +69,14 @@ export class TransactionService {
     return this.lock.withPaymentLock(userId, async () => {
       const p = await this.store.operation(userId, id);
       if (!p) throw new Error("operation not found for this user");
+      let providerState: { status: string; prepared_expires_at: string | null } | undefined;
       if (p.userOpHash && ["signing", "submitted", "unknown"].includes(p.status)) {
         try {
           const result = await this.wallets.operation(userId, p.userOpHash);
           if (result.network !== p.network) throw new Error("provider operation network mismatch");
+          // A prepared-operation expiry or signed/dropped status is not proof
+          // that an owner signature cannot later land. Never unlock on expiry.
+          providerState = { status: result.status, prepared_expires_at: result.expiresAt ?? null };
           if (result.status === "complete" && result.transactionHash) {
             // A successful outer bundler receipt is insufficient: match the
             // EntryPoint event for this UserOperation and sender specifically.
@@ -82,7 +89,7 @@ export class TransactionService {
           // dropped/not-found is not proof a signed operation cannot later land.
         } catch { /* Keep unresolved state; a transient provider error is not a failure. */ }
       }
-      return publicOperation((await this.store.operation(userId, id))!);
+      return { ...publicOperation((await this.store.operation(userId, id))!), ...(providerState ? { provider_state: providerState } : {}) };
     });
   }
 }

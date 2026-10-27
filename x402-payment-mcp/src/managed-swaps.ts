@@ -5,6 +5,7 @@ import type { WalletStore } from "./wallet-store.js";
 import { chainIds, jsonValue } from "./transaction-builder.js";
 import { NATIVE_TOKEN, PERMIT2, normalizeSwap, swapFingerprint, type SwapInput, type SwapPlan } from "./swap-plan.js";
 import { publicOperation } from "./transactions.js";
+import { walletErrorDiagnostic } from "./wallet-errors.js";
 
 export type SwapQuote = Extract<Awaited<ReturnType<EvmSmartAccount["quoteSwap"]>>, { liquidityAvailable: true }>;
 type SwapPrice = Extract<Awaited<ReturnType<SmartWalletService["swapPrice"]>>, { liquidityAvailable: true }>;
@@ -82,7 +83,9 @@ export class ManagedSwapService {
         await this.store.finish(id, "submitted");
         return { operation_id: id, network: plan.network, status: "submitted", user_op_hash: result.userOpHash, minimum_output_atomic: plan.minimumOutput, next_step: "Poll transaction_status; never repeat a submitted or unknown swap." };
       } catch (error) {
-        await this.store.finish(id, signing ? "unknown" : "failed", null, signing ? "Permit2 or UserOperation signing was attempted; reconcile before retrying." : "Swap stopped before signing.");
+        const diagnostic = walletErrorDiagnostic(error);
+        console.error(JSON.stringify({ event: "wallet_execution_failed", operation_id: id, kind: "swap", stage: userOpHash ? "user_operation_signing_or_submission" : signing ? "permit2_or_preparation" : "before_signing", ...diagnostic }));
+        await this.store.finish(id, signing ? "unknown" : "failed", null, `${signing ? "Permit2 or UserOperation signing was attempted; reconcile before retrying." : "Swap stopped before signing."} Diagnostic: ${JSON.stringify(diagnostic)}`);
         if (signing) return { operation_id: id, status: "unknown", next_step: "Poll transaction_status. If no UserOperation hash exists, operator reconciliation is required; do not retry automatically." };
         throw error;
       }

@@ -61,3 +61,19 @@ sentinel address; only Ethereum/Base mainnets are exposed here.
 
 SDKs above are references, not new runtime dependencies. CDP/viem are pinned in
 package-lock.json. Live deployments and payments need separate validation.
+
+## Base mainnet probe, 2026-10-27
+
+Smart-account deployment and an exact USDC Permit2 approval were confirmed via
+the matching EntryPoint event. The probe exposed a JSONB object-key ordering
+false rejection in fresh-simulation comparison; structural comparison fixes it,
+with a real Postgres regression test covering changed tokens and amounts too.
+
+The first managed swap remains unresolved: CDP reports `signed` without an
+onchain transaction. Its router call simulated successfully at a historical
+block, but now reverts with `SignatureExpired`. The initial failure handler did
+not retain the provider's error category, so the original submission failure is
+not established. Error-category/correlation diagnostics and provider-state output
+have since been added. Expiry alone does not unlock a signed operation. Managed
+swap end-to-end mainnet execution is not yet validated; reconcile the existing
+operation before authorizing a new attempt.
