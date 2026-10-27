@@ -84,5 +84,5 @@ export class TransactionService {
   }
 }
 export function publicOperation(p: WalletOperation) {
-  return { operation_id: p.id, network: p.network, address: p.address, status: p.status, expires_at: p.expiresAt.toISOString(), fingerprint: p.fingerprint, calls: p.descriptions, simulation: p.simulation, user_op_hash: p.userOpHash, transaction_hash: p.transactionHash, error: p.error, gas: { estimate: "Execution gas only; CDP validation/deployment/network fees are not quoted by this API." } };
+  return { operation_id: p.id, kind: p.kind ?? "calls", network: p.network, address: p.address, status: p.status, expires_at: p.expiresAt.toISOString(), fingerprint: p.fingerprint, calls: p.descriptions, ...(p.swapPlan ? { swap: p.swapPlan } : {}), simulation: p.simulation, user_op_hash: p.userOpHash, transaction_hash: p.transactionHash, error: p.error, gas: { estimate: p.kind === "swap" ? "Indicative CDP swap fee estimate only; final network fees may differ." : "Execution gas only; CDP validation/deployment/network fees are not quoted by this API." } };
 }

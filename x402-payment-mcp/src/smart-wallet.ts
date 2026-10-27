@@ -5,6 +5,8 @@ import { base, mainnet } from "viem/chains";
 import type { Config } from "./config.js";
 import { chainIds, jsonValue, type NormalizedCall, type WalletNetwork } from "./transaction-builder.js";
 import type { SmartWalletRecord } from "./wallet-store.js";
+import type { SwapPlan } from "./swap-plan.js";
+import { validateSwapQuote } from "./managed-swaps.js";
 
 type Registry = { wallet(userId: string): Promise<SmartWalletRecord | null>; saveWallet(userId: string, record: SmartWalletRecord): Promise<void> };
 export class SmartWalletService {
@@ -66,4 +68,43 @@ export class SmartWalletService {
     const account = await this.account(userId);
     return account.getUserOperation({ userOpHash });
   }
+  async swapPrice(userId: string, p: Omit<SwapPlan, "minimumOutput">) {
+    if (await this.rpc(p.network).getChainId() !== chainIds[p.network]) throw new Error("RPC chain ID mismatch");
+    const account = await this.account(userId);
+    if (account.address.toLowerCase() !== p.account.toLowerCase()) throw new Error("swap preview no longer matches this wallet and terms");
+    return this.cdp.evm.getSwapPrice({ network: p.network, fromToken: p.fromToken, toToken: p.toToken, fromAmount: BigInt(p.fromAmount), slippageBps: p.slippageBps, taker: account.address, signerAddress: account.owners[0]!.address });
+  }
+  async swap(userId: string, p: SwapPlan, id: string, beforePermitSigning: (context: unknown) => Promise<void>, beforeUserOpSigning: (hash: Hex) => Promise<void>) {
+    if (await this.rpc(p.network).getChainId() !== chainIds[p.network]) throw new Error("RPC chain ID mismatch");
+    const account = await this.account(userId);
+    if (account.address.toLowerCase() !== p.account.toLowerCase()) throw new Error("swap preview no longer matches this wallet and terms");
+    const quote = await account.quoteSwap({ network: p.network, fromToken: p.fromToken, toToken: p.toToken, fromAmount: BigInt(p.fromAmount), slippageBps: p.slippageBps, idempotencyKey: swapQuoteKey(id) });
+    if (!quote.liquidityAvailable) throw new Error("no swap liquidity is available for these tokens and amount");
+    const owner = account.owners[0]!;
+    validateSwapQuote(p, quote, owner.address);
+    // CDP signs Permit2 directly via its API, before owner.sign(UserOp hash).
+    // Persist the quote boundary first: a failure without a userOp hash can
+    // still follow a Permit2 signature and must never be called "not signed".
+    await beforePermitSigning(jsonValue({ ...quote, execute: undefined }));
+    // swap() closes over the original account, so a shallow account copy would
+    // not intercept UserOp signing. This request-local account is not cached.
+    account.owners[0] = { ...owner, sign: async options => {
+      if (!options.hash) throw new Error("CDP did not provide a UserOperation hash");
+      await beforeUserOpSigning(options.hash);
+      return owner.sign(options);
+    } };
+    try {
+      const paymasterUrl = p.network === "base" ? this.config.BASE_PAYMASTER_URL : this.config.ETHEREUM_PAYMASTER_URL;
+      return await account.swap({ swapQuote: quote, idempotencyKey: id, ...(paymasterUrl ? { paymasterUrl } : {}) });
+    } finally { account.owners[0] = owner; }
+  }
+}
+
+// CDP idempotency keys must not be reused across quote and submission endpoints.
+function swapQuoteKey(id: string): string {
+  const bytes = createHash("sha256").update(`managed-swap-quote:${id}`).digest().subarray(0, 16);
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
 }

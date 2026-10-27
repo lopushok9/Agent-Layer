@@ -47,5 +47,19 @@ test("Postgres: previews expire, are single-use and isolate users; pending opera
     await assert.rejects(wallets.beforeSigning(beforeSignExpiry.id, hash), /no longer available/);
     const payment = await store.createPreview({ userId: alice, payerAddress: address, method: "GET", url: "https://api.example.com", headers: null, body: null, textBody: null, paymentRequired: "challenge", fingerprint: "test", scheme: "exact", amount: "1", payTo: owner }, 600);
     assert.equal((await store.reservePayment(alice, payment.id, null, "test")).preview.payerAddress, address, "x402 preview keeps its original payer");
+    const swapPlan = { network: "base" as const, account: address, fromToken: owner, toToken: address, fromAmount: "10", minimumOutput: "9", slippageBps: 100 };
+    const swap = await wallets.createOperation({ userId: bob, network: "base", address, kind: "swap", swapPlan, calls: [], descriptions: [], fingerprint: "swap-test", simulation: {} }, 300);
+    await assert.rejects(wallets.reserve(bob, swap.id, "wrong tool"), /operation type/);
+    assert.equal((await wallets.operation(bob, swap.id))!.status, "prepared");
+    await wallets.reserve(bob, swap.id, "managed swap", "swap");
+    const conflicting = await wallets.createOperation({ userId: bob, network: "base", address, calls: [...calls], descriptions: [], fingerprint: "calls-test", simulation: {} }, 600);
+    await assert.rejects(wallets.reserve(bob, conflicting.id, "conflict"), /unresolved/);
+    await wallets.beforeSwapSigning(swap.id, { quote: "validated", amount: "10" });
+    assert.equal((await wallets.operation(bob, swap.id))!.userOpHash, null, "Permit2 signing boundary precedes UserOp hash");
+    assert.deepEqual((await store.pool.query("SELECT execution_context FROM wallet_operations WHERE id=$1", [swap.id])).rows[0].execution_context, { quote: "validated", amount: "10" });
+    await wallets.beforeSigning(swap.id, hash);
+    assert.equal((await wallets.operation(bob, swap.id))!.userOpHash, hash);
+    await wallets.finish(swap.id, "unknown");
+    await assert.rejects(wallets.reserve(bob, conflicting.id, "retry"), /unresolved/);
   } finally { await store.close(); }
 });
