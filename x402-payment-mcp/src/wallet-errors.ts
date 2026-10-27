@@ -1,6 +1,15 @@
 // Provider exceptions can embed authenticated RPC URLs or request bodies. Only
 // our fixed, credential-free diagnostics may cross the MCP boundary.
 const publicMessages = new Set([
+  "Original nonce proof is unavailable; legacy CDP operation cannot be safely cancelled by this tool",
+  "Original nonce has changed; reconcile transaction_status before cancellation",
+  "cancellation target is no longer eligible", "cancellation preview not found for this user",
+  "another unresolved operation prevents cancellation", "cancellation target proof mismatch",
+  "cancellation preview binding mismatch", "unsupported cancellation nonce or EntryPoint",
+  "UserOperation encryption key is not configured", "Bundler is not configured",
+  "Bundler does not support this EntryPoint", "CDP smart account factory derivation mismatch",
+  "Smart account owner or EntryPoint mismatch",
+
   "operation type does not match this execution tool",
   "swap tokens must be distinct nonzero token addresses or the native ETH sentinel",
   "CDP swap terms do not match the requested tokens and amount",

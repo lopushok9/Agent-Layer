@@ -183,7 +183,7 @@ export function previewUnavailableMessage(row:{used?:boolean;expired?:boolean}|u
 }
 
 // Applied in order on every start; each file must stay idempotent.
-export const MIGRATIONS = ["001_initial.sql", "002_personal_tokens.sql", "003_arc_transfers.sql", "004_request_headers.sql", "005_preview_challenge.sql", "006_link_wallet.sql", "007_smart_wallets.sql", "008_managed_swaps.sql"] as const;
+export const MIGRATIONS = ["001_initial.sql", "002_personal_tokens.sql", "003_arc_transfers.sql", "004_request_headers.sql", "005_preview_challenge.sql", "006_link_wallet.sql", "007_smart_wallets.sql", "008_managed_swaps.sql", "009_user_operation_proof.sql", "010_nonce_cancellation.sql"] as const;
 export async function migrationSql(){return (await Promise.all(MIGRATIONS.map(name=>readFile(new URL(`../migrations/${name}`,import.meta.url),"utf8")))).join("\n");}
 
 function mapClient(x:any):OAuthClient{return{clientId:x.client_id,clientName:x.client_name,redirectUris:x.redirect_uris};}

@@ -72,8 +72,8 @@ export class ManagedSwapService {
         const result = await this.wallets.swap(userId, plan, id, async context => {
           await this.store.beforeSwapSigning(id, context);
           signing = true;
-        }, async hash => {
-          await this.store.beforeSigning(id, hash);
+        }, async (hash, prepared) => {
+          await this.store.beforeSigning(id, hash, prepared);
           userOpHash = hash;
         });
         if (!signing || !userOpHash || userOpHash !== result.userOpHash) {

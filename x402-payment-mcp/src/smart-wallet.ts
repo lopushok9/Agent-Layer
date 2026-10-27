@@ -1,12 +1,15 @@
 import { createHash } from "node:crypto";
 import { CdpClient, type EvmSmartAccount } from "@coinbase/cdp-sdk";
-import { createPublicClient, http, type Address, type Hex } from "viem";
+import { createPublicClient, http, concat, numberToHex, size, type Address, type Hex, type Chain } from "viem";
 import { base, mainnet } from "viem/chains";
 import type { Config } from "./config.js";
 import { chainIds, jsonValue, type NormalizedCall, type WalletNetwork } from "./transaction-builder.js";
 import type { SmartWalletRecord } from "./wallet-store.js";
 import type { SwapPlan } from "./swap-plan.js";
 import { validateSwapQuote } from "./managed-swaps.js";
+
+import { coinbaseAccount, sendAlchemyOperation, alchemyBundler } from "./alchemy-executor.js";
+import type { PreparedOperation } from "./user-operation.js";
 
 type Registry = { wallet(userId: string): Promise<SmartWalletRecord | null>; saveWallet(userId: string, record: SmartWalletRecord): Promise<void> };
 export class SmartWalletService {
@@ -27,7 +30,7 @@ export class SmartWalletService {
   rpc(network: WalletNetwork) {
     const url = network === "base" ? this.config.BASE_RPC_URL : this.config.ETHEREUM_RPC_URL;
     if (!url) throw new Error(`${network} RPC is not configured`);
-    return createPublicClient({ chain: network === "base" ? base : mainnet, transport: http(url, { timeout: 15_000, retryCount: 0 }) });
+    return createPublicClient({ chain: (network === "base" ? base : mainnet) as Chain, transport: http(url, { timeout: 15_000, retryCount: 0 }) });
   }
   async status(userId: string, network: WalletNetwork) {
     const account = await this.account(userId);
@@ -50,19 +53,20 @@ export class SmartWalletService {
     if (result.results.some(r => r.status !== "success")) throw new Error("batch simulation reverted; nothing was signed");
     return { status: "success", block_number: blockNumber.toString(), kind: "sequential_execution", asset_changes: jsonValue(result.assetChanges), gas_used_execution_only: result.results.reduce((n, r) => n + r.gasUsed, 0n).toString(), limitations: ["Not ERC-4337 signature/deployment validation; tx.origin and deployment-time callbacks may differ.", "Gas is execution-only; it excludes account validation and network overhead.", "Asset changes inferred by RPC tracing can be incomplete. Simulation does not guarantee future execution."] };
   }
-  async send(userId: string, network: WalletNetwork, calls: NormalizedCall[], id: string, beforeSigning: (hash: Hex) => Promise<void>) {
-    const account = await this.account(userId);
-    const owner = account.owners[0]!;
-    // The pinned CDP SDK prepares once, invokes owner.sign(hash), then submits.
-    // Intercept that boundary to durably save the exact hash before a signature
-    // can exist. No owner address or signing tool is exposed through MCP.
-    const bound = { ...account, owners: [{ ...owner, sign: async (options: Parameters<typeof owner.sign>[0]) => {
-      if (!options.hash) throw new Error("CDP did not provide a UserOperation hash");
-      await beforeSigning(options.hash);
-      return owner.sign(options);
-    } }] };
-    const paymasterUrl = network === "base" ? this.config.BASE_PAYMASTER_URL : this.config.ETHEREUM_PAYMASTER_URL;
-    return this.cdp.evm.sendUserOperation({ smartAccount: bound, network, calls: calls.map(c => ({ ...c, value: BigInt(c.value) })), idempotencyKey: id, ...(paymasterUrl ? { paymasterUrl } : {}) });
+  private requireOperationKey() {
+    if (!this.config.WALLET_OPERATION_ENCRYPTION_KEY || Buffer.from(this.config.WALLET_OPERATION_ENCRYPTION_KEY, "base64").length !== 32) throw new Error("UserOperation encryption key is not configured");
+  }
+  bundler(network: WalletNetwork) {
+    return alchemyBundler(this.rpc(network), this.bundlerUrl(network));
+  }
+  private bundlerUrl(network: WalletNetwork) {
+    const url = network === "base" ? this.config.BASE_BUNDLER_URL ?? this.config.BASE_RPC_URL : this.config.ETHEREUM_BUNDLER_URL ?? this.config.ETHEREUM_RPC_URL;
+    if (!url) throw new Error("Bundler is not configured");
+    return url;
+  }
+  async send(userId: string, network: WalletNetwork, calls: NormalizedCall[], _id: string, beforeSigning: (hash: Hex, prepared?: PreparedOperation) => Promise<void>, nonceKey = 0n) {
+    this.requireOperationKey();
+    return sendAlchemyOperation(this.rpc(network), this.bundlerUrl(network), await this.account(userId), network, calls, beforeSigning, nonceKey);
   }
   async operation(userId: string, userOpHash: Hex) {
     const account = await this.account(userId);
@@ -74,7 +78,12 @@ export class SmartWalletService {
     if (account.address.toLowerCase() !== p.account.toLowerCase()) throw new Error("swap preview no longer matches this wallet and terms");
     return this.cdp.evm.getSwapPrice({ network: p.network, fromToken: p.fromToken, toToken: p.toToken, fromAmount: BigInt(p.fromAmount), slippageBps: p.slippageBps, taker: account.address, signerAddress: account.owners[0]!.address });
   }
-  async swap(userId: string, p: SwapPlan, id: string, beforePermitSigning: (context: unknown) => Promise<void>, beforeUserOpSigning: (hash: Hex) => Promise<void>) {
+  async signSwapPermit(userId: string, network: WalletNetwork, permit: Parameters<Awaited<ReturnType<typeof coinbaseAccount>>["signTypedData"]>[0]) {
+    const account = await coinbaseAccount(this.rpc(network), await this.account(userId), network);
+    return account.signTypedData(permit);
+  }
+  async swap(userId: string, p: SwapPlan, id: string, beforePermitSigning: (context: unknown) => Promise<void>, beforeUserOpSigning: (hash: Hex, prepared?: PreparedOperation) => Promise<void>) {
+    this.requireOperationKey();
     if (await this.rpc(p.network).getChainId() !== chainIds[p.network]) throw new Error("RPC chain ID mismatch");
     const account = await this.account(userId);
     if (account.address.toLowerCase() !== p.account.toLowerCase()) throw new Error("swap preview no longer matches this wallet and terms");
@@ -82,21 +91,16 @@ export class SmartWalletService {
     if (!quote.liquidityAvailable) throw new Error("no swap liquidity is available for these tokens and amount");
     const owner = account.owners[0]!;
     validateSwapQuote(p, quote, owner.address);
-    // CDP signs Permit2 directly via its API, before owner.sign(UserOp hash).
-    // Persist the quote boundary first: a failure without a userOp hash can
-    // still follow a Permit2 signature and must never be called "not signed".
+    // Persist the quote BEFORE Permit2 signing, which can succeed even when
+    // subsequent preparation fails. Never execute CDP's opaque swap() path.
     await beforePermitSigning(jsonValue({ ...quote, execute: undefined }));
-    // swap() closes over the original account, so a shallow account copy would
-    // not intercept UserOp signing. This request-local account is not cached.
-    account.owners[0] = { ...owner, sign: async options => {
-      if (!options.hash) throw new Error("CDP did not provide a UserOperation hash");
-      await beforeUserOpSigning(options.hash);
-      return owner.sign(options);
-    } };
-    try {
-      const paymasterUrl = p.network === "base" ? this.config.BASE_PAYMASTER_URL : this.config.ETHEREUM_PAYMASTER_URL;
-      return await account.swap({ swapQuote: quote, idempotencyKey: id, ...(paymasterUrl ? { paymasterUrl } : {}) });
-    } finally { account.owners[0] = owner; }
+    let data = quote.transaction!.data as Hex;
+    if (quote.permit2?.eip712) {
+      const signature = await this.signSwapPermit(userId, p.network, quote.permit2.eip712);
+      data = concat([data, numberToHex(size(signature), { size: 32 }), signature]);
+    }
+    return this.send(userId, p.network, [{ to: quote.transaction!.to, value: quote.transaction!.value.toString(), data }], id, beforeUserOpSigning);
+
   }
 }
 

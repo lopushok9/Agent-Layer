@@ -54,6 +54,8 @@ test("legacy scopes cannot list or invoke contract execution and Arc is absent",
   const granted=await connect({},null,["wallet:transact"],transactions,{});
   const grantedTools=(await granted.request("tools/list")).result.tools as {name:string}[];
   assert.ok(grantedTools.some(t=>t.name==="transaction_prepare"));
+  assert.ok(grantedTools.some(t=>t.name==="transaction_cancel_prepare"));
+  assert.ok(grantedTools.some(t=>t.name==="transaction_cancel_execute"));
   assert.ok(!grantedTools.some(t=>t.name==="x402_pay"));
   const ok=await granted.call("transaction_execute",{operation_id:"3f0a3c2e-6f0b-4c53-9f4e-0d3a1a2b3c4d",purpose:"test"});
   assert.equal(ok.result.isError,undefined);assert.equal(seen.length,1);

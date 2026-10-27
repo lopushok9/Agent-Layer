@@ -47,11 +47,11 @@ sequential call effects, not account deployment/signature validation; tx.origin 
 and validates the UserOperation separately. Asset traces can be incomplete.
 Successful simulation does not establish contract safety or future price.
 
-Base SDK execution requests CDP gas sponsorship by default. A configured
-paymaster can override it. Ethereum can spend ETH from the smart account to pay
-fees when no paymaster is configured. CDP's managed API does not return the exact
-maximum fee, so previews show execution gas and disclose that validation,
-deployment and network overhead are excluded. No enforced fee ceiling is claimed.
+New UserOperations are built locally with viem and sent through the configured
+Alchemy bundler. CDP retains the owner keys and signs the exact operation hash.
+Gas is paid from the smart account's ETH balance on both Base and Ethereum;
+this executor does not request CDP sponsorship or use legacy paymaster settings.
+The preview shows execution gas only, not an enforced total network fee ceiling.
 
 `wallet_operations` binds user/network/address/calls, single-use consumption,
 provider hash and idempotency ID. The hash is persisted before owner signing.
@@ -93,14 +93,13 @@ The preview uses non-binding `getSwapPrice`, not an executable quote, and shows
 expected output, a fixed minimum output, estimated fees and approval requirements.
 Confirm these terms in chat. The preview expires after at most five minutes.
 `swap_execute` consumes it once, obtains an executable quote, validates it and
-uses CDP SDK `swap()` for Permit2 signing and UserOperation submission. The caller
-does not assemble or sign a route.
+signs the bounded Permit2 authorization with the CDP owner, then submits the
+explicit UserOperation through viem/Alchemy. The caller does not assemble a route.
 
-For safety, the backend uses the SDK's checked-quote overload rather than its blind
-inline overload: a fresh quote must preserve the approved tokens, input, slippage
+The backend checks the quote before signing: a fresh quote must preserve the approved tokens, input, slippage
 and output floor. A quote with a lower minimum is rejected before signing and
-requires a new preview/confirmation. Quote and submission have distinct
-idempotency keys. This adapter trusts CDP route metadata/calldata to enforce the
+requires a new preview/confirmation. Quote creation has a deterministic idempotency key. Signed UserOperations are
+never automatically rebuilt or resubmitted. This adapter trusts CDP route metadata/calldata to enforce the
 quoted net output; it does not independently decode the aggregator route.
 
 ERC-20 Permit2 approval must already exist. When missing, preview returns an exact
@@ -126,18 +125,20 @@ balance/allowance issue, a matching network and bounded Permit2 token/amount/dom
 The price estimate is not the builder's sequential `eth_simulateV1` simulation.
 Both RPCs still need to be configured for chain checks and receipt verification.
 
-CDP signs Permit2 before it obtains the UserOperation hash. Migration 008 stores
+Permit2 is signed before the executable UserOperation can be prepared. Migration 008 stores
 operation kind, approved swap plan and an executable-quote snapshot before that
 first signature request. If a response is lost after Permit2 signing, status stays
 `unknown` even without a UserOperation hash, and blocks other executions on that
 network. Such a case requires operator reconciliation; it must not be retried
 automatically. Normal swaps use the existing `transaction_status` and EntryPoint
 event verification. Calls and swaps cannot execute through each other's tool.
-`transaction_status` also reports the last queried CDP `provider_state`, including
+For legacy operations, `transaction_status` reports the queried CDP `provider_state`, including
 `signed` and the prepared-operation expiry. These do not prove onchain execution
 or automatically unlock an unresolved operation. Execution failures retain only
 allowlisted error categories, HTTP status and UUID correlation IDs in the ledger
-and logs; raw provider messages, calldata and signatures are never copied there.
+and logs; raw provider messages and signatures are never copied to diagnostics.
+The unsigned UserOperation (which can contain Permit2 calldata) is stored encrypted,
+not returned through MCP.
 
 ## Identity model
 
@@ -281,3 +282,40 @@ Migration 007 is additive. Rollback restores the previous application version;
 leave smart-wallet and operation records intact. Do not delete wallets or replay
 unknown operations. Deploying this branch changes receive addresses and available
 payment schemes; communicate that explicitly to connected clients.
+
+
+## Explicit UserOperations and safe cancellation
+
+Set `WALLET_OPERATION_ENCRYPTION_KEY` to a separately generated 32-byte base64
+secret. Keep it in the deployment secret store and retain it for outstanding
+operations; changing it without migrating ciphertext prevents reconciliation.
+`BASE_BUNDLER_URL` / `ETHEREUM_BUNDLER_URL` optionally override the corresponding
+RPC URLs. Alchemy endpoints must support ERC-4337 v0.6 estimation, submission and
+receipt lookup in addition to execution RPC. No endpoint can be supplied via MCP.
+
+Before any owner UserOperation signature, migration 009's encrypted ledger record
+stores the full unsigned operation, nonce, EntryPoint, chain and preparation block.
+The independently computed hash must match the signature and bundler response.
+Normal calls and CDP-quoted swaps use nonce key 0; cancellation uses key 1. Account
+factory derivation, owner index 0 and EntryPoint are checked before signing.
+
+1. `transaction_cancel_prepare({operation_id: originalId})` creates a separate
+   immutable preview of `EntryPoint.incrementNonce(0)` called by the smart account.
+   It requires an unresolved original with a verified, decryptable nonce proof.
+2. Show the cancellation target and gas implications. After **separate** user
+   confirmation call `transaction_cancel_execute({operation_id: cancellationId,
+   purpose: "..."})` once. No transfer or swap is retried.
+3. Poll `transaction_status` for the cancellation. Inclusion alone does not unlock
+   the original: a canonical finalized block must prove nonce advancement. Any
+   independently signed Permit2 must have expired in finalized chain time too.
+4. Search the entire original-to-finalized block interval for the original event.
+   If it won the race, report its real confirmed/failed result; otherwise mark it
+   `cancelled`. Both ledger updates commit atomically. Search failure, reorg,
+   unavailable proof, pending finality or valid Permit2 retain the block.
+
+Only one cancellation may bypass the unresolved-operation guard, and only for its
+bound target. Cancellation of cancellation operations is intentionally unsupported.
+A reconciliation search is capped at 100,000 blocks and fails closed beyond that;
+older cases require an extended operator search, not a ledger reset.
+Legacy CDP operations without raw nonce proof cannot be cancelled by these tools.
+Expiry of CDP preparation or a swap quote does not substitute for nonce proof.

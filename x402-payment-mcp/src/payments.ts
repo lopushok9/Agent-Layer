@@ -29,7 +29,7 @@ export type PaymentScheme="exact"|"upto"|"batch-settlement"|"auth-capture";
 export class PaymentService{
   private readonly wallets:SmartWalletService;
   private readonly baseRpcUrl:Promise<string|undefined>;
-  constructor(private config:Config,private store:Store,private tokens:TokenService,wallets?:SmartWalletService){this.wallets=wallets??new SmartWalletService(config,new WalletStore(store.pool));this.baseRpcUrl=getDefaultEvmRpcUrls().then(urls=>config.BASE_RPC_URL??urls[BASE_NETWORK]?.rpcUrl);}
+  constructor(private config:Config,private store:Store,private tokens:TokenService,wallets?:SmartWalletService){this.wallets=wallets??new SmartWalletService(config,new WalletStore(store.pool,config.WALLET_OPERATION_ENCRYPTION_KEY));this.baseRpcUrl=getDefaultEvmRpcUrls().then(urls=>config.BASE_RPC_URL??urls[BASE_NETWORK]?.rpcUrl);}
 
   async search(query:string,limit:number,provider:DiscoveryProvider="bazaar"){if(provider==="agentic_market")return this.searchAgenticMarket(query,limit);const found=await searchX402Resources({query:query.slice(0,400),network:BASE_NETWORK,asset:BASE_USDC,...(this.config.SPEND_LIMITS_ENABLED?{maxUsdPrice:atomicUsd(this.config.MAX_PAYMENT_USDC_ATOMIC)}:{})});const eligible=found.resources.map(r=>({resource:r,accepts:(r.accepts??[]).filter(r=>isAllowedLike(r)&&smartAccountRequirement(r)) as unknown as RequirementLike[]})).filter(r=>r.accepts.length>0).slice(0,limit);const resources=eligible.map(({resource:r,accepts})=>({url:r.resource,service_name:r.serviceName,description:r.description,type:r.type,accepts:accepts.map(publicRequirementLike),quality:r.quality,tags:r.tags,...inputHint(r.extensions)}));return{provider:"bazaar",resources,partial_results:found.partialResults,search_method:found.searchMethod};}
 

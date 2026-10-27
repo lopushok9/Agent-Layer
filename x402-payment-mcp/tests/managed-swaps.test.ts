@@ -40,34 +40,26 @@ test("fresh quotes cannot lower the floor, change assets, require extra ETH or w
   assert.doesNotThrow(() => validateSwapQuote({ ...plan, fromToken: NATIVE_TOKEN }, native, owner));
 });
 
-test("actual CDP SDK swap persists before Permit2 and UserOperation signing, without an uncontrolled inline quote", async () => {
-  const { toEvmSmartAccount } = await import(new URL("./accounts/evm/toEvmSmartAccount.js", import.meta.resolve("@coinbase/cdp-sdk")).href);
+test("CDP quote uses controlled Permit2 signing and the transparent executor, never SDK swap()", async () => {
   const order: string[] = [];
-  const signer = { address: owner, sign: async () => { order.push("userop-sign"); return "0x12"; } };
   let q = quote();
-  const api = {
-    createEvmSwapQuote: async (body: any, key: string) => { assert.equal(body.taker, account); assert.equal(body.signerAddress, owner); assert.match(key, /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/); assert.notEqual(key,"operation-id"); order.push("quote"); return jsonValue(q); },
-    signEvmTypedData: async (address: string, data: any) => { assert.equal(address, owner); assert.equal(data.domain.verifyingContract, account); order.push("permit-sign"); return { signature: `0x${"ab".repeat(64)}1b` }; },
-    prepareUserOperation: async (_address: string, body: any) => { assert.equal(body.calls.length, 1); assert.equal(body.calls[0].to, router); return { userOpHash: hash }; },
-    sendUserOperation: async (_address: string, h: string, _body: any, key: string) => { assert.equal(h, hash); assert.equal(key, "operation-id"); order.push("submit"); return { status: "broadcast" }; },
-  };
-  const smart = toEvmSmartAccount(api, { smartAccount: { address: account }, owner: signer });
-  const cdp = { evm: { getOrCreateAccount: async () => signer, getOrCreateSmartAccount: async () => smart } };
-  const wallets = new SmartWalletService({ BASE_PAYMASTER_URL: "https://paymaster.example" } as any, { wallet: async () => null, saveWallet: async () => {} }, cdp as any);
+  const smart = { address: account, owners: [{ address: owner }], quoteSwap: async () => { order.push("quote"); return q; }, swap: async () => { throw new Error("opaque SDK swap must never execute"); } };
+  const wallets = new SmartWalletService({ WALLET_OPERATION_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64") } as any, { wallet: async () => null, saveWallet: async () => {} }, { evm: { getOrCreateAccount: async () => smart.owners[0], getOrCreateSmartAccount: async () => smart } } as any);
   wallets.rpc = (() => ({ getChainId: async () => 8453 })) as any;
-  await wallets.swap("user", plan, "operation-id", async () => { order.push("persist-permit"); }, async h => { assert.equal(h, hash); order.push("persist-userop"); });
-  assert.deepEqual(order, ["quote", "persist-permit", "permit-sign", "persist-userop", "userop-sign", "submit"]);
-  assert.equal(smart.owners[0], signer, "request-local signing wrapper is restored");
+  wallets.signSwapPermit = async () => { order.push("permit-sign"); return "0x1234"; };
+  wallets.send = async (_user, _network, calls, _id, before) => {
+    assert.equal(calls.length, 1); assert.equal(calls[0]!.to, router);
+    assert.equal(calls[0]!.value, "0"); assert.ok(calls[0]!.data.endsWith("1234"));
+    await before(hash); order.push("submit"); return { userOpHash: hash };
+  };
+  await wallets.swap("user", plan, "id", async () => { order.push("persist-permit"); }, async () => { order.push("persist-userop"); });
+  assert.deepEqual(order, ["quote", "persist-permit", "permit-sign", "persist-userop", "submit"]);
   order.length = 0; q = quote(); q.toAmount = 999n; q.minToAmount = 989n;
-  await assert.rejects(wallets.swap("user", plan, "operation-id", async () => { order.push("persist-permit"); }, async () => {}), /below the confirmed minimum/);
-  assert.deepEqual(order, ["quote"], "worsened quote never reaches any signing API");
-  order.length = 0; q = quote();
-  await assert.rejects(wallets.swap("user", plan, "operation-id", async () => { throw new Error("database unavailable"); }, async () => {}), /database unavailable/);
-  assert.deepEqual(order, ["quote"], "failed durable quote write must prevent the direct Permit2 signing API");
-  order.length = 0;
-  await assert.rejects(wallets.swap("user", plan, "operation-id", async () => { order.push("persist-permit"); }, async () => { throw new Error("hash persistence failed"); }), /hash persistence failed/);
-  assert.deepEqual(order, ["quote", "persist-permit", "permit-sign"], "failed hash write prevents UserOp signing and submission after Permit2");
-  assert.equal(smart.owners[0], signer, "signing wrapper is restored after a failure too");
+  await assert.rejects(wallets.swap("user", plan, "id", async () => {}, async () => {}), /below the confirmed minimum/);
+  assert.deepEqual(order, ["quote"]);
+  q = quote(); order.length = 0;
+  await assert.rejects(wallets.swap("user", plan, "id", async () => { throw new Error("database unavailable"); }, async () => {}), /database unavailable/);
+  assert.deepEqual(order, ["quote"]);
 });
 
 test("swap preview never signs, allowance is explicit, and timeouts after Permit2 remain unknown", async () => {

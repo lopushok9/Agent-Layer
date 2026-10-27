@@ -23,7 +23,7 @@ export const callInput = z.strictObject({
 export const transactionInput = z.strictObject({ network: walletNetwork, calls: z.array(callInput).min(1).max(16) });
 export type TransactionInput = z.input<typeof transactionInput>;
 export type NormalizedCall = { to: Address; value: string; data: Hex };
-export type CallDescription = { index: number; to: Address; value_wei: string; data: Hex; function?: string; arguments?: unknown; abi_source: "caller_supplied_unverified" | "standard_erc20" | "unknown"; warnings: string[] };
+export type CallDescription = { index: number; to: Address; value_wei: string; data: Hex; function?: string; arguments?: unknown; abi_source: "caller_supplied_unverified" | "standard_erc20" | "unknown" | "internal_verified"; warnings: string[] };
 
 function assertSafeNumbers(value: unknown): void {
   if (typeof value === "number" && !Number.isSafeInteger(value)) throw new Error("ABI numeric arguments must be safe integers; use strings for token amounts");

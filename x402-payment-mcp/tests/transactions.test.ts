@@ -82,3 +82,11 @@ test("tampered plan and changed simulation fail before owner signing", async () 
   await assert.rejects(changed.service.execute("alice", "id", "test"), /differ from preview/);
   assert.equal(changed.signed(), 0);
 });
+
+
+test("legacy provider failure without an onchain event cannot unlock a signed operation", async () => {
+  const h = harness(); h.mode("timeout"); await h.service.execute("alice", "id", "test");
+  (h.wallets as any).operation = async () => ({ network: "base", status: "failed" });
+  assert.equal((await h.service.status("alice", "id")).status, "unknown");
+  assert.equal(h.signed(), 1);
+});

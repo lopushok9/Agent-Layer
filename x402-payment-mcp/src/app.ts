@@ -19,7 +19,7 @@ import { Store } from "./store.js";
 import { tokenManagerRouter } from "./token-manager.js";
 
 export async function createApp(config:Config){
-  const store=new Store(config.DATABASE_URL);await store.migrate();await store.startOAuthCleanup();const tokens=await TokenService.create(config);const walletStore=new WalletStore(store.pool);const wallets=new SmartWalletService(config,walletStore);const transactions=new TransactionService(wallets,walletStore,store,config.PREVIEW_TTL_SECONDS);const swaps=new ManagedSwapService(wallets,walletStore,store,config.PREVIEW_TTL_SECONDS);const payments=new PaymentService(config,store,tokens,wallets);const link=config.link?new LinkService(config.issuer,config.link,store):null;
+  const store=new Store(config.DATABASE_URL);await store.migrate();await store.startOAuthCleanup();const tokens=await TokenService.create(config);const walletStore=new WalletStore(store.pool,config.WALLET_OPERATION_ENCRYPTION_KEY);const wallets=new SmartWalletService(config,walletStore);const transactions=new TransactionService(wallets,walletStore,store,config.PREVIEW_TTL_SECONDS);const swaps=new ManagedSwapService(wallets,walletStore,store,config.PREVIEW_TTL_SECONDS);const payments=new PaymentService(config,store,tokens,wallets);const link=config.link?new LinkService(config.issuer,config.link,store):null;
   const hostname=new URL(config.PUBLIC_BASE_URL).hostname;
   // The outer app logs failed connector requests before any inner middleware
   // (including the MCP host-header check) can reject them.
