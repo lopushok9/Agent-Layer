@@ -110,6 +110,14 @@ then preview the swap again. No approval or unlimited allowance is submitted
 silently. Some tokens require approving zero first; use an explicitly confirmed
 batch for that token's approval pattern. Native ETH needs no Permit2 approval.
 
+These are user-directed execution tools: the user chooses the trade parameters
+and confirms the exact preview in the host. A preview-only request never approves
+an allowance or a swap. Host policies and permissions still apply; publishing an
+execution tool cannot guarantee that every client will invoke it. A host refusal
+must be distinguished from a CDP/server failure and must not be bypassed through
+another tool. This service has no browser page for executing a hosted smart-wallet
+swap; `/muse` and `/tokens` manage connection tokens, not swap execution.
+
 Before signing, the executable quote must have complete CDP simulation, no reported
 balance/allowance issue, a matching network and bounded Permit2 token/amount/domain.
 The price estimate is not the builder's sequential `eth_simulateV1` simulation.
