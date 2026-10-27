@@ -101,3 +101,11 @@ requires a separately confirmed mainnet transaction.
 The old opaque swap remains blocked. Its CDP status is signed; Alchemy's
 eth_getUserOperationByHash returned null. New code cannot reconstruct its nonce
 from its hash or retroactively create a proof. No ledger reset is authorized.
+
+Alchemy's bundler fee recommendation is fetched with
+`rundler_maxPriorityFeePerGas`, then buffered by 25%; latest base fee is buffered
+by 50%. These are the provider's documented recommendations, not a user fee cap.
+Parallel nonce lanes are supported by Alchemy (up to four pending operations for
+an unstaked sender); this service permits only the original and one cancellation.
+Sources: https://www.alchemy.com/docs/wallets/reference/bundler-faqs and
+https://www.alchemy.com/docs/wallets/transactions/low-level-infra/bundler/overview .

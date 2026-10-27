@@ -3,7 +3,7 @@ import test from "node:test";
 import { randomBytes } from "node:crypto";
 import { entryPoint06Address } from "viem/account-abstraction";
 import { operationHash, validateOperation, sealOperation, openOperation, type PreparedOperation } from "../src/user-operation.js";
-import { sendPreparedOperation } from "../src/alchemy-executor.js";
+import { sendPreparedOperation, alchemyFees } from "../src/alchemy-executor.js";
 const address = "0x1111111111111111111111111111111111111111";
 export function prepared(): PreparedOperation {
   return { chainId: 8453, entryPoint: entryPoint06Address, blockNumber: "123", operation: { sender: address, nonce: 7n, initCode: "0x", callData: "0xabcd", callGasLimit: 100000n, verificationGasLimit: 150000n, preVerificationGas: 50000n, maxFeePerGas: 200n, maxPriorityFeePerGas: 100n, paymasterAndData: "0x", signature: "0x" } };
@@ -61,4 +61,11 @@ test("viem wraps the CDP owner signature for the exact ERC-4337 hash", async () 
   assert.equal(wrapped.ownerIndex, 0n); assert.equal(signedHash, operationHash(p));
   assert.equal(await recoverAddress({ hash: operationHash(p), signature: wrapped.signatureData }), local.address);
   assert.ok(!requests.some(m => /send|sign/.test(m)), "RPC never receives signing requests");
+});
+
+
+test("Alchemy fee calculation includes documented service-tip and base-fee buffers with integer rounding", () => {
+  assert.deepEqual(alchemyFees(100n, 100n), { maxPriorityFeePerGas: 125n, maxFeePerGas: 275n });
+  assert.deepEqual(alchemyFees(1n, 1n), { maxPriorityFeePerGas: 2n, maxFeePerGas: 4n });
+  assert.throws(() => alchemyFees(-1n, 1n));
 });

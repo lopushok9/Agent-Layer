@@ -50,11 +50,24 @@ export async function sendAlchemyOperation(rpc: PublicClient, url: string, cdp: 
   if (!(await bundler.getSupportedEntryPoints()).some(a => a.toLowerCase() === entryPoint06Address.toLowerCase())) throw new Error("Bundler does not support this EntryPoint");
   const blockNumber = await rpc.getBlockNumber();
   const nonce = await rpc.readContract({ address: entryPoint06Address, abi: nonceAbi, functionName: "getNonce", args: [account.address, nonceKey], blockNumber });
-  const fees = await rpc.estimateFeesPerGas();
+  // Alchemy's bundler has a service-tip requirement distinct from execution
+  // RPC fee estimates. Follow its documented 50% base / 25% priority buffers.
+  const [block, tip] = await Promise.all([
+    rpc.getBlock({ blockTag: "latest" }),
+    bundler.request<{ Parameters: []; ReturnType: Hex }>({ method: "rundler_maxPriorityFeePerGas", params: [] }),
+  ]);
+  if (block.baseFeePerGas === null || !/^0x[0-9a-f]+$/i.test(tip)) throw new Error("Bundler fee estimate unavailable");
+  const fees = alchemyFees(block.baseFeePerGas, BigInt(tip));
   const prepared = await bundler.prepareUserOperation({ account, nonce, calls: calls.map(c => ({ ...c, value: BigInt(c.value) })), ...fees });
   // Keep only ERC-4337 v0.6 fields; never persist account objects/functions.
   const operation: UserOperation<"0.6"> = { sender: account.address, nonce: prepared.nonce, initCode: prepared.initCode ?? "0x", callData: prepared.callData, callGasLimit: prepared.callGasLimit, verificationGasLimit: prepared.verificationGasLimit, preVerificationGas: prepared.preVerificationGas, maxFeePerGas: prepared.maxFeePerGas, maxPriorityFeePerGas: prepared.maxPriorityFeePerGas, paymasterAndData: prepared.paymasterAndData ?? "0x", signature: "0x" };
   if (operation.nonce !== nonce || operation.callData !== await account.encodeCalls(calls.map(c => ({ ...c, value: BigInt(c.value) }))) || operation.paymasterAndData !== "0x") throw new Error("Prepared UserOperation changed the requested calls or nonce");
   const p: PreparedOperation = { chainId: chainIds[network], entryPoint: entryPoint06Address, blockNumber: blockNumber.toString(), operation };
   return sendPreparedOperation(p, persist, op => account.signUserOperation(op), op => bundler.sendUserOperation({ ...op, entryPointAddress: p.entryPoint }));
+}
+
+export function alchemyFees(baseFee: bigint, priorityFee: bigint) {
+  if (baseFee < 0n || priorityFee < 0n) throw new Error("Invalid bundler fees");
+  const maxPriorityFeePerGas = (priorityFee * 125n + 99n) / 100n;
+  return { maxPriorityFeePerGas, maxFeePerGas: (baseFee * 150n + 99n) / 100n + maxPriorityFeePerGas };
 }
