@@ -6,7 +6,7 @@ import { WalletStore } from "../src/wallet-store.js";
 import { transactionFingerprint } from "../src/transaction-builder.js";
 import { TransactionService } from "../src/transactions.js";
 
-test("Postgres: JSONB key order does not invalidate unchanged simulation; changed assets and amounts still block signing", { skip: !process.env.TEST_DATABASE_URL }, async () => {
+test("Postgres: JSONB key order and balance drift do not invalidate a simulation; changed assets and worse deltas still block signing", { skip: !process.env.TEST_DATABASE_URL }, async () => {
   const store = new Store(process.env.TEST_DATABASE_URL!);
   try {
     await store.migrate();
@@ -17,12 +17,13 @@ test("Postgres: JSONB key order does not invalidate unchanged simulation; change
     const hash = `0x${"a".repeat(64)}` as const;
     const calls = [{ to: target, value: "0", data: "0x" }] as const;
     const original = [{ token: { address: target, decimals: 6, symbol: "USDC" }, value: { pre: "1000000", post: "1000000", diff: "0" } }];
-    for (const change of ["none", "token", "pre", "post", "diff"] as const) {
+    for (const change of ["none", "pre", "post", "token", "diff"] as const) {
       const preview = await operations.createOperation({ userId: user, network: "base", address, calls: [...calls], descriptions: [], fingerprint: transactionFingerprint("base", address, [...calls]), simulation: { asset_changes: original } }, 600);
       assert.deepEqual(preview.simulation.asset_changes, original);
       assert.notEqual(JSON.stringify(preview.simulation.asset_changes), JSON.stringify(original), "exercise real JSONB object-key reordering");
       const fresh = structuredClone(original);
       if (change === "token") fresh[0]!.token.address = address;
+      else if (change === "diff") fresh[0]!.value.diff = "-1";
       else if (change !== "none") fresh[0]!.value[change] = "999999";
       let signatures = 0;
       const wallets = {
@@ -33,7 +34,7 @@ test("Postgres: JSONB key order does not invalidate unchanged simulation; change
         },
       };
       const service = new TransactionService(wallets as any, operations, store, 600);
-      if (change === "none") {
+      if (change === "none" || change === "pre" || change === "post") {
         assert.equal((await service.execute(user, preview.id, "unchanged persisted preview")).status, "submitted");
         assert.equal(signatures, 1);
         await operations.finish(preview.id, "confirmed", hash);

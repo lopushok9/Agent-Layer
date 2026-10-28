@@ -10,6 +10,7 @@ import { nonceAbi } from "./alchemy-executor.js";
 import { validateOperation } from "./user-operation.js";
 import { matchedOperation, findOperationReceipt } from "./operation-receipt.js";
 import { walletErrorDiagnostic } from "./wallet-errors.js";
+import { assetChangesWithinPreview } from "./asset-changes.js";
 
 export const contractReadInput = z.strictObject({ network: walletNetwork, to: addressInput, abi: z.array(z.unknown()).min(1).max(200), function_name: z.string().min(1).max(200), args: z.array(z.unknown()).max(100).default([]) });
 type Backend = Pick<SmartWalletService, "account" | "status" | "simulate" | "send" | "operation" | "rpc" | "bundler">;
@@ -77,9 +78,8 @@ export class TransactionService {
         }
         if (account.address.toLowerCase() !== p.address.toLowerCase() || (!cancellation && transactionFingerprint(p.network, p.address, p.calls) !== p.fingerprint)) throw new Error("preview no longer matches this wallet and calls");
         const fresh = await this.wallets.simulate(p.network, p.address, p.calls);
-        // PostgreSQL JSONB reorders object keys. Compare values structurally;
-        // token identities, balances, amounts and array order must still match.
-        if (!isDeepStrictEqual(fresh.asset_changes, p.simulation.asset_changes)) throw new Error("simulated asset changes differ from preview; prepare and confirm a new operation");
+        // Compare per-token deltas, not absolute balances (see asset-changes.ts).
+        if (!assetChangesWithinPreview(p.simulation.asset_changes, fresh.asset_changes)) throw new Error("simulated asset changes differ from preview; prepare and confirm a new operation");
         const result = await this.wallets.send(userId, p.network, p.calls, p.id, async (hash, prepared) => {
           await this.store.beforeSigning(p.id, hash, prepared);
           signing = true;
