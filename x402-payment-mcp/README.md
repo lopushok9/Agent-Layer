@@ -27,7 +27,8 @@ reconnect with the new scope to access contract tools.
 1. `smart_wallet_status({network:"base"})` returns the receive address, native
    balance and deployment state. Ethereum uses `network:"ethereum"`.
 2. `contract_read` accepts `network`, `to`, `abi`, `function_name`, and `args`.
-   It never signs. Returned strings and caller-provided ABI are untrusted.
+   Omit `abi` to use the contract's verified ABI (see below). It never signs.
+   Returned strings and caller-provided ABI are untrusted.
 3. `transaction_prepare` accepts up to 16 ordered calls on one network. Each call
    is `{to,value,data}` or `{to,value,abi,function_name,args}`; `value` defaults to
    `"0"`. All amounts use integer atomic-unit strings. No delegatecall, self-call,
@@ -66,9 +67,22 @@ Use status reconciliation; a dropped/not-found provider response does not prove
 that a signed operation can never land. A crash in reserved state without a hash
 requires operator investigation; no unsafe reset tool is exposed.
 
-Contract ABIs may come from verified registries or the caller; this first version
-accepts supplied ABI and raw calldata and labels their provenance explicitly. It
-does not automatically discover ABIs or certify protocol addresses.
+Every call in a preview is decoded with the target's verified ABI, so the agent
+no longer has to know or supply it. Like explorers and wallets built on
+[WhatsABI](https://github.com/shazow/whatsabi) (Otterscan, Rivet), the service
+follows proxies by bytecode (EIP-1967, EIP-1822, Safe, ...) to the implementation,
+then loads the ABI from Sourcify and, with `ETHERSCAN_API_KEY`, Etherscan v2.
+`abi_source` is `verified_sourcify`, `verified_explorer`, or `bytecode_selectors`
+when only selector names from public signature databases are available (names
+can collide, so this is a labelled hint). A supplied ABI that decodes the same
+calldata differently gets a warning; the verified decoding wins. Proxy targets
+carry `implementation` and an upgradeability warning. When the Ethereum
+Foundation [ERC-7730 clear-signing registry](https://github.com/ethereum/clear-signing-erc7730-registry)
+describes the contract, the call also gets `clear_signing` (intent and formatted
+fields, rendered by Sourcify's reference library). Registry inclusion is review,
+not an audit, and token symbols are read on-chain, so addresses stay visible.
+None of this changes calldata or the preview fingerprint. Verification proves
+which code runs, not that the protocol address is the one the user meant.
 Any protocol can be composed with fixed calls. A CDP managed-swap alternative is
 available below; other intent adapters and on-chain permissions are separate extensions.
 

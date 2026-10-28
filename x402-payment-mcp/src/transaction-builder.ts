@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { decodeFunctionData, encodeFunctionData, erc20Abi, getAddress, isAddress, maxUint256, zeroAddress, type Abi, type Address, type Hex } from "viem";
 import { z } from "zod";
+import type { AbiSource, ClearSigning, ContractMetadata } from "./contract-metadata.js";
 
 export const walletNetwork = z.enum(["base", "ethereum"]);
 export type WalletNetwork = z.infer<typeof walletNetwork>;
@@ -23,7 +24,7 @@ export const callInput = z.strictObject({
 export const transactionInput = z.strictObject({ network: walletNetwork, calls: z.array(callInput).min(1).max(16) });
 export type TransactionInput = z.input<typeof transactionInput>;
 export type NormalizedCall = { to: Address; value: string; data: Hex };
-export type CallDescription = { index: number; to: Address; value_wei: string; data: Hex; function?: string; arguments?: unknown; abi_source: "caller_supplied_unverified" | "standard_erc20" | "unknown" | "internal_verified"; warnings: string[] };
+export type CallDescription = { index: number; to: Address; value_wei: string; data: Hex; function?: string; arguments?: unknown; abi_source: "caller_supplied_unverified" | "standard_erc20" | "unknown" | "internal_verified" | AbiSource; implementation?: Address; clear_signing?: ClearSigning; warnings: string[] };
 
 function assertSafeNumbers(value: unknown): void {
   if (typeof value === "number" && !Number.isSafeInteger(value)) throw new Error("ABI numeric arguments must be safe integers; use strings for token amounts");
@@ -45,13 +46,49 @@ export function normalizeTransaction(input: TransactionInput, account: Address, 
     let decoded: { functionName: string; args?: readonly unknown[] | undefined } | undefined;
     let source: CallDescription["abi_source"] = c.abi ? "caller_supplied_unverified" : "unknown";
     try { decoded = decodeFunctionData({ abi: (c.abi as Abi | undefined) ?? erc20Abi, data }); if (!c.abi) source = "standard_erc20"; } catch { /* opaque calldata remains usable, explicitly labelled */ }
-    if (!decoded && data !== "0x") warnings.push("Opaque calldata: financial effects are unknown; review the raw bytes.");
-    if (decoded?.functionName === "approve") warnings.push("Changes a spender allowance; it can remain after this transaction.");
-    if (decoded?.functionName === "setApprovalForAll") warnings.push("May grant an operator control of all tokens in this collection.");
+    if (!decoded && data !== "0x") warnings.push(OPAQUE);
+    warnings.push(...functionWarnings(decoded?.functionName));
     descriptions.push({ index, to, value_wei: c.value, data, ...(decoded ? { function: decoded.functionName, arguments: jsonValue(decoded.args) } : {}), abi_source: source, warnings });
     return { to, value: c.value, data };
   });
   return { network: parsed.network, chainId: chainIds[parsed.network], account: getAddress(account), calls, descriptions };
+}
+
+const OPAQUE = "Opaque calldata: financial effects are unknown; review the raw bytes.";
+const FUNCTION_WARNINGS: Record<string, string> = {
+  approve: "Changes a spender allowance; it can remain after this transaction.",
+  setApprovalForAll: "May grant an operator control of all tokens in this collection.",
+};
+const functionWarnings = (name?: string) => name && FUNCTION_WARNINGS[name] ? [FUNCTION_WARNINGS[name]] : [];
+
+// Decode each call against the ABI the chain's verification services hold for
+// the target (behind any proxy), as Safe's Transaction Builder and Rabby do,
+// instead of trusting the ABI the agent supplied, and attach the ERC-7730
+// registry display when one exists. Only labels change: the calldata and the
+// fingerprint stay exactly what normalizeTransaction produced.
+export async function annotateCalls(network: WalletNetwork, account: Address, calls: NormalizedCall[], descriptions: CallDescription[], metadata: ContractMetadata): Promise<CallDescription[]> {
+  return Promise.all(descriptions.map(async d => {
+    const call = calls[d.index]!;
+    if (call.data === "0x") return d;
+    const [resolved, clear] = await Promise.all([metadata.contract(network, call.to), metadata.describeCall(network, call, account)]);
+    const next: CallDescription = { ...d, warnings: [...d.warnings] };
+    if (resolved) {
+      if (resolved.implementation) { next.implementation = resolved.implementation; next.warnings.push(`Proxy contract: this call runs implementation ${resolved.implementation}, which an upgradeable proxy's admin can replace after this preview.`); }
+      let decoded: { functionName: string; args?: readonly unknown[] | undefined } | undefined;
+      try { decoded = decodeFunctionData({ abi: resolved.abi, data: call.data }); } catch { /* not a function of this ABI */ }
+      const verified = resolved.source !== "bytecode_selectors";
+      if (decoded && (verified || !d.function)) {
+        const args = jsonValue(decoded.args);
+        if (d.abi_source === "caller_supplied_unverified" && (decoded.functionName !== d.function || JSON.stringify(args) !== JSON.stringify(d.arguments))) next.warnings.push(`The supplied ABI described this call as ${d.function ?? "unknown"}; the ${verified ? "verified" : "guessed"} ABI decodes it as ${decoded.functionName}. Trust the verified decoding.`);
+        next.warnings = next.warnings.filter(w => w !== OPAQUE && !Object.values(FUNCTION_WARNINGS).includes(w));
+        next.warnings.push(...functionWarnings(decoded.functionName));
+        Object.assign(next, { function: decoded.functionName, arguments: args, abi_source: resolved.source });
+        if (!verified) next.warnings.push("Function name guessed from public selector databases (no verified source); different functions can share a selector.");
+      } else if (verified && !decoded) next.warnings.push("Calldata matches no function in the contract's verified ABI.");
+    }
+    if (clear) next.clear_signing = clear;
+    return next;
+  }));
 }
 
 // Hash only execution-relevant canonical fields, never untrusted labels/ABI prose.

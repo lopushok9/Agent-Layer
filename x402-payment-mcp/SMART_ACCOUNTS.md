@@ -48,6 +48,16 @@ References: https://docs.cdp.coinbase.com/wallets/using-wallets/swaps and
 https://docs.cdp.coinbase.com/trade-api/quickstart . Native ETH uses the documented
 sentinel address; only Ethereum/Base mainnets are exposed here.
 
+## Verified ABIs and ERC-7730 display (2026-10-28)
+
+Previews used to trust whatever ABI the agent supplied, or show raw bytes. They
+now resolve the target like Otterscan and Sourcify do with WhatsABI 0.29
+(`autoload` with `followProxies`, Sourcify then Etherscan v2 loaders, OpenChain
+and 4byte only as a labelled fallback) and render ERC-7730 descriptors with
+`@ethereum-sourcify/clear-signing` 0.2 against the registry's prebuilt index
+(cached 6h; contracts cached 10 min). Resolution failures degrade to the old
+labels, never block a preview, and never alter calldata or fingerprints.
+
 ## References studied
 
 - https://github.com/pimlicolabs/permissionless.js
@@ -57,7 +67,11 @@ sentinel address; only Ethereum/Base mainnets are exposed here.
 - https://github.com/keypo-us/keypo-cli/blob/main/keypo-wallet/src/transaction.rs
 - https://docs.cdp.coinbase.com/wallets/using-wallets/create-and-manage-wallets
 
-SDKs above are references, not new runtime dependencies. CDP/viem are pinned in
+- https://github.com/shazow/whatsabi (proxy resolution, ABI loaders)
+- https://github.com/sourcifyeth/clear-signing (ERC-7730 reference renderer)
+- https://github.com/ethereum/clear-signing-erc7730-registry
+
+WhatsABI and clear-signing are runtime dependencies; the other SDKs above are references. CDP/viem are pinned in
 package-lock.json. Live deployments and payments need separate validation.
 
 ## Base mainnet probe, 2026-10-27

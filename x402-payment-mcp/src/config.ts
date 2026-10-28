@@ -32,6 +32,9 @@ const Env = z.object({
   BASE_BUNDLER_URL: z.string().url().optional(),
   ETHEREUM_BUNDLER_URL: z.string().url().optional(),
   WALLET_OPERATION_ENCRYPTION_KEY: z.string().optional().refine(v => !v || Buffer.from(v, "base64").length === 32, "Wallet operation encryption key must be 32 bytes"),
+  // Optional Etherscan v2 key (one key covers Ethereum and Base). Sourcify needs
+  // none; without this key, contracts verified only on Etherscan stay unlabelled.
+  ETHERSCAN_API_KEY: z.string().min(1).optional(),
   ARC_MAX_TRANSFER_USDC_ATOMIC: z.string().regex(/^\d+$/).default("50000000"),
   ARC_MAX_DAILY_TRANSFER_USDC_ATOMIC: z.string().regex(/^\d+$/).default("200000000"),
   PAYMENT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(45000),

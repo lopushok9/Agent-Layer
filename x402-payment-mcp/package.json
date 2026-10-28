@@ -18,9 +18,11 @@
   },
   "dependencies": {
     "@coinbase/cdp-sdk": "1.55.0",
+    "@ethereum-sourcify/clear-signing": "0.2.2",
     "@modelcontextprotocol/express": "2.0.0",
     "@modelcontextprotocol/node": "^2.0.0",
     "@modelcontextprotocol/server": "2.0.0",
+    "@shazow/whatsabi": "0.29.0",
     "@stripe/link-sdk": "0.13.0",
     "@x402/core": "2.25.0",
     "@x402/evm": "2.25.0",
