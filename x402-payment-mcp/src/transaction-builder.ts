@@ -21,7 +21,11 @@ export const callInput = z.strictObject({
   const encoded = v.abi !== undefined || v.function_name !== undefined || v.args !== undefined;
   if (encoded && (!v.abi || !v.function_name || v.data !== undefined)) ctx.addIssue({ code: "custom", message: "provide abi + function_name (+ args), or data, not both" });
 });
-export const transactionInput = z.strictObject({ network: walletNetwork, calls: z.array(callInput).min(1).max(16) });
+export const transactionInput = z.strictObject({
+  network: walletNetwork,
+  calls: z.array(callInput).min(1).max(16),
+  received_tolerance_bps: z.number().int().min(0).max(500).default(50).describe("How far below the simulated amount a received token may fall at execution, in bps (vault shares and interest-bearing tokens change every block). Outgoing amounts never tolerate any increase."),
+});
 export type TransactionInput = z.input<typeof transactionInput>;
 export type NormalizedCall = { to: Address; value: string; data: Hex };
 export type CallDescription = { index: number; to: Address; value_wei: string; data: Hex; function?: string; arguments?: unknown; abi_source: "caller_supplied_unverified" | "standard_erc20" | "unknown" | "internal_verified" | AbiSource; implementation?: Address; clear_signing?: ClearSigning; warnings: string[] };

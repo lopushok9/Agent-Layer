@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import { entryPoint06Address, entryPoint07Address, entryPoint08Address } from "viem/account-abstraction";
 import { z } from "zod";
 import type { SmartWalletService } from "./smart-wallet.js";
-import { addressInput, annotateCalls, chainIds, jsonValue, normalizeTransaction, transactionFingerprint, walletNetwork, type TransactionInput } from "./transaction-builder.js";
+import { addressInput, annotateCalls, chainIds, jsonValue, normalizeTransaction, transactionFingerprint, transactionInput, walletNetwork, type TransactionInput } from "./transaction-builder.js";
 import type { WalletStore, WalletOperation, CancelPlan } from "./wallet-store.js";
 import { cancellationCalls, cancellationFingerprint } from "./nonce-cancellation.js";
 import { nonceAbi, replacementFees, type SendOptions } from "./alchemy-executor.js";
@@ -41,8 +41,10 @@ export class TransactionService {
     const descriptions = this.contracts ? await annotateCalls(p.network, p.account, p.calls, p.descriptions, this.contracts) : p.descriptions;
     const simulation = await this.wallets.simulate(p.network, account.address, p.calls);
     const network_fee = networkFee(await this.wallets.estimateNetworkFee(userId, p.network, p.calls));
-    const saved = await this.store.createOperation({ userId, network: p.network, address: p.account, calls: p.calls, descriptions, fingerprint: transactionFingerprint(p.network, p.account, p.calls), simulation: { ...simulation, network_fee, ...(terms ? { route: terms.route, asset_floors: terms.floors } : {}) } }, this.ttl);
-    return { ...publicOperation(saved), next_step: "Show the full calls, allowances, native value, simulation and fee limitations. Obtain the user's confirmation of this exact preview, then call transaction_execute once with its operation_id. No signature has been requested." };
+    const tolerance = transactionInput.parse(input).received_tolerance_bps;
+    const asset_floors = { ...receivedFloors(simulation.asset_changes, tolerance), ...(terms?.floors ?? {}) };
+    const saved = await this.store.createOperation({ userId, network: p.network, address: p.account, calls: p.calls, descriptions, fingerprint: transactionFingerprint(p.network, p.account, p.calls), simulation: { ...simulation, network_fee, received_tolerance_bps: tolerance, asset_floors, ...(terms ? { route: terms.route } : {}) } }, this.ttl);
+    return { ...publicOperation(saved), next_step: "Show the full calls, allowances, native value, simulation (each received token's minimum is simulation.asset_floors) and fee limitations. Obtain the user's confirmation of this exact preview, then call transaction_execute once with its operation_id. No signature has been requested." };
   }
   async prepareCancellation(userId: string, targetId: string) {
     return this.lock.withPaymentLock(userId, async () => {
@@ -238,6 +240,22 @@ function approvedMaxPrefund(simulation: Record<string, unknown>) {
 }
 export function publicOperation(p: WalletOperation) {
   return { operation_id: p.id, kind: p.kind ?? "calls", network: p.network, address: p.address, status: p.status, expires_at: p.expiresAt.toISOString(), fingerprint: p.fingerprint, calls: p.descriptions, ...(p.cancelPlan ? { cancellation: p.cancelPlan } : {}), executor: p.proof?.executor ?? "unassigned_or_legacy_cdp", ...(p.swapPlan ? { swap: p.swapPlan } : {}), simulation: p.simulation, user_op_hash: p.userOpHash, transaction_hash: p.transactionHash, error: p.error, gas: { estimate: p.kind === "swap" ? "Indicative CDP swap fee estimate only; final network fees may differ." : "User ETH pays gas. simulation.network_fee.approved_max_prefund_wei is the maximum network fee this preview authorizes; execution stops before signing if the prepared operation needs more or the account cannot fund it." } };
+}
+
+// An ERC-4626 vault's share price, an aToken's index or a pool's reserves move
+// every block, so a received amount simulated at preview is rarely reproduced
+// exactly at execution. Like a swap's amountOutMinimum (Uniswap's default 0.5%),
+// the preview fixes a minimum per received token that the user sees; outflows
+// stay strict in assetChangesWithinPreview.
+export function receivedFloors(changes: unknown, bps: number): Record<string, string> {
+  if (!Array.isArray(changes)) return {};
+  const floors: Record<string, string> = {};
+  for (const c of changes as { token?: { address?: unknown }; value?: { diff?: unknown } }[]) {
+    const token = c?.token?.address, diff = c?.value?.diff;
+    if (typeof token !== "string" || !/^\d+$/.test(String(diff)) || BigInt(String(diff)) === 0n) continue;
+    floors[token.toLowerCase()] = (BigInt(String(diff)) * BigInt(10_000 - bps) / 10_000n).toString();
+  }
+  return floors;
 }
 
 function assetFloors(simulation: Record<string, unknown>): Record<string, bigint> {

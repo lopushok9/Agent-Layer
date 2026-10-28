@@ -124,3 +124,25 @@ test("a route preview's stored output floor lets execution accept a lower fresh 
     else await assert.rejects(h.service.execute("alice", "id", "route"), /simulated asset changes differ/);
   }
 });
+
+test("preview fixes a minimum for each received token so a vault deposit still executes after its share price moves", async () => {
+  const usdc = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", shares = "0xee8f4ec5672f09119b96ab6fb59c27e1b7e44b61";
+  const change = (out: string, spent = "-100000") => [{ token: { address: usdc }, value: { pre: "900000", post: "800000", diff: spent } }, { token: { address: shares }, value: { pre: "0", post: out, diff: out } }];
+  const h = harness();
+  let created: any;
+  (h.wallets as any).estimateNetworkFee = async () => 400n;
+  (h.wallets as any).simulate = async () => ({ asset_changes: change("89510462534242420") });
+  (h.service as any).store.createOperation = async (p: any) => { created = p; return { ...h.p, ...p, id: "new", status: "prepared" }; };
+  await h.service.prepare("alice", { network: "base", calls: [{ to: "0x3333333333333333333333333333333333333333", value: "0" }] });
+  assert.deepEqual(created.simulation.asset_floors, { [shares]: "89062910221571207" }, "50 bps below the simulated shares; nothing for the spent USDC");
+  assert.equal(created.simulation.received_tolerance_bps, 50);
+  for (const [fresh, spent, ok] of [["89510462000000000", "-100000", true], ["89062910221571206", "-100000", false], ["89510462534242420", "-100001", false]] as const) {
+    const e = harness();
+    e.p.simulation = { ...e.p.simulation, asset_changes: created.simulation.asset_changes, asset_floors: created.simulation.asset_floors };
+    (e.wallets as any).simulate = async () => ({ asset_changes: change(fresh, spent) });
+    if (ok) assert.equal((await e.service.execute("alice", "id", "deposit")).status, "submitted");
+    else await assert.rejects(e.service.execute("alice", "id", "deposit"), /simulated asset changes differ/);
+  }
+  await h.service.prepare("alice", { network: "base", received_tolerance_bps: 0, calls: [{ to: "0x3333333333333333333333333333333333333333", value: "0" }] });
+  assert.deepEqual(created.simulation.asset_floors, { [shares]: "89510462534242420" }, "zero tolerance keeps the exact amount");
+});
