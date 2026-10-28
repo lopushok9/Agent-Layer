@@ -58,6 +58,8 @@ const publicMessages = new Set([
   "the app's request expired; repeat the action in the app", "the app session has ended",
   "route tokens must differ", "Enso router on this network is not the expected deployment",
   "Enso found no route for these tokens and amount", "Enso route service is unavailable",
+  "Enso could not build this protocol action with these inputs", "Enso rate limit reached; try again in a few seconds",
+  "this protocol action is not available on this network through the Enso router", "pool parameters apply only to swap",
   "Enso returned a route that does not match the request; nothing was prepared",
   "Enso route does not call the EnsoRouter; nothing was prepared",
   "Enso route is not a single-token EnsoRouter route; nothing was prepared",

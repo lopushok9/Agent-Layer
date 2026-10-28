@@ -1,7 +1,7 @@
 import { decodeAbiParameters, decodeFunctionData, encodeAbiParameters, encodeFunctionData, erc20Abi, getAddress, isAddressEqual, parseAbi, type Address, type Hex } from "viem";
 import { z } from "zod";
 import type { SmartWalletService } from "./smart-wallet.js";
-import { addressInput, chainIds, walletNetwork } from "./transaction-builder.js";
+import { addressInput, chainIds, walletNetwork, type WalletNetwork } from "./transaction-builder.js";
 import type { TransactionService } from "./transactions.js";
 
 const NATIVE = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
@@ -27,10 +27,33 @@ export const routeInput = z.strictObject({
 });
 export type RouteInput = z.input<typeof routeInput>;
 
+// Only actions whose result is a token held by the receiver: EnsoRouter calls
+// protocols as EnsoShortcuts, so a borrow, repay or harvest through the router
+// would act for Enso's contract, not this account (Enso uses delegatecall for
+// those, which this wallet never does), and safeRouteSingle can only check a
+// token balance.
+export const ROUTER_ACTIONS = ["deposit", "redeem", "swap"] as const;
+const slug = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/, "use the protocol slug from defi_catalog");
+export const actionInput = z.strictObject({
+  network: walletNetwork,
+  protocol: slug,
+  action: z.enum(ROUTER_ACTIONS),
+  token_in: addressInput.describe(`Token to spend (for redeem: the position token); native ETH is ${NATIVE}`),
+  amount_in: atomic,
+  token_out: addressInput.describe("Token this account receives: the position token for deposit, the underlying for redeem"),
+  primary_address: addressInput.describe("Contract the protocol action calls (defi_positions primary_address, or the pool for swap)"),
+  slippage_bps: z.number().int().min(1).max(500).default(50),
+  // Pool selectors of Enso's swap action; fee-receiver and maxAmountOut
+  // arguments, which divert output above a limit to Enso's fee receiver, are
+  // deliberately not accepted.
+  pool: z.strictObject({ pool_fee: z.string().regex(/^\d{1,7}$/).optional(), tick_spacing: z.string().regex(/^-?\d{1,7}$/).optional(), hooks: addressInput.optional(), pool_id: z.string().regex(/^0x[0-9a-fA-F]{64}$/).optional() }).optional(),
+});
+export type ActionInput = z.input<typeof actionInput>;
+
 type Backend = Pick<SmartWalletService, "account" | "rpc">;
 type Transactions = Pick<TransactionService, "prepare">;
-type Fetch = (url: string, init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
-type RouteResponse = { tx?: { to?: string; data?: string; value?: string | number; from?: string }; amountOut?: unknown; minAmountOut?: unknown; priceImpact?: number | null; route?: { action?: unknown; protocol?: unknown; tokenIn?: unknown; tokenOut?: unknown }[] };
+export type Fetch = (url: string, init: { method: string; headers: Record<string, string>; body?: string; signal: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
+export type RouteResponse = { tx?: { to?: string; data?: string; value?: string | number; from?: string }; amountOut?: unknown; minAmountOut?: unknown; priceImpact?: number | null; route?: { action?: unknown; protocol?: unknown; tokenIn?: unknown; tokenOut?: unknown }[] };
 
 // Enso's Route API turns "token X into position Y" into one transaction across
 // hundreds of protocols. Its response is untrusted: the only thing the user is
@@ -39,18 +62,50 @@ type RouteResponse = { tx?: { to?: string; data?: string; value?: string | numbe
 // is decoded from the calldata and compared with the request, and the call sent
 // is always a safeRouteSingle with this account and the user's minimum.
 export class EnsoRoutes {
-  constructor(private wallets: Backend, private transactions: Transactions, private apiKey: string, private fetcher: Fetch = fetch as unknown as Fetch) {}
+  readonly api: EnsoApi;
+  constructor(private wallets: Backend, private transactions: Transactions, apiKey: string, fetcher: Fetch = fetch as unknown as Fetch, intervalMs = 1_100) {
+    this.api = new EnsoApi(apiKey, fetcher, intervalMs);
+  }
 
   async preview(userId: string, input: RouteInput) {
     const p = routeInput.parse(input);
+    return this.build(userId, p.network, p.token_in, p.amount_in, p.token_out, p.slippage_bps, async account => {
+      const tokenIn = getAddress(p.token_in), tokenOut = getAddress(p.token_out);
+      return await this.api.post("shortcuts/route", {}, { chainId: chainIds[p.network], fromAddress: account, receiver: account, spender: account, refundReceiver: account, routingStrategy: "router", tokenIn: [tokenIn], tokenOut: [tokenOut], amountIn: [p.amount_in], slippage: String(p.slippage_bps) }) as RouteResponse;
+    });
+  }
+
+  // One protocol action from Enso's catalog, built by the Bundle API with the
+  // router strategy. Its answer is the same EnsoRouter routeSingle a route
+  // returns, so it gets the same checks and the same on-chain minimum.
+  async actionPreview(userId: string, input: ActionInput, supported: (network: WalletNetwork, protocol: string, action: string) => Promise<boolean>) {
+    const p = actionInput.parse(input);
+    if (!await supported(p.network, p.protocol, p.action)) throw new Error("this protocol action is not available on this network through the Enso router");
+    return this.build(userId, p.network, p.token_in, p.amount_in, p.token_out, p.slippage_bps, async account => {
+      const tokenIn = getAddress(p.token_in), tokenOut = getAddress(p.token_out);
+      const args: Record<string, unknown> = { tokenIn, tokenOut, amountIn: p.amount_in, primaryAddress: getAddress(p.primary_address), receiver: account };
+      if (p.action === "swap") {
+        args.slippage = String(p.slippage_bps);
+        if (p.pool?.pool_fee) args.poolFee = p.pool.pool_fee;
+        if (p.pool?.tick_spacing) args.tickSpacing = p.pool.tick_spacing;
+        if (p.pool?.hooks) args.hooks = getAddress(p.pool.hooks);
+        if (p.pool?.pool_id) args.poolId = p.pool.pool_id;
+      } else if (p.pool) throw new Error("pool parameters apply only to swap");
+      const bundle = await this.api.post("shortcuts/bundle", { chainId: String(chainIds[p.network]), fromAddress: account, routingStrategy: "router", receiver: account, spender: account, refundReceiver: account }, [{ protocol: p.protocol, action: p.action, args }]) as RouteResponse & { amountsOut?: Record<string, unknown> };
+      const out = bundle.amountsOut && typeof bundle.amountsOut === "object" ? Object.entries(bundle.amountsOut).find(([k]) => k.toLowerCase() === tokenOut.toLowerCase())?.[1] : undefined;
+      return { tx: bundle.tx, amountOut: out, priceImpact: bundle.priceImpact, route: [{ action: p.action, protocol: p.protocol }] } as RouteResponse;
+    }, { protocol: p.protocol, action: p.action, primary_address: getAddress(p.primary_address) });
+  }
+
+  private async build(userId: string, network: WalletNetwork, tokenInRaw: string, amount: string, tokenOutRaw: string, slippageBps: number, fetchRoute: (account: Address) => Promise<RouteResponse>, extra: Record<string, unknown> = {}) {
     const account = (await this.wallets.account(userId)).address;
-    const rpc = this.wallets.rpc(p.network);
-    if (await rpc.getChainId() !== chainIds[p.network]) throw new Error("RPC chain ID mismatch");
-    const tokenIn = getAddress(p.token_in), tokenOut = getAddress(p.token_out), amountIn = BigInt(p.amount_in);
+    const rpc = this.wallets.rpc(network);
+    if (await rpc.getChainId() !== chainIds[network]) throw new Error("RPC chain ID mismatch");
+    const tokenIn = getAddress(tokenInRaw), tokenOut = getAddress(tokenOutRaw), amountIn = BigInt(amount);
     if (isAddressEqual(tokenIn, tokenOut)) throw new Error("route tokens must differ");
     if (await rpc.readContract({ address: ENSO_ROUTER, abi: routerAbi, functionName: "shortcuts" }) !== ENSO_SHORTCUTS) throw new Error("Enso router on this network is not the expected deployment");
-    const route = await this.route({ chainId: chainIds[p.network], fromAddress: account, receiver: account, spender: account, refundReceiver: account, routingStrategy: "router", tokenIn: [tokenIn], tokenOut: [tokenOut], amountIn: [amountIn.toString()], slippage: String(p.slippage_bps) });
-    const terms = verifyRoute(route, { account, tokenIn, tokenOut, amountIn, slippageBps: p.slippage_bps });
+    const route = await fetchRoute(account);
+    const terms = verifyRoute(route, { account, tokenIn, tokenOut, amountIn, slippageBps });
     const calls: { to: Address; value: string; data?: Hex }[] = [];
     if (!isAddressEqual(tokenIn, NATIVE)) {
       // Exact allowance for this route only, never unlimited. Tokens such as
@@ -62,15 +117,35 @@ export class EnsoRoutes {
       }
     }
     calls.push({ to: ENSO_ROUTER, value: terms.value.toString(), data: terms.data });
-    const summary = { provider: "enso", router: ENSO_ROUTER, token_in: tokenIn, amount_in: amountIn.toString(), token_out: tokenOut, expected_output: terms.expected.toString(), minimum_output: terms.minimum.toString(), minimum_enforced_by: "EnsoRouter.safeRouteSingle reverts unless the receiver gains at least minimum_output", slippage_bps: p.slippage_bps, receiver: account, price_impact_bps: typeof route.priceImpact === "number" ? route.priceImpact : null, hops: hops(route), approvals_included: calls.length - 1 };
-    const preview = await this.transactions.prepare(userId, { network: p.network, calls }, { route: summary, floors: { [tokenOut.toLowerCase()]: terms.minimum.toString() } });
+    const summary = { provider: "enso", ...extra, router: ENSO_ROUTER, token_in: tokenIn, amount_in: amountIn.toString(), token_out: tokenOut, expected_output: terms.expected.toString(), minimum_output: terms.minimum.toString(), minimum_enforced_by: "EnsoRouter.safeRouteSingle reverts unless the receiver gains at least minimum_output", slippage_bps: slippageBps, receiver: account, price_impact_bps: typeof route.priceImpact === "number" ? route.priceImpact : null, hops: hops(route), approvals_included: calls.length - 1 };
+    const preview = await this.transactions.prepare(userId, { network, calls }, { route: summary, floors: { [tokenOut.toLowerCase()]: terms.minimum.toString() } });
     return { ...preview, route: summary, next_step: "Show the route: input, expected and minimum output, hops, price impact, the exact approval and the simulated asset changes. After the user confirms this exact preview, call transaction_execute once with operation_id. Execution keeps the minimum output fixed; the route itself reverts below it." };
   }
+}
 
-  private async route(body: Record<string, unknown>): Promise<RouteResponse> {
-    const res = await this.fetcher("https://api.enso.build/api/v1/shortcuts/route", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${this.apiKey}` }, body: JSON.stringify(body), signal: AbortSignal.timeout(20_000) });
-    if (!res.ok) throw new Error(res.status === 400 || res.status === 404 ? "Enso found no route for these tokens and amount" : "Enso route service is unavailable");
-    return await res.json() as RouteResponse;
+// The free Enso plan allows one request per second. Every call goes through
+// one queue so concurrent agents wait instead of failing.
+export class EnsoApi {
+  private queue: Promise<unknown> = Promise.resolve();
+  private nextAt = 0;
+  constructor(private apiKey: string, private fetcher: Fetch, private intervalMs: number) {}
+  get(path: string, query: Record<string, string | string[] | undefined>) { return this.request("GET", path, query); }
+  post(path: string, query: Record<string, string | string[] | undefined>, body: unknown) { return this.request("POST", path, query, body); }
+  private request(method: string, path: string, query: Record<string, string | string[] | undefined>, body?: unknown): Promise<unknown> {
+    const search = new URLSearchParams();
+    for (const [k, v] of Object.entries(query)) for (const x of Array.isArray(v) ? v : v === undefined ? [] : [v]) search.append(k, x);
+    const url = `https://api.enso.build/api/v1/${path}${search.size ? `?${search}` : ""}`;
+    const run = this.queue.then(async () => {
+      const wait = this.nextAt - Date.now();
+      if (wait > 0) await new Promise(r => setTimeout(r, wait));
+      this.nextAt = Date.now() + this.intervalMs;
+      const res = await this.fetcher(url, { method, headers: { "content-type": "application/json", authorization: `Bearer ${this.apiKey}` }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(20_000) });
+      if (res.status === 429) throw new Error("Enso rate limit reached; try again in a few seconds");
+      if (!res.ok) throw new Error(res.status !== 400 && res.status !== 404 ? "Enso route service is unavailable" : path === "shortcuts/bundle" ? "Enso could not build this protocol action with these inputs" : "Enso found no route for these tokens and amount");
+      return await res.json();
+    });
+    this.queue = run.catch(() => undefined);
+    return run;
   }
 }
 

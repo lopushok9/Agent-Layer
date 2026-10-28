@@ -170,6 +170,32 @@ Its output floor is stored with the preview: execution accepts a fresh
 simulated output down to that on-chain minimum and compares every other token
 strictly. Enso's `delegate` strategies need delegatecall and are never used.
 
+### Protocol catalog and actions
+
+The same key enables three more tools:
+
+- `defi_catalog({network, action?, protocol?})` lists the protocol slugs (and
+  their forks) whose `deposit`, `redeem` or `swap` Enso supports on the network,
+  with each action's inputs. Inputs the wallet sets itself (`receiver`,
+  `onBehalfOf`) or never forwards (`maxAmountOut`, which sends output above a
+  limit to Enso's fee receiver) are left out. Cached for six hours.
+- `defi_positions({network, underlying_token?, protocol?, min_tvl_usd?,
+  min_apy?})` searches tokenized positions (vault shares, lending receipt
+  tokens, LP tokens) and returns token, protocol, `primary_address`, APY, TVL and
+  underlying tokens, sorted by TVL. Third-party data, informational only.
+- `action_preview({network, protocol, action, token_in, amount_in, token_out,
+  primary_address, slippage_bps, pool?})` asks the Bundle API for that one
+  action with the `router` strategy. Its answer is the same EnsoRouter
+  `routeSingle` as a route and gets the same treatment: input checked,
+  re-wrapped into `safeRouteSingle` to this account with the user's minimum,
+  exact approval, normal preview.
+
+Borrow, repay and harvest are not offered: through the router the protocol
+sees EnsoShortcuts as the caller, so the debt or rewards would belong to Enso's
+contract (Enso uses `delegate`, i.e. delegatecall, for them). Use
+`transaction_prepare` against the protocol contract instead. All Enso requests
+share one queue spaced 1.1 s apart, the free plan's limit of one per second.
+
 ## CDP managed swap alternative
 
 With the same `wallet:transact` scope, use `swap_preview` -> `swap_execute` ->
