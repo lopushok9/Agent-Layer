@@ -32,8 +32,6 @@ const Env = z.object({
   BASE_BUNDLER_URL: z.string().url().optional(),
   ETHEREUM_BUNDLER_URL: z.string().url().optional(),
   WALLET_OPERATION_ENCRYPTION_KEY: z.string().optional().refine(v => !v || Buffer.from(v, "base64").length === 32, "Wallet operation encryption key must be 32 bytes"),
-  BASE_PAYMASTER_URL: z.string().url().optional(),
-  ETHEREUM_PAYMASTER_URL: z.string().url().optional(),
   ARC_MAX_TRANSFER_USDC_ATOMIC: z.string().regex(/^\d+$/).default("50000000"),
   ARC_MAX_DAILY_TRANSFER_USDC_ATOMIC: z.string().regex(/^\d+$/).default("200000000"),
   PAYMENT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(45000),
