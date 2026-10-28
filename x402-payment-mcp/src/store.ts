@@ -22,9 +22,7 @@ export class Store {
   private oauthCleanupTimer?:ReturnType<typeof setInterval>;
   constructor(databaseUrl: string) { const options={ connectionString: databaseUrl, ssl: databaseTls(databaseUrl), connectionTimeoutMillis: POOL_CONNECT_TIMEOUT_MS }; this.pool = new Pool(options); this.lockPool = new Pool(options); }
   async close() { if(this.oauthCleanupTimer)clearInterval(this.oauthCleanupTimer);await Promise.all([this.pool.end(),this.lockPool.end()]); }
-  async migrate() {
-    await this.pool.query(await migrationSql());
-  }
+  async migrate() { const c = await this.pool.connect(); try { await runMigrations(c); } finally { c.release(); } }
 
   async registerClient(clientName: string, redirectUris: string[]): Promise<OAuthClient> {
     const clientId = `mcp_${randomUUID()}`;
@@ -184,7 +182,28 @@ export function previewUnavailableMessage(row:{used?:boolean;expired?:boolean}|u
 
 // Applied in order on every start; each file must stay idempotent.
 export const MIGRATIONS = ["001_initial.sql", "002_personal_tokens.sql", "003_arc_transfers.sql", "004_request_headers.sql", "005_preview_challenge.sql", "006_link_wallet.sql", "007_smart_wallets.sql", "008_managed_swaps.sql", "009_user_operation_proof.sql", "010_nonce_cancellation.sql", "011_wallet_replacements.sql"] as const;
-export async function migrationSql(){return (await Promise.all(MIGRATIONS.map(name=>readFile(new URL(`../migrations/${name}`,import.meta.url),"utf8")))).join("\n");}
+const migrationFile=(name:string)=>readFile(new URL(`../migrations/${name}`,import.meta.url),"utf8");
+// Concurrent starts (several replicas, migrate:prod beside the app, parallel
+// test files) race IF NOT EXISTS DDL on catalog indexes such as
+// pg_type_typname_nsp_index, so migrations run under one advisory lock, as in
+// Rails' Migrator and node-pg-migrate. Like their schema_migrations/pgmigrations
+// ledgers, applied files are recorded and skipped: replaying ALTER TABLE on every
+// start takes ACCESS EXCLUSIVE on live tables even when the column exists, which
+// stalls traffic behind it and deadlocks transactions that already touched them.
+// The files stay idempotent, so a database migrated before the ledger replays once.
+export async function runMigrations(c: PoolClient) {
+  try {
+    await c.query("BEGIN");
+    await c.query("SELECT pg_advisory_xact_lock(hashtextextended('x402-payment-mcp:migrations',0))");
+    await c.query("CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())");
+    const applied = new Set((await c.query<{ name: string }>("SELECT name FROM schema_migrations")).rows.map(r => r.name));
+    for (const name of MIGRATIONS.filter(n => !applied.has(n))) {
+      await c.query(await migrationFile(name));
+      await c.query("INSERT INTO schema_migrations (name) VALUES ($1)", [name]);
+    }
+    await c.query("COMMIT");
+  } catch (e) { await c.query("ROLLBACK").catch(() => {}); throw e; }
+}
 
 function mapClient(x:any):OAuthClient{return{clientId:x.client_id,clientName:x.client_name,redirectUris:x.redirect_uris};}
 function mapPersonalToken(x:any):PersonalToken{return{id:x.id,label:x.label,hint:x.hint,createdAt:new Date(x.created_at),expiresAt:new Date(x.expires_at),lastUsedAt:x.last_used_at?new Date(x.last_used_at):null};}
