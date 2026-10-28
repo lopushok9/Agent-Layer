@@ -31,6 +31,9 @@ export class WalletStore {
     const x = r.rows[0];
     return x ? { ownerName: x.owner_name, ownerAddress: x.owner_address, accountName: x.account_name, address: x.address } : null;
   }
+  // Temporarily disabled with the one-time operator script. Historical reads
+  // and per-address operation guards remain active for existing wallets.
+  /*
   // Operator-only: call under Store.withPaymentLock. No MCP endpoint exposes
   // replacement. Compare-and-swap plus an immutable archive makes retries safe.
   async replaceWallet(userId: string, expected: Address, next: SmartWalletRecord, requestId: string, reason: string) {
@@ -56,6 +59,7 @@ export class WalletStore {
       await c.query("COMMIT");
     } catch (e) { await c.query("ROLLBACK"); throw e; } finally { c.release(); }
   }
+  */
   async saveWallet(userId: string, w: SmartWalletRecord) {
     await this.pool.query(`INSERT INTO smart_wallets(user_id,owner_name,owner_address,account_name,address) VALUES($1,$2,$3,$4,$5) ON CONFLICT(user_id) DO NOTHING`, [userId, w.ownerName, w.ownerAddress, w.accountName, w.address]);
     const actual = await this.wallet(userId);

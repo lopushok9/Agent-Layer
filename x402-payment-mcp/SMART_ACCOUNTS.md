@@ -138,3 +138,12 @@ nonce cancellation are separate flows; this probe did not execute them. Future
 previews should expose ERC-4337 gas/prefund checks before Permit2 signing; the
 current generic preview's execution-only gas and swap protocol fee are insufficient
 for determining total upfront ETH requirements.
+
+
+## One-time replacement helper disabled, 2026-10-28
+
+The operator replacement script and registry replacement writer are now retained
+as commented reference code. The runnable script fails immediately without
+loading credentials or opening network/database connections. First-wallet
+creation, archived-wallet reads, additive migration 011 and per-address operation
+isolation remain active for the existing replacement wallet. See README.

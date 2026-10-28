@@ -1,3 +1,6 @@
+// Temporarily disabled after the one-time wallet replacement.
+// Restore only through a reviewed code change if replacement is needed again.
+/*
 // Operator-only replacement, explicitly authorized by the affected user. Does
 // not sign, send transactions, move funds, alter grants or reset old operations.
 import { createHash } from "node:crypto";
@@ -35,3 +38,8 @@ try {
   });
 } catch { console.error("Wallet replacement failed. Provider and credential details suppressed. Retry only with the same request_id after checking registry state.");process.exitCode=1; }
 finally { await store.close(); }
+*/
+
+console.error("Wallet replacement is disabled. The one-time operator helper is retained as commented reference code.");
+process.exitCode = 1;
+export {};
