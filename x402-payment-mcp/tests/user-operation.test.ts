@@ -69,3 +69,23 @@ test("Alchemy fee calculation includes documented service-tip and base-fee buffe
   assert.deepEqual(alchemyFees(1n, 1n), { maxPriorityFeePerGas: 2n, maxFeePerGas: 4n });
   assert.throws(() => alchemyFees(-1n, 1n));
 });
+
+test("prefund follows EntryPoint v0.6 _getRequiredPrefund, including the paymaster multiplier", async () => {
+  const { requiredPrefund } = await import("../src/alchemy-executor.js");
+  const op = prepared().operation;
+  assert.equal(requiredPrefund(op), (100000n + 150000n + 50000n) * 200n);
+  assert.equal(requiredPrefund({ ...op, paymasterAndData: "0x1234" }), (100000n + 150000n * 3n + 50000n) * 200n);
+});
+
+test("funding check counts the EntryPoint deposit, call value and approved ceiling before signing", async () => {
+  const { assertFunded, requiredPrefund } = await import("../src/alchemy-executor.js");
+  const op = prepared().operation, prefund = requiredPrefund(op);
+  const rpc = (balance: bigint, deposit: bigint) => ({ getBalance: async () => balance, readContract: async ({ functionName }: any) => { assert.equal(functionName, "balanceOf"); return deposit; } }) as any;
+  const calls = [{ to: address, value: "5", data: "0x" }] as any;
+  assert.equal(await assertFunded(rpc(prefund + 5n, 0n), op, calls, prefund), prefund);
+  await assert.rejects(assertFunded(rpc(prefund + 4n, 0n), op, calls), /insufficient ETH/);
+  await assertFunded(rpc(15n, prefund - 10n), op, calls);
+  await assert.rejects(assertFunded(rpc(14n, prefund - 10n), op, calls), /insufficient ETH/);
+  await assertFunded(rpc(5n, prefund * 2n), op, calls);
+  await assert.rejects(assertFunded(rpc(10n ** 30n, 0n), op, calls, prefund - 1n), /exceeds the approved maximum/);
+});

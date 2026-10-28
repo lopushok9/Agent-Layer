@@ -9,6 +9,9 @@ const publicMessages = new Set([
   "UserOperation encryption key is not configured", "Bundler is not configured",
   "Bundler does not support this EntryPoint", "CDP smart account factory derivation mismatch",
   "Smart account owner or EntryPoint mismatch",
+  "network fee exceeds the approved maximum; prepare and confirm a new operation",
+  "insufficient ETH for value and network fee; nothing was signed",
+  "preview has no approved network fee maximum; prepare a new operation",
 
   "operation type does not match this execution tool",
   "swap tokens must be distinct nonzero token addresses or the native ETH sentinel",

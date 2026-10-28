@@ -13,7 +13,7 @@ import { walletErrorDiagnostic } from "./wallet-errors.js";
 import { assetChangesWithinPreview } from "./asset-changes.js";
 
 export const contractReadInput = z.strictObject({ network: walletNetwork, to: addressInput, abi: z.array(z.unknown()).min(1).max(200), function_name: z.string().min(1).max(200), args: z.array(z.unknown()).max(100).default([]) });
-type Backend = Pick<SmartWalletService, "account" | "status" | "simulate" | "send" | "operation" | "rpc" | "bundler">;
+type Backend = Pick<SmartWalletService, "account" | "status" | "simulate" | "send" | "operation" | "rpc" | "bundler" | "estimateNetworkFee">;
 type Repository = Pick<WalletStore, "createOperation" | "operation" | "reserve" | "beforeSigning" | "finish" | "preparedOperation" | "reserveCancellation" | "finishCancellation" | "permitExpiry">;
 type Lock = { withPaymentLock<T>(userId: string, action: () => Promise<T>): Promise<T> };
 
@@ -32,7 +32,8 @@ export class TransactionService {
     const account = await this.wallets.account(userId);
     const p = normalizeTransaction(input, account.address, account.owners[0]?.address);
     const simulation = await this.wallets.simulate(p.network, account.address, p.calls);
-    const saved = await this.store.createOperation({ userId, network: p.network, address: p.account, calls: p.calls, descriptions: p.descriptions, fingerprint: transactionFingerprint(p.network, p.account, p.calls), simulation }, this.ttl);
+    const network_fee = networkFee(await this.wallets.estimateNetworkFee(userId, p.network, p.calls));
+    const saved = await this.store.createOperation({ userId, network: p.network, address: p.account, calls: p.calls, descriptions: p.descriptions, fingerprint: transactionFingerprint(p.network, p.account, p.calls), simulation: { ...simulation, network_fee } }, this.ttl);
     return { ...publicOperation(saved), next_step: "Show the full calls, allowances, native value, simulation and fee limitations. Obtain the user's confirmation of this exact preview, then call transaction_execute once with its operation_id. No signature has been requested." };
   }
   async prepareCancellation(userId: string, targetId: string) {
@@ -45,7 +46,7 @@ export class TransactionService {
       const plan = { targetId, targetHash: target.userOpHash, targetNonce: proof.nonce, entryPoint: proof.entryPoint, fromBlock: proof.blockNumber };
       const calls = cancellationCalls(plan);
       await this.checkCancellationNonce(target, plan.targetNonce);
-      const simulation = await this.wallets.simulate(target.network, target.address, calls);
+      const simulation = { ...await this.wallets.simulate(target.network, target.address, calls), network_fee: networkFee(await this.wallets.estimateNetworkFee(userId, target.network, calls, 1n)) };
       const expiry = await this.store.permitExpiry(userId, targetId);
       const saved = await this.store.createOperation({ userId, network: target.network, address: target.address, calls, descriptions: [{ index: 0, to: calls[0]!.to, value_wei: "0", data: calls[0]!.data, abi_source: "internal_verified", function: "incrementNonce", arguments: ["0"], warnings: ["Gas costs ETH; cancellation is not effective until its finalized result is verified."] }], fingerprint: cancellationFingerprint(target.network, target.address, plan), simulation: { ...simulation, cancel_target: targetId, permit_expiry_unix: expiry?.toString() ?? null, cancellation: "Invalidates the original UserOperation nonce. Gas is paid from smart account ETH. Unlock requires finalized nonce advance, original-outcome reconciliation and any Permit2 expiry." }, kind: "cancel", cancelPlan: plan }, this.ttl);
       return { ...publicOperation(saved), next_step: "Show target, nonce invalidation, gas cost limitations and Permit2 expiry. Ask for confirmation, then call transaction_cancel_execute once. This preview does not sign or cancel anything." };
@@ -84,7 +85,7 @@ export class TransactionService {
           await this.store.beforeSigning(p.id, hash, prepared);
           signing = true;
           signingHash = hash;
-        }, cancellation ? 1n : 0n);
+        }, cancellation ? 1n : 0n, approvedMaxPrefund(p.simulation));
         // A changed SDK must not bypass the persistence-before-signing boundary.
         if (!signing || signingHash !== result.userOpHash) {
           await this.store.finish(p.id, "unknown", null, "Provider signing boundary/hash mismatch; reconcile before retrying.");
@@ -170,6 +171,18 @@ export class TransactionService {
   }
 
 }
+// The bundler-prepared maxFeePerGas already carries a 50% base-fee buffer; the
+// approved ceiling doubles the estimated prefund so ordinary fee movement within
+// the preview TTL still executes, while a spike requires a new confirmation.
+const FEE_CEILING_MULTIPLIER = 2n;
+function networkFee(estimatedPrefund: bigint) {
+  return { estimated_max_prefund_wei: estimatedPrefund.toString(), approved_max_prefund_wei: (estimatedPrefund * FEE_CEILING_MULTIPLIER).toString(), basis: "ERC-4337 v0.6 prefund (gas limits x maxFeePerGas) paid from smart account ETH. Actual cost is lower; EntryPoint keeps the unused prefund as this account's deposit for later operations. Execution refuses a higher prefund." };
+}
+function approvedMaxPrefund(simulation: Record<string, unknown>) {
+  const value = (simulation.network_fee as { approved_max_prefund_wei?: unknown } | undefined)?.approved_max_prefund_wei;
+  if (typeof value !== "string" || !/^\d+$/.test(value)) throw new Error("preview has no approved network fee maximum; prepare a new operation");
+  return BigInt(value);
+}
 export function publicOperation(p: WalletOperation) {
-  return { operation_id: p.id, kind: p.kind ?? "calls", network: p.network, address: p.address, status: p.status, expires_at: p.expiresAt.toISOString(), fingerprint: p.fingerprint, calls: p.descriptions, ...(p.cancelPlan ? { cancellation: p.cancelPlan } : {}), executor: p.proof?.executor ?? "unassigned_or_legacy_cdp", ...(p.swapPlan ? { swap: p.swapPlan } : {}), simulation: p.simulation, user_op_hash: p.userOpHash, transaction_hash: p.transactionHash, error: p.error, gas: { estimate: p.kind === "swap" ? "Indicative CDP swap fee estimate only; final network fees may differ." : "Execution gas only; ERC-4337 validation/deployment and network overhead are excluded. User ETH pays gas; no total fee ceiling is enforced by this preview." } };
+  return { operation_id: p.id, kind: p.kind ?? "calls", network: p.network, address: p.address, status: p.status, expires_at: p.expiresAt.toISOString(), fingerprint: p.fingerprint, calls: p.descriptions, ...(p.cancelPlan ? { cancellation: p.cancelPlan } : {}), executor: p.proof?.executor ?? "unassigned_or_legacy_cdp", ...(p.swapPlan ? { swap: p.swapPlan } : {}), simulation: p.simulation, user_op_hash: p.userOpHash, transaction_hash: p.transactionHash, error: p.error, gas: { estimate: p.kind === "swap" ? "Indicative CDP swap fee estimate only; final network fees may differ." : "User ETH pays gas. simulation.network_fee.approved_max_prefund_wei is the maximum network fee this preview authorizes; execution stops before signing if the prepared operation needs more or the account cannot fund it." } };
 }

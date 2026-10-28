@@ -120,9 +120,10 @@ test("cancellation execution consumes its own preview and signs only fixed nonce
     h.op.status = "reserved"; return h.op;
   };
   h.store.beforeSigning = async () => { h.op.status = "signing"; };
+  h.op.simulation = { network_fee: { approved_max_prefund_wei: "5000" } };
   h.wallets.simulate = async () => ({});
-  h.wallets.send = async (_u: string, _n: string, calls: unknown, id: string, before: any, key: bigint) => {
-    assert.equal(id, "cancel"); assert.equal(key, 1n); assert.deepEqual(calls, cancellationCalls(plan("target")));
+  h.wallets.send = async (_u: string, _n: string, calls: unknown, id: string, before: any, key: bigint, maxPrefund: bigint) => {
+    assert.equal(id, "cancel"); assert.equal(key, 1n); assert.equal(maxPrefund, 5000n); assert.deepEqual(calls, cancellationCalls(plan("target")));
     await before(h.op.userOpHash); signed++; return { userOpHash: h.op.userOpHash };
   };
   await assert.rejects(h.service.executeCancellation("bob", "cancel", "cancel"), /foreign/);

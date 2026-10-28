@@ -18,7 +18,7 @@ test("Postgres: JSONB key order and balance drift do not invalidate a simulation
     const calls = [{ to: target, value: "0", data: "0x" }] as const;
     const original = [{ token: { address: target, decimals: 6, symbol: "USDC" }, value: { pre: "1000000", post: "1000000", diff: "0" } }];
     for (const change of ["none", "pre", "post", "token", "diff"] as const) {
-      const preview = await operations.createOperation({ userId: user, network: "base", address, calls: [...calls], descriptions: [], fingerprint: transactionFingerprint("base", address, [...calls]), simulation: { asset_changes: original } }, 600);
+      const preview = await operations.createOperation({ userId: user, network: "base", address, calls: [...calls], descriptions: [], fingerprint: transactionFingerprint("base", address, [...calls]), simulation: { asset_changes: original, network_fee: { approved_max_prefund_wei: "1000" } } }, 600);
       assert.deepEqual(preview.simulation.asset_changes, original);
       assert.notEqual(JSON.stringify(preview.simulation.asset_changes), JSON.stringify(original), "exercise real JSONB object-key reordering");
       const fresh = structuredClone(original);
