@@ -56,14 +56,19 @@ function harness() {
   const abi = parseAbi(["event UserOperationEvent(bytes32 indexed userOpHash,address indexed sender,address indexed paymaster,uint256 nonce,bool success,uint256 actualGasCost,uint256 actualGasUsed)"]);
   const log = (hash: typeof targetHash, nonce: bigint, success = true) => ({ address: entryPoint06Address, topics: encodeEventTopics({ abi, eventName: "UserOperationEvent", args: { userOpHash: hash, sender: address, paymaster: address } }), data: encodeAbiParameters([{ type: "uint256" }, { type: "bool" }, { type: "uint256" }, { type: "uint256" }], [nonce, success, 100n, 100n]) });
   const receipt: any = { status: "success", transactionHash: tx, blockNumber: 20n, blockHash, logs: [log(cancelHash, cancellation.operation.nonce)] };
-  const state = { finalized: 19n, timestamp: 100n, nonce: 8n, deadline: 150n as bigint | null, oldIncluded: false, oldSuccess: true, searchFails: false, canonical: true, proof: true };
+  const state = { advancedAt: 20n, finalized: 19n, timestamp: 100n, nonce: 8n, deadline: 150n as bigint | null, oldIncluded: false, oldSuccess: true, searchFails: false, canonical: true, proof: true };
   const rpc: any = {
     getChainId: async () => 8453,
     getTransactionReceipt: async ({ hash }: any) => hash === tx ? receipt : { ...receipt, transactionHash: hash, logs: [log(targetHash, 7n, state.oldSuccess)] },
     getBlock: async ({ blockTag }: any) => blockTag === "finalized" ? { number: state.finalized, timestamp: state.timestamp } : { hash: state.canonical ? blockHash : tx },
     getBlockNumber: async () => 30n,
-    readContract: async () => state.nonce,
-    getLogs: async () => { if (state.searchFails) throw new Error("RPC search unavailable"); return state.oldIncluded ? [{ removed: false, transactionHash: blockHash }] : []; },
+    // Historical state: the lane-0 nonce moves past 7 in block state.advancedAt.
+    readContract: async ({ blockNumber }: any) => blockNumber !== undefined && blockNumber < state.advancedAt ? 7n : state.nonce,
+    getLogs: async ({ fromBlock, toBlock }: any) => {
+      if (state.searchFails) throw new Error("RPC search unavailable");
+      assert.equal(fromBlock, toBlock, "only the block where the nonce advanced is read"); assert.equal(fromBlock, state.advancedAt);
+      return state.oldIncluded ? [{ removed: false, transactionHash: blockHash, args: { userOpHash: targetHash, sender: address, nonce: 7n } }] : [];
+    },
   };
   const store: any = {
     operation: async (user: string, id: string) => user === "alice" ? id === "target" ? target : op : null,
@@ -132,4 +137,33 @@ test("cancellation execution consumes its own preview and signs only fixed nonce
   assert.equal((await h.service.executeCancellation("alice", "cancel", "cancel")).status, "submitted");
   assert.equal(h.target.status, "unknown"); assert.equal(signed, 1);
   await assert.rejects(h.service.executeCancellation("alice", "cancel", "repeat"), /consumed/);
+});
+
+test("receipt location costs O(log n) nonce reads across a range far beyond the old 100k-block window", async () => {
+  const { locateOperation } = await import("../src/operation-receipt.js");
+  const prepared = original(), hash = operationHash(prepared);
+  let reads = 0;
+  const rpc: any = {
+    readContract: async ({ args, blockNumber }: any) => { reads++; assert.equal(args[1], 0n); return blockNumber >= 3_123_457n ? 8n : 7n; },
+    getLogs: async ({ fromBlock }: any) => { assert.equal(fromBlock, 3_123_457n); return [{ removed: false, transactionHash: tx, args: { userOpHash: hash, sender: address, nonce: 7n } }]; },
+    getTransactionReceipt: async () => ({ transactionHash: tx }),
+  };
+  const found = await locateOperation(rpc, hash, address, 7n, 10n, 5_000_000n);
+  assert.equal(found.state, "included"); assert.ok(reads <= 25, `${reads} reads`);
+  assert.equal((await locateOperation({ ...rpc, getLogs: async () => [] }, hash, address, 7n, 10n, 5_000_000n)).state, "invalidated");
+  assert.equal((await locateOperation({ ...rpc, getLogs: async () => [{ removed: false, transactionHash: tx, args: { userOpHash: tx, sender: address, nonce: 7n } }] }, hash, address, 7n, 10n, 5_000_000n)).state, "superseded");
+  assert.equal((await locateOperation({ ...rpc, readContract: async () => 7n }, hash, address, 7n, 10n, 5_000_000n)).state, "pending");
+  await assert.rejects(locateOperation({ ...rpc, readContract: async () => 8n }, hash, address, 7n, 10n, 5_000_000n), /consumed before its preparation block/);
+});
+
+test("an operation whose nonce was consumed by any cancellation is released after finality and Permit2 expiry", async () => {
+  const h = harness(); h.target.status = "unknown"; h.state.finalized = 25n; h.state.timestamp = 100n;
+  h.wallets.bundler = () => ({ getUserOperationReceipt: async () => { throw new Error("not indexed"); } });
+  const finished: string[] = [];
+  h.store.finish = async (id: string, status: string) => { finished.push(`${id}:${status}`); if (id === "target") h.target.status = status; };
+  Object.assign(h.target, { expiresAt: new Date(), calls: [], descriptions: [], fingerprint: "f", simulation: {} });
+  await h.service.status("alice", "target"); assert.equal(h.target.status, "unknown", "Permit2 still valid");
+  h.state.timestamp = 151n;
+  await h.service.status("alice", "target"); assert.equal(h.target.status, "cancelled");
+  assert.deepEqual(finished, ["target:cancelled"]);
 });

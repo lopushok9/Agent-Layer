@@ -8,7 +8,7 @@ import type { WalletStore, WalletOperation } from "./wallet-store.js";
 import { cancellationCalls, cancellationFingerprint } from "./nonce-cancellation.js";
 import { nonceAbi } from "./alchemy-executor.js";
 import { validateOperation } from "./user-operation.js";
-import { matchedOperation, findOperationReceipt } from "./operation-receipt.js";
+import { matchedOperation, locateOperation, type OperationLocation } from "./operation-receipt.js";
 import { walletErrorDiagnostic } from "./wallet-errors.js";
 import { assetChangesWithinPreview } from "./asset-changes.js";
 import { resolveInterrupted } from "./interrupted.js";
@@ -122,13 +122,17 @@ export class TransactionService {
               const result = await this.wallets.bundler(p.network).getUserOperationReceipt({ hash: p.userOpHash });
               receipt = await rpc.getTransactionReceipt({ hash: result.receipt.transactionHash });
             } catch { /* Bundler lookup is not authoritative: search EntryPoint. */ }
-            receipt ??= await findOperationReceipt(rpc, p.userOpHash, p.address, BigInt(p.proof.blockNumber), await rpc.getBlockNumber());
+            let location: OperationLocation | undefined;
+            if (!receipt) {
+              location = await locateOperation(rpc, p.userOpHash, p.address, BigInt(p.proof.nonce), BigInt(p.proof.blockNumber), await rpc.getBlockNumber());
+              if (location.state === "included") receipt = location.receipt;
+            }
             const event = receipt && matchedOperation(receipt, p.userOpHash, p.address, BigInt(p.proof.nonce));
             if (event && receipt) {
               if (p.kind === "cancel" && event.args.success && receipt.status === "success") await this.reconcileCancellation(userId, p, receipt);
               else await this.store.finish(p.id, event.args.success && receipt.status === "success" ? "confirmed" : "failed", receipt.transactionHash, event.args.success ? null : "UserOperation reverted");
-            }
-            providerState = { status: event ? p.kind === "cancel" ? "included_check_cancellation_finality_and_permit_expiry" : "included" : "unresolved", prepared_expires_at: null };
+            } else if (location?.state === "invalidated" && p.kind !== "cancel") await this.releaseInvalidated(userId, p, location.block);
+            providerState = { status: event ? p.kind === "cancel" ? "included_check_cancellation_finality_and_permit_expiry" : "included" : location?.state === "invalidated" ? "nonce_invalidated_check_finality_and_permit_expiry" : location?.state === "superseded" ? "nonce_used_by_another_operation" : "unresolved", prepared_expires_at: null };
           } else {
           const result = await this.wallets.operation(userId, p.userOpHash, p.address);
           if (result.network !== p.network) throw new Error("provider operation network mismatch");
@@ -168,15 +172,27 @@ export class TransactionService {
     if (finalized.number === null || receipt.blockNumber > finalized.number) return;
     const canonical = await rpc.getBlock({ blockNumber: receipt.blockNumber });
     if (canonical.hash !== receipt.blockHash) throw new Error("Cancellation receipt is not canonical");
-    const nonce = await rpc.readContract({ address: plan.entryPoint, abi: nonceAbi, functionName: "getNonce", args: [p.address, 0n], blockNumber: finalized.number });
+    const nonce = await rpc.readContract({ address: plan.entryPoint, abi: nonceAbi, functionName: "getNonce", args: [p.address, BigInt(plan.targetNonce) >> 64n], blockNumber: finalized.number });
     if (nonce <= BigInt(plan.targetNonce)) return;
     const deadline = await this.store.permitExpiry(userId, plan.targetId);
     // Invalidating an AA nonce does NOT revoke an independent Permit2 signature.
     if (deadline !== null && finalized.timestamp <= deadline) return;
-    const old = await findOperationReceipt(rpc, plan.targetHash, p.address, BigInt(plan.fromBlock), finalized.number);
+    const found = await locateOperation(rpc, plan.targetHash, p.address, BigInt(plan.targetNonce), BigInt(plan.fromBlock), finalized.number);
+    if (found.state === "pending" || found.state === "superseded") throw new Error("Original operation receipt mismatch");
+    const old = found.state === "included" ? found.receipt : null;
     const event = old && matchedOperation(old, plan.targetHash, p.address, BigInt(plan.targetNonce));
     if (old && !event) throw new Error("Original operation receipt mismatch");
     await this.store.finishCancellation(userId, p.id, receipt.transactionHash, event ? event.args.success && old!.status === "success" ? "confirmed" : "failed" : "cancelled", old?.transactionHash ?? null);
+  }
+  // The nonce of p was consumed without its UserOperationEvent, so p can never be
+  // included. Release it once that block is finalized and any Permit2 signed for
+  // it has expired, whichever cancellation (or replacement) consumed the nonce.
+  private async releaseInvalidated(userId: string, p: WalletOperation, block: bigint) {
+    const finalized = await this.wallets.rpc(p.network).getBlock({ blockTag: "finalized" });
+    if (finalized.number === null || block > finalized.number) return;
+    const deadline = await this.store.permitExpiry(userId, p.id);
+    if (deadline !== null && finalized.timestamp <= deadline) return;
+    await this.store.finish(p.id, "cancelled", null, "Nonce invalidation verified in a finalized block; this operation can no longer be included.");
   }
 
 }
