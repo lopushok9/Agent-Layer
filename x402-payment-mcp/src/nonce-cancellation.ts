@@ -12,5 +12,5 @@ export function cancellationCalls(plan: CancelPlan): NormalizedCall[] {
   return [{ to: entryPoint06Address, value: "0", data: encodeFunctionData({ abi: nonceAbi, functionName: "incrementNonce", args: [0n] }) }];
 }
 export function cancellationFingerprint(network: WalletNetwork, address: `0x${string}`, plan: CancelPlan) {
-  return createHash("sha256").update(JSON.stringify([transactionFingerprint(network, address, cancellationCalls(plan)), plan.targetId, plan.targetHash.toLowerCase(), plan.targetNonce, plan.entryPoint.toLowerCase(), plan.fromBlock])).digest("hex");
+  return createHash("sha256").update(JSON.stringify([transactionFingerprint(network, address, cancellationCalls(plan)), plan.targetId, plan.targetHash.toLowerCase(), plan.targetNonce, plan.entryPoint.toLowerCase(), plan.fromBlock, ...(plan.replaces ? [plan.replaces.id, plan.replaces.nonce, plan.replaces.maxFeePerGas, plan.replaces.maxPriorityFeePerGas] : [])])).digest("hex");
 }

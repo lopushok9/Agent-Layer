@@ -24,8 +24,8 @@ function harness() {
   const wallets = {
     account: async () => ({ address, owners: [{ address: target }] }),
     simulate: async () => ({ asset_changes: assetChanges }),
-    send: async (_user: any, _network: any, _calls: any, _id: any, before: any, _key: bigint, maxPrefund: bigint) => {
-      ceilings.push(maxPrefund);
+    send: async (_user: any, _network: any, _calls: any, _id: any, before: any, options: any) => {
+      ceilings.push(options.maxPrefundWei);
       if (mode === "pre-sign-failure") throw new Error("prepare failed");
       await before(hash); signed++;
       if (mode === "timeout") throw new Error("lost response");

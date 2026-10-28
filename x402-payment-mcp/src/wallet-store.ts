@@ -7,7 +7,9 @@ import type { SwapPlan } from "./swap-plan.js";
 import { sealOperation, openOperation, validateOperation, type PreparedOperation, type OperationProof } from "./user-operation.js";
 
 export type SmartWalletRecord = { ownerName: string; ownerAddress: Address; accountName: string; address: Address };
-export type CancelPlan = { targetId: string; targetHash: Hex; targetNonce: string; entryPoint: Address; fromBlock: string };
+// replaces: an unresolved cancellation of the same target re-signed at its own
+// nonce with higher fees (see alchemy-executor SendOptions.replace).
+export type CancelPlan = { targetId: string; targetHash: Hex; targetNonce: string; entryPoint: Address; fromBlock: string; replaces?: { id: string; nonce: string; maxFeePerGas: string; maxPriorityFeePerGas: string } };
 export type OperationState = "prepared" | "reserved" | "signing" | "submitted" | "confirmed" | "failed" | "unknown" | "cancelled";
 export type WalletOperation = {
   id: string; userId: string; network: WalletNetwork; address: Address;
@@ -104,12 +106,23 @@ export class WalletStore {
       const target = await c.query("SELECT * FROM wallet_operations WHERE id=$1 AND user_id=$2 AND network=$3 FOR UPDATE", [plan.targetId, userId, x.network]);
       const t = target.rows[0];
       if (!t || t.address.toLowerCase() !== x.address.toLowerCase() || t.kind === "cancel" || !["signing","submitted","unknown"].includes(t.status) || t.user_op_hash !== plan.targetHash || t.operation_proof?.nonce !== plan.targetNonce || !t.operation_ciphertext) throw new Error("cancellation target is no longer eligible");
-      const other = await c.query("SELECT id FROM wallet_operations WHERE user_id=$1 AND network=$2 AND status IN ('reserved','signing','submitted','unknown') AND id<>$3 AND lower(address)=lower($4) LIMIT 1", [userId, x.network, plan.targetId, x.address]);
+      if (plan.replaces) {
+        const r2 = await c.query("SELECT * FROM wallet_operations WHERE id=$1 AND user_id=$2 FOR UPDATE", [plan.replaces.id, userId]);
+        const y = r2.rows[0];
+        if (!y || y.kind !== "cancel" || y.cancel_plan?.targetId !== plan.targetId || y.address.toLowerCase() !== x.address.toLowerCase() || !["signing","submitted","unknown"].includes(y.status) || y.operation_proof?.nonce !== plan.replaces.nonce) throw new Error("replaced cancellation is no longer pending");
+      }
+      // Versions of this cancellation at the replaced nonce are mutually exclusive
+      // on chain, so they do not block a higher-fee version of themselves.
+      const other = await c.query("SELECT id FROM wallet_operations WHERE user_id=$1 AND network=$2 AND status IN ('reserved','signing','submitted','unknown') AND id<>$3 AND lower(address)=lower($4) AND NOT ($5::text IS NOT NULL AND kind='cancel' AND cancel_plan->>'targetId'=$3::text AND operation_proof->>'nonce'=$5) LIMIT 1", [userId, x.network, plan.targetId, x.address, plan.replaces?.nonce ?? null]);
       if (other.rowCount) throw new Error("another unresolved operation prevents cancellation");
       const saved = await c.query("UPDATE wallet_operations SET status='reserved',purpose=$3,consumed_at=now(),updated_at=now() WHERE id=$1 AND user_id=$2 AND expires_at>now() RETURNING *", [id, userId, purpose]);
       if (!saved.rows[0]) throw new Error("preview expired; prepare a new operation");
       await c.query("COMMIT"); return mapOperation(saved.rows[0]);
     } catch (e) { await c.query("ROLLBACK"); throw e; } finally { c.release(); }
+  }
+  async pendingCancellations(userId: string, targetId: string): Promise<WalletOperation[]> {
+    const r = await this.pool.query("SELECT * FROM wallet_operations WHERE user_id=$1 AND kind='cancel' AND cancel_plan->>'targetId'=$2 AND status IN ('reserved','signing','submitted','unknown') ORDER BY created_at", [userId, targetId]);
+    return r.rows.map(mapOperation);
   }
   async finishCancellation(userId: string, id: string, txHash: Hex, targetState: "cancelled" | "confirmed" | "failed", targetTx: Hex | null) {
     const c = await this.pool.connect();
@@ -123,6 +136,8 @@ export class WalletStore {
       if (!t.rows[0] || t.rows[0].network !== x.network || t.rows[0].address.toLowerCase() !== x.address.toLowerCase() || t.rows[0].user_op_hash !== plan.targetHash || t.rows[0].operation_proof?.nonce !== plan.targetNonce) throw new Error("cancellation target proof mismatch");
       await c.query("UPDATE wallet_operations SET status=$3,transaction_hash=COALESCE($4,transaction_hash),error=$5,updated_at=now() WHERE user_id=$1 AND id=$2 AND status IN ('signing','submitted','unknown','confirmed','failed')", [userId, plan.targetId, targetState, targetTx, targetState === "cancelled" ? "Nonce invalidation verified in a finalized block; original operation was not included before cancellation." : targetState === "failed" ? "Original UserOperation reverted before cancellation." : null]);
       await c.query("UPDATE wallet_operations SET status='confirmed',transaction_hash=$3,error=NULL,updated_at=now() WHERE user_id=$1 AND id=$2", [userId, id, txHash]);
+      // Other versions of this cancellation shared its nonce, so none can ever be included.
+      if (x.operation_proof?.nonce) await c.query("UPDATE wallet_operations SET status='cancelled',error='Replaced: another version of this cancellation with the same nonce was included.',updated_at=now() WHERE user_id=$1 AND kind='cancel' AND id<>$2 AND cancel_plan->>'targetId'=$3 AND operation_proof->>'nonce'=$4 AND status IN ('reserved','signing','submitted','unknown')", [userId, id, plan.targetId, x.operation_proof.nonce]);
       await c.query("COMMIT");
     } catch (e) { await c.query("ROLLBACK"); throw e; } finally { c.release(); }
   }

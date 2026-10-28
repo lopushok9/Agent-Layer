@@ -4,9 +4,9 @@ import { entryPoint06Address, entryPoint07Address, entryPoint08Address } from "v
 import { z } from "zod";
 import type { SmartWalletService } from "./smart-wallet.js";
 import { addressInput, chainIds, jsonValue, normalizeTransaction, transactionFingerprint, walletNetwork, type TransactionInput } from "./transaction-builder.js";
-import type { WalletStore, WalletOperation } from "./wallet-store.js";
+import type { WalletStore, WalletOperation, CancelPlan } from "./wallet-store.js";
 import { cancellationCalls, cancellationFingerprint } from "./nonce-cancellation.js";
-import { nonceAbi } from "./alchemy-executor.js";
+import { nonceAbi, replacementFees, type SendOptions } from "./alchemy-executor.js";
 import { validateOperation } from "./user-operation.js";
 import { matchedOperation, locateOperation, type OperationLocation } from "./operation-receipt.js";
 import { walletErrorDiagnostic } from "./wallet-errors.js";
@@ -15,7 +15,7 @@ import { resolveInterrupted } from "./interrupted.js";
 
 export const contractReadInput = z.strictObject({ network: walletNetwork, to: addressInput, abi: z.array(z.unknown()).min(1).max(200), function_name: z.string().min(1).max(200), args: z.array(z.unknown()).max(100).default([]) });
 type Backend = Pick<SmartWalletService, "account" | "status" | "simulate" | "send" | "operation" | "rpc" | "bundler" | "estimateNetworkFee">;
-type Repository = Pick<WalletStore, "createOperation" | "operation" | "reserve" | "beforeSigning" | "finish" | "preparedOperation" | "reserveCancellation" | "finishCancellation" | "permitExpiry" | "interruptedOperations" | "failInterrupted">;
+type Repository = Pick<WalletStore, "createOperation" | "operation" | "reserve" | "beforeSigning" | "finish" | "preparedOperation" | "reserveCancellation" | "finishCancellation" | "permitExpiry" | "interruptedOperations" | "failInterrupted" | "pendingCancellations">;
 type Lock = { withPaymentLock<T>(userId: string, action: () => Promise<T>): Promise<T> };
 
 export class TransactionService {
@@ -39,26 +39,43 @@ export class TransactionService {
   }
   async prepareCancellation(userId: string, targetId: string) {
     return this.lock.withPaymentLock(userId, async () => {
+      await this.resolveInterruptedFor(userId, targetId);
       const target = await this.store.operation(userId, targetId);
       if (!target || !target.userOpHash || target.kind === "cancel" || !["signing","submitted","unknown"].includes(target.status)) throw new Error("cancellation target is no longer eligible");
       const prepared = await this.store.preparedOperation(userId, targetId);
       if (!prepared) throw new Error("Original nonce proof is unavailable; legacy CDP operation cannot be safely cancelled by this tool");
       const proof = validateOperation(prepared, target.network, target.address, target.userOpHash);
-      const plan = { targetId, targetHash: target.userOpHash, targetNonce: proof.nonce, entryPoint: proof.entryPoint, fromBlock: proof.blockNumber };
+      const replaces = await this.replaceableCancellation(userId, targetId);
+      const plan: CancelPlan = { targetId, targetHash: target.userOpHash, targetNonce: proof.nonce, entryPoint: proof.entryPoint, fromBlock: proof.blockNumber, ...(replaces ? { replaces } : {}) };
       const calls = cancellationCalls(plan);
       await this.checkCancellationNonce(target, plan.targetNonce);
-      const simulation = { ...await this.wallets.simulate(target.network, target.address, calls), network_fee: networkFee(await this.wallets.estimateNetworkFee(userId, target.network, calls, 1n)) };
+      const simulation = { ...await this.wallets.simulate(target.network, target.address, calls), network_fee: networkFee(await this.wallets.estimateNetworkFee(userId, target.network, calls, cancellationOptions(plan))) };
       const expiry = await this.store.permitExpiry(userId, targetId);
       const saved = await this.store.createOperation({ userId, network: target.network, address: target.address, calls, descriptions: [{ index: 0, to: calls[0]!.to, value_wei: "0", data: calls[0]!.data, abi_source: "internal_verified", function: "incrementNonce", arguments: ["0"], warnings: ["Gas costs ETH; cancellation is not effective until its finalized result is verified."] }], fingerprint: cancellationFingerprint(target.network, target.address, plan), simulation: { ...simulation, cancel_target: targetId, permit_expiry_unix: expiry?.toString() ?? null, cancellation: "Invalidates the original UserOperation nonce. Gas is paid from smart account ETH. Unlock requires finalized nonce advance, original-outcome reconciliation and any Permit2 expiry." }, kind: "cancel", cancelPlan: plan }, this.ttl);
-      return { ...publicOperation(saved), next_step: "Show target, nonce invalidation, gas cost limitations and Permit2 expiry. Ask for confirmation, then call transaction_cancel_execute once. This preview does not sign or cancel anything." };
+      return { ...publicOperation(saved), next_step: replaces ? "This re-signs the pending cancellation at its own nonce with at least 10% higher fees; only one version can be included. Show the target, the replaced cancellation and the fee maximum. Ask for confirmation, then call transaction_cancel_execute once." : "Show target, nonce invalidation, gas cost limitations and Permit2 expiry. Ask for confirmation, then call transaction_cancel_execute once. This preview does not sign or cancel anything." };
     });
+  }
+  // A cancellation can itself stall (fees too low for the bundler). Its versions
+  // all perform the same incrementNonce, so the latest one is re-signed at its
+  // own nonce with bumped fees instead of opening a chain of cancellations.
+  private async replaceableCancellation(userId: string, targetId: string): Promise<CancelPlan["replaces"]> {
+    const pending = await this.store.pendingCancellations(userId, targetId);
+    if (!pending.length) return undefined;
+    const latest = pending[pending.length - 1]!;
+    if (pending.some(c => !c.proof || !c.userOpHash || c.proof.nonce !== latest.proof?.nonce)) throw new Error("existing cancellation has no verified nonce; reconcile transaction_status before replacing it");
+    const prior = await this.store.preparedOperation(userId, latest.id);
+    if (!prior) throw new Error("existing cancellation has no verified nonce; reconcile transaction_status before replacing it");
+    const nonce = BigInt(validateOperation(prior, latest.network, latest.address, latest.userOpHash!).nonce);
+    const rpc = this.wallets.rpc(latest.network);
+    if (await rpc.readContract({ address: entryPoint06Address, abi: nonceAbi, functionName: "getNonce", args: [latest.address, nonce >> 64n] }) !== nonce) throw new Error("replaced operation nonce is no longer pending; reconcile transaction_status");
+    return { id: latest.id, nonce: nonce.toString(), maxFeePerGas: prior.operation.maxFeePerGas.toString(), maxPriorityFeePerGas: prior.operation.maxPriorityFeePerGas.toString() };
   }
   private async checkCancellationNonce(target: WalletOperation, nonce: string) {
     const account = await this.wallets.account(target.userId);
     if (account.address.toLowerCase() !== target.address.toLowerCase()) throw new Error("preview no longer matches this wallet and calls");
     const rpc = this.wallets.rpc(target.network);
     if (await rpc.getChainId() !== chainIds[target.network]) throw new Error("RPC chain ID mismatch");
-    const current = await rpc.readContract({ address: entryPoint06Address, abi: nonceAbi, functionName: "getNonce", args: [target.address, 0n] });
+    const current = await rpc.readContract({ address: entryPoint06Address, abi: nonceAbi, functionName: "getNonce", args: [target.address, BigInt(nonce) >> 64n] });
     if (current !== BigInt(nonce)) throw new Error("Original nonce has changed; reconcile transaction_status before cancellation");
   }
   async executeCancellation(userId: string, id: string, purpose: string) { return this.executeOperation(userId, id, purpose, true); }
@@ -87,7 +104,7 @@ export class TransactionService {
           await this.store.beforeSigning(p.id, hash, prepared);
           signing = true;
           signingHash = hash;
-        }, cancellation ? 1n : 0n, approvedMaxPrefund(p.simulation));
+        }, { ...(cancellation && p.cancelPlan ? cancellationOptions(p.cancelPlan) : {}), maxPrefundWei: approvedMaxPrefund(p.simulation) });
         // A changed SDK must not bypass the persistence-before-signing boundary.
         if (!signing || signingHash !== result.userOpHash) {
           await this.store.finish(p.id, "unknown", null, "Provider signing boundary/hash mismatch; reconcile before retrying.");
@@ -131,7 +148,7 @@ export class TransactionService {
             if (event && receipt) {
               if (p.kind === "cancel" && event.args.success && receipt.status === "success") await this.reconcileCancellation(userId, p, receipt);
               else await this.store.finish(p.id, event.args.success && receipt.status === "success" ? "confirmed" : "failed", receipt.transactionHash, event.args.success ? null : "UserOperation reverted");
-            } else if (location?.state === "invalidated" && p.kind !== "cancel") await this.releaseInvalidated(userId, p, location.block);
+            } else if (location?.state === "invalidated" || location?.state === "superseded") await this.releaseInvalidated(userId, p, location.block);
             providerState = { status: event ? p.kind === "cancel" ? "included_check_cancellation_finality_and_permit_expiry" : "included" : location?.state === "invalidated" ? "nonce_invalidated_check_finality_and_permit_expiry" : location?.state === "superseded" ? "nonce_used_by_another_operation" : "unresolved", prepared_expires_at: null };
           } else {
           const result = await this.wallets.operation(userId, p.userOpHash, p.address);
@@ -195,6 +212,10 @@ export class TransactionService {
     await this.store.finish(p.id, "cancelled", null, "Nonce invalidation verified in a finalized block; this operation can no longer be included.");
   }
 
+}
+// Cancellations run in nonce lane 1; a replacement keeps the replaced nonce.
+function cancellationOptions(plan: CancelPlan): SendOptions {
+  return { nonceKey: 1n, ...(plan.replaces ? { replace: { nonce: BigInt(plan.replaces.nonce), minFees: replacementFees({ maxFeePerGas: BigInt(plan.replaces.maxFeePerGas), maxPriorityFeePerGas: BigInt(plan.replaces.maxPriorityFeePerGas) }) } } : {}) };
 }
 // The bundler-prepared maxFeePerGas already carries a 50% base-fee buffer; the
 // approved ceiling doubles the estimated prefund so ordinary fee movement within

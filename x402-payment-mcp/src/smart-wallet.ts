@@ -8,7 +8,7 @@ import type { SmartWalletRecord } from "./wallet-store.js";
 import type { SwapPlan } from "./swap-plan.js";
 import { validateSwapQuote } from "./managed-swaps.js";
 
-import { coinbaseAccount, sendAlchemyOperation, estimateAlchemyOperation, alchemyBundler } from "./alchemy-executor.js";
+import { coinbaseAccount, sendAlchemyOperation, estimateAlchemyOperation, alchemyBundler, type SendOptions } from "./alchemy-executor.js";
 import type { PreparedOperation } from "./user-operation.js";
 
 type Registry = { wallet(userId: string): Promise<SmartWalletRecord | null>; saveWallet(userId: string, record: SmartWalletRecord): Promise<void>; walletByAddress?(userId: string, address: Address): Promise<SmartWalletRecord | null> };
@@ -64,14 +64,14 @@ export class SmartWalletService {
     if (!url) throw new Error("Bundler is not configured");
     return url;
   }
-  async send(userId: string, network: WalletNetwork, calls: NormalizedCall[], _id: string, beforeSigning: (hash: Hex, prepared?: PreparedOperation) => Promise<void>, nonceKey = 0n, maxPrefundWei?: bigint) {
+  async send(userId: string, network: WalletNetwork, calls: NormalizedCall[], _id: string, beforeSigning: (hash: Hex, prepared?: PreparedOperation) => Promise<void>, options: SendOptions = {}) {
     this.requireOperationKey();
-    return sendAlchemyOperation(this.rpc(network), this.bundlerUrl(network), await this.account(userId), network, calls, beforeSigning, nonceKey, maxPrefundWei);
+    return sendAlchemyOperation(this.rpc(network), this.bundlerUrl(network), await this.account(userId), network, calls, beforeSigning, options);
   }
   // Same preparation as send() without signing: the bundler's gas limits and
   // fees give the EntryPoint prefund the user is asked to approve as a maximum.
-  async estimateNetworkFee(userId: string, network: WalletNetwork, calls: NormalizedCall[], nonceKey = 0n) {
-    return estimateAlchemyOperation(this.rpc(network), this.bundlerUrl(network), await this.account(userId), network, calls, nonceKey);
+  async estimateNetworkFee(userId: string, network: WalletNetwork, calls: NormalizedCall[], options: SendOptions = {}) {
+    return estimateAlchemyOperation(this.rpc(network), this.bundlerUrl(network), await this.account(userId), network, calls, options);
   }
   async operation(userId: string, userOpHash: Hex, ledgerAddress?: Address) {
     const current = await this.registry.wallet(userId);

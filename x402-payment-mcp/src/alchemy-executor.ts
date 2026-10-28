@@ -44,12 +44,19 @@ export async function sendPreparedOperation(
   if (returned.toLowerCase() !== hash.toLowerCase()) throw new Error("Bundler returned a different UserOperation hash");
   return { userOpHash: hash };
 }
-async function prepareAlchemyOperation(rpc: PublicClient, url: string, cdp: EvmSmartAccount, network: WalletNetwork, calls: NormalizedCall[], nonceKey: bigint) {
+export type Fees = { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint };
+// replace: re-sign the same nonce with higher fees. Only used for cancellations,
+// whose versions all perform the identical incrementNonce, so whichever one the
+// EntryPoint includes has the same effect and at most one can be included.
+export type SendOptions = { nonceKey?: bigint; maxPrefundWei?: bigint; replace?: { nonce: bigint; minFees: Fees } };
+async function prepareAlchemyOperation(rpc: PublicClient, url: string, cdp: EvmSmartAccount, network: WalletNetwork, calls: NormalizedCall[], options: SendOptions) {
+  const nonceKey = options.nonceKey ?? 0n;
   const account = await coinbaseAccount(rpc, cdp, network);
   const bundler = alchemyBundler(rpc, url);
   if (!(await bundler.getSupportedEntryPoints()).some(a => a.toLowerCase() === entryPoint06Address.toLowerCase())) throw new Error("Bundler does not support this EntryPoint");
   const blockNumber = await rpc.getBlockNumber();
   const nonce = await rpc.readContract({ address: entryPoint06Address, abi: nonceAbi, functionName: "getNonce", args: [account.address, nonceKey], blockNumber });
+  if (options.replace && options.replace.nonce !== nonce) throw new Error("replaced operation nonce is no longer pending; reconcile transaction_status");
   // Alchemy's bundler has a service-tip requirement distinct from execution
   // RPC fee estimates. Follow its documented 50% base / 25% priority buffers.
   const [block, tip] = await Promise.all([
@@ -57,7 +64,7 @@ async function prepareAlchemyOperation(rpc: PublicClient, url: string, cdp: EvmS
     bundler.request<{ Parameters: []; ReturnType: Hex }>({ method: "rundler_maxPriorityFeePerGas", params: [] }),
   ]);
   if (block.baseFeePerGas === null || !/^0x[0-9a-f]+$/i.test(tip)) throw new Error("Bundler fee estimate unavailable");
-  const fees = alchemyFees(block.baseFeePerGas, BigInt(tip));
+  const fees = atLeast(alchemyFees(block.baseFeePerGas, BigInt(tip)), options.replace?.minFees);
   const prepared = await bundler.prepareUserOperation({ account, nonce, calls: calls.map(c => ({ ...c, value: BigInt(c.value) })), ...fees });
   // Keep only ERC-4337 v0.6 fields; never persist account objects/functions.
   const operation: UserOperation<"0.6"> = { sender: account.address, nonce: prepared.nonce, initCode: prepared.initCode ?? "0x", callData: prepared.callData, callGasLimit: prepared.callGasLimit, verificationGasLimit: prepared.verificationGasLimit, preVerificationGas: prepared.preVerificationGas, maxFeePerGas: prepared.maxFeePerGas, maxPriorityFeePerGas: prepared.maxPriorityFeePerGas, paymasterAndData: prepared.paymasterAndData ?? "0x", signature: "0x" };
@@ -85,18 +92,32 @@ export async function assertFunded(rpc: Pick<PublicClient, "getBalance" | "readC
   if (balance < missing + calls.reduce((n, c) => n + BigInt(c.value), 0n)) throw new Error("insufficient ETH for value and network fee; nothing was signed");
   return prefund;
 }
-export async function estimateAlchemyOperation(rpc: PublicClient, url: string, cdp: EvmSmartAccount, network: WalletNetwork, calls: NormalizedCall[], nonceKey = 0n) {
-  const { p } = await prepareAlchemyOperation(rpc, url, cdp, network, calls, nonceKey);
+export async function estimateAlchemyOperation(rpc: PublicClient, url: string, cdp: EvmSmartAccount, network: WalletNetwork, calls: NormalizedCall[], options: SendOptions = {}) {
+  const { p } = await prepareAlchemyOperation(rpc, url, cdp, network, calls, options);
   return requiredPrefund(p.operation);
 }
-export async function sendAlchemyOperation(rpc: PublicClient, url: string, cdp: EvmSmartAccount, network: WalletNetwork, calls: NormalizedCall[], persist: (hash: Hex, p: PreparedOperation) => Promise<void>, nonceKey = 0n, maxPrefundWei?: bigint) {
-  const { p, account, bundler } = await prepareAlchemyOperation(rpc, url, cdp, network, calls, nonceKey);
+export async function sendAlchemyOperation(rpc: PublicClient, url: string, cdp: EvmSmartAccount, network: WalletNetwork, calls: NormalizedCall[], persist: (hash: Hex, p: PreparedOperation) => Promise<void>, options: SendOptions = {}) {
+  const { p, account, bundler } = await prepareAlchemyOperation(rpc, url, cdp, network, calls, options);
   // A bundler rejection after signing (AA21 prefund) leaves a valid signature
   // that becomes executable once funded; refuse before anything is signed.
-  await assertFunded(rpc, p.operation, calls, maxPrefundWei);
+  await assertFunded(rpc, p.operation, calls, options.maxPrefundWei);
   return sendPreparedOperation(p, persist, op => account.signUserOperation(op), op => bundler.sendUserOperation({ ...op, entryPointAddress: p.entryPoint }));
 }
 
+// The ERC-4337 mempool accepts a same-sender, same-nonce replacement only when
+// both fee fields rise by a minimum percentage: rundler's
+// min_replacement_fee_increase_percentage defaults to 10. Add 1 wei so integer
+// rounding can never leave the bump at exactly the threshold.
+export function replacementFees(previous: Fees): Fees {
+  if (previous.maxFeePerGas < 0n || previous.maxPriorityFeePerGas < 0n) throw new Error("Invalid bundler fees");
+  return { maxFeePerGas: (previous.maxFeePerGas * 110n + 99n) / 100n + 1n, maxPriorityFeePerGas: (previous.maxPriorityFeePerGas * 110n + 99n) / 100n + 1n };
+}
+function atLeast(fees: Fees, minimum?: Fees): Fees {
+  if (!minimum) return fees;
+  const maxPriorityFeePerGas = fees.maxPriorityFeePerGas > minimum.maxPriorityFeePerGas ? fees.maxPriorityFeePerGas : minimum.maxPriorityFeePerGas;
+  const maxFeePerGas = fees.maxFeePerGas > minimum.maxFeePerGas ? fees.maxFeePerGas : minimum.maxFeePerGas;
+  return { maxPriorityFeePerGas, maxFeePerGas: maxFeePerGas > maxPriorityFeePerGas ? maxFeePerGas : maxPriorityFeePerGas };
+}
 export function alchemyFees(baseFee: bigint, priorityFee: bigint) {
   if (baseFee < 0n || priorityFee < 0n) throw new Error("Invalid bundler fees");
   const maxPriorityFeePerGas = (priorityFee * 125n + 99n) / 100n;

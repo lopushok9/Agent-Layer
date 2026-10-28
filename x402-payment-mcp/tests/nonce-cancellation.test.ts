@@ -47,6 +47,34 @@ test("Postgres: cancellation bypass is restricted to its proven target, single u
   } finally { await db.close(); }
 });
 
+test("Postgres: a higher-fee version of a pending cancellation may run beside it, and the winner closes the other version", { skip: !process.env.TEST_DATABASE_URL }, async () => {
+  const db = new Store(process.env.TEST_DATABASE_URL!);
+  try {
+    await db.migrate();
+    const store = new WalletStore(db.pool, randomBytes(32).toString("base64"));
+    const user = await db.upsertIdentity("github", randomUUID(), null, null);
+    const create = (kind: "calls" | "cancel", cancelPlan?: CancelPlan) => store.createOperation({ userId: user, network: "base", address, calls: [], descriptions: [], fingerprint: "test", simulation: {}, kind, ...(cancelPlan ? { cancelPlan } : {}) }, 600);
+    const target = await create("calls"); await store.reserve(user, target.id, "original");
+    await store.beforeSigning(target.id, operationHash(original()), original()); await store.finish(target.id, "unknown");
+    const first = await create("cancel", plan(target.id)); await store.reserveCancellation(user, first.id, "cancel");
+    const lane = original(); lane.operation.nonce = 1n << 64n; lane.operation.callData = "0x1234";
+    await store.beforeSigning(first.id, operationHash(lane), lane); await store.finish(first.id, "unknown");
+    assert.deepEqual((await store.pendingCancellations(user, target.id)).map(o => o.id), [first.id]);
+    const unrelated = await create("cancel", plan(target.id));
+    await assert.rejects(store.reserveCancellation(user, unrelated.id, "parallel"), /another unresolved operation/, "a non-replacement cancellation is still blocked");
+    const replaces = { id: first.id, nonce: (1n << 64n).toString(), maxFeePerGas: "200", maxPriorityFeePerGas: "100" };
+    await assert.rejects(store.reserveCancellation(user, (await create("cancel", { ...plan(target.id), replaces: { ...replaces, nonce: "1" } })).id, "wrong nonce"), /no longer pending/);
+    const second = await create("cancel", { ...plan(target.id), replaces });
+    await store.reserveCancellation(user, second.id, "speed up");
+    const bumped = structuredClone(lane); bumped.operation.maxFeePerGas = 300n; bumped.operation.maxPriorityFeePerGas = 150n;
+    await store.beforeSigning(second.id, operationHash(bumped), bumped); await store.finish(second.id, "submitted");
+    await store.finishCancellation(user, second.id, tx, "cancelled", null);
+    assert.equal((await store.operation(user, second.id))!.status, "confirmed");
+    assert.equal((await store.operation(user, first.id))!.status, "cancelled");
+    assert.equal((await store.operation(user, target.id))!.status, "cancelled");
+  } finally { await db.close(); }
+});
+
 function harness() {
   const prepared = original(), targetHash = operationHash(prepared), cp = plan("target");
   const cancellation = original(); cancellation.operation.nonce = 1n << 64n; cancellation.operation.callData = "0x1234";
@@ -81,7 +109,7 @@ function harness() {
   };
   const wallets: any = { rpc: () => rpc, bundler: () => ({ getUserOperationReceipt: async () => ({ receipt }) }), account: async () => ({ address }) };
   const service = new TransactionService(wallets, store, { withPaymentLock: async (_u, f) => f() }, 600);
-  return { service, target, op, state, receipt, store, wallets };
+  return { service, target, op, state, receipt, store, wallets, cancellation, rpc };
 }
 test("cancellation never unlocks before finality, nonce advance AND Permit2 expiry", async () => {
   const h = harness();
@@ -129,8 +157,8 @@ test("cancellation execution consumes its own preview and signs only fixed nonce
   h.store.beforeSigning = async () => { h.op.status = "signing"; };
   h.op.simulation = { network_fee: { approved_max_prefund_wei: "5000" } };
   h.wallets.simulate = async () => ({});
-  h.wallets.send = async (_u: string, _n: string, calls: unknown, id: string, before: any, key: bigint, maxPrefund: bigint) => {
-    assert.equal(id, "cancel"); assert.equal(key, 1n); assert.equal(maxPrefund, 5000n); assert.deepEqual(calls, cancellationCalls(plan("target")));
+  h.wallets.send = async (_u: string, _n: string, calls: unknown, id: string, before: any, options: any) => {
+    assert.equal(id, "cancel"); assert.deepEqual(options, { nonceKey: 1n, maxPrefundWei: 5000n }); assert.deepEqual(calls, cancellationCalls(plan("target")));
     await before(h.op.userOpHash); signed++; return { userOpHash: h.op.userOpHash };
   };
   await assert.rejects(h.service.executeCancellation("bob", "cancel", "cancel"), /foreign/);
@@ -166,4 +194,66 @@ test("an operation whose nonce was consumed by any cancellation is released afte
   h.state.timestamp = 151n;
   await h.service.status("alice", "target"); assert.equal(h.target.status, "cancelled");
   assert.deepEqual(finished, ["target:cancelled"]);
+});
+
+test("replacement fees clear the ERC-4337 mempool 10% bump on both fields", async () => {
+  const { replacementFees } = await import("../src/alchemy-executor.js");
+  for (const [fee, tip] of [[275n, 125n], [1n, 1n], [10n ** 12n, 3n]] as const) {
+    const next = replacementFees({ maxFeePerGas: fee, maxPriorityFeePerGas: tip });
+    assert.ok(next.maxFeePerGas * 100n >= fee * 110n && next.maxFeePerGas > fee);
+    assert.ok(next.maxPriorityFeePerGas * 100n >= tip * 110n && next.maxPriorityFeePerGas > tip);
+  }
+});
+
+function replacementHarness() {
+  const h = harness(); h.state.nonce = 7n; h.op.status = "unknown";
+  const laneOneNonce = h.cancellation.operation.nonce;
+  h.rpc.readContract = async ({ args }: any) => args[1] === 1n ? laneOneNonce : 7n;
+  h.store.preparedOperation = async (_u: string, id: string) => id === "cancel" ? h.cancellation : original();
+  h.store.pendingCancellations = async () => [h.op];
+  let created: any;
+  h.store.createOperation = async (p: any) => { created = { ...p, id: "replacement", status: "prepared", expiresAt: new Date(Date.now() + 60000), userOpHash: null, transactionHash: null, error: null }; return created; };
+  const estimates: any[] = [];
+  h.wallets.simulate = async () => ({});
+  h.wallets.estimateNetworkFee = async (_u: string, _n: string, _c: unknown, options: any) => { estimates.push(options); return 1000n; };
+  return { h, laneOneNonce, estimates, created: () => created };
+}
+
+test("a pending cancellation is replaced at its own nonce with bumped fees, never a new nonce", async () => {
+  const { replacementFees } = await import("../src/alchemy-executor.js");
+  const { h, laneOneNonce, estimates, created } = replacementHarness();
+  await h.service.prepareCancellation("alice", "target");
+  const replaces = created().cancelPlan.replaces;
+  assert.deepEqual(replaces, { id: "cancel", nonce: laneOneNonce.toString(), maxFeePerGas: "200", maxPriorityFeePerGas: "100" });
+  assert.deepEqual(estimates[0], { nonceKey: 1n, replace: { nonce: laneOneNonce, minFees: replacementFees({ maxFeePerGas: 200n, maxPriorityFeePerGas: 100n }) } });
+  assert.deepEqual(created().calls, cancellationCalls(plan("target")), "replacement performs the identical incrementNonce");
+  h.rpc.readContract = async ({ args }: any) => args[1] === 1n ? laneOneNonce + 1n : 7n;
+  await assert.rejects(h.service.prepareCancellation("alice", "target"), /no longer pending/, "an included cancellation is reconciled, not replaced");
+});
+
+test("executing a replacement signs with the replace option and the approved fee maximum", async () => {
+  const { h, laneOneNonce, created } = replacementHarness();
+  await h.service.prepareCancellation("alice", "target");
+  const replacement = created();
+  h.store.operation = async (user: string, id: string) => user !== "alice" ? null : id === "target" ? h.target : id === "replacement" ? replacement : h.op;
+  h.store.reserveCancellation = async () => { replacement.status = "reserved"; return replacement; };
+  h.store.beforeSigning = async () => { replacement.status = "signing"; };
+  h.store.finish = async (_id: string, status: string) => { replacement.status = status; };
+  let options: any;
+  h.wallets.send = async (_u: string, _n: string, _c: unknown, _id: string, before: any, o: any) => { options = o; await before(`0x${"d".repeat(64)}`); return { userOpHash: `0x${"d".repeat(64)}` }; };
+  assert.equal((await h.service.executeCancellation("alice", "replacement", "speed up")).status, "submitted");
+  assert.equal(options.nonceKey, 1n); assert.equal(options.replace.nonce, laneOneNonce); assert.equal(options.maxPrefundWei, 2000n);
+});
+
+test("a cancellation version whose nonce another version used is released after finality", async () => {
+  const h = harness(); h.state.finalized = 25n;
+  const laneOneNonce = h.cancellation.operation.nonce;
+  h.op.proof = { ...h.op.proof, blockNumber: "10" };
+  h.wallets.bundler = () => ({ getUserOperationReceipt: async () => { throw new Error("not indexed"); } });
+  h.rpc.readContract = async ({ args, blockNumber }: any) => args[1] === 1n ? (blockNumber >= 20n ? laneOneNonce + 1n : laneOneNonce) : 7n;
+  h.rpc.getLogs = async () => [{ removed: false, transactionHash: tx, args: { userOpHash: `0x${"e".repeat(64)}`, sender: address, nonce: laneOneNonce } }];
+  h.store.finish = async (id: string, status: string) => { if (id === "cancel") h.op.status = status; };
+  h.store.permitExpiry = async (_u: string, id: string) => id === "target" ? h.state.deadline : null; // as WalletStore: only swaps carry Permit2
+  await h.service.status("alice", "cancel");
+  assert.equal(h.op.status, "cancelled"); assert.equal(h.target.status, "unknown", "the target is reconciled by the winning version");
 });
