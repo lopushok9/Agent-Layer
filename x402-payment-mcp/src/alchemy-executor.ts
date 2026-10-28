@@ -6,7 +6,7 @@ import { chainIds, type NormalizedCall, type WalletNetwork } from "./transaction
 import { operationHash, type PreparedOperation } from "./user-operation.js";
 
 export const nonceAbi = parseAbi(["function getNonce(address sender,uint192 key) view returns(uint256)", "function incrementNonce(uint192 key)"]);
-const ownerAbi = parseAbi(["function ownerAtIndex(uint256 index) view returns(bytes)", "function entryPoint() view returns(address)"]);
+const ownerAbi = parseAbi(["function ownerAtIndex(uint256 index) view returns(bytes)", "function ownerCount() view returns(uint256)", "function entryPoint() view returns(address)"]);
 export function alchemyBundler(rpc: PublicClient, url: string) {
   return createBundlerClient({ client: rpc, transport: http(url, { timeout: 15_000, retryCount: 0 }) });
 }
@@ -21,11 +21,15 @@ export async function coinbaseAccount(rpc: PublicClient, cdp: EvmSmartAccount, n
   if (account.address.toLowerCase() !== cdp.address.toLowerCase()) throw new Error("CDP smart account factory derivation mismatch");
   const code = await rpc.getCode({ address: account.address });
   if (code && code !== "0x") {
-    const [storedOwner, entryPoint] = await Promise.all([
+    // MultiOwnable (CoinbaseSmartWallet v1.1): ownerCount = nextOwnerIndex -
+    // removedOwnersCount. Index 0 alone would miss an extra owner (EOA or
+    // passkey) that could sign for this wallet outside this service.
+    const [storedOwner, owners, entryPoint] = await Promise.all([
       rpc.readContract({ address: account.address, abi: ownerAbi, functionName: "ownerAtIndex", args: [0n] }),
+      rpc.readContract({ address: account.address, abi: ownerAbi, functionName: "ownerCount" }),
       rpc.readContract({ address: account.address, abi: ownerAbi, functionName: "entryPoint" }),
     ]);
-    if (storedOwner.toLowerCase() !== pad(owner.address).toLowerCase() || entryPoint.toLowerCase() !== entryPoint06Address.toLowerCase()) throw new Error("Smart account owner or EntryPoint mismatch");
+    if (storedOwner.toLowerCase() !== pad(owner.address).toLowerCase() || owners !== 1n || entryPoint.toLowerCase() !== entryPoint06Address.toLowerCase()) throw new Error("Smart account owner or EntryPoint mismatch");
   }
   return account;
 }

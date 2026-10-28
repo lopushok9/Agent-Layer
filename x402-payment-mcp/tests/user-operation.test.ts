@@ -40,7 +40,7 @@ test("viem wraps the CDP owner signature for the exact ERC-4337 hash", async () 
   const { base } = await import("viem/chains");
   const { coinbaseAccount } = await import("../src/alchemy-executor.js");
   const local = privateKeyToAccount(`0x${"01".repeat(32)}`);
-  const requests: string[] = [];
+  const requests: string[] = []; let owners = 1n;
   const rpc = createPublicClient({ chain: base, transport: custom({ request: async ({ method, params }: any) => {
     requests.push(method);
     if (method === "eth_chainId") return "0x2105";
@@ -49,6 +49,7 @@ test("viem wraps the CDP owner signature for the exact ERC-4337 hash", async () 
       if (params[0].to.toLowerCase() === "0xba5ed110efdba3d005bfc882d75358acbbb85842") return encodeAbiParameters([{ type: "address" }], [address]);
       const { toFunctionSelector } = await import("viem");
       if (params[0].data.startsWith(toFunctionSelector("ownerAtIndex(uint256)"))) return encodeAbiParameters([{ type: "bytes" }], [pad(local.address)]);
+      if (params[0].data.startsWith(toFunctionSelector("ownerCount()"))) return encodeAbiParameters([{ type: "uint256" }], [owners]);
       return encodeAbiParameters([{ type: "address" }], [entryPoint06Address]);
     }
     throw new Error("Unexpected RPC in signing test");
@@ -61,6 +62,8 @@ test("viem wraps the CDP owner signature for the exact ERC-4337 hash", async () 
   assert.equal(wrapped.ownerIndex, 0n); assert.equal(signedHash, operationHash(p));
   assert.equal(await recoverAddress({ hash: operationHash(p), signature: wrapped.signatureData }), local.address);
   assert.ok(!requests.some(m => /send|sign/.test(m)), "RPC never receives signing requests");
+  owners = 2n;
+  await assert.rejects(coinbaseAccount(rpc as any, { address, owners: [owner] } as any, "base"), /owner or EntryPoint mismatch/, "an extra owner can sign outside this service");
 });
 
 
