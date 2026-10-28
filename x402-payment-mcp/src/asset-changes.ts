@@ -20,12 +20,16 @@ function deltas(changes: unknown): Deltas | null {
 
 // Same token set, and for every token the fresh delta is no worse for the wallet:
 // outflows may not grow, inflows may not shrink. Malformed data never passes.
-export function assetChangesWithinPreview(preview: unknown, fresh: unknown): boolean {
+// floors: a route's output token whose approved minimum (enforced on-chain by
+// the route itself) replaces the simulated amount, as a swap's amountOutMinimum
+// does; every other token keeps the strict comparison.
+export function assetChangesWithinPreview(preview: unknown, fresh: unknown, floors: Record<string, bigint> = {}): boolean {
   const approved = deltas(preview), current = deltas(fresh);
   if (!approved || !current || approved.size !== current.size) return false;
   for (const [token, diff] of approved) {
     const now = current.get(token);
-    if (now === undefined || now < diff) return false;
+    const floor = floors[token];
+    if (now === undefined || now < (floor !== undefined && floor > 0n && floor <= diff ? floor : diff)) return false;
   }
   return true;
 }

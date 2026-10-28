@@ -56,6 +56,13 @@ const publicMessages = new Set([
   "the app requires chains or methods this wallet does not support (Base and Ethereum smart account only); connection refused",
   "app session not found for this user", "app request not found for this user", "app request is no longer open",
   "the app's request expired; repeat the action in the app", "the app session has ended",
+  "route tokens must differ", "Enso router on this network is not the expected deployment",
+  "Enso found no route for these tokens and amount", "Enso route service is unavailable",
+  "Enso returned a route that does not match the request; nothing was prepared",
+  "Enso route does not call the EnsoRouter; nothing was prepared",
+  "Enso route is not a safeRouteSingle call with an on-chain minimum; nothing was prepared",
+  "Enso route sends the output to another address; nothing was prepared",
+  "Enso route minimum output is below the requested slippage; nothing was prepared",
 ]);
 // Our own messages that quote request values (chain IDs, domains, viem's
 // typed-data validation). They never carry provider text, URLs or secrets.

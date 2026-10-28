@@ -144,6 +144,30 @@ deduplicated by session and JSON-RPC id. WalletConnect state lives in
 `WALLET_OPERATION_ENCRYPTION_KEY`. Run one replica: a single process owns the relay
 connection, and requests that arrive while it is down are not queued here.
 
+## Enso route alternative (optional)
+
+With `ENSO_API_KEY`, `route_preview({network, token_in, amount_in, token_out,
+slippage_bps})` asks Enso's Route API (`routingStrategy: "router"`) for one
+transaction from any token into any token or position Enso supports: swaps,
+vault deposits and withdrawals, lending and LP receipt tokens. Enso's response
+is untrusted; the preview is built only if:
+
+- the call targets EnsoRouter `0xF75584eF6673aD213a685a1B58Cc0330B8eA22Cf`, whose
+  `shortcuts()` must return `0x4Fe93ebC4Ce6Ae4f81601cC7Ce7139023919E003` on-chain
+  (same deployment on Ethereum and Base);
+- it is `safeRouteSingle`, which reverts unless the receiver gains at least the
+  encoded minimum (`routeSingle`, which checks nothing, is refused);
+- decoded input token and amount (or `msg.value` for ETH), output token,
+  receiver (this account) and the minimum match the request, and the minimum
+  is no lower than Enso's quote minus `slippage_bps`.
+
+ERC-20 input gets an exact approval to the router in the same batch (reset to
+zero first when a smaller allowance exists, for USDT-style tokens). The result is
+an ordinary `transaction_prepare` preview, executed with `transaction_execute`.
+Its output floor is stored with the preview: execution accepts a fresh
+simulated output down to that on-chain minimum and compares every other token
+strictly. Enso's `delegate` strategies need delegatecall and are never used.
+
 ## CDP managed swap alternative
 
 With the same `wallet:transact` scope, use `swap_preview` -> `swap_execute` ->

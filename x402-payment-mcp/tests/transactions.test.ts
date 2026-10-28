@@ -112,3 +112,15 @@ test("preview records the estimated prefund and a doubled approval ceiling", asy
   assert.equal(created.simulation.network_fee.estimated_max_prefund_wei, "400");
   assert.equal(created.simulation.network_fee.approved_max_prefund_wei, "800");
 });
+
+test("a route preview's stored output floor lets execution accept a lower fresh output, never one below the floor", async () => {
+  const out = "0x4444444444444444444444444444444444444444";
+  const change = (diff: string) => [{ token: { address: out }, value: { pre: "0", post: diff, diff } }];
+  for (const [fresh, ok] of [["996", true], ["994", false]] as const) {
+    const h = harness();
+    h.p.simulation = { ...h.p.simulation, asset_changes: change("1000"), asset_floors: { [out]: "995" } };
+    (h.wallets as any).simulate = async () => ({ asset_changes: change(fresh) });
+    if (ok) assert.equal((await h.service.execute("alice", "id", "route")).status, "submitted");
+    else await assert.rejects(h.service.execute("alice", "id", "route"), /simulated asset changes differ/);
+  }
+});

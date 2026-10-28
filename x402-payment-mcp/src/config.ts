@@ -39,6 +39,8 @@ const Env = z.object({
   // stored in Postgres, encrypted with WALLET_OPERATION_ENCRYPTION_KEY. Run a
   // single replica: one process owns the relay connection and its events.
   WALLETCONNECT_PROJECT_ID: z.string().regex(/^[0-9a-f]{32}$/, "WALLETCONNECT_PROJECT_ID must be a Reown project ID").optional(),
+  // Optional Enso API key (developers.enso.build) for route_preview.
+  ENSO_API_KEY: z.string().min(1).optional(),
   ARC_MAX_TRANSFER_USDC_ATOMIC: z.string().regex(/^\d+$/).default("50000000"),
   ARC_MAX_DAILY_TRANSFER_USDC_ATOMIC: z.string().regex(/^\d+$/).default("200000000"),
   PAYMENT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(45000),

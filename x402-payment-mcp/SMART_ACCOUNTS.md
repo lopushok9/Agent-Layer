@@ -79,6 +79,17 @@ types, so verified decoding, simulation, fee ceilings, single-use execution
 and the signature rules apply unchanged. Unit tests drive the service with a
 fake relay client; a live relay run needs a Reown project ID.
 
+## Enso routes (2026-10-28)
+
+route_preview uses Enso's Route API as an untrusted calldata source and
+trusts only EnsoRouter.safeRouteSingle semantics from
+EnsoBuild/shortcuts-client-contracts (src/router/EnsoRouter.sol: _transfer pulls
+the input, _checkMinAmountOut compares the receiver's balance delta). The
+ERC-7730 registry's EnsoRouter descriptor labels the same fields ("Amount",
+"Minimum received", "Receiver"). The router address comes from Enso's broadcast
+files for chains 1 and 8453 and was checked on both chains with shortcuts().
+A live route needs an Enso API key and was not executed here.
+
 ## References studied
 
 - https://github.com/pimlicolabs/permissionless.js
@@ -92,6 +103,7 @@ fake relay client; a live relay run needs a Reown project ID.
 - https://github.com/sourcifyeth/clear-signing (ERC-7730 reference renderer)
 - https://github.com/ethereum/clear-signing-erc7730-registry
 - https://docs.reown.com/walletkit/overview and https://eips.ethereum.org/EIPS/eip-5792
+- https://github.com/EnsoBuild/shortcuts-client-contracts/blob/main/src/router/EnsoRouter.sol and https://docs.enso.build/pages/build/get-started/route
 - https://developers.fireblocks.com/api-reference/web3-connections/create-a-new-web3-connection and .../respond-to-a-pending-web3-connection-request
 
 WhatsABI and clear-signing are runtime dependencies; the other SDKs above are references. CDP/viem are pinned in
