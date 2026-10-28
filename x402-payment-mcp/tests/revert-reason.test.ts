@@ -28,6 +28,6 @@ test("revert data becomes a public message naming the call, the target and the r
 });
 
 test("messages from verified-ABI encoding pass the public error filter", () => {
-  for (const m of [`no verified ABI is available for ${to}; pass abi with function_name`, `${to} has no function withdrawAll in its verified ABI`, `${to} has no function redeem in its verified ABI (behind its proxy)`]) assert.equal(publicWalletError(new Error(m)).message, m);
+  for (const m of [`no verified ABI is available for ${to}; pass abi with function_name`, `${to} has no function withdrawAll in its verified ABI`, `${to} has no function redeem in its verified ABI (behind its proxy)`, `${to} has several deposit overloads taking 1 arguments in its verified ABI; pass abi with the one to call`]) assert.equal(publicWalletError(new Error(m)).message, m);
   assert.notEqual(publicWalletError(new Error(`${to} has no function x y https://rpc.example/key in its verified ABI`)).message.includes("https"), true);
 });

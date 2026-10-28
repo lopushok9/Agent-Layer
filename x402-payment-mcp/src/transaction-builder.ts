@@ -68,8 +68,10 @@ const functionWarnings = (name?: string) => name && FUNCTION_WARNINGS[name] ? [F
 
 // A call given only function_name (+ args) is encoded with the target's
 // verified ABI, so an agent never pastes ABI fragments it may get wrong. Only
-// that function's entries are kept (overloads included); a guessed
-// selector-only ABI is refused because it does not carry argument types.
+// the one entry with that name and argument count is kept: amounts arrive as
+// strings, which viem cannot match against overloads by type, so it would
+// encode the first overload. A guessed selector-only ABI is refused because it
+// does not carry argument types.
 export async function withVerifiedAbis(input: TransactionInput, metadata?: ContractMetadata | null): Promise<TransactionInput> {
   const network = walletNetwork.safeParse(input.network);
   if (!network.success || !metadata || !Array.isArray(input.calls)) return input;
@@ -77,8 +79,11 @@ export async function withVerifiedAbis(input: TransactionInput, metadata?: Contr
     if (c.abi !== undefined || !c.function_name || c.data !== undefined || !isAddress(c.to, { strict: false })) return c;
     const resolved = await metadata.contract(network.data, getAddress(c.to));
     if (!resolved || resolved.source === "bytecode_selectors") throw new Error(`no verified ABI is available for ${getAddress(c.to)}; pass abi with function_name`);
-    const abi = resolved.abi.filter(e => e.type === "function" && e.name === c.function_name);
-    if (!abi.length) throw new Error(`${getAddress(c.to)} has no function ${c.function_name} in its verified ABI${resolved.implementation ? " (behind its proxy)" : ""}`);
+    const named = resolved.abi.filter(e => e.type === "function" && e.name === c.function_name);
+    if (!named.length) throw new Error(`${getAddress(c.to)} has no function ${c.function_name} in its verified ABI${resolved.implementation ? " (behind its proxy)" : ""}`);
+    const count = c.args?.length ?? 0;
+    const abi = named.filter(e => e.type === "function" && e.inputs.length === count);
+    if (abi.length !== 1) throw new Error(`${getAddress(c.to)} has ${abi.length ? "several" : "no"} ${c.function_name} overloads taking ${count} arguments in its verified ABI; pass abi with the one to call`);
     return { ...c, abi: abi as unknown[] };
   }));
   return { ...input, calls };

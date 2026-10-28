@@ -76,6 +76,7 @@ const publicPatterns = [
   /^simulation reverted at call \d{1,2} \(0x[0-9a-fA-F]{40}\): [\x20-\x7e]{1,600}; nothing was signed$/,
   /^no verified ABI is available for 0x[0-9a-fA-F]{40}; pass abi with function_name$/,
   /^0x[0-9a-fA-F]{40} has no function [A-Za-z_$][A-Za-z0-9_$]{0,199} in its verified ABI( \(behind its proxy\))?$/,
+  /^0x[0-9a-fA-F]{40} has (several|no) [A-Za-z_$][A-Za-z0-9_$]{0,199} overloads taking \d{1,3} arguments in its verified ABI; pass abi with the one to call$/,
   /^Sign-In with Ethereum message is for chain \d{1,20}, not (base|ethereum)$/,
   /^Sign-In with Ethereum domain [^\s]{1,255} does not match the requesting app [^\s]{1,255}$/,
 ];

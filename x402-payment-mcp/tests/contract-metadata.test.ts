@@ -82,6 +82,14 @@ test("function_name without abi is encoded with the target's verified ABI, and o
   await assert.rejects(withVerifiedAbis(input, metadata({})), /no verified ABI/);
   await assert.rejects(withVerifiedAbis({ ...input, calls: [{ ...input.calls[0]!, function_name: "withdrawAll" }] }, metadata({ [token]: { abi: redeemAbi, source: "verified_explorer" } })), /has no function withdrawAll/);
   assert.throws(() => normalizeTransaction(input, account), /no verified ABI/, "without metadata the call is refused, not sent as empty calldata");
+  const gaugeAbi = parseAbi(["function deposit(uint256 amount)", "function deposit(uint256 amount, address recipient)"]);
+  const gauge = { [token]: { abi: gaugeAbi, source: "verified_sourcify" as const } };
+  const one = await withVerifiedAbis({ network: "base", calls: [{ to: token, function_name: "deposit", args: ["5"] }] }, metadata(gauge));
+  assert.equal(normalizeTransaction(one, account).calls[0]!.data, encodeFunctionData({ abi: gaugeAbi, functionName: "deposit", args: [5n] }), "string amounts pick the overload by argument count, not viem's first match");
+  const two = await withVerifiedAbis({ network: "base", calls: [{ to: token, function_name: "deposit", args: ["5", spender] }] }, metadata(gauge));
+  assert.equal(normalizeTransaction(two, account).calls[0]!.data, encodeFunctionData({ abi: gaugeAbi, functionName: "deposit", args: [5n, spender] }));
+  await assert.rejects(withVerifiedAbis({ network: "base", calls: [{ to: token, function_name: "deposit", args: [] }] }, metadata(gauge)), /has no deposit overloads taking 0 arguments/);
+  await assert.rejects(withVerifiedAbis({ network: "base", calls: [{ to: token, function_name: "deposit", args: ["5"] }] }, metadata({ [token]: { abi: [...gaugeAbi, ...parseAbi(["function deposit(address to)"])], source: "verified_sourcify" } })), /has several deposit overloads taking 1 arguments/);
   const own = await withVerifiedAbis({ network: "base", calls: [{ to: token, abi: [...vaultAbi], function_name: "deposit", args: ["1", account] }] }, metadata({}));
   assert.deepEqual((own.calls[0] as any).abi, [...vaultAbi], "a supplied abi is kept as before");
 });
