@@ -41,10 +41,24 @@ const publicMessages = new Set([
   "zero address, wallet self-calls and internal owner calls are not allowed",
   "ABI numeric arguments must be safe integers; use strings for token amounts",
   "transaction input is too large", "encoded calldata is too large", "read input too large",
+  "no verified ABI was found for this contract; supply abi",
+  "signature input is too large", "typed data addressed to this wallet or its owner is refused",
+  "Sign-In with Ethereum message is for a different address", "Sign-In with Ethereum message has expired",
+  "signature preview not found for this user", "signature preview already used; prepare a new one",
+  "signature preview expired; prepare a new one", "signature preview no longer matches this wallet and message",
+  "smart account signature failed ERC-1271/ERC-6492 verification; nothing was returned",
 ]);
+// Our own messages that quote request values (chain IDs, domains, viem's
+// typed-data validation). They never carry provider text, URLs or secrets.
+const publicPatterns = [
+  /^typed data is for chain [^\s]{1,80}, not (base|ethereum); prepare it on that network$/,
+  /^invalid EIP-712 typed data: [^\n]{1,300}$/,
+  /^Sign-In with Ethereum message is for chain \d{1,20}, not (base|ethereum)$/,
+  /^Sign-In with Ethereum domain [^\s]{1,255} does not match the requesting app [^\s]{1,255}$/,
+];
 export function publicWalletError(error: unknown): Error {
   const message = error instanceof Error ? error.message : "";
-  return new Error(publicMessages.has(message) ? message : "Wallet request could not be completed. Check network, ABI and parameters; use transaction_status for any existing execution. Provider details are withheld.");
+  return new Error(publicMessages.has(message) || publicPatterns.some(p => p.test(message)) ? message : "Wallet request could not be completed. Check network, ABI and parameters; use transaction_status for any existing execution. Provider details are withheld.");
 }
 
 // Preserve useful failure categories without copying provider messages, URLs,

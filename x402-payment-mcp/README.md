@@ -86,6 +86,30 @@ which code runs, not that the protocol address is the one the user meant.
 Any protocol can be composed with fixed calls. A CDP managed-swap alternative is
 available below; other intent adapters and on-chain permissions are separate extensions.
 
+## Off-chain signatures (EIP-712 and personal_sign)
+
+Many apps never send a transaction for their key step: Permit and Permit2
+approvals, CoW/1inch/Seaport orders, Polymarket orders and Sign-In with Ethereum
+are signatures. `signature_prepare` takes `typed_data` (the
+`eth_signTypedData_v4` object), `message` (UTF-8) or `message_hex` and stores a
+single-use, expiring preview with:
+
+- `authorizations`: ERC-2612 and DAI permits, Permit2 allowances and transfers,
+  and Seaport orders, each naming spender, token, amount and expiry, the
+  signatures Rabby and MetaMask single out because they move funds later;
+- SIWE (EIP-4361) parsing, refused for another address, chain or an expired
+  message, and for a domain other than the requesting app's when one is known;
+- the ERC-7730 typed-data display when the registry describes it.
+
+Typed data for another chain, typed data in this wallet's or its owner's own
+domain (including `CoinbaseSmartWalletMessage`), and raw-hash `eth_sign` are
+refused. `signature_execute` signs the stored payload once after re-checking its
+digest. The Coinbase Smart Wallet signs its replay-safe
+`CoinbaseSmartWalletMessage(hash)`, which binds the signature to this account and
+chain; viem wraps it in ERC-6492 while the account is undeployed. Before
+returning, the signature is checked with viem's universal ERC-1271/ERC-6492
+validator. Signatures are returned once and never stored.
+
 ## CDP managed swap alternative
 
 With the same `wallet:transact` scope, use `swap_preview` -> `swap_execute` ->

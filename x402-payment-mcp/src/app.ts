@@ -17,10 +17,11 @@ import { PaymentService } from "./payments.js";
 import { TokenService } from "./security.js";
 import { Store } from "./store.js";
 import { RegistryContractMetadata } from "./contract-metadata.js";
+import { SignatureService } from "./signatures.js";
 import { tokenManagerRouter } from "./token-manager.js";
 
 export async function createApp(config:Config){
-  const store=new Store(config.DATABASE_URL);await store.migrate();await store.startOAuthCleanup();const tokens=await TokenService.create(config);const walletStore=new WalletStore(store.pool,config.WALLET_OPERATION_ENCRYPTION_KEY);const wallets=new SmartWalletService(config,walletStore);const contracts=new RegistryContractMetadata(network=>wallets.rpc(network),{...(config.ETHERSCAN_API_KEY?{etherscanApiKey:config.ETHERSCAN_API_KEY}:{})});const transactions=new TransactionService(wallets,walletStore,store,config.PREVIEW_TTL_SECONDS,contracts);const swaps=new ManagedSwapService(wallets,walletStore,store,config.PREVIEW_TTL_SECONDS);const payments=new PaymentService(config,store,tokens,wallets);const link=config.link?new LinkService(config.issuer,config.link,store):null;
+  const store=new Store(config.DATABASE_URL);await store.migrate();await store.startOAuthCleanup();const tokens=await TokenService.create(config);const walletStore=new WalletStore(store.pool,config.WALLET_OPERATION_ENCRYPTION_KEY);const wallets=new SmartWalletService(config,walletStore);const contracts=new RegistryContractMetadata(network=>wallets.rpc(network),{...(config.ETHERSCAN_API_KEY?{etherscanApiKey:config.ETHERSCAN_API_KEY}:{})});const transactions=new TransactionService(wallets,walletStore,store,config.PREVIEW_TTL_SECONDS,contracts);const signatures=new SignatureService(wallets,walletStore,config.PREVIEW_TTL_SECONDS,contracts);const swaps=new ManagedSwapService(wallets,walletStore,store,config.PREVIEW_TTL_SECONDS);const payments=new PaymentService(config,store,tokens,wallets);const link=config.link?new LinkService(config.issuer,config.link,store):null;
   const hostname=new URL(config.PUBLIC_BASE_URL).hostname;
   // The outer app logs failed connector requests before any inner middleware
   // (including the MCP host-header check) can reject them.
@@ -36,7 +37,7 @@ export async function createApp(config:Config){
   app.use(tokenManagerRouter(config,store,tokens));
   const verifier=createTokenVerifier(config,tokens,store);
   const auth=requireBearerAuth({verifier,requiredScopes:[],resourceMetadataUrl:`${config.issuer}/.well-known/oauth-protected-resource/mcp`});
-  app.post("/mcp",auth,async(req,res,next)=>{try{const authInfo=(req as typeof req&{auth?:{scopes?:string[];extra?:Record<string,unknown>}}).auth;const userId=authInfo?.extra?.userId;if(typeof userId!=="string")throw new OAuthError(OAuthErrorCode.InvalidToken,"token has no user identity");const server=createUserMcp(userId,payments,link,wallets,transactions,authInfo?.scopes??[],swaps);const transport=new NodeStreamableHTTPServerTransport({sessionIdGenerator:undefined});await server.connect(transport);await transport.handleRequest(req,res,req.body);}catch(e){next(e);}});
+  app.post("/mcp",auth,async(req,res,next)=>{try{const authInfo=(req as typeof req&{auth?:{scopes?:string[];extra?:Record<string,unknown>}}).auth;const userId=authInfo?.extra?.userId;if(typeof userId!=="string")throw new OAuthError(OAuthErrorCode.InvalidToken,"token has no user identity");const server=createUserMcp(userId,payments,link,wallets,transactions,authInfo?.scopes??[],swaps,{signatures});const transport=new NodeStreamableHTTPServerTransport({sessionIdGenerator:undefined});await server.connect(transport);await transport.handleRequest(req,res,req.body);}catch(e){next(e);}});
   app.all("/mcp",(_req,res)=>res.status(405).set("Allow","POST").end());
   app.use((err:unknown,_req:express.Request,res:express.Response,_next:express.NextFunction)=>{console.error(err);if(res.headersSent)return;res.status(500).json({error:"server_error",error_description:"The request could not be completed"});});
   return{app:outer,store};

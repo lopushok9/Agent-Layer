@@ -3,6 +3,7 @@ import type { Pool } from "pg";
 import type { Address, Hex } from "viem";
 import type { CallDescription, NormalizedCall, WalletNetwork } from "./transaction-builder.js";
 import type { SwapPlan } from "./swap-plan.js";
+import type { SignatureDescription, SignaturePayload } from "./signatures.js";
 
 import { sealOperation, openOperation, validateOperation, type PreparedOperation, type OperationProof } from "./user-operation.js";
 
@@ -20,6 +21,8 @@ export type WalletOperation = {
   cancelPlan?: CancelPlan | null;
   kind?: "calls" | "swap" | "cancel"; swapPlan?: SwapPlan | null;
 };
+export type SignatureState = "prepared" | "signing" | "signed" | "failed";
+export type WalletSignature = { id: string; userId: string; network: WalletNetwork; address: Address; payload: SignaturePayload; digest: Hex; description: SignatureDescription; expiresAt: Date; status: SignatureState; error: string | null };
 export class WalletStore {
   constructor(readonly pool: Pool, private operationKey?: string) {}
   async wallet(userId: string): Promise<SmartWalletRecord | null> {
@@ -191,6 +194,30 @@ export class WalletStore {
   async finish(id: string, status: OperationState, hash: Hex | null = null, error: string | null = null) {
     await this.pool.query(`UPDATE wallet_operations SET status=$2,transaction_hash=COALESCE($3,transaction_hash),error=$4,updated_at=now() WHERE id=$1 AND status IN ('reserved','signing','submitted','unknown')`, [id, status, hash, error]);
   }
+  async createSignature(p: Omit<WalletSignature, "id" | "expiresAt" | "status" | "error">, ttl: number) {
+    const id = randomUUID();
+    await this.pool.query(`INSERT INTO wallet_signatures(id,user_id,network,address,payload,digest,description,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,now()+($8*interval '1 second'))`, [id, p.userId, p.network, p.address, JSON.stringify(p.payload), p.digest, JSON.stringify(p.description), ttl]);
+    return (await this.signature(p.userId, id))!;
+  }
+  async signature(userId: string, id: string): Promise<WalletSignature | null> {
+    const r = await this.pool.query("SELECT * FROM wallet_signatures WHERE user_id=$1 AND id=$2", [userId, id]);
+    return r.rows[0] ? mapSignature(r.rows[0]) : null;
+  }
+  // One conditional UPDATE is the single-use boundary: concurrent executions of
+  // one preview cannot both pass it.
+  async reserveSignature(userId: string, id: string, purpose: string): Promise<WalletSignature> {
+    const r = await this.pool.query(`UPDATE wallet_signatures SET status='signing',purpose=$3,consumed_at=now(),updated_at=now() WHERE user_id=$1 AND id=$2 AND status='prepared' AND consumed_at IS NULL AND expires_at>now() RETURNING *`, [userId, id, purpose]);
+    if (r.rows[0]) return mapSignature(r.rows[0]);
+    const x = await this.signature(userId, id);
+    if (!x) throw new Error("signature preview not found for this user");
+    throw new Error(x.status !== "prepared" ? "signature preview already used; prepare a new one" : "signature preview expired; prepare a new one");
+  }
+  async finishSignature(id: string, status: "signed" | "failed", error: string | null = null) {
+    await this.pool.query(`UPDATE wallet_signatures SET status=$2,error=$3,updated_at=now() WHERE id=$1 AND status='signing'`, [id, status, error]);
+  }
+}
+function mapSignature(x: Record<string, any>): WalletSignature {
+  return { id: x.id, userId: x.user_id, network: x.network, address: x.address, payload: x.payload, digest: x.digest, description: x.description, expiresAt: x.expires_at, status: x.status, error: x.error };
 }
 // undefined: signing context missing, so nothing can be proven (fail closed).
 // null: the quote needed no Permit2 (native ETH input), so nothing was signed.

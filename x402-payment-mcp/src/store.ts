@@ -181,7 +181,7 @@ export function previewUnavailableMessage(row:{used?:boolean;expired?:boolean}|u
 }
 
 // Applied in order on every start; each file must stay idempotent.
-export const MIGRATIONS = ["001_initial.sql", "002_personal_tokens.sql", "003_arc_transfers.sql", "004_request_headers.sql", "005_preview_challenge.sql", "006_link_wallet.sql", "007_smart_wallets.sql", "008_managed_swaps.sql", "009_user_operation_proof.sql", "010_nonce_cancellation.sql", "011_wallet_replacements.sql"] as const;
+export const MIGRATIONS = ["001_initial.sql", "002_personal_tokens.sql", "003_arc_transfers.sql", "004_request_headers.sql", "005_preview_challenge.sql", "006_link_wallet.sql", "007_smart_wallets.sql", "008_managed_swaps.sql", "009_user_operation_proof.sql", "010_nonce_cancellation.sql", "011_wallet_replacements.sql", "012_wallet_signatures.sql"] as const;
 const migrationFile=(name:string)=>readFile(new URL(`../migrations/${name}`,import.meta.url),"utf8");
 // Concurrent starts (several replicas, migrate:prod beside the app, parallel
 // test files) race IF NOT EXISTS DDL on catalog indexes such as

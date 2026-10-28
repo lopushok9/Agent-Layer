@@ -58,6 +58,16 @@ and 4byte only as a labelled fallback) and render ERC-7730 descriptors with
 (cached 6h; contracts cached 10 min). Resolution failures degrade to the old
 labels, never block a preview, and never alter calldata or fingerprints.
 
+## Off-chain signatures (2026-10-28)
+
+signature_prepare/signature_execute reuse the preview model of contract calls
+for EIP-191 and EIP-712. Signing goes through viem's toCoinbaseSmartAccount
+(replay-safe hash, ERC-6492 when undeployed) with the CDP owner, as the Permit2
+swap path already did, and is checked with viem verifyTypedData/verifyMessage
+before it is returned. Base mainnet check with a local owner key on an
+undeployed v1.1 account: the ERC-6492 signature verifies, a tampered message and
+a bare owner-EOA signature do not.
+
 ## References studied
 
 - https://github.com/pimlicolabs/permissionless.js

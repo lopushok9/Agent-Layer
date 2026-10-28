@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { CdpClient, type EvmSmartAccount } from "@coinbase/cdp-sdk";
-import { createPublicClient, http, concat, numberToHex, size, type Address, type Hex, type Chain } from "viem";
+import { createPublicClient, http, concat, numberToHex, size, type Address, type Hex, type Chain, type TypedDataDefinition } from "viem";
 import { base, mainnet } from "viem/chains";
 import type { Config } from "./config.js";
 import { chainIds, jsonValue, type NormalizedCall, type WalletNetwork } from "./transaction-builder.js";
@@ -89,6 +89,23 @@ export class SmartWalletService {
   async signSwapPermit(userId: string, network: WalletNetwork, permit: Parameters<Awaited<ReturnType<typeof coinbaseAccount>>["signTypedData"]>[0]) {
     const account = await coinbaseAccount(this.rpc(network), await this.account(userId), network);
     return account.signTypedData(permit);
+  }
+  // Coinbase Smart Wallet signs EIP-1271 replay-safe hashes; viem wraps the
+  // result in ERC-6492 while the account is undeployed. The universal validator
+  // check (viem verifyHash) proves the signature before it leaves the service.
+  async signTypedData(userId: string, network: WalletNetwork, typedData: TypedDataDefinition) {
+    const rpc = this.rpc(network);
+    const account = await coinbaseAccount(rpc, await this.account(userId), network);
+    const signature = await account.signTypedData(typedData);
+    if (!await rpc.verifyTypedData({ ...typedData, address: account.address, signature } as Parameters<typeof rpc.verifyTypedData>[0])) throw new Error("smart account signature failed ERC-1271/ERC-6492 verification; nothing was returned");
+    return signature;
+  }
+  async signMessage(userId: string, network: WalletNetwork, message: string | { raw: Hex }) {
+    const rpc = this.rpc(network);
+    const account = await coinbaseAccount(rpc, await this.account(userId), network);
+    const signature = await account.signMessage({ message });
+    if (!await rpc.verifyMessage({ address: account.address, message, signature })) throw new Error("smart account signature failed ERC-1271/ERC-6492 verification; nothing was returned");
+    return signature;
   }
   async swap(userId: string, p: SwapPlan, id: string, beforePermitSigning: (context: unknown) => Promise<void>, beforeUserOpSigning: (hash: Hex, prepared?: PreparedOperation) => Promise<void>) {
     this.requireOperationKey();
