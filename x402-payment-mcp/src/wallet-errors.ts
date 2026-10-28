@@ -72,6 +72,10 @@ const publicPatterns = [
   /^typed data is for chain [^\s]{1,80}, not (base|ethereum); prepare it on that network$/,
   /^invalid EIP-712 typed data: [^\n]{1,300}$/,
   /^app request is (pending|prepared|submitted|responded|rejected|expired)$/,
+  // revert-reason.ts output: printable ASCII only, contract text cut short.
+  /^simulation reverted at call \d{1,2} \(0x[0-9a-fA-F]{40}\): [\x20-\x7e]{1,600}; nothing was signed$/,
+  /^no verified ABI is available for 0x[0-9a-fA-F]{40}; pass abi with function_name$/,
+  /^0x[0-9a-fA-F]{40} has no function [A-Za-z_$][A-Za-z0-9_$]{0,199} in its verified ABI( \(behind its proxy\))?$/,
   /^Sign-In with Ethereum message is for chain \d{1,20}, not (base|ethereum)$/,
   /^Sign-In with Ethereum domain [^\s]{1,255} does not match the requesting app [^\s]{1,255}$/,
 ];

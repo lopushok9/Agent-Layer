@@ -1,9 +1,9 @@
-import { getAddress, parseAbi, parseEventLogs, type Abi, type Hex, type TransactionReceipt } from "viem";
+import { getAddress, parseAbi, parseEventLogs, type Abi, type Address, type Hex, type TransactionReceipt } from "viem";
 import { isDeepStrictEqual } from "node:util";
 import { entryPoint06Address, entryPoint07Address, entryPoint08Address } from "viem/account-abstraction";
 import { z } from "zod";
 import type { SmartWalletService } from "./smart-wallet.js";
-import { addressInput, annotateCalls, chainIds, jsonValue, normalizeTransaction, transactionFingerprint, transactionInput, walletNetwork, withVerifiedAbis, type TransactionInput } from "./transaction-builder.js";
+import { addressInput, annotateCalls, chainIds, jsonValue, normalizeTransaction, transactionFingerprint, transactionInput, walletNetwork, withVerifiedAbis, type NormalizedCall, type TransactionInput, type WalletNetwork } from "./transaction-builder.js";
 import type { WalletStore, WalletOperation, CancelPlan } from "./wallet-store.js";
 import { cancellationCalls, cancellationFingerprint } from "./nonce-cancellation.js";
 import { nonceAbi, replacementFees, type SendOptions } from "./alchemy-executor.js";
@@ -13,6 +13,7 @@ import { walletErrorDiagnostic } from "./wallet-errors.js";
 import { assetChangesWithinPreview } from "./asset-changes.js";
 import { resolveInterrupted } from "./interrupted.js";
 import type { ContractMetadata } from "./contract-metadata.js";
+import { SimulationReverted, revertMessage } from "./revert-reason.js";
 
 export const contractReadInput = z.strictObject({ network: walletNetwork, to: addressInput, abi: z.array(z.unknown()).min(1).max(200).optional().describe("Omit to use the verified ABI from Sourcify/Etherscan, resolved behind proxies"), function_name: z.string().min(1).max(200), args: z.array(z.unknown()).max(100).default([]) });
 type Backend = Pick<SmartWalletService, "account" | "status" | "simulate" | "send" | "operation" | "rpc" | "bundler" | "estimateNetworkFee">;
@@ -39,12 +40,22 @@ export class TransactionService {
     const account = await this.wallets.account(userId);
     const p = normalizeTransaction(await withVerifiedAbis(input, this.contracts), account.address, account.owners[0]?.address);
     const descriptions = this.contracts ? await annotateCalls(p.network, p.account, p.calls, p.descriptions, this.contracts) : p.descriptions;
-    const simulation = await this.wallets.simulate(p.network, account.address, p.calls);
+    const simulation = await this.simulateNamed(p.network, account.address, p.calls);
     const network_fee = networkFee(await this.wallets.estimateNetworkFee(userId, p.network, p.calls));
     const tolerance = transactionInput.parse(input).received_tolerance_bps;
     const asset_floors = { ...receivedFloors(simulation.asset_changes, tolerance), ...(terms?.floors ?? {}) };
     const saved = await this.store.createOperation({ userId, network: p.network, address: p.account, calls: p.calls, descriptions, fingerprint: transactionFingerprint(p.network, p.account, p.calls), simulation: { ...simulation, network_fee, received_tolerance_bps: tolerance, asset_floors, ...(terms ? { route: terms.route } : {}) } }, this.ttl);
     return { ...publicOperation(saved), next_step: "Show the full calls, allowances, native value, simulation (each received token's minimum is simulation.asset_floors) and fee limitations. Obtain the user's confirmation of this exact preview, then call transaction_execute once with its operation_id. No signature has been requested." };
+  }
+  // Name a custom revert with the failing target's verified ABI; the call
+  // index and target are already in the message.
+  private async simulateNamed(network: WalletNetwork, account: Address, calls: NormalizedCall[]) {
+    try { return await this.wallets.simulate(network, account, calls); }
+    catch (e) {
+      if (!(e instanceof SimulationReverted) || !this.contracts) throw e;
+      const abi = await this.contracts.contract(network, e.to).then(r => r && r.source !== "bytecode_selectors" ? r.abi : undefined, () => undefined);
+      throw new Error(revertMessage(e.index, e.to, e.data, abi));
+    }
   }
   async prepareCancellation(userId: string, targetId: string) {
     return this.lock.withPaymentLock(userId, async () => {

@@ -10,6 +10,7 @@ import { validateSwapQuote } from "./managed-swaps.js";
 
 import { coinbaseAccount, sendAlchemyOperation, estimateAlchemyOperation, alchemyBundler, type SendOptions } from "./alchemy-executor.js";
 import type { PreparedOperation } from "./user-operation.js";
+import { SimulationReverted } from "./revert-reason.js";
 
 type Registry = { wallet(userId: string): Promise<SmartWalletRecord | null>; saveWallet(userId: string, record: SmartWalletRecord): Promise<void>; walletByAddress?(userId: string, address: Address): Promise<SmartWalletRecord | null> };
 export class SmartWalletService {
@@ -50,7 +51,8 @@ export class SmartWalletService {
     // eth_simulateV1 carries state between calls and preserves the smart address
     // as msg.sender. This is execution simulation, not ERC-4337 validation.
     const result = await rpc.simulateCalls({ account, calls: calls.map(c => ({ ...c, value: BigInt(c.value) })), blockNumber, traceAssetChanges: true, validation: false });
-    if (result.results.some(r => r.status !== "success")) throw new Error("batch simulation reverted; nothing was signed");
+    const failed = result.results.findIndex(r => r.status !== "success");
+    if (failed >= 0) throw new SimulationReverted(failed, calls[failed]!.to, (result.results[failed]!.data ?? "0x") as Hex);
     return { status: "success", block_number: blockNumber.toString(), kind: "sequential_execution", asset_changes: jsonValue(result.assetChanges), gas_used_execution_only: result.results.reduce((n, r) => n + r.gasUsed, 0n).toString(), limitations: ["Not ERC-4337 signature/deployment validation; tx.origin and deployment-time callbacks may differ.", "Gas is execution-only; it excludes account validation and network overhead.", "Asset changes inferred by RPC tracing can be incomplete. Simulation does not guarantee future execution."] };
   }
   private requireOperationKey() {
