@@ -68,6 +68,17 @@ before it is returned. Base mainnet check with a local owner key on an
 undeployed v1.1 account: the ERC-6492 signature verifies, a tampered message and
 a bare owner-EOA signature do not.
 
+## WalletConnect app connections (2026-10-28)
+
+@reown/walletkit 1.6 with @walletconnect/core 2.25 runs server-side with a
+Postgres IKeyValueStorage. Connection follows Fireblocks Web3 Connections
+(create from URI, show metadata, accept explicitly); request handling follows
+EIP-1193 and EIP-5792 v2 (atomic capability, bundle id, status codes). Every
+transaction or signature request is converted into the existing preview
+types, so verified decoding, simulation, fee ceilings, single-use execution
+and the signature rules apply unchanged. Unit tests drive the service with a
+fake relay client; a live relay run needs a Reown project ID.
+
 ## References studied
 
 - https://github.com/pimlicolabs/permissionless.js
@@ -80,6 +91,8 @@ a bare owner-EOA signature do not.
 - https://github.com/shazow/whatsabi (proxy resolution, ABI loaders)
 - https://github.com/sourcifyeth/clear-signing (ERC-7730 reference renderer)
 - https://github.com/ethereum/clear-signing-erc7730-registry
+- https://docs.reown.com/walletkit/overview and https://eips.ethereum.org/EIPS/eip-5792
+- https://developers.fireblocks.com/api-reference/web3-connections/create-a-new-web3-connection and .../respond-to-a-pending-web3-connection-request
 
 WhatsABI and clear-signing are runtime dependencies; the other SDKs above are references. CDP/viem are pinned in
 package-lock.json. Live deployments and payments need separate validation.

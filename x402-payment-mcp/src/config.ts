@@ -35,6 +35,10 @@ const Env = z.object({
   // Optional Etherscan v2 key (one key covers Ethereum and Base). Sourcify needs
   // none; without this key, contracts verified only on Etherscan stay unlabelled.
   ETHERSCAN_API_KEY: z.string().min(1).optional(),
+  // Optional WalletConnect (Reown Cloud project ID). Pairing and session keys are
+  // stored in Postgres, encrypted with WALLET_OPERATION_ENCRYPTION_KEY. Run a
+  // single replica: one process owns the relay connection and its events.
+  WALLETCONNECT_PROJECT_ID: z.string().regex(/^[0-9a-f]{32}$/, "WALLETCONNECT_PROJECT_ID must be a Reown project ID").optional(),
   ARC_MAX_TRANSFER_USDC_ATOMIC: z.string().regex(/^\d+$/).default("50000000"),
   ARC_MAX_DAILY_TRANSFER_USDC_ATOMIC: z.string().regex(/^\d+$/).default("200000000"),
   PAYMENT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(45000),
@@ -53,6 +57,7 @@ const Env = z.object({
   if(!google&&!github)ctx.addIssue({code:"custom",message:"At least one OAuth provider must be configured"});
   const link=[value.LINK_CLIENT_ID,value.LINK_CLIENT_SECRET,value.STRIPE_PUBLISHABLE_KEY,value.LINK_TOKEN_ENCRYPTION_KEY].filter(Boolean).length;
   if(link!==0&&link!==4)ctx.addIssue({code:"custom",message:"Link requires LINK_CLIENT_ID, LINK_CLIENT_SECRET, STRIPE_PUBLISHABLE_KEY and LINK_TOKEN_ENCRYPTION_KEY together"});
+  if(value.WALLETCONNECT_PROJECT_ID&&!value.WALLET_OPERATION_ENCRYPTION_KEY)ctx.addIssue({code:"custom",message:"WalletConnect requires WALLET_OPERATION_ENCRYPTION_KEY to encrypt pairing and session keys"});
   if(value.LINK_TOKEN_ENCRYPTION_KEY&&Buffer.from(value.LINK_TOKEN_ENCRYPTION_KEY,"base64").length!==32)ctx.addIssue({code:"custom",message:"LINK_TOKEN_ENCRYPTION_KEY must be 32 random bytes encoded as base64"});
 });
 

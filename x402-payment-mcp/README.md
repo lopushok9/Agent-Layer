@@ -110,6 +110,40 @@ chain; viem wraps it in ERC-6492 while the account is undeployed. Before
 returning, the signature is checked with viem's universal ERC-1271/ERC-6492
 validator. Signatures are returned once and never stored.
 
+## Apps over WalletConnect (optional)
+
+With `WALLETCONNECT_PROJECT_ID` (a [Reown Cloud](https://cloud.reown.com)
+project) the smart account joins any dApp that offers WalletConnect, the way
+Fireblocks' Web3 Connections join dApps for hosted vaults. The app builds the
+calls; the wallet still previews and confirms each one.
+
+1. The user picks WalletConnect in the app and gives the `wc:` URI to the agent:
+   `dapp_connect` pairs and returns the proposal with the app's self-declared
+   metadata and the WalletConnect Verify result. Known scams and `INVALID`
+   origins (metadata domain differs from where the app runs) are refused.
+2. `dapp_connect_respond` approves only Base/Ethereum and only the methods a
+   smart account can honour: `eth_sendTransaction`, `wallet_sendCalls`,
+   `wallet_getCallsStatus`, `wallet_getCapabilities`, `personal_sign`,
+   `eth_signTypedData_v4`, `eth_chainId`, `eth_accounts`,
+   `wallet_switchEthereumChain`. `eth_sign` and EOA-only methods are refused.
+3. App requests are queued (`dapp_requests`). `dapp_request_prepare` turns one into
+   the normal `transaction_prepare` or `signature_prepare` preview (verified ABIs,
+   simulation, fee ceiling, signature authorizations; SIWE must match the
+   verified origin). `dapp_request_execute` runs it once and answers the app:
+   the signature, the EIP-5792 bundle id (the operation id, which
+   `wallet_getCallsStatus` resolves to status 100/200/400/500 with receipts), or,
+   for `eth_sendTransaction`, the transaction hash once a bundle includes the
+   UserOperation (`dapp_request_status` finishes later answers).
+   `dapp_request_reject` answers 4001.
+
+Read-only methods are answered directly. Malformed requests, a `from` other than
+the account, contract deployment and non-optional EIP-5792 capabilities other
+than `atomic` are refused with their EIP-1193/EIP-5792 codes. Requests are
+deduplicated by session and JSON-RPC id. WalletConnect state lives in
+`walletconnect_storage`, AES-256-GCM encrypted per key with
+`WALLET_OPERATION_ENCRYPTION_KEY`. Run one replica: a single process owns the relay
+connection, and requests that arrive while it is down are not queued here.
+
 ## CDP managed swap alternative
 
 With the same `wallet:transact` scope, use `swap_preview` -> `swap_execute` ->

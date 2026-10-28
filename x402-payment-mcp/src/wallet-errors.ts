@@ -47,12 +47,22 @@ const publicMessages = new Set([
   "signature preview not found for this user", "signature preview already used; prepare a new one",
   "signature preview expired; prepare a new one", "signature preview no longer matches this wallet and message",
   "smart account signature failed ERC-1271/ERC-6492 verification; nothing was returned",
+  "not a WalletConnect v2 pairing URI", "this pairing URI is already being connected",
+  "the app sent no connection proposal; create a new WalletConnect URI in the app",
+  "WalletConnect Verify lists this app as a known scam; connection refused",
+  "WalletConnect Verify: the app's claimed domain does not match where it runs; connection refused",
+  "connection proposal not found for this user", "connection proposal was already answered",
+  "connection proposal expired; create a new WalletConnect URI in the app",
+  "the app requires chains or methods this wallet does not support (Base and Ethereum smart account only); connection refused",
+  "app session not found for this user", "app request not found for this user", "app request is no longer open",
+  "the app's request expired; repeat the action in the app", "the app session has ended",
 ]);
 // Our own messages that quote request values (chain IDs, domains, viem's
 // typed-data validation). They never carry provider text, URLs or secrets.
 const publicPatterns = [
   /^typed data is for chain [^\s]{1,80}, not (base|ethereum); prepare it on that network$/,
   /^invalid EIP-712 typed data: [^\n]{1,300}$/,
+  /^app request is (pending|prepared|submitted|responded|rejected|expired)$/,
   /^Sign-In with Ethereum message is for chain \d{1,20}, not (base|ethereum)$/,
   /^Sign-In with Ethereum domain [^\s]{1,255} does not match the requesting app [^\s]{1,255}$/,
 ];
