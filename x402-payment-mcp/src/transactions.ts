@@ -11,10 +11,11 @@ import { validateOperation } from "./user-operation.js";
 import { matchedOperation, findOperationReceipt } from "./operation-receipt.js";
 import { walletErrorDiagnostic } from "./wallet-errors.js";
 import { assetChangesWithinPreview } from "./asset-changes.js";
+import { resolveInterrupted } from "./interrupted.js";
 
 export const contractReadInput = z.strictObject({ network: walletNetwork, to: addressInput, abi: z.array(z.unknown()).min(1).max(200), function_name: z.string().min(1).max(200), args: z.array(z.unknown()).max(100).default([]) });
 type Backend = Pick<SmartWalletService, "account" | "status" | "simulate" | "send" | "operation" | "rpc" | "bundler" | "estimateNetworkFee">;
-type Repository = Pick<WalletStore, "createOperation" | "operation" | "reserve" | "beforeSigning" | "finish" | "preparedOperation" | "reserveCancellation" | "finishCancellation" | "permitExpiry">;
+type Repository = Pick<WalletStore, "createOperation" | "operation" | "reserve" | "beforeSigning" | "finish" | "preparedOperation" | "reserveCancellation" | "finishCancellation" | "permitExpiry" | "interruptedOperations" | "failInterrupted">;
 type Lock = { withPaymentLock<T>(userId: string, action: () => Promise<T>): Promise<T> };
 
 export class TransactionService {
@@ -64,6 +65,7 @@ export class TransactionService {
   async execute(userId: string, id: string, purpose: string) { return this.executeOperation(userId, id, purpose, false); }
   private async executeOperation(userId: string, id: string, purpose: string, cancellation: boolean) {
     return this.lock.withPaymentLock(userId, async () => {
+      await this.resolveInterruptedFor(userId, id);
       const p = cancellation ? await this.store.reserveCancellation(userId, id, purpose) : await this.store.reserve(userId, id, purpose);
       let signing = false;
       let signingHash: Hex | null = null;
@@ -106,6 +108,7 @@ export class TransactionService {
   }
   async status(userId: string, id: string) {
     return this.lock.withPaymentLock(userId, async () => {
+      await this.resolveInterruptedFor(userId, id);
       const p = await this.store.operation(userId, id);
       if (!p) throw new Error("operation not found for this user");
       let providerState: { status: string; prepared_expires_at: string | null } | undefined;
@@ -148,6 +151,12 @@ export class TransactionService {
       }
       return { ...publicOperation((await this.store.operation(userId, id))!), ...(providerState ? { provider_state: providerState } : {}) };
     });
+  }
+  // Runs under withPaymentLock. A provider outage here must not hide the
+  // reservation error the caller would otherwise get; the rows stay blocked.
+  private async resolveInterruptedFor(userId: string, id: string) {
+    const op = await this.store.operation(userId, id);
+    if (op) await resolveInterrupted(this.store, () => this.wallets.rpc(op.network), userId, op.network, op.address).catch(() => {});
   }
   private async reconcileCancellation(userId: string, p: WalletOperation, receipt: TransactionReceipt) {
     const plan = p.cancelPlan;

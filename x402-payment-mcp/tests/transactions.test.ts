@@ -18,6 +18,8 @@ function harness() {
     reserve: async (user: string) => { if (user !== "alice") throw new Error("not found"); if (p.status !== "prepared") throw new Error("consumed"); p.status = "reserved"; return p; },
     beforeSigning: async (_id: string, h: any) => { p.userOpHash = h; p.status = "signing"; },
     finish: async (_id: string, state: any, tx: any = null) => { p.status = state; p.transactionHash = tx; },
+    interruptedOperations: async () => [],
+    failInterrupted: async () => {},
   };
   const wallets = {
     account: async () => ({ address, owners: [{ address: target }] }),

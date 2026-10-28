@@ -161,9 +161,29 @@ export class WalletStore {
     const r = await this.pool.query(`UPDATE wallet_operations SET status='signing',execution_context=$2,updated_at=now() WHERE id=$1 AND status='reserved' AND kind='swap' AND expires_at>now() RETURNING id`, [id, JSON.stringify(context)]);
     if (!r.rowCount) throw new Error("operation is no longer available for signing");
   }
+  // Rows that provably hold no owner-signed UserOperation: beforeSigning persists
+  // the hash before any signature exists, so no hash means no UserOperation was
+  // signed. A swap may still have signed Permit2; its deadline is returned so the
+  // caller can wait for expiry. Callers must hold Store.withPaymentLock(userId):
+  // every execution path reserves and signs under it, so nothing is in flight.
+  async interruptedOperations(userId: string, network: WalletNetwork, address: Address) {
+    const r = await this.pool.query(`SELECT id,kind,status,execution_context FROM wallet_operations WHERE user_id=$1 AND network=$2 AND lower(address)=lower($3) AND user_op_hash IS NULL AND (status='reserved' OR (kind='swap' AND status IN ('signing','unknown')))`, [userId, network, address]);
+    return r.rows.map(x => ({ id: x.id as string, status: x.status as OperationState, permitDeadline: x.status === "reserved" ? null : permitDeadline(x.execution_context) }));
+  }
+  async failInterrupted(userId: string, id: string, reason: string) {
+    await this.pool.query(`UPDATE wallet_operations SET status='failed',error=$3,updated_at=now() WHERE user_id=$1 AND id=$2 AND user_op_hash IS NULL AND (status='reserved' OR (kind='swap' AND status IN ('signing','unknown')))`, [userId, id, reason]);
+  }
   async finish(id: string, status: OperationState, hash: Hex | null = null, error: string | null = null) {
     await this.pool.query(`UPDATE wallet_operations SET status=$2,transaction_hash=COALESCE($3,transaction_hash),error=$4,updated_at=now() WHERE id=$1 AND status IN ('reserved','signing','submitted','unknown')`, [id, status, hash, error]);
   }
+}
+// undefined: signing context missing, so nothing can be proven (fail closed).
+// null: the quote needed no Permit2 (native ETH input), so nothing was signed.
+function permitDeadline(context: any): bigint | null | undefined {
+  if (!context || typeof context !== "object") return undefined;
+  if (context.permit2 === undefined || context.permit2 === null) return null;
+  const deadline = context.permit2?.eip712?.message?.deadline;
+  return /^\d+$/.test(String(deadline)) ? BigInt(deadline) : undefined;
 }
 function mapOperation(x: Record<string, any>): WalletOperation {
   return { id: x.id, userId: x.user_id, network: x.network, address: x.address, calls: x.calls, descriptions: x.descriptions, fingerprint: x.fingerprint, simulation: x.simulation, expiresAt: new Date(x.expires_at), status: x.status, userOpHash: x.user_op_hash ?? null, transactionHash: x.transaction_hash ?? null, error: x.error ?? null, cancelPlan: x.cancel_plan ?? null, proof: x.operation_proof ?? null, kind: x.kind ?? "calls", swapPlan: x.swap_plan ?? null };

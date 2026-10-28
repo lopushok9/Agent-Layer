@@ -107,3 +107,28 @@ test("Postgres: previews expire, are single-use and isolate users; pending opera
     await assert.rejects(wallets.reserve(bob, conflicting.id, "retry"), /unresolved/);
   } finally { await store.close(); }
 });
+
+test("Postgres: only hashless reservations and hashless swaps are reported as interrupted, and only they can be released", { skip: !process.env.TEST_DATABASE_URL }, async () => {
+  const store = new Store(process.env.TEST_DATABASE_URL!);
+  try {
+    await store.migrate();
+    const wallets = new WalletStore(store.pool);
+    const user = await store.upsertIdentity("github", `interrupted-${randomUUID()}`, null, null);
+    const address = "0x1111111111111111111111111111111111111111";
+    const create = (kind: "calls" | "swap" = "calls") => wallets.createOperation({ userId: user, network: "base", address, kind, calls: [], descriptions: [], fingerprint: "interrupted", simulation: {} }, 600);
+    const crashed = await create(); await wallets.reserve(user, crashed.id, "crash before signing");
+    const ids = (await wallets.interruptedOperations(user, "base", address)).map(r => r.id);
+    assert.deepEqual(ids, [crashed.id]);
+    await wallets.failInterrupted(user, crashed.id, "released");
+    assert.equal((await wallets.operation(user, crashed.id))!.status, "failed");
+    const signed = await create(); await wallets.reserve(user, signed.id, "signed");
+    await wallets.beforeSigning(signed.id, `0x${"c".repeat(64)}`); await wallets.finish(signed.id, "unknown");
+    assert.deepEqual(await wallets.interruptedOperations(user, "base", address), [], "a persisted hash is never interrupted");
+    await wallets.failInterrupted(user, signed.id, "must not apply");
+    assert.equal((await wallets.operation(user, signed.id))!.status, "unknown");
+    await wallets.finish(signed.id, "confirmed");
+    const swap = await create("swap"); await wallets.reserve(user, swap.id, "swap", "swap");
+    await wallets.beforeSwapSigning(swap.id, { permit2: { eip712: { message: { deadline: "1700000000" } } } }); await wallets.finish(swap.id, "unknown");
+    assert.deepEqual(await wallets.interruptedOperations(user, "base", address), [{ id: swap.id, status: "unknown", permitDeadline: 1700000000n }]);
+  } finally { await store.close(); }
+});

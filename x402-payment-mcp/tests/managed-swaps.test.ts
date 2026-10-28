@@ -72,6 +72,9 @@ test("swap preview never signs, allowance is explicit, and timeouts after Permit
     beforeSwapSigning: async () => { op.status = "signing"; },
     beforeSigning: async () => { throw new Error("must not reach UserOp signing"); },
     finish: async (_id: string, status: string) => { op.status = status; },
+    operation: async (user: string) => user === "alice" ? op : null,
+    interruptedOperations: async () => [],
+    failInterrupted: async () => { throw new Error("must not resolve a live operation"); },
   };
   const backend = { account: async () => ({ address: account }), swapPrice: async () => q, swap: async (_user: string, _plan: any, _id: string, beforePermit: any) => { await beforePermit({}); signatures++; throw new Error("response lost after Permit2 signing"); } };
   const swaps = new ManagedSwapService(backend as any, store as any, { withPaymentLock: async (_u, action) => action() }, 600);

@@ -71,6 +71,8 @@ function harness() {
     permitExpiry: async () => state.deadline,
     finish: async (_id: string, status: string) => { op.status = status; },
     finishCancellation: async (_user: string, _id: string, _tx: string, status: string) => { op.status = "confirmed"; target.status = status; },
+    interruptedOperations: async () => [],
+    failInterrupted: async () => {},
   };
   const wallets: any = { rpc: () => rpc, bundler: () => ({ getUserOperationReceipt: async () => ({ receipt }) }), account: async () => ({ address }) };
   const service = new TransactionService(wallets, store, { withPaymentLock: async (_u, f) => f() }, 600);

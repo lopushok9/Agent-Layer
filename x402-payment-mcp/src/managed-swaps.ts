@@ -6,11 +6,12 @@ import { chainIds, jsonValue } from "./transaction-builder.js";
 import { NATIVE_TOKEN, PERMIT2, normalizeSwap, swapFingerprint, type SwapInput, type SwapPlan } from "./swap-plan.js";
 import { publicOperation } from "./transactions.js";
 import { walletErrorDiagnostic } from "./wallet-errors.js";
+import { resolveInterrupted } from "./interrupted.js";
 
 export type SwapQuote = Extract<Awaited<ReturnType<EvmSmartAccount["quoteSwap"]>>, { liquidityAvailable: true }>;
 type SwapPrice = Extract<Awaited<ReturnType<SmartWalletService["swapPrice"]>>, { liquidityAvailable: true }>;
-type Repository = Pick<WalletStore, "createOperation" | "reserve" | "beforeSigning" | "beforeSwapSigning" | "finish">;
-type Backend = Pick<SmartWalletService, "account" | "swapPrice" | "swap">;
+type Repository = Pick<WalletStore, "createOperation" | "operation" | "reserve" | "beforeSigning" | "beforeSwapSigning" | "finish" | "interruptedOperations" | "failInterrupted">;
+type Backend = Pick<SmartWalletService, "account" | "swapPrice" | "swap" | "rpc">;
 type Lock = { withPaymentLock<T>(userId: string, action: () => Promise<T>): Promise<T> };
 
 export function validateSwapTerms(p: Omit<SwapPlan, "minimumOutput">, q: SwapPrice | SwapQuote) {
@@ -62,6 +63,8 @@ export class ManagedSwapService {
   }
   async execute(userId: string, id: string, purpose: string) {
     return this.lock.withPaymentLock(userId, async () => {
+      const pending = await this.store.operation(userId, id);
+      if (pending) await resolveInterrupted(this.store, () => this.wallets.rpc(pending.network), userId, pending.network, pending.address).catch(() => {});
       const op = await this.store.reserve(userId, id, purpose, "swap");
       let signing = false;
       let userOpHash: Hex | null = null;
