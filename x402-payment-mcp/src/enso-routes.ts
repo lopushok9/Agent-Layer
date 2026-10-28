@@ -83,7 +83,13 @@ export class EnsoRoutes {
     if (!await supported(p.network, p.protocol, p.action)) throw new Error("this protocol action is not available on this network through the Enso router");
     return this.build(userId, p.network, p.token_in, p.amount_in, p.token_out, p.slippage_bps, async account => {
       const tokenIn = getAddress(p.token_in), tokenOut = getAddress(p.token_out);
-      const args: Record<string, unknown> = { tokenIn, tokenOut, amountIn: p.amount_in, primaryAddress: getAddress(p.primary_address), receiver: account };
+      // Many protocols (Aave supply, for one) mint to the caller, which under
+      // the router is EnsoShortcuts; Enso then refuses the bundle ("does not
+      // transfer all funds to the requested receiver"). So the action's output
+      // is moved to this account by an explicit erc20 transfer of exactly what
+      // the action returned. Native ETH output is paid to receiver directly.
+      const nativeOut = isAddressEqual(tokenOut, NATIVE);
+      const args: Record<string, unknown> = { tokenIn, tokenOut, amountIn: p.amount_in, primaryAddress: getAddress(p.primary_address), ...(nativeOut ? { receiver: account } : {}) };
       if (p.action === "swap") {
         args.slippage = String(p.slippage_bps);
         if (p.pool?.pool_fee) args.poolFee = p.pool.pool_fee;
@@ -91,7 +97,7 @@ export class EnsoRoutes {
         if (p.pool?.hooks) args.hooks = getAddress(p.pool.hooks);
         if (p.pool?.pool_id) args.poolId = p.pool.pool_id;
       } else if (p.pool) throw new Error("pool parameters apply only to swap");
-      const bundle = await this.api.post("shortcuts/bundle", { chainId: String(chainIds[p.network]), fromAddress: account, routingStrategy: "router", receiver: account, spender: account, refundReceiver: account }, [{ protocol: p.protocol, action: p.action, args }]) as RouteResponse & { amountsOut?: Record<string, unknown> };
+      const bundle = await this.api.post("shortcuts/bundle", { chainId: String(chainIds[p.network]), fromAddress: account, routingStrategy: "router", receiver: account, spender: account, refundReceiver: account }, [{ protocol: p.protocol, action: p.action, args }, ...(nativeOut ? [] : [{ protocol: "erc20", action: "transfer", args: { token: tokenOut, receiver: account, amount: { useOutputOfCallAt: 0 } } }])]) as RouteResponse & { amountsOut?: Record<string, unknown> };
       const out = bundle.amountsOut && typeof bundle.amountsOut === "object" ? Object.entries(bundle.amountsOut).find(([k]) => k.toLowerCase() === tokenOut.toLowerCase())?.[1] : undefined;
       return { tx: bundle.tx, amountOut: out, priceImpact: bundle.priceImpact, route: [{ action: p.action, protocol: p.protocol }] } as RouteResponse;
     }, { protocol: p.protocol, action: p.action, primary_address: getAddress(p.primary_address) });

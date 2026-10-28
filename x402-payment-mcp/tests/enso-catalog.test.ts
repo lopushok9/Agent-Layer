@@ -95,7 +95,10 @@ test("an action preview asks the Bundle API for the router strategy to this acco
   const q = h.bodies[0]!.url.searchParams;
   assert.equal(h.bodies[0]!.url.pathname, "/api/v1/shortcuts/bundle");
   assert.deepEqual([q.get("routingStrategy"), q.get("fromAddress"), q.get("receiver"), q.get("spender"), q.get("refundReceiver"), q.get("chainId")], ["router", account, account, account, account, "8453"]);
-  assert.deepEqual(h.bodies[0]!.body, [{ protocol: "morpho-blue-vaults", action: "deposit", args: { tokenIn: usdc, tokenOut: vault, amountIn: "100000", primaryAddress: vault, receiver: account } }]);
+  assert.deepEqual(h.bodies[0]!.body, [
+    { protocol: "morpho-blue-vaults", action: "deposit", args: { tokenIn: usdc, tokenOut: vault, amountIn: "100000", primaryAddress: vault } },
+    { protocol: "erc20", action: "transfer", args: { token: vault, receiver: account, amount: { useOutputOfCallAt: 0 } } },
+  ], "the action's whole output is transferred to this account");
   const calls = h.prepared[0].input.calls;
   assert.deepEqual(decodeFunctionData({ abi: erc20Abi, data: calls[0].data }).args, [ENSO_ROUTER, 100_000n]);
   const d = decodeFunctionData({ abi: routerAbi, data: calls[1].data });
@@ -114,5 +117,9 @@ test("action previews refuse unsupported actions, foreign pool arguments and ans
   await assert.rejects(noOutput.routes.actionPreview("alice", deposit, async () => true), /does not match the request/);
   const swap = actionHarness();
   await swap.routes.actionPreview("alice", { ...deposit, protocol: "uniswap-v3", action: "swap", primary_address: "0x2626664c2603336E57B271c5C0b26F421741e481", pool: { pool_fee: "500" } }, async () => true);
-  assert.deepEqual(swap.bodies[0]!.body[0].args, { tokenIn: usdc, tokenOut: vault, amountIn: "100000", primaryAddress: "0x2626664c2603336E57B271c5C0b26F421741e481", receiver: account, slippage: "50", poolFee: "500" });
+  assert.deepEqual(swap.bodies[0]!.body[0].args, { tokenIn: usdc, tokenOut: vault, amountIn: "100000", primaryAddress: "0x2626664c2603336E57B271c5C0b26F421741e481", slippage: "50", poolFee: "500" });
+  const native = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE" as Address;
+  const toEth = actionHarness({ tx: { to: ENSO_ROUTER, value: "0", data: encodeFunctionData({ abi: routerAbi, functionName: "routeSingle", args: [erc20(usdc, 100_000n), "0x"] }) }, amountsOut: { [native.toLowerCase()]: "1000" } });
+  await toEth.routes.actionPreview("alice", { ...deposit, action: "redeem", token_out: native }, async () => true);
+  assert.deepEqual(toEth.bodies[0]!.body, [{ protocol: "morpho-blue-vaults", action: "redeem", args: { tokenIn: usdc, tokenOut: native, amountIn: "100000", primaryAddress: vault, receiver: account } }], "native output is paid to receiver, no erc20 transfer");
 });
