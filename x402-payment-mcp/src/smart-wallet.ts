@@ -5,7 +5,7 @@ import { base, mainnet } from "viem/chains";
 import type { Config } from "./config.js";
 import { chainIds, jsonValue, type NormalizedCall, type WalletNetwork } from "./transaction-builder.js";
 import type { SmartWalletRecord } from "./wallet-store.js";
-import type { SwapPlan } from "./swap-plan.js";
+import { executionSlippageBps, type SwapPlan } from "./swap-plan.js";
 import { validateSwapQuote } from "./managed-swaps.js";
 
 import { coinbaseAccount, sendAlchemyOperation, estimateAlchemyOperation, alchemyBundler, type SendOptions } from "./alchemy-executor.js";
@@ -95,7 +95,10 @@ export class SmartWalletService {
     if (await this.rpc(p.network).getChainId() !== chainIds[p.network]) throw new Error("RPC chain ID mismatch");
     const account = await this.account(userId);
     if (account.address.toLowerCase() !== p.account.toLowerCase()) throw new Error("swap preview no longer matches this wallet and terms");
-    const quote = await account.quoteSwap({ network: p.network, fromToken: p.fromToken, toToken: p.toToken, fromAmount: BigInt(p.fromAmount), slippageBps: p.slippageBps, idempotencyKey: swapQuoteKey(id) });
+    const price = await this.swapPrice(userId, p);
+    if (!price.liquidityAvailable) throw new Error("no swap liquidity is available for these tokens and amount");
+    const slippageBps = executionSlippageBps(price.toAmount, BigInt(p.minimumOutput), p.slippageBps);
+    const quote = await account.quoteSwap({ network: p.network, fromToken: p.fromToken, toToken: p.toToken, fromAmount: BigInt(p.fromAmount), slippageBps, idempotencyKey: swapQuoteKey(id) });
     if (!quote.liquidityAvailable) throw new Error("no swap liquidity is available for these tokens and amount");
     const owner = account.owners[0]!;
     validateSwapQuote(p, quote, owner.address);

@@ -43,8 +43,9 @@ test("fresh quotes cannot lower the floor, change assets, require extra ETH or w
 test("CDP quote uses controlled Permit2 signing and the transparent executor, never SDK swap()", async () => {
   const order: string[] = [];
   let q = quote();
-  const smart = { address: account, owners: [{ address: owner }], quoteSwap: async () => { order.push("quote"); return q; }, swap: async () => { throw new Error("opaque SDK swap must never execute"); } };
-  const wallets = new SmartWalletService({ WALLET_OPERATION_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64") } as any, { wallet: async () => null, saveWallet: async () => {} }, { evm: { getOrCreateAccount: async () => smart.owners[0], getOrCreateSmartAccount: async () => smart } } as any);
+  let priceOut = 1000n; const requestedSlippage: number[] = [];
+  const smart = { address: account, owners: [{ address: owner }], quoteSwap: async ({ slippageBps }: any) => { order.push("quote"); requestedSlippage.push(slippageBps); return q; }, swap: async () => { throw new Error("opaque SDK swap must never execute"); } };
+  const wallets = new SmartWalletService({ WALLET_OPERATION_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64") } as any, { wallet: async () => null, saveWallet: async () => {} }, { evm: { getOrCreateAccount: async () => smart.owners[0], getOrCreateSmartAccount: async () => smart, getSwapPrice: async () => ({ liquidityAvailable: true, toAmount: priceOut }) } } as any);
   wallets.rpc = (() => ({ getChainId: async () => 8453 })) as any;
   wallets.signSwapPermit = async () => { order.push("permit-sign"); return "0x1234"; };
   wallets.send = async (_user, _network, calls, _id, before) => {
@@ -54,9 +55,18 @@ test("CDP quote uses controlled Permit2 signing and the transparent executor, ne
   };
   await wallets.swap("user", plan, "id", async () => { order.push("persist-permit"); }, async () => { order.push("persist-userop"); });
   assert.deepEqual(order, ["quote", "persist-permit", "permit-sign", "persist-userop", "submit"]);
-  order.length = 0; q = quote(); q.toAmount = 999n; q.minToAmount = 989n;
+  assert.deepEqual(requestedSlippage, [100]);
+  // The market moved 0.5% against the user: the 990 floor is still reachable,
+  // so CDP is asked for 50 bps and its minimum lands on the floor.
+  order.length = 0; priceOut = 995n; q = quote(); q.toAmount = 995n; q.minToAmount = 990n;
+  await wallets.swap("user", plan, "id", async () => {}, async () => {});
+  assert.equal(requestedSlippage.at(-1), 50);
+  order.length = 0; priceOut = 989n;
   await assert.rejects(wallets.swap("user", plan, "id", async () => {}, async () => {}), /below the confirmed minimum/);
-  assert.deepEqual(order, ["quote"]);
+  assert.deepEqual(order, [], "an unreachable floor stops before a firm quote");
+  order.length = 0; priceOut = 1000n; q = quote(); q.toAmount = 999n; q.minToAmount = 989n;
+  await assert.rejects(wallets.swap("user", plan, "id", async () => {}, async () => {}), /below the confirmed minimum/);
+  assert.deepEqual(order, ["quote"], "a firm quote below the floor is still refused");
   q = quote(); order.length = 0;
   await assert.rejects(wallets.swap("user", plan, "id", async () => { throw new Error("database unavailable"); }, async () => {}), /database unavailable/);
   assert.deepEqual(order, ["quote"]);
@@ -87,4 +97,14 @@ test("swap preview never signs, allowance is explicit, and timeouts after Permit
   assert.equal(op.userOpHash, null, "Permit2 can have been signed before a UserOperation hash exists");
   await assert.rejects(swaps.execute("alice", "id", "retry"), /consumed/);
   assert.equal(signatures, 1);
+});
+
+test("execution slippage lands the on-chain minimum on the confirmed floor and never exceeds approval", async () => {
+  const { executionSlippageBps } = await import("../src/swap-plan.js");
+  assert.equal(executionSlippageBps(1000n, 990n, 100), 100);
+  assert.equal(executionSlippageBps(2000n, 990n, 100), 100, "a better market never widens the approved tolerance");
+  assert.equal(executionSlippageBps(995n, 990n, 100), 50);
+  assert.equal(executionSlippageBps(990n, 990n, 100), 0);
+  for (const out of [995n, 1003n, 123456789n]) { const s = executionSlippageBps(out, 990n, 500); assert.ok(out * BigInt(10_000 - s) / 10_000n >= 990n); }
+  assert.throws(() => executionSlippageBps(989n, 990n, 100), /below the confirmed minimum/);
 });

@@ -26,3 +26,14 @@ export function normalizeSwap(input: SwapInput, account: Address) {
 export function swapFingerprint(p: SwapPlan) {
   return createHash("sha256").update(JSON.stringify({ version: 1, kind: "cdp_swap", chainId: chainIds[p.network], account: p.account.toLowerCase(), fromToken: p.fromToken.toLowerCase(), toToken: p.toToken.toLowerCase(), fromAmount: BigInt(p.fromAmount).toString(), minimumOutput: BigInt(p.minimumOutput).toString(), slippageBps: p.slippageBps })).digest("hex");
 }
+
+// The confirmed minimumOutput is a fixed limit, like a CoW Protocol order's
+// buyAmount that GPv2Settlement only settles at or above. Re-applying the
+// percentage to a fresh quote would move the on-chain minimum with the market
+// and fail on any adverse tick even when the floor is still reachable. Ask CDP
+// for the slippage that lands its minimum on the floor, never above approval.
+export function executionSlippageBps(expectedOutput: bigint, minimumOutput: bigint, approvedBps: number) {
+  if (minimumOutput <= 0n || expectedOutput < minimumOutput) throw new Error("fresh swap quote is below the confirmed minimum; preview and approve again");
+  const room = Number((expectedOutput - minimumOutput) * 10_000n / expectedOutput);
+  return Math.min(room, approvedBps);
+}
