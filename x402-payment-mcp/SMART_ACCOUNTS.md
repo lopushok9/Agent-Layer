@@ -87,8 +87,10 @@ account configurations fail before signing. There is no owner-EOA send fallback.
 The new executor persists full, hash-verified unsigned UserOperations encrypted
 with a dedicated deployment key. Account calls use nonce lane 0. A separately
 confirmed cancellation uses lane 1 to call EntryPoint.incrementNonce(0), then
-requires finalized inclusion, nonce advancement, Permit2 expiry and an exhaustive
-original-operation event search before atomically resolving both ledger rows.
+requires finalized inclusion, nonce advancement, Permit2 expiry and a nonce-based
+location of the original (Otterscan-style binary search over getNonce) before
+atomically resolving both ledger rows. A stalled cancellation is replaced at its
+own nonce with higher fees rather than cancelled in a new lane.
 See README for tool names, funding, configuration and reconciliation limits.
 
 Read-only Base mainnet validation successfully derived the existing account and

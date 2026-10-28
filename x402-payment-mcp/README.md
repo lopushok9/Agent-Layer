@@ -51,7 +51,12 @@ New UserOperations are built locally with viem and sent through the configured
 Alchemy bundler. CDP retains the owner keys and signs the exact operation hash.
 Gas is paid from the smart account's ETH balance on both Base and Ethereum;
 this executor does not request CDP sponsorship or use legacy paymaster settings.
-The preview shows execution gas only, not an enforced total network fee ceiling.
+The preview runs the same bundler preparation without signing and records
+`simulation.network_fee`: the estimated ERC-4337 prefund and an approved maximum
+(2x). Before signing, execution recomputes the prefund as EntryPoint v0.6 does,
+refuses anything above that maximum, and requires balance plus EntryPoint
+deposit to cover the prefund and call value, so an underfunded account never
+produces a signed operation. Unused prefund stays as the account's deposit.
 
 `wallet_operations` binds user/network/address/calls, single-use consumption,
 provider hash and idempotency ID. The hash is persisted before owner signing.
@@ -108,9 +113,11 @@ Separately preview/confirm it through the transaction builder, wait for confirma
 then preview the swap again. No approval or unlimited allowance is submitted
 silently. Some tokens require approving zero first; use an explicitly confirmed
 batch for that token's approval pattern. Native ETH needs no Permit2 approval.
-The builder compares fresh simulated asset changes structurally with the persisted
-preview: JSONB object-key ordering is ignored, while changed token identities,
-balances, amounts and array order still stop execution before signing.
+The builder compares fresh simulated per-token deltas with the persisted preview.
+Absolute balances may drift (incoming transfers, x402 payments); a changed token
+set, a larger outflow or a smaller inflow stops execution before signing.
+A swap keeps its confirmed minimum output fixed: execution asks CDP for the
+slippage that lands the on-chain minimum on that floor, never above approval.
 
 These are user-directed execution tools: the user chooses the trade parameters
 and confirms the exact preview in the host. A preview-only request never approves
@@ -308,15 +315,20 @@ factory derivation, owner index 0 and EntryPoint are checked before signing.
 3. Poll `transaction_status` for the cancellation. Inclusion alone does not unlock
    the original: a canonical finalized block must prove nonce advancement. Any
    independently signed Permit2 must have expired in finalized chain time too.
-4. Search the entire original-to-finalized block interval for the original event.
-   If it won the race, report its real confirmed/failed result; otherwise mark it
+4. Locate the original by nonce: binary-search the block where its nonce advanced
+   (archive `getNonce` reads), then read that block's EntryPoint events. If it won
+   the race, report its real confirmed/failed result; otherwise mark it
    `cancelled`. Both ledger updates commit atomically. Search failure, reorg,
    unavailable proof, pending finality or valid Permit2 retain the block.
 
-Only one cancellation may bypass the unresolved-operation guard, and only for its
-bound target. Cancellation of cancellation operations is intentionally unsupported.
-A reconciliation search is capped at 100,000 blocks and fails closed beyond that;
-older cases require an extended operator search, not a ledger reset.
+Only cancellations of one bound target may bypass the unresolved-operation guard.
+If a cancellation itself stalls, `transaction_cancel_prepare` for the same target
+re-signs it at its own lane-1 nonce with fees raised by at least 10%; every version
+calls the same incrementNonce, at most one is included, and the others are then
+closed. Any operation whose nonce was consumed without its event is released as
+`cancelled` once that block is finalized and any Permit2 has expired.
+Reservations that crashed before signing, and swaps that never signed their
+UserOperation (after Permit2 expiry), are released automatically.
 Legacy CDP operations without raw nonce proof cannot be cancelled by these tools.
 Expiry of CDP preparation or a swap quote does not substitute for nonce proof.
 
