@@ -105,7 +105,7 @@ test("Enso routes and the protocol catalog are published only when Enso is confi
   const catalog={catalog:async()=>({}),positions:async()=>({}),supported:async()=>true};
   const enso=await names({routes,catalog});const c0=await connect({},null,["wallet:transact"],{},{},undefined,{routes,catalog});
   for(const n of ["route_preview","defi_catalog","defi_positions","action_preview"])assert.ok(enso.includes(n),n);
-  assert.match(c0.init.result.instructions,/WETH9 withdraw/);
+  assert.match(c0.init.result.instructions,/WETH9 withdraw/);assert.match(c0.init.result.instructions,/uniswap-v3 swap on Base fails/);
   const c=await connect({},null,["wallet:transact"],{},{},undefined,{routes,catalog});
   const r=await c.call("action_preview",{network:"base",protocol:"erc4626",action:"borrow",token_in:"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",amount_in:"1",token_out:"0x4200000000000000000000000000000000000006",primary_address:"0x4200000000000000000000000000000000000006"});
   assert.ok(r.result?.isError||r.error,"borrow is rejected by the published schema");
