@@ -19,7 +19,7 @@ export const callInput = z.strictObject({
   args: z.array(z.unknown()).max(100).optional(),
 }).superRefine((v, ctx) => {
   const encoded = v.abi !== undefined || v.function_name !== undefined || v.args !== undefined;
-  if (encoded && (!v.abi || !v.function_name || v.data !== undefined)) ctx.addIssue({ code: "custom", message: "provide abi + function_name (+ args), or data, not both" });
+  if (encoded && (!v.function_name || v.data !== undefined)) ctx.addIssue({ code: "custom", message: "provide function_name (+ args, + abi to override the verified one), or data, not both" });
 });
 export const transactionInput = z.strictObject({
   network: walletNetwork,
@@ -44,6 +44,7 @@ export function normalizeTransaction(input: TransactionInput, account: Address, 
     const to = getAddress(c.to);
     if ([zeroAddress, account, owner].some(a => a?.toLowerCase() === to.toLowerCase())) throw new Error("zero address, wallet self-calls and internal owner calls are not allowed");
     assertSafeNumbers(c.args);
+    if (c.function_name && !c.abi) throw new Error(`no verified ABI is available for ${to}; pass abi with function_name`);
     const data = (c.abi ? encodeFunctionData({ abi: c.abi as Abi, functionName: c.function_name!, args: c.args ?? [] }) : c.data ?? "0x") as Hex;
     if (data.length > 131074) throw new Error("encoded calldata is too large");
     const warnings = ["Contract safety and economic intent are not proven by its ABI or simulation."];
@@ -64,6 +65,24 @@ const FUNCTION_WARNINGS: Record<string, string> = {
   setApprovalForAll: "May grant an operator control of all tokens in this collection.",
 };
 const functionWarnings = (name?: string) => name && FUNCTION_WARNINGS[name] ? [FUNCTION_WARNINGS[name]] : [];
+
+// A call given only function_name (+ args) is encoded with the target's
+// verified ABI, so an agent never pastes ABI fragments it may get wrong. Only
+// that function's entries are kept (overloads included); a guessed
+// selector-only ABI is refused because it does not carry argument types.
+export async function withVerifiedAbis(input: TransactionInput, metadata?: ContractMetadata | null): Promise<TransactionInput> {
+  const network = walletNetwork.safeParse(input.network);
+  if (!network.success || !metadata || !Array.isArray(input.calls)) return input;
+  const calls = await Promise.all(input.calls.map(async c => {
+    if (c.abi !== undefined || !c.function_name || c.data !== undefined || !isAddress(c.to, { strict: false })) return c;
+    const resolved = await metadata.contract(network.data, getAddress(c.to));
+    if (!resolved || resolved.source === "bytecode_selectors") throw new Error(`no verified ABI is available for ${getAddress(c.to)}; pass abi with function_name`);
+    const abi = resolved.abi.filter(e => e.type === "function" && e.name === c.function_name);
+    if (!abi.length) throw new Error(`${getAddress(c.to)} has no function ${c.function_name} in its verified ABI${resolved.implementation ? " (behind its proxy)" : ""}`);
+    return { ...c, abi: abi as unknown[] };
+  }));
+  return { ...input, calls };
+}
 
 // Decode each call against the ABI the chain's verification services hold for
 // the target (behind any proxy), as Safe's Transaction Builder and Rabby do,

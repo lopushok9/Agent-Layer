@@ -30,8 +30,10 @@ reconnect with the new scope to access contract tools.
    Omit `abi` to use the contract's verified ABI (see below). It never signs.
    Returned strings and caller-provided ABI are untrusted.
 3. `transaction_prepare` accepts up to 16 ordered calls on one network. Each call
-   is `{to,value,data}` or `{to,value,abi,function_name,args}`; `value` defaults to
-   `"0"`. All amounts use integer atomic-unit strings. No delegatecall, self-call,
+   is `{to,value,data}` or `{to,value,function_name,args}`; `abi` is optional and
+   without it the target's verified ABI (Sourcify/Etherscan, behind proxies)
+   encodes the call, so a contract with only a guessed ABI needs an explicit
+   one. `value` defaults to `"0"`. All amounts use integer atomic-unit strings. No delegatecall, self-call,
    owner-call, dynamic runtime amount or cross-chain mode is exposed.
 4. The service simulates calls sequentially with the smart account as sender and
    persists a user-owned, expiring immutable preview. Show calls, values,

@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import { entryPoint06Address, entryPoint07Address, entryPoint08Address } from "viem/account-abstraction";
 import { z } from "zod";
 import type { SmartWalletService } from "./smart-wallet.js";
-import { addressInput, annotateCalls, chainIds, jsonValue, normalizeTransaction, transactionFingerprint, transactionInput, walletNetwork, type TransactionInput } from "./transaction-builder.js";
+import { addressInput, annotateCalls, chainIds, jsonValue, normalizeTransaction, transactionFingerprint, transactionInput, walletNetwork, withVerifiedAbis, type TransactionInput } from "./transaction-builder.js";
 import type { WalletStore, WalletOperation, CancelPlan } from "./wallet-store.js";
 import { cancellationCalls, cancellationFingerprint } from "./nonce-cancellation.js";
 import { nonceAbi, replacementFees, type SendOptions } from "./alchemy-executor.js";
@@ -37,7 +37,7 @@ export class TransactionService {
   // e.g. a verified route's output floor that execution compares against.
   async prepare(userId: string, input: TransactionInput, terms?: { route: Record<string, unknown>; floors: Record<string, string> }) {
     const account = await this.wallets.account(userId);
-    const p = normalizeTransaction(input, account.address, account.owners[0]?.address);
+    const p = normalizeTransaction(await withVerifiedAbis(input, this.contracts), account.address, account.owners[0]?.address);
     const descriptions = this.contracts ? await annotateCalls(p.network, p.account, p.calls, p.descriptions, this.contracts) : p.descriptions;
     const simulation = await this.wallets.simulate(p.network, account.address, p.calls);
     const network_fee = networkFee(await this.wallets.estimateNetworkFee(userId, p.network, p.calls));

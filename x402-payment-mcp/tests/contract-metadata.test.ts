@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { encodeFunctionData, erc20Abi, parseAbi, type Address } from "viem";
-import { annotateCalls, normalizeTransaction, transactionFingerprint } from "../src/transaction-builder.js";
+import { annotateCalls, normalizeTransaction, transactionFingerprint, withVerifiedAbis } from "../src/transaction-builder.js";
 import { TransactionService } from "../src/transactions.js";
 import type { ContractMetadata, ResolvedContract } from "../src/contract-metadata.js";
 
@@ -66,4 +66,22 @@ test("contract_read without an ABI uses the verified one and reports its source;
   await assert.rejects(service.read("alice", { network: "base", to: spender, function_name: "decimals" }), /supply abi/);
   const bare = new TransactionService(wallets as any, {} as any, { withPaymentLock: async (_u, fn) => fn() }, 600);
   await assert.rejects(bare.read("alice", { network: "base", to: token, function_name: "decimals" }), /supply abi/);
+});
+
+test("function_name without abi is encoded with the target's verified ABI, and only a verified one", async () => {
+  const redeemAbi = parseAbi(["function redeem(uint256 shares, address receiver, address owner) returns (uint256)", "function deposit(uint256 assets, address receiver) returns (uint256)"]);
+  const input = { network: "base" as const, calls: [{ to: token, function_name: "redeem", args: ["9", account, account] }] };
+  const filled = await withVerifiedAbis(input, metadata({ [token]: { abi: redeemAbi, source: "verified_sourcify", implementation } }));
+  assert.deepEqual((filled.calls[0] as any).abi.map((e: any) => e.name), ["redeem"], "only the named function is kept");
+  const p = normalizeTransaction(filled, account);
+  assert.equal(p.calls[0]!.data, encodeFunctionData({ abi: redeemAbi, functionName: "redeem", args: [9n, account, account] }));
+  const [d] = await annotateCalls("base", account, p.calls, p.descriptions, metadata({ [token]: { abi: redeemAbi, source: "verified_sourcify" } }));
+  assert.equal(d!.abi_source, "verified_sourcify");
+  assert.equal(d!.warnings.some(w => w.includes("supplied ABI")), false);
+  await assert.rejects(withVerifiedAbis(input, metadata({ [token]: { abi: redeemAbi, source: "bytecode_selectors" } })), /no verified ABI/);
+  await assert.rejects(withVerifiedAbis(input, metadata({})), /no verified ABI/);
+  await assert.rejects(withVerifiedAbis({ ...input, calls: [{ ...input.calls[0]!, function_name: "withdrawAll" }] }, metadata({ [token]: { abi: redeemAbi, source: "verified_explorer" } })), /has no function withdrawAll/);
+  assert.throws(() => normalizeTransaction(input, account), /no verified ABI/, "without metadata the call is refused, not sent as empty calldata");
+  const own = await withVerifiedAbis({ network: "base", calls: [{ to: token, abi: [...vaultAbi], function_name: "deposit", args: ["1", account] }] }, metadata({}));
+  assert.deepEqual((own.calls[0] as any).abi, [...vaultAbi], "a supplied abi is kept as before");
 });
