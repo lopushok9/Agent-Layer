@@ -1,4 +1,4 @@
-import { decodeAbiParameters, decodeFunctionData, encodeFunctionData, erc20Abi, getAddress, isAddressEqual, parseAbi, type Address, type Hex } from "viem";
+import { decodeAbiParameters, decodeFunctionData, encodeAbiParameters, encodeFunctionData, erc20Abi, getAddress, isAddressEqual, parseAbi, type Address, type Hex } from "viem";
 import { z } from "zod";
 import type { SmartWalletService } from "./smart-wallet.js";
 import { addressInput, chainIds, walletNetwork } from "./transaction-builder.js";
@@ -12,6 +12,7 @@ export const ENSO_ROUTER = "0xF75584eF6673aD213a685a1B58Cc0330B8eA22Cf" as const
 export const ENSO_SHORTCUTS = "0x4Fe93ebC4Ce6Ae4f81601cC7Ce7139023919E003" as const;
 const routerAbi = parseAbi([
   "function safeRouteSingle((uint8 tokenType, bytes data) tokenIn, (uint8 tokenType, bytes data) tokenOut, address receiver, bytes data) payable returns (bytes)",
+  "function routeSingle((uint8 tokenType, bytes data) tokenIn, bytes data) payable returns (bytes)",
   "function shortcuts() view returns (address)",
 ]);
 const NATIVE_TYPE = 0, ERC20_TYPE = 1;
@@ -34,8 +35,9 @@ type RouteResponse = { tx?: { to?: string; data?: string; value?: string | numbe
 // Enso's Route API turns "token X into position Y" into one transaction across
 // hundreds of protocols. Its response is untrusted: the only thing the user is
 // asked to rely on is what EnsoRouter.safeRouteSingle enforces on-chain (input
-// pulled, minimum output to the receiver checked after the route), so those
-// fields are decoded from the calldata and compared with the request.
+// pulled, minimum output to the receiver checked after the route), so the input
+// is decoded from the calldata and compared with the request, and the call sent
+// is always a safeRouteSingle with this account and the user's minimum.
 export class EnsoRoutes {
   constructor(private wallets: Backend, private transactions: Transactions, private apiKey: string, private fetcher: Fetch = fetch as unknown as Fetch) {}
 
@@ -75,16 +77,16 @@ export class EnsoRoutes {
 export function verifyRoute(route: RouteResponse, want: { account: Address; tokenIn: Address; tokenOut: Address; amountIn: bigint; slippageBps: number }) {
   const tx = route.tx;
   const invalid = () => new Error("Enso returned a route that does not match the request; nothing was prepared");
+  const notSingle = () => new Error("Enso route is not a single-token EnsoRouter route; nothing was prepared");
   if (!tx || typeof tx.to !== "string" || typeof tx.data !== "string" || !/^0x[0-9a-fA-F]*$/.test(tx.data)) throw invalid();
   if (!isAddressEqual(getAddress(tx.to), ENSO_ROUTER)) throw new Error("Enso route does not call the EnsoRouter; nothing was prepared");
   if (tx.from !== undefined && !isAddressEqual(getAddress(tx.from), want.account)) throw invalid();
   let decoded;
-  try { decoded = decodeFunctionData({ abi: routerAbi, data: tx.data as Hex }); } catch { throw new Error("Enso route is not a safeRouteSingle call with an on-chain minimum; nothing was prepared"); }
-  if (decoded.functionName !== "safeRouteSingle") throw new Error("Enso route is not a safeRouteSingle call with an on-chain minimum; nothing was prepared");
-  const [inToken, outToken, receiver] = decoded.args;
+  try { decoded = decodeFunctionData({ abi: routerAbi, data: tx.data as Hex }); } catch { throw notSingle(); }
+  if (decoded.functionName !== "safeRouteSingle" && decoded.functionName !== "routeSingle") throw notSingle();
+  const inToken = decoded.args[0];
   const value = BigInt(tx.value ?? 0);
   const nativeIn = isAddressEqual(want.tokenIn, NATIVE), nativeOut = isAddressEqual(want.tokenOut, NATIVE);
-  if (!isAddressEqual(receiver, want.account)) throw new Error("Enso route sends the output to another address; nothing was prepared");
   // EnsoRouter._transfer: Native takes msg.value; ERC20 data is (token, amount).
   if (nativeIn) { if (inToken.tokenType !== NATIVE_TYPE || value !== want.amountIn) throw invalid(); }
   else {
@@ -92,6 +94,26 @@ export function verifyRoute(route: RouteResponse, want: { account: Address; toke
     const [token, amount] = decodeAbiParameters([{ type: "address" }, { type: "uint256" }], inToken.data);
     if (!isAddressEqual(token, want.tokenIn) || amount !== want.amountIn) throw invalid();
   }
+  const expected = (() => { try { return BigInt(String(Array.isArray(route.amountOut) ? route.amountOut[0] : route.amountOut)); } catch { return 0n; } })();
+  if (expected <= 0n) throw invalid();
+  // The on-chain floor must honour the user's tolerance against Enso's own quote.
+  const floor = expected * BigInt(10_000 - want.slippageBps) / 10_000n;
+  if (decoded.functionName === "routeSingle") {
+    // The Route API answers with routeSingle, which checks no output. Its
+    // safeRouteSingle runs the same routeSingle(tokenIn, data) and then reverts
+    // with AmountTooLow unless receiver's tokenOut balance grew by the minimum
+    // (EnsoRouter.sol), so the same shortcut is wrapped with this account as
+    // receiver and the user's floor as minimum. A shortcut that pays anyone
+    // else cannot pass that check.
+    if (floor <= 0n) throw invalid();
+    const tokenOut = nativeOut
+      ? { tokenType: NATIVE_TYPE, data: encodeAbiParameters([{ type: "uint256" }], [floor]) }
+      : { tokenType: ERC20_TYPE, data: encodeAbiParameters([{ type: "address" }, { type: "uint256" }], [want.tokenOut, floor]) };
+    const data = encodeFunctionData({ abi: routerAbi, functionName: "safeRouteSingle", args: [inToken, tokenOut, want.account, decoded.args[1]] });
+    return { value, data, expected, minimum: floor };
+  }
+  const [, outToken, receiver] = decoded.args;
+  if (!isAddressEqual(receiver, want.account)) throw new Error("Enso route sends the output to another address; nothing was prepared");
   // EnsoRouter._checkMinAmountOut: Native data is (minAmountOut); ERC20 is (token, minAmountOut).
   let minimum: bigint;
   if (nativeOut) { if (outToken.tokenType !== NATIVE_TYPE) throw invalid(); [minimum] = decodeAbiParameters([{ type: "uint256" }], outToken.data); }
@@ -101,10 +123,8 @@ export function verifyRoute(route: RouteResponse, want: { account: Address; toke
     if (!isAddressEqual(token, want.tokenOut)) throw invalid();
     minimum = min;
   }
-  const expected = (() => { try { return BigInt(String(Array.isArray(route.amountOut) ? route.amountOut[0] : route.amountOut)); } catch { return 0n; } })();
-  if (expected <= 0n || minimum <= 0n || minimum > expected) throw invalid();
-  // The on-chain floor must honour the user's tolerance against Enso's own quote.
-  if (minimum < expected * BigInt(10_000 - want.slippageBps) / 10_000n) throw new Error("Enso route minimum output is below the requested slippage; nothing was prepared");
+  if (minimum <= 0n || minimum > expected) throw invalid();
+  if (minimum < floor) throw new Error("Enso route minimum output is below the requested slippage; nothing was prepared");
   return { value, data: tx.data as Hex, expected, minimum };
 }
 

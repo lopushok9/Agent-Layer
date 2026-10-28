@@ -60,7 +60,7 @@ const publicMessages = new Set([
   "Enso found no route for these tokens and amount", "Enso route service is unavailable",
   "Enso returned a route that does not match the request; nothing was prepared",
   "Enso route does not call the EnsoRouter; nothing was prepared",
-  "Enso route is not a safeRouteSingle call with an on-chain minimum; nothing was prepared",
+  "Enso route is not a single-token EnsoRouter route; nothing was prepared",
   "Enso route sends the output to another address; nothing was prepared",
   "Enso route minimum output is below the requested slippage; nothing was prepared",
 ]);

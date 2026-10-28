@@ -26,7 +26,6 @@ test("only a safeRouteSingle on EnsoRouter with the requested input, this receiv
   assert.equal(verifyRoute(response(), want).minimum, 995n);
   const cases: [Parameters<typeof response>[0], RegExp][] = [
     [{ to: "0x3333333333333333333333333333333333333333" }, /does not call the EnsoRouter/],
-    [{ fn: "routeSingle" }, /not a safeRouteSingle/],
     [{ receiver: "0x3333333333333333333333333333333333333333" }, /another address/],
     [{ tokenIn: erc20(usdc, 2_000_000n) }, /does not match the request/],
     [{ tokenIn: erc20(vault, 1_000_000n) }, /does not match the request/],
@@ -39,6 +38,24 @@ test("only a safeRouteSingle on EnsoRouter with the requested input, this receiv
   ];
   for (const [o, re] of cases) assert.throws(() => verifyRoute(response(o), want), re, JSON.stringify(o));
   assert.throws(() => verifyRoute({ tx: { from: "0x3333333333333333333333333333333333333333", to: ENSO_ROUTER, data: response().tx.data } } as any, want), /does not match/);
+  assert.throws(() => verifyRoute({ ...response(), tx: { ...response().tx, data: encodeFunctionData({ abi: parseAbi(["function shortcuts() view returns (address)"]), functionName: "shortcuts" }) } }, want), /not a single-token EnsoRouter route/);
+});
+
+test("a routeSingle answer, which checks no output, is sent as safeRouteSingle to this account with the user's minimum", () => {
+  const r = verifyRoute(response({ fn: "routeSingle" }), want);
+  assert.equal(r.minimum, 995n, "1000 quoted, 50 bps");
+  const d = decodeFunctionData({ abi: routerAbi, data: r.data });
+  assert.equal(d.functionName, "safeRouteSingle");
+  const [tokenIn, tokenOut, receiver, shortcut] = d.args as any;
+  assert.deepEqual(tokenIn, erc20(usdc, 1_000_000n));
+  assert.deepEqual(tokenOut, erc20(vault, 995n));
+  assert.equal(receiver, account);
+  assert.equal(shortcut, "0x1234", "Enso's shortcut is kept unchanged");
+  const n = verifyRoute(response({ fn: "routeSingle", tokenIn: nativeToken(0n), value: "1000000" }), { ...want, tokenIn: native });
+  assert.equal(n.value, 1_000_000n);
+  const out = decodeFunctionData({ abi: routerAbi, data: verifyRoute(response({ fn: "routeSingle" }), { ...want, tokenOut: native }).data }).args as any;
+  assert.deepEqual(out[1], nativeToken(995n));
+  for (const o of [{ fn: "routeSingle", tokenIn: erc20(usdc, 2_000_000n) }, { fn: "routeSingle", value: "1" }, { fn: "routeSingle", amountOut: "0" }] as const) assert.throws(() => verifyRoute(response(o), want), /does not match/, JSON.stringify(o));
 });
 
 test("native input must equal msg.value and native output decodes its minimum", () => {

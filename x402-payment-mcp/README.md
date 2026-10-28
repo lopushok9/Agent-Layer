@@ -155,11 +155,13 @@ is untrusted; the preview is built only if:
 - the call targets EnsoRouter `0xF75584eF6673aD213a685a1B58Cc0330B8eA22Cf`, whose
   `shortcuts()` must return `0x4Fe93ebC4Ce6Ae4f81601cC7Ce7139023919E003` on-chain
   (same deployment on Ethereum and Base);
-- it is `safeRouteSingle`, which reverts unless the receiver gains at least the
-  encoded minimum (`routeSingle`, which checks nothing, is refused);
-- decoded input token and amount (or `msg.value` for ETH), output token,
-  receiver (this account) and the minimum match the request, and the minimum
-  is no lower than Enso's quote minus `slippage_bps`.
+- decoded input token and amount (or `msg.value` for ETH) match the request;
+- the call sent is always `safeRouteSingle`, which reverts unless the receiver
+  gains at least the encoded minimum. The Route API normally answers with
+  `routeSingle`, which checks nothing; its shortcut data is re-wrapped into
+  `safeRouteSingle` with this account as receiver and Enso's quote minus
+  `slippage_bps` as the minimum. A `safeRouteSingle` answer must already name
+  this account, the requested output token and a minimum no lower than that.
 
 ERC-20 input gets an exact approval to the router in the same batch (reset to
 zero first when a smaller allowance exists, for USDT-style tokens). The result is
