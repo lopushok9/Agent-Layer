@@ -4,10 +4,10 @@ import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { createUserMcp, INSTRUCTIONS, LINK_INSTRUCTIONS } from "../src/mcp.js";
 
 // Drives the real MCP server over JSON-RPC so the published schemas and argument handling are what a host actually sees.
-async function connect(payments:Record<string,(...args:any[])=>unknown>,link:Record<string,(...args:any[])=>unknown>|null=null,scopes:string[]=["x402:pay"],transactions?:any,wallets?:any,swaps?:any){
+async function connect(payments:Record<string,(...args:any[])=>unknown>,link:Record<string,(...args:any[])=>unknown>|null=null,scopes:string[]=["x402:pay"],transactions?:any,wallets?:any,swaps?:any,extensions:any={}){
   const [client,server]=InMemoryTransport.createLinkedPair();const pending=new Map<number,(value:any)=>void>();let id=0;
   client.onmessage=(message:any)=>{pending.get(message.id)?.(message);pending.delete(message.id);};
-  await createUserMcp("user-1",payments as any,link as any,wallets,transactions,scopes,swaps).connect(server);await client.start();
+  await createUserMcp("user-1",payments as any,link as any,wallets,transactions,scopes,swaps,extensions).connect(server);await client.start();
   const request=(method:string,params:unknown={})=>new Promise<any>(resolve=>{const n=++id;pending.set(n,resolve);void client.send({jsonrpc:"2.0",id:n,method,params} as any);});
   const init=await request("initialize",{protocolVersion:"2025-06-18",capabilities:{},clientInfo:{name:"test",version:"0"}});
   await client.send({jsonrpc:"2.0",method:"notifications/initialized"} as any);
@@ -94,4 +94,20 @@ test("Link tools appear only when Link is configured, always request approval, a
     const r=await call("link_create_spend_request",bad);assert.ok(r.result?.isError||r.error,JSON.stringify(bad));
   }
   assert.equal(seen.length,1,"invalid purchases never reach Link");
+});
+
+test("Enso routes and the protocol catalog are published only when Enso is configured, and the WETH unwrap rule is in the instructions",async()=>{
+  const names=async(extensions:any)=>((await (await connect({},null,["wallet:transact"],{},{},undefined,extensions)).request("tools/list")).result.tools as {name:string}[]).map(t=>t.name);
+  const plain=await names({});
+  assert.ok(!plain.some(n=>["route_preview","defi_catalog","defi_positions","action_preview"].includes(n)));
+  const seen:unknown[]=[];
+  const routes={preview:async()=>({}),actionPreview:async(...a:unknown[])=>{seen.push(a);return{operation_id:"op"};}};
+  const catalog={catalog:async()=>({}),positions:async()=>({}),supported:async()=>true};
+  const enso=await names({routes,catalog});const c0=await connect({},null,["wallet:transact"],{},{},undefined,{routes,catalog});
+  for(const n of ["route_preview","defi_catalog","defi_positions","action_preview"])assert.ok(enso.includes(n),n);
+  assert.match(c0.init.result.instructions,/WETH9 withdraw/);
+  const c=await connect({},null,["wallet:transact"],{},{},undefined,{routes,catalog});
+  const r=await c.call("action_preview",{network:"base",protocol:"erc4626",action:"borrow",token_in:"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",amount_in:"1",token_out:"0x4200000000000000000000000000000000000006",primary_address:"0x4200000000000000000000000000000000000006"});
+  assert.ok(r.result?.isError||r.error,"borrow is rejected by the published schema");
+  assert.equal(seen.length,0);
 });
