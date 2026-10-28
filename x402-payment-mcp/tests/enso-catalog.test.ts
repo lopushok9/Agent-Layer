@@ -37,7 +37,7 @@ test("requests share one queue spaced by the plan's rate limit", async () => {
   assert.deepEqual(h.calls.map(c => c.url.pathname.split("/").pop()), ["a", "b", "c"]);
   for (let i = 1; i < 3; i++) assert.ok(h.calls[i]!.at - h.calls[i - 1]!.at >= 110, "at least the interval apart");
   const limited = new EnsoApi("key", (async () => ({ ok: false, status: 429, json: async () => ({}) })) as any, 0);
-  await assert.rejects(limited.get("tokens", {}), /rate limit/);
+  await assert.rejects(limited.get("tokens", {}), /rate limit/, "a second 429 in a row is reported");
 });
 
 test("the catalog offers only router-safe actions on the requested chain, forks included, without inputs the wallet fixes", async () => {
@@ -122,4 +122,33 @@ test("action previews refuse unsupported actions, foreign pool arguments and ans
   const toEth = actionHarness({ tx: { to: ENSO_ROUTER, value: "0", data: encodeFunctionData({ abi: routerAbi, functionName: "routeSingle", args: [erc20(usdc, 100_000n), "0x"] }) }, amountsOut: { [native.toLowerCase()]: "1000" } });
   await toEth.routes.actionPreview("alice", { ...deposit, action: "redeem", token_out: native }, async () => true);
   assert.deepEqual(toEth.bodies[0]!.body, [{ protocol: "morpho-blue-vaults", action: "redeem", args: { tokenIn: usdc, tokenOut: native, amountIn: "100000", primaryAddress: vault, receiver: account } }], "native output is paid to receiver, no erc20 transfer");
+});
+
+test("native ETH from a pool that only holds WETH is swapped to WETH and unwrapped in the same route", async () => {
+  const native = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE" as Address, weth = "0x4200000000000000000000000000000000000006" as Address, pool = "0xF2EcC3A2dEFB4ECC1Ac510CBbc405a539A990BE4" as Address;
+  const bodies: any[] = []; let prepared: any;
+  const ok = { tx: { to: ENSO_ROUTER, value: "0", data: encodeFunctionData({ abi: routerAbi, functionName: "routeSingle", args: [erc20(usdc, 100_000n), "0xbeef"] }) }, amountsOut: { [native.toLowerCase()]: "1000" } };
+  const fetcher = async (_url: string, init: any) => { const body = JSON.parse(init.body); bodies.push(body); return body.length === 1 ? { ok: false, status: 422, json: async () => ({ message: "Underlying swaps are not supported" }) } : { ok: true, status: 200, json: async () => ok }; };
+  const rpc = { getChainId: async () => 8453, readContract: async (p: { functionName: string }) => p.functionName === "shortcuts" ? ENSO_SHORTCUTS : 0n };
+  const routes = new EnsoRoutes({ account: async () => ({ address: account }), rpc: () => rpc } as any, { prepare: async (_u: string, input: any, terms: any) => { prepared = { input, terms }; return {}; } } as any, "key", fetcher as any, 0);
+  const r: any = await routes.actionPreview("alice", { network: "base", protocol: "curve-twocrypto-ng", action: "swap", token_in: usdc, amount_in: "100000", token_out: native, primary_address: pool }, async () => true);
+  assert.equal(bodies.length, 2);
+  assert.deepEqual(bodies[0][0].args.receiver, account, "native output is first asked for directly");
+  assert.deepEqual(bodies[1], [
+    { protocol: "curve-twocrypto-ng", action: "swap", args: { tokenIn: usdc, tokenOut: weth, amountIn: "100000", primaryAddress: pool, slippage: "50" } },
+    { protocol: "wrapped-native", action: "redeem", args: { tokenIn: weth, tokenOut: native, amountIn: { useOutputOfCallAt: 0 }, primaryAddress: weth, receiver: account } },
+  ]);
+  const d = decodeFunctionData({ abi: routerAbi, data: prepared.input.calls.at(-1).data });
+  assert.equal(d.functionName, "safeRouteSingle");
+  assert.deepEqual(d.args[1], { tokenType: 0, data: encodeAbiParameters([{ type: "uint256" }], [995n]) }, "the on-chain minimum is in native ETH");
+  assert.deepEqual(r.route.hops, [{ action: "swap", protocol: "curve-twocrypto-ng" }, { action: "redeem", protocol: "wrapped-native" }]);
+});
+
+test("a 429 is retried once after the interval and only then reported", async () => {
+  let n = 0;
+  const flaky = new EnsoApi("key", (async () => (++n === 1 ? { ok: false, status: 429, json: async () => ({}) } : { ok: true, status: 200, json: async () => ({ fine: true }) })) as any, 0);
+  assert.deepEqual(await flaky.get("tokens", {}), { fine: true });
+  assert.equal(n, 2);
+  const declined = new EnsoApi("key", (async () => ({ ok: false, status: 422, json: async () => ({}) })) as any, 0);
+  await assert.rejects(declined.post("shortcuts/bundle", {}, []), /could not build this protocol action/);
 });

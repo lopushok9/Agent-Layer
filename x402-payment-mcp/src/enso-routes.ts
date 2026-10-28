@@ -89,7 +89,7 @@ export class EnsoRoutes {
       // is moved to this account by an explicit erc20 transfer of exactly what
       // the action returned. Native ETH output is paid to receiver directly.
       const nativeOut = isAddressEqual(tokenOut, NATIVE);
-      const args: Record<string, unknown> = { tokenIn, tokenOut, amountIn: p.amount_in, primaryAddress: getAddress(p.primary_address), ...(nativeOut ? { receiver: account } : {}) };
+      const args: Record<string, unknown> = { tokenIn, tokenOut, amountIn: p.amount_in, primaryAddress: getAddress(p.primary_address) };
       if (p.action === "swap") {
         args.slippage = String(p.slippage_bps);
         if (p.pool?.pool_fee) args.poolFee = p.pool.pool_fee;
@@ -97,9 +97,25 @@ export class EnsoRoutes {
         if (p.pool?.hooks) args.hooks = getAddress(p.pool.hooks);
         if (p.pool?.pool_id) args.poolId = p.pool.pool_id;
       } else if (p.pool) throw new Error("pool parameters apply only to swap");
-      const bundle = await this.api.post("shortcuts/bundle", { chainId: String(chainIds[p.network]), fromAddress: account, routingStrategy: "router", receiver: account, spender: account, refundReceiver: account }, [{ protocol: p.protocol, action: p.action, args }, ...(nativeOut ? [] : [{ protocol: "erc20", action: "transfer", args: { token: tokenOut, receiver: account, amount: { useOutputOfCallAt: 0 } } }])]) as RouteResponse & { amountsOut?: Record<string, unknown> };
+      const send = (actions: unknown[]) => this.api.post("shortcuts/bundle", { chainId: String(chainIds[p.network]), fromAddress: account, routingStrategy: "router", receiver: account, spender: account, refundReceiver: account }, actions) as Promise<RouteResponse & { amountsOut?: Record<string, unknown> }>;
+      const hop = { action: p.action, protocol: p.protocol };
+      let bundle, route = [hop];
+      if (!nativeOut) bundle = await send([{ protocol: p.protocol, action: p.action, args }, { protocol: "erc20", action: "transfer", args: { token: tokenOut, receiver: account, amount: { useOutputOfCallAt: 0 } } }]);
+      else {
+        try { bundle = await send([{ protocol: p.protocol, action: p.action, args: { ...args, receiver: account } }]); }
+        catch (e) {
+          // Pools that hold WETH (Curve crypto pools: "Underlying swaps are not
+          // supported") cannot pay native ETH; take WETH and unwrap it in the
+          // same route with Enso's wrapped-native redeem, which also avoids
+          // WETH9's 2300-gas transfer to this account.
+          if (!(e instanceof EnsoRejected)) throw e;
+          const weth = WETH[p.network];
+          bundle = await send([{ protocol: p.protocol, action: p.action, args: { ...args, tokenOut: weth } }, { protocol: "wrapped-native", action: "redeem", args: { tokenIn: weth, tokenOut: NATIVE, amountIn: { useOutputOfCallAt: 0 }, primaryAddress: weth, receiver: account } }]);
+          route = [hop, { action: "redeem", protocol: "wrapped-native" }];
+        }
+      }
       const out = bundle.amountsOut && typeof bundle.amountsOut === "object" ? Object.entries(bundle.amountsOut).find(([k]) => k.toLowerCase() === tokenOut.toLowerCase())?.[1] : undefined;
-      return { tx: bundle.tx, amountOut: out, priceImpact: bundle.priceImpact, route: [{ action: p.action, protocol: p.protocol }] } as RouteResponse;
+      return { tx: bundle.tx, amountOut: out, priceImpact: bundle.priceImpact, route } as RouteResponse;
     }, { protocol: p.protocol, action: p.action, primary_address: getAddress(p.primary_address) });
   }
 
@@ -129,6 +145,9 @@ export class EnsoRoutes {
   }
 }
 
+export class EnsoRejected extends Error {}
+const WETH: Record<WalletNetwork, Address> = { base: "0x4200000000000000000000000000000000000006", ethereum: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2" };
+
 // The free Enso plan allows one request per second. Every call goes through
 // one queue so concurrent agents wait instead of failing.
 export class EnsoApi {
@@ -142,13 +161,21 @@ export class EnsoApi {
     for (const [k, v] of Object.entries(query)) for (const x of Array.isArray(v) ? v : v === undefined ? [] : [v]) search.append(k, x);
     const url = `https://api.enso.build/api/v1/${path}${search.size ? `?${search}` : ""}`;
     const run = this.queue.then(async () => {
-      const wait = this.nextAt - Date.now();
-      if (wait > 0) await new Promise(r => setTimeout(r, wait));
-      this.nextAt = Date.now() + this.intervalMs;
-      const res = await this.fetcher(url, { method, headers: { "content-type": "application/json", authorization: `Bearer ${this.apiKey}` }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(20_000) });
-      if (res.status === 429) throw new Error("Enso rate limit reached; try again in a few seconds");
-      if (!res.ok) throw new Error(res.status !== 400 && res.status !== 404 ? "Enso route service is unavailable" : path === "shortcuts/bundle" ? "Enso could not build this protocol action with these inputs" : "Enso found no route for these tokens and amount");
-      return await res.json();
+      // The next request waits a full interval after this one completes:
+      // spacing request starts let two arrive at Enso less than a second
+      // apart (a live parallel pair got 429). One 429 is retried after it.
+      for (let attempt = 0; ; attempt++) {
+        const wait = this.nextAt - Date.now();
+        if (wait > 0) await new Promise(r => setTimeout(r, wait));
+        let res;
+        try { res = await this.fetcher(url, { method, headers: { "content-type": "application/json", authorization: `Bearer ${this.apiKey}` }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(20_000) }); }
+        finally { this.nextAt = Date.now() + this.intervalMs; }
+        if (res.status === 429) { if (attempt === 0) continue; throw new Error("Enso rate limit reached; try again in a few seconds"); }
+        // 400/404/422: Enso understood the request and declined it.
+        if ([400, 404, 422].includes(res.status)) throw new EnsoRejected(path === "shortcuts/bundle" ? "Enso could not build this protocol action with these inputs" : "Enso found no route for these tokens and amount");
+        if (!res.ok) throw new Error("Enso route service is unavailable");
+        return await res.json();
+      }
     });
     this.queue = run.catch(() => undefined);
     return run;
