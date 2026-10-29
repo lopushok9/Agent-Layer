@@ -12,6 +12,7 @@ import { matchedOperation, locateOperation, type OperationLocation } from "./ope
 import { walletErrorDiagnostic } from "./wallet-errors.js";
 import { assetChangeMismatch } from "./asset-changes.js";
 import { nftChangeMismatch } from "./nft-changes.js";
+import { annotateRecipients, type Names } from "./names.js";
 import { resolveInterrupted } from "./interrupted.js";
 import type { ContractMetadata } from "./contract-metadata.js";
 import { SimulationReverted, revertMessage } from "./revert-reason.js";
@@ -22,7 +23,7 @@ type Repository = Pick<WalletStore, "createOperation" | "operation" | "reserve" 
 type Lock = { withPaymentLock<T>(userId: string, action: () => Promise<T>): Promise<T> };
 
 export class TransactionService {
-  constructor(private wallets: Backend, private store: Repository, private lock: Lock, private ttl: number, private contracts: ContractMetadata | null = null) {}
+  constructor(private wallets: Backend, private store: Repository, private lock: Lock, private ttl: number, private contracts: ContractMetadata | null = null, private names: Names | null = null) {}
   async read(userId: string, input: z.input<typeof contractReadInput>) {
     const p = contractReadInput.parse(input);
     if (JSON.stringify(p).length > 180_000) throw new Error("read input too large");
@@ -40,7 +41,8 @@ export class TransactionService {
   async prepare(userId: string, input: TransactionInput, terms?: { route: Record<string, unknown>; floors: Record<string, string> }) {
     const account = await this.wallets.account(userId);
     const p = normalizeTransaction(await withVerifiedAbis(input, this.contracts), account.address, account.owners[0]?.address);
-    const descriptions = this.contracts ? await annotateCalls(p.network, p.account, p.calls, p.descriptions, this.contracts) : p.descriptions;
+    const annotated = this.contracts ? await annotateCalls(p.network, p.account, p.calls, p.descriptions, this.contracts) : p.descriptions;
+    const descriptions = this.names ? await annotateRecipients(annotated, p.network, this.names) : annotated;
     const simulation = await this.simulateNamed(p.network, account.address, p.calls);
     const network_fee = networkFee(await this.wallets.estimateNetworkFee(userId, p.network, p.calls));
     const { received_tolerance_bps: tolerance, minimum_received } = transactionInput.parse(input);

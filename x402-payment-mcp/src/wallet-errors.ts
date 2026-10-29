@@ -37,6 +37,7 @@ const publicMessages = new Set([
   "preview no longer matches this wallet and calls",
   "simulated asset changes differ from preview; prepare and confirm a new operation",
   "simulated NFT changes differ from preview; prepare and confirm a new operation",
+  "this name has no address for the selected network", "not a valid ENS name",
   "calldata target has no contract code on the selected network",
   "batch simulation reverted; nothing was signed",
   "zero address, wallet self-calls and internal owner calls are not allowed",

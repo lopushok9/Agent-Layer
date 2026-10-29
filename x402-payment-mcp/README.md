@@ -188,6 +188,18 @@ move, so `"0"` lets it shrink or vanish. Outflows and tokens absent from the
 preview stay strict, and a refused execution names the token with its previewed
 amount, minimum and new amount.
 
+### Names
+
+`name_resolve({network, name} | {network, address})` reads ENS on Ethereum
+(Basenames resolve through ENS's universal resolver and CCIP-read). A name
+returns the address it holds for the network: its ENSIP-11 chain record, else
+its default Ethereum address, with `address_source` saying which. Names are
+ENSIP-15 normalised, which refuses mixed-script look-alikes; other non-ASCII
+names carry a warning. An address returns its primary name (Basename reverse
+record on Base, then ENS) only when that name resolves back to the address.
+Previews add `calls[].recipient` (address and verified name) for token
+transfers and plain ETH sends; a slow lookup never blocks a preview.
+
 ### Portfolio
 
 `wallet_portfolio({network, min_value_usd?})` answers "what do I hold and what
