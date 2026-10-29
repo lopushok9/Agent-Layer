@@ -184,19 +184,28 @@ amount, minimum and new amount.
 ### Portfolio
 
 `wallet_portfolio({network, min_value_usd?})` answers "what do I hold and what
-does it earn" in one call. Enso's `wallet/balances` gives every token with a
-USD price; one `tokens?type=defi` call adds protocol, APY (base and reward), TVL
-and underlying tokens for the position tokens among them. Assets are sorted by
-value with `total_value_usd`. Tokens without a price or below `min_value_usd`
-are hidden and only counted (`hidden_asset_count`): airdropped spam names are
-attacker-chosen text. A volatile Aerodrome/Velodrome v2 LP (classic `stable()`
-or MetaDEX `POOL_TYPE()`) also gets its share of each reserve, TVL from the LP
-price when Enso has none, and, when Enso has no APY, a fee APR from the pool's
-`Fees` events over the last day (`apy_source: onchain_fees_24h`, cached 30 min).
-A source that fails is reported per position (`apy_error`) without failing the
-read. These follow the AgentLayer wallet's portfolio and Morpho readers: dust
-hidden by count, value-sorted totals, per-source errors next to the data, base
-and reward yield kept apart.
+does it earn" in one call, about two seconds cold and a fraction of that cached.
+
+- Balances, symbols and plain-token USD prices: Alchemy's Portfolio API
+  (`assets/tokens/by-address`), one call per account, keyed by the Alchemy RPC
+  URL's key. Without an Alchemy URL, or when it fails, Enso's `wallet/balances`.
+- Which tokens are DeFi positions, with protocol, APY (base and reward), TVL and
+  underlying tokens: Enso `tokens?type=defi`, cached per token for every user
+  (5 minutes; 6 hours for tokens that are not positions), so Enso calls grow
+  with distinct positions, not with users or calls.
+- Prices Alchemy does not have: an Aerodrome/Velodrome v2 LP from its pool's
+  reserves and token prices, ERC-4626 shares from `convertToAssets` and the
+  asset's price (Alchemy Prices API for tokens the account does not hold).
+- A volatile v2 pool (classic `stable()` or MetaDEX `POOL_TYPE()`) without an
+  Enso APY gets a fee APR from one day of its `index0`/`index1` fee indexes
+  (`apy_source: onchain_fee_index_24h`): six reads instead of a day of logs.
+- Tokens with no price that are not positions, and dust below `min_value_usd`,
+  are hidden and only counted: airdropped spam names are attacker-chosen text.
+  A failing source is reported per position (`apy_error`, `price_error`).
+
+These follow the AgentLayer wallet's portfolio and Morpho readers: dust hidden
+by count, value-sorted totals, per-source errors next to the data, base and
+reward yield kept apart, short caches.
 
 ### Protocol catalog and actions
 
