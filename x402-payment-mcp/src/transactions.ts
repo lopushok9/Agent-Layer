@@ -11,6 +11,7 @@ import { validateOperation } from "./user-operation.js";
 import { matchedOperation, locateOperation, type OperationLocation } from "./operation-receipt.js";
 import { walletErrorDiagnostic } from "./wallet-errors.js";
 import { assetChangeMismatch } from "./asset-changes.js";
+import { nftChangeMismatch } from "./nft-changes.js";
 import { resolveInterrupted } from "./interrupted.js";
 import type { ContractMetadata } from "./contract-metadata.js";
 import { SimulationReverted, revertMessage } from "./revert-reason.js";
@@ -119,7 +120,7 @@ export class TransactionService {
         if (account.address.toLowerCase() !== p.address.toLowerCase() || (!cancellation && transactionFingerprint(p.network, p.address, p.calls) !== p.fingerprint)) throw new Error("preview no longer matches this wallet and calls");
         const fresh = await this.wallets.simulate(p.network, p.address, p.calls);
         // Compare per-token deltas, not absolute balances (see asset-changes.ts).
-        const mismatch = assetChangeMismatch(p.simulation.asset_changes, fresh.asset_changes, assetFloors(p.simulation));
+        const mismatch = assetChangeMismatch(p.simulation.asset_changes, fresh.asset_changes, assetFloors(p.simulation)) ?? nftChangeMismatch(p.simulation.nft_changes, (fresh as { nft_changes?: unknown }).nft_changes);
         if (mismatch) throw new Error(mismatch);
         const result = await this.wallets.send(userId, p.network, p.calls, p.id, async (hash, prepared) => {
           await this.store.beforeSigning(p.id, hash, prepared);

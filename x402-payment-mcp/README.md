@@ -172,6 +172,13 @@ Its output floor is stored with the preview: execution accepts a fresh
 simulated output down to that on-chain minimum and compares every other token
 strictly. Enso's `delegate` strategies need delegatecall and are never used.
 
+NFTs are checked by id, not by viem's balance tracing (which sees an ERC-721
+only as a count and misses ERC-1155 entirely): `simulation.nft_changes` lists
+every ERC-721 `Transfer` and ERC-1155 `TransferSingle`/`TransferBatch` to or from
+the account in the simulated logs. Execution refuses an NFT leaving that the
+preview did not show leaving (by token id and amount), or a collection
+delivering fewer than previewed; a mint may deliver another id.
+
 `transaction_prepare` takes `minimum_received` (`{token: atomic amount}`) for
 the user's own minimum of a token the batch receives, at most its simulated
 amount. Chained steps use it for leftover change: the next step spends the

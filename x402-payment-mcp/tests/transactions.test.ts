@@ -160,3 +160,11 @@ test("preview fixes a minimum for each received token so a vault deposit still e
   await h.service.prepare("alice", { network: "base", received_tolerance_bps: 0, calls: [{ to: "0x3333333333333333333333333333333333333333", value: "0" }] });
   assert.deepEqual(created.simulation.asset_floors, { [shares]: "89510462534242420" }, "zero tolerance keeps the exact amount");
 });
+
+test("an NFT that leaves at execution but not in the preview blocks signing", async () => {
+  const h = harness();
+  h.p.simulation = { ...h.p.simulation, nft_changes: [] };
+  (h.wallets as any).simulate = async () => ({ asset_changes: [], nft_changes: [{ token: "0x4444444444444444444444444444444444444444", standard: "erc721", token_id: "7", diff: "-1" }] });
+  await assert.rejects(h.service.execute("alice", "id", "nft"), /simulated NFT changes differ from preview \(0x4444444444444444444444444444444444444444 token 7/);
+  assert.equal(h.signed(), 0);
+});

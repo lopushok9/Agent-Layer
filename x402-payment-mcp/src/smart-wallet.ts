@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { nftChanges } from "./nft-changes.js";
 import { CdpClient, type EvmSmartAccount } from "@coinbase/cdp-sdk";
 import { createPublicClient, http, concat, numberToHex, size, type Address, type Hex, type Chain, type TypedDataDefinition } from "viem";
 import { base, mainnet } from "viem/chains";
@@ -53,7 +54,7 @@ export class SmartWalletService {
     const result = await rpc.simulateCalls({ account, calls: calls.map(c => ({ ...c, value: BigInt(c.value) })), blockNumber, traceAssetChanges: true, validation: false });
     const failed = result.results.findIndex(r => r.status !== "success");
     if (failed >= 0) throw new SimulationReverted(failed, calls[failed]!.to, (result.results[failed]!.data ?? "0x") as Hex);
-    return { status: "success", block_number: blockNumber.toString(), kind: "sequential_execution", asset_changes: jsonValue(result.assetChanges), gas_used_execution_only: result.results.reduce((n, r) => n + r.gasUsed, 0n).toString(), limitations: ["Not ERC-4337 signature/deployment validation; tx.origin and deployment-time callbacks may differ.", "Gas is execution-only; it excludes account validation and network overhead.", "Asset changes inferred by RPC tracing can be incomplete. Simulation does not guarantee future execution."] };
+    return { status: "success", block_number: blockNumber.toString(), kind: "sequential_execution", asset_changes: jsonValue(result.assetChanges), nft_changes: nftChanges(result.results.flatMap(r => r.logs ?? []), account), gas_used_execution_only: result.results.reduce((n, r) => n + r.gasUsed, 0n).toString(), limitations: ["Not ERC-4337 signature/deployment validation; tx.origin and deployment-time callbacks may differ.", "Gas is execution-only; it excludes account validation and network overhead.", "Asset changes inferred by RPC tracing can be incomplete; NFT changes come from the simulated ERC-721/ERC-1155 transfer events. Simulation does not guarantee future execution."] };
   }
   private requireOperationKey() {
     if (!this.config.WALLET_OPERATION_ENCRYPTION_KEY || Buffer.from(this.config.WALLET_OPERATION_ENCRYPTION_KEY, "base64").length !== 32) throw new Error("UserOperation encryption key is not configured");

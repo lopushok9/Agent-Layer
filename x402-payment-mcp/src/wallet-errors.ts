@@ -36,6 +36,7 @@ const publicMessages = new Set([
   "preview expired; prepare a new operation", "operation is no longer available for signing",
   "preview no longer matches this wallet and calls",
   "simulated asset changes differ from preview; prepare and confirm a new operation",
+  "simulated NFT changes differ from preview; prepare and confirm a new operation",
   "calldata target has no contract code on the selected network",
   "batch simulation reverted; nothing was signed",
   "zero address, wallet self-calls and internal owner calls are not allowed",
@@ -69,6 +70,7 @@ const publicMessages = new Set([
 // Our own messages that quote request values (chain IDs, domains, viem's
 // typed-data validation). They never carry provider text, URLs or secrets.
 const publicPatterns = [
+  /^simulated NFT changes differ from preview \(0x[0-9a-f]{40}( token \d{1,78}: previewed out \d{1,78}, now out \d{1,78}|: previewed in \d{1,78}, now in \d{1,78})\); prepare and confirm a new operation$/,
   /^simulated asset changes differ from preview \(0x[0-9a-f]{40}: previewed (none|-?\d{1,80}, minimum -?\d{1,80}), now -?\d{1,80}\); prepare and confirm a new operation$/,
   /^minimum_received for 0x[0-9a-fA-F]{40} must be a token this batch receives, at most its simulated amount$/,
   /^typed data is for chain [^\s]{1,80}, not (base|ethereum); prepare it on that network$/,
