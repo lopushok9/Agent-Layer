@@ -209,6 +209,17 @@ record on Base, then ENS) only when that name resolves back to the address.
 Previews add `calls[].recipient` (address and verified name) for token
 transfers and plain ETH sends; a slow lookup never blocks a preview.
 
+`name_register_preview({name, years, set_primary?})` and
+`name_renew_preview({name, years})` build Basename (`name.base.eth`)
+transactions on Base against the upgradeable registrar controller
+(`0xa7d2…b322`, from the base/basenames README). Registration is one
+`register` call paying `registerPrice` in ETH, with address records for
+Ethereum and Base (ENSIP-11) on the L2 resolver and, by default, the reverse
+record; renewal pays `rentPrice`. The controller refunds excess with a call,
+which a smart account can receive. Both return a normal preview for
+`transaction_execute`. ENS `.eth` names are refused: ENS v2 (October 2026)
+moved registration to a new registry and charges rent in ERC-20.
+
 ### Portfolio
 
 `wallet_portfolio({network, min_value_usd?})` answers "what do I hold and what

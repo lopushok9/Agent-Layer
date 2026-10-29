@@ -118,3 +118,11 @@ test("name and NFT tools do not depend on Enso being configured",async()=>{
   for(const n of ["name_resolve","wallet_nfts"])assert.ok(tools.includes(n),n);
   assert.ok(!tools.includes("route_preview"));
 });
+
+test("Basename registration tools are published when configured, with their instructions",async()=>{
+  const c=await connect({},null,["wallet:transact"],{},{},undefined,{nameRegistration:{register:async()=>({}),renew:async()=>({})}});
+  const tools=((await c.request("tools/list")).result.tools as {name:string;inputSchema:any}[]);
+  for(const n of ["name_register_preview","name_renew_preview"])assert.ok(tools.some(t=>t.name===n),n);
+  assert.deepEqual(Object.keys(tools.find(t=>t.name==="name_register_preview")!.inputSchema.properties).sort(),["name","set_primary","years"]);
+  assert.match(c.init.result.instructions,/Name registration \(when name_register_preview exists\): Basenames only/);
+});

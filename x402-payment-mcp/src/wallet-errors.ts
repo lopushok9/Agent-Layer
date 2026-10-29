@@ -38,6 +38,8 @@ const publicMessages = new Set([
   "simulated asset changes differ from preview; prepare and confirm a new operation",
   "simulated NFT changes differ from preview; prepare and confirm a new operation",
   "this name has no address for the selected network", "not a valid ENS name",
+  "this name is not valid for registration", "this name is already registered", "this name is not registered; register it instead",
+  "a Basename is one label followed by .base.eth", "ENS .eth registration and renewal are not supported; these tools handle Basenames (name.base.eth)",
   "NFT lookup needs an Alchemy RPC URL for this network", "Alchemy NFT service is unavailable",
   "calldata target has no contract code on the selected network",
   "batch simulation reverted; nothing was signed",
