@@ -181,6 +181,23 @@ move, so `"0"` lets it shrink or vanish. Outflows and tokens absent from the
 preview stay strict, and a refused execution names the token with its previewed
 amount, minimum and new amount.
 
+### Portfolio
+
+`wallet_portfolio({network, min_value_usd?})` answers "what do I hold and what
+does it earn" in one call. Enso's `wallet/balances` gives every token with a
+USD price; one `tokens?type=defi` call adds protocol, APY (base and reward), TVL
+and underlying tokens for the position tokens among them. Assets are sorted by
+value with `total_value_usd`. Tokens without a price or below `min_value_usd`
+are hidden and only counted (`hidden_asset_count`): airdropped spam names are
+attacker-chosen text. A volatile Aerodrome/Velodrome v2 LP (classic `stable()`
+or MetaDEX `POOL_TYPE()`) also gets its share of each reserve, TVL from the LP
+price when Enso has none, and, when Enso has no APY, a fee APR from the pool's
+`Fees` events over the last day (`apy_source: onchain_fees_24h`, cached 30 min).
+A source that fails is reported per position (`apy_error`) without failing the
+read. These follow the AgentLayer wallet's portfolio and Morpho readers: dust
+hidden by count, value-sorted totals, per-source errors next to the data, base
+and reward yield kept apart.
+
 ### Protocol catalog and actions
 
 The same key enables three more tools:
