@@ -38,6 +38,7 @@ const publicMessages = new Set([
   "simulated asset changes differ from preview; prepare and confirm a new operation",
   "simulated NFT changes differ from preview; prepare and confirm a new operation",
   "this name has no address for the selected network", "not a valid ENS name",
+  "NFT lookup needs an Alchemy RPC URL for this network", "Alchemy NFT service is unavailable",
   "calldata target has no contract code on the selected network",
   "batch simulation reverted; nothing was signed",
   "zero address, wallet self-calls and internal owner calls are not allowed",

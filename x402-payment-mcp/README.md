@@ -188,6 +188,15 @@ move, so `"0"` lets it shrink or vanish. Outflows and tokens absent from the
 preview stay strict, and a refused execution names the token with its previewed
 amount, minimum and new amount.
 
+### NFTs
+
+`wallet_nfts({network, collection?, include_spam?, page_size?, page_key?})`
+lists the account's ERC-721 and ERC-1155 NFTs from Alchemy's NFT API
+(`getNFTsForOwner`): collection, standard, token id, name, balance and the
+OpenSea floor in ETH. Collections Alchemy classifies as spam are excluded
+unless `include_spam`. It is a separate call so `wallet_portfolio` never waits
+on NFT metadata. Names are deployer-chosen text, cleaned and labelled untrusted.
+
 ### Names
 
 `name_resolve({network, name} | {network, address})` reads ENS on Ethereum
