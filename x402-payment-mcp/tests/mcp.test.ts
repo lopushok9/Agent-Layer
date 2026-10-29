@@ -111,3 +111,10 @@ test("Enso routes and the protocol catalog are published only when Enso is confi
   assert.ok(r.result?.isError||r.error,"borrow is rejected by the published schema");
   assert.equal(seen.length,0);
 });
+
+test("name and NFT tools do not depend on Enso being configured",async()=>{
+  const c=await connect({},null,["wallet:transact"],{},{},undefined,{names:{resolve:async()=>({})},nfts:{list:async()=>({})}});
+  const tools=((await c.request("tools/list")).result.tools as {name:string}[]).map(t=>t.name);
+  for(const n of ["name_resolve","wallet_nfts"])assert.ok(tools.includes(n),n);
+  assert.ok(!tools.includes("route_preview"));
+});
