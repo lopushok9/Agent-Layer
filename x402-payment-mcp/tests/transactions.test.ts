@@ -125,6 +125,20 @@ test("a route preview's stored output floor lets execution accept a lower fresh 
   }
 });
 
+test("minimum_received sets the user's floor for a received token and refuses spent or unknown tokens", async () => {
+  const usdc = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", lp = "0x800eb395b577b234c5065c8e0ccb0f3a1401b2c2";
+  const h = harness();
+  let created: any;
+  (h.wallets as any).estimateNetworkFee = async () => 400n;
+  (h.wallets as any).simulate = async () => ({ asset_changes: [{ token: { address: usdc }, value: { pre: "1", post: "458", diff: "457" } }, { token: { address: lp }, value: { pre: "0", post: "1000", diff: "1000" } }] });
+  (h.service as any).store.createOperation = async (p: any) => { created = p; return { ...h.p, ...p, id: "new", status: "prepared" }; };
+  const call = { to: "0x3333333333333333333333333333333333333333", value: "0" };
+  await h.service.prepare("alice", { network: "base", calls: [call], minimum_received: { "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913": "0" } });
+  assert.deepEqual(created.simulation.asset_floors, { [usdc]: "0", [lp]: "995" });
+  await assert.rejects(h.service.prepare("alice", { network: "base", calls: [call], minimum_received: { [usdc]: "458" } }), /must be a token this batch receives, at most its simulated amount/);
+  await assert.rejects(h.service.prepare("alice", { network: "base", calls: [call], minimum_received: { "0x4200000000000000000000000000000000000006": "0" } }), /must be a token this batch receives/);
+});
+
 test("preview fixes a minimum for each received token so a vault deposit still executes after its share price moves", async () => {
   const usdc = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", shares = "0xee8f4ec5672f09119b96ab6fb59c27e1b7e44b61";
   const change = (out: string, spent = "-100000") => [{ token: { address: usdc }, value: { pre: "900000", post: "800000", diff: spent } }, { token: { address: shares }, value: { pre: "0", post: out, diff: out } }];

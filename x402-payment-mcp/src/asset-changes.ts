@@ -18,18 +18,29 @@ function deltas(changes: unknown): Deltas | null {
   return result;
 }
 
-// Same token set, and for every token the fresh delta is no worse for the wallet:
-// outflows may not grow, inflows may not shrink. Malformed data never passes.
-// floors: a route's output token whose approved minimum (enforced on-chain by
-// the route itself) replaces the simulated amount, as a swap's amountOutMinimum
-// does; every other token keeps the strict comparison.
+// For every token the fresh delta is no worse for the wallet: outflows may
+// not grow, inflows may not shrink. A token the preview did not show fails; a
+// previewed token missing now counts as 0, so it passes only with a 0 floor
+// (leftover change the user accepted may vanish). Malformed data never passes.
+// floors: a received token's approved minimum (a route's on-chain minimum, the
+// tolerance below the simulation, or the user's minimum_received) replaces the
+// simulated amount, as a swap's amountOutMinimum does; every other token keeps
+// the strict comparison.
 export function assetChangesWithinPreview(preview: unknown, fresh: unknown, floors: Record<string, bigint> = {}): boolean {
+  return assetChangeMismatch(preview, fresh, floors) === null;
+}
+
+// null when within the preview; otherwise the first token that is worse, so
+// the user sees which amount moved instead of a bare refusal.
+export function assetChangeMismatch(preview: unknown, fresh: unknown, floors: Record<string, bigint> = {}): string | null {
   const approved = deltas(preview), current = deltas(fresh);
-  if (!approved || !current || approved.size !== current.size) return false;
+  if (!approved || !current) return "simulated asset changes differ from preview; prepare and confirm a new operation";
+  for (const token of current.keys()) if (!approved.has(token)) return `simulated asset changes differ from preview (${token}: previewed none, now ${current.get(token)}); prepare and confirm a new operation`;
   for (const [token, diff] of approved) {
-    const now = current.get(token);
+    const now = current.get(token) ?? 0n;
     const floor = floors[token];
-    if (now === undefined || now < (floor !== undefined && floor > 0n && floor <= diff ? floor : diff)) return false;
+    const minimum = floor !== undefined && floor >= 0n && floor <= diff ? floor : diff;
+    if (now < minimum) return `simulated asset changes differ from preview (${token}: previewed ${diff}, minimum ${minimum}, now ${now}); prepare and confirm a new operation`;
   }
-  return true;
+  return null;
 }

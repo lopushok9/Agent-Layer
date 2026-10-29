@@ -10,7 +10,7 @@ import { nonceAbi, replacementFees, type SendOptions } from "./alchemy-executor.
 import { validateOperation } from "./user-operation.js";
 import { matchedOperation, locateOperation, type OperationLocation } from "./operation-receipt.js";
 import { walletErrorDiagnostic } from "./wallet-errors.js";
-import { assetChangesWithinPreview } from "./asset-changes.js";
+import { assetChangeMismatch } from "./asset-changes.js";
 import { resolveInterrupted } from "./interrupted.js";
 import type { ContractMetadata } from "./contract-metadata.js";
 import { SimulationReverted, revertMessage } from "./revert-reason.js";
@@ -42,8 +42,8 @@ export class TransactionService {
     const descriptions = this.contracts ? await annotateCalls(p.network, p.account, p.calls, p.descriptions, this.contracts) : p.descriptions;
     const simulation = await this.simulateNamed(p.network, account.address, p.calls);
     const network_fee = networkFee(await this.wallets.estimateNetworkFee(userId, p.network, p.calls));
-    const tolerance = transactionInput.parse(input).received_tolerance_bps;
-    const asset_floors = { ...receivedFloors(simulation.asset_changes, tolerance), ...(terms?.floors ?? {}) };
+    const { received_tolerance_bps: tolerance, minimum_received } = transactionInput.parse(input);
+    const asset_floors = { ...receivedFloors(simulation.asset_changes, tolerance), ...userMinimums(simulation.asset_changes, minimum_received), ...(terms?.floors ?? {}) };
     const saved = await this.store.createOperation({ userId, network: p.network, address: p.account, calls: p.calls, descriptions, fingerprint: transactionFingerprint(p.network, p.account, p.calls), simulation: { ...simulation, network_fee, received_tolerance_bps: tolerance, asset_floors, ...(terms ? { route: terms.route } : {}) } }, this.ttl);
     return { ...publicOperation(saved), next_step: "Show the full calls, allowances, native value, simulation (each received token's minimum is simulation.asset_floors) and fee limitations. Obtain the user's confirmation of this exact preview, then call transaction_execute once with its operation_id. No signature has been requested." };
   }
@@ -119,7 +119,8 @@ export class TransactionService {
         if (account.address.toLowerCase() !== p.address.toLowerCase() || (!cancellation && transactionFingerprint(p.network, p.address, p.calls) !== p.fingerprint)) throw new Error("preview no longer matches this wallet and calls");
         const fresh = await this.wallets.simulate(p.network, p.address, p.calls);
         // Compare per-token deltas, not absolute balances (see asset-changes.ts).
-        if (!assetChangesWithinPreview(p.simulation.asset_changes, fresh.asset_changes, assetFloors(p.simulation))) throw new Error("simulated asset changes differ from preview; prepare and confirm a new operation");
+        const mismatch = assetChangeMismatch(p.simulation.asset_changes, fresh.asset_changes, assetFloors(p.simulation));
+        if (mismatch) throw new Error(mismatch);
         const result = await this.wallets.send(userId, p.network, p.calls, p.id, async (hash, prepared) => {
           await this.store.beforeSigning(p.id, hash, prepared);
           signing = true;
@@ -267,6 +268,23 @@ export function receivedFloors(changes: unknown, bps: number): Record<string, st
     floors[token.toLowerCase()] = (BigInt(String(diff)) * BigInt(10_000 - bps) / 10_000n).toString();
   }
   return floors;
+}
+
+// The user's own minimum for a token this batch receives, e.g. "0" for the
+// leftover change of a step that feeds the next one. Only received tokens, and
+// never above the simulated amount: outflows stay strict.
+function userMinimums(changes: unknown, minimums: Record<string, string> | undefined): Record<string, string> {
+  if (!minimums) return {};
+  const received = new Map<string, bigint>();
+  for (const c of Array.isArray(changes) ? changes as { token?: { address?: unknown }; value?: { diff?: unknown } }[] : []) {
+    const token = c?.token?.address, diff = c?.value?.diff;
+    if (typeof token === "string" && /^\d+$/.test(String(diff))) received.set(token.toLowerCase(), BigInt(String(diff)));
+  }
+  return Object.fromEntries(Object.entries(minimums).map(([token, min]) => {
+    const key = token.toLowerCase(), diff = received.get(key);
+    if (diff === undefined || diff === 0n || BigInt(min) > diff) throw new Error(`minimum_received for ${getAddress(key)} must be a token this batch receives, at most its simulated amount`);
+    return [key, min];
+  }));
 }
 
 function assetFloors(simulation: Record<string, unknown>): Record<string, bigint> {

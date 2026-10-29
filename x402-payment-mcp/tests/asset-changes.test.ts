@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assetChangesWithinPreview } from "../src/asset-changes.js";
+import { assetChangeMismatch, assetChangesWithinPreview } from "../src/asset-changes.js";
 
 const usdc = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", weth = "0x4200000000000000000000000000000000000006";
 const change = (address: string, pre: string, post: string, diff: string) => ({ token: { address, decimals: 6, symbol: "T" }, value: { pre, post, diff } });
@@ -28,4 +28,17 @@ test("a better outcome for the wallet passes; empty simulations stay comparable"
   assert.equal(assetChangesWithinPreview(preview, [change(weth, "0", "301", "301")]), true);
   assert.equal(assetChangesWithinPreview(undefined, undefined), true);
   assert.equal(assetChangesWithinPreview([], []), true);
+});
+
+test("a refusal names the token and amounts; a zero floor lets leftover change shrink or vanish", () => {
+  const lp = "0x800eb395b577b234c5065c8e0ccb0f3a1401b2c2", u = usdc.toLowerCase();
+  const preview = [change(usdc, "393578", "394035", "457"), change(lp, "0", "1025524908", "1025524908")];
+  const floors = { [u]: 454n, [lp]: 1020397283n };
+  assert.equal(assetChangeMismatch(preview, [change(usdc, "393578", "393947", "369"), change(lp, "0", "1025524908", "1025524908")], floors),
+    `simulated asset changes differ from preview (${u}: previewed 457, minimum 454, now 369); prepare and confirm a new operation`);
+  const zero = { ...floors, [u]: 0n };
+  assert.equal(assetChangesWithinPreview(preview, [change(usdc, "393578", "393947", "369"), change(lp, "0", "1021000000", "1021000000")], zero), true);
+  assert.equal(assetChangesWithinPreview(preview, [change(lp, "0", "1021000000", "1021000000")], zero), true, "change that vanished");
+  assert.equal(assetChangesWithinPreview(preview, [change(usdc, "393578", "393577", "-1"), change(lp, "0", "1021000000", "1021000000")], zero), false, "a zero floor never allows spending");
+  assert.equal(assetChangesWithinPreview(preview, [change(lp, "0", "1021000000", "1021000000")], floors), false, "without it the vanished change fails");
 });

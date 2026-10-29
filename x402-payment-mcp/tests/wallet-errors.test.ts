@@ -16,3 +16,11 @@ test("execution diagnostics retain safe CDP categories and correlation IDs, neve
   error.errorType = "private-signature"; error.correlationId = "https://rpc.example/private-key";
   assert.deepEqual(walletErrorDiagnostic(error), { error_type: "unexpected_error", category: "insufficient_funds", status_code: 400 });
 });
+
+test("asset mismatch and minimum_received messages reach the agent verbatim", () => {
+  for (const m of [
+    "simulated asset changes differ from preview (0x833589fcd6edb6e08f4c7c32d4f71b54bda02913: previewed 457, minimum 454, now 369); prepare and confirm a new operation",
+    "simulated asset changes differ from preview (0x4200000000000000000000000000000000000006: previewed none, now -1); prepare and confirm a new operation",
+    "minimum_received for 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 must be a token this batch receives, at most its simulated amount",
+  ]) assert.equal(publicWalletError(new Error(m)).message, m);
+});

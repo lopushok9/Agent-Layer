@@ -25,6 +25,7 @@ export const transactionInput = z.strictObject({
   network: walletNetwork,
   calls: z.array(callInput).min(1).max(16),
   received_tolerance_bps: z.number().int().min(0).max(500).default(50).describe("How far below the simulated amount a received token may fall at execution, in bps (vault shares and interest-bearing tokens change every block). Outgoing amounts never tolerate any increase."),
+  minimum_received: z.record(addressInput, atomicInput).refine(v => Object.keys(v).length <= 16, "at most 16 minimums").optional().describe("The user's own minimum per received token address (atomic units), replacing the tolerance for that token; at most its simulated amount. Use \"0\" for leftover change a batch step may or may not return."),
 });
 export type TransactionInput = z.input<typeof transactionInput>;
 export type NormalizedCall = { to: Address; value: string; data: Hex };

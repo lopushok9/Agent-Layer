@@ -69,6 +69,8 @@ const publicMessages = new Set([
 // Our own messages that quote request values (chain IDs, domains, viem's
 // typed-data validation). They never carry provider text, URLs or secrets.
 const publicPatterns = [
+  /^simulated asset changes differ from preview \(0x[0-9a-f]{40}: previewed (none|-?\d{1,80}, minimum -?\d{1,80}), now -?\d{1,80}\); prepare and confirm a new operation$/,
+  /^minimum_received for 0x[0-9a-fA-F]{40} must be a token this batch receives, at most its simulated amount$/,
   /^typed data is for chain [^\s]{1,80}, not (base|ethereum); prepare it on that network$/,
   /^invalid EIP-712 typed data: [^\n]{1,300}$/,
   /^app request is (pending|prepared|submitted|responded|rejected|expired)$/,

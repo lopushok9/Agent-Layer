@@ -172,6 +172,15 @@ Its output floor is stored with the preview: execution accepts a fresh
 simulated output down to that on-chain minimum and compares every other token
 strictly. Enso's `delegate` strategies need delegatecall and are never used.
 
+`transaction_prepare` takes `minimum_received` (`{token: atomic amount}`) for
+the user's own minimum of a token the batch receives, at most its simulated
+amount. Chained steps use it for leftover change: the next step spends the
+first step's guaranteed amount, the change is whatever the first step returned
+above it, and the default 50 bps floor on a few hundred units fails on any price
+move, so `"0"` lets it shrink or vanish. Outflows and tokens absent from the
+preview stay strict, and a refused execution names the token with its previewed
+amount, minimum and new amount.
+
 ### Protocol catalog and actions
 
 The same key enables three more tools:
