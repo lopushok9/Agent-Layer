@@ -86,6 +86,8 @@ def main() -> None:
             assert "<svg" in html_response.text
             assert "Active Installs" in html_response.text
             assert "Wallet-Active Installs" in html_response.text
+            assert "Wallet-Active Installs — Cumulative" in html_response.text
+            assert "1 unique installs · retained history" in html_response.text
             assert "Wallet Users by Host" in html_response.text
             assert "Usage by framework" in html_response.text
             assert "Adoption funnel" in html_response.text

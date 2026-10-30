@@ -171,6 +171,9 @@ install activity:
 
 - `wallet_active_installs` — unique `install_id` values with at least one
   `tool_invoke` during the selected window
+- `cumulative_wallet_active_installs` — all-time daily cumulative unique installs,
+  counted from each install's first received `tool_invoke` in retained history;
+  independent of the selected window and subject to internal-install exclusions
 - `wallet_dau` — unique `install_id` values with at least one `tool_invoke`
   during the last 24 hours
 - `wallet_by_host` — wallet-specific breakdown by host/plugin

@@ -239,10 +239,11 @@ def _svg_line_chart(
     value_key: str = "count",
     accent: str = "#2563eb",
     days: int = 30,
+    cumulative: bool = False,
 ) -> str:
     rows = series[-days:] if days > 0 else list(series)
     values = [int(row.get(value_key, 0) or 0) for row in rows]
-    labels = [str(row.get("day", ""))[5:] for row in rows]
+    labels = [str(row.get("day", "")) if cumulative else str(row.get("day", ""))[5:] for row in rows]
     total = sum(values)
     peak = max(values, default=0)
     width = 520
@@ -296,9 +297,9 @@ def _svg_line_chart(
       <div class="chart-head">
         <div>
           <h3>{html.escape(title)}</h3>
-          <p>{html.escape(_format_int(total))} total</p>
+          <p>{html.escape(_format_int(values[-1] if values else 0)) + ' unique installs · retained history' if cumulative else html.escape(_format_int(total)) + ' total'}</p>
         </div>
-        <div class="chart-meta">peak/day {html.escape(_format_int(peak))}</div>
+        <div class="chart-meta">{'all time' if cumulative else 'peak/day ' + html.escape(_format_int(peak))}</div>
       </div>
       <svg viewBox="0 0 {width} {height}" role="img" aria-label="{html.escape(title)}">
         <rect x="0" y="0" width="{width}" height="{height}" fill="#ffffff" />
@@ -693,6 +694,7 @@ def _render_telemetry_dashboard(stats: dict[str, Any]) -> str:
       {_svg_line_chart("RPC Usage", list(daily.get("rpc_calls") or []), accent="#0f766e", days=30)}
       {_svg_line_chart("Active Installs", list(daily.get("active_installs") or []), accent="#ea580c", days=30)}
       {_svg_line_chart("Wallet-Active Installs", list(daily.get("wallet_active_installs") or []), accent="#dc2626", days=30)}
+      {_svg_line_chart("Wallet-Active Installs — Cumulative", list(stats.get("cumulative_wallet_active_installs") or []), accent="#dc2626", days=0, cumulative=True)}
     </section>
 
     <div class="section-title">Frameworks</div>

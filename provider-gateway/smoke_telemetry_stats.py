@@ -3,12 +3,28 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import tempfile
+from datetime import date, timedelta
 
 import telemetry_store
 
 
 def main() -> None:
+    # Repeated calls, failures, and non-wallet events must not inflate the
+    # cumulative count; gaps must retain the preceding total.
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE ev (install_id TEXT, event TEXT, received_ts INTEGER, ok INTEGER)")
+    today = date.today()
+    first = (today - timedelta(days=3)).isoformat()
+    third = (today - timedelta(days=1)).isoformat()
+    conn.executemany(
+        "INSERT INTO ev VALUES (?, ?, strftime('%s', ?), ?)",
+        [("a", "tool_invoke", first, 0), ("a", "tool_invoke", third, 1),
+         ("b", "tool_invoke", third, 1), ("c", "session_start", first, 1)],
+    )
+    assert [row["count"] for row in telemetry_store._cumulative_wallet_installs(conn)] == [1, 1, 2, 2]
+    conn.close()
     original_env = {
         "TELEMETRY_DB_PATH": os.environ.get("TELEMETRY_DB_PATH"),
         "NPM_DOWNLOADS_ENABLED": os.environ.get("NPM_DOWNLOADS_ENABLED"),
@@ -96,6 +112,7 @@ def main() -> None:
             assert stats["total_events"] == 3
             assert stats["active_installs"] == 1
             assert stats["wallet_active_installs"] == 1
+            assert stats["cumulative_wallet_active_installs"][-1]["count"] == 1
             assert stats["wallet_dau"] == 1
             assert {"key": "codex", "calls": 2, "installs": 1} in stats["by_host"]
             assert stats["wallet_by_host"] == [{"key": "codex", "calls": 1, "installs": 1}]
