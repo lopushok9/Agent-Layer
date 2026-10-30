@@ -27,8 +27,13 @@ reconnect with the new scope to access contract tools.
 1. `smart_wallet_status({network:"base"})` returns the receive address, native
    balance and deployment state. Ethereum uses `network:"ethereum"`.
 2. `contract_read` accepts `network`, `to`, `abi`, `function_name`, and `args`.
-   Omit `abi` to use the contract's verified ABI (see below). It never signs.
-   Returned strings and caller-provided ABI are untrusted.
+   Omit `abi` to use the contract's verified ABI (see below). When unavailable,
+   standard ERC-20 and ERC-4626 read methods use built-in signatures with
+   `abi_source: "standard_abi_unverified"` and a warning; a matching selector
+   does not prove the contract implements the standard. Other methods require
+   an explicit ABI with output types. Selector guesses alone are never used to
+   decode read results. It never signs. Caller-provided ABIs and all returned
+   values are untrusted.
 3. `transaction_prepare` accepts up to 16 ordered calls on one network. Each call
    is `{to,value,data}` or `{to,value,function_name,args}`; `abi` is optional and
    without it the target's verified ABI (Sourcify/Etherscan, behind proxies)

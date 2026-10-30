@@ -63,9 +63,29 @@ test("contract_read without an ABI uses the verified one and reports its source;
   assert.equal(r.abi_source, "verified_sourcify");
   assert.equal(r.implementation, implementation);
   assert.equal(r.result, 6);
-  await assert.rejects(service.read("alice", { network: "base", to: spender, function_name: "decimals" }), /supply abi/);
+  await assert.rejects(service.read("alice", { network: "base", to: spender, function_name: "unknownMethod" }), /supply abi/);
   const bare = new TransactionService(wallets as any, {} as any, { withPaymentLock: async (_u, fn) => fn() }, 600);
-  await assert.rejects(bare.read("alice", { network: "base", to: token, function_name: "decimals" }), /supply abi/);
+  await assert.rejects(bare.read("alice", { network: "base", to: token, function_name: "unknownMethod" }), /supply abi/);
+});
+
+test("unverified selector ABIs never decode reads; known standard reads get explicit return types and a warning", async () => {
+  const guessed = parseAbi(["function name()", "function totalBorrow()"]);
+  let calls = 0;
+  const rpc = { getChainId: async () => 8453, readContract: async (p: { functionName: string; abi: any[] }) => {
+    calls++;
+    assert.equal(p.functionName, "name");
+    assert.equal(p.abi[0].outputs[0].type, "string");
+    return "Peapods Interest Bearing WETH - 12";
+  } };
+  const wallets = { account: async () => ({ address: account as Address }), rpc: () => rpc };
+  const service = new TransactionService(wallets as any, {} as any, { withPaymentLock: async (_u, fn) => fn() }, 600, metadata({ [token]: { abi: guessed, source: "bytecode_selectors" } }));
+  const result = await service.read("alice", { network: "base", to: token, function_name: "name" });
+  assert.equal(result.result, "Peapods Interest Bearing WETH - 12");
+  assert.equal(result.abi_source, "standard_abi_unverified");
+  assert.match(result.warning!, /unverified/);
+  await assert.rejects(service.read("alice", { network: "base", to: token, function_name: "totalBorrow" }), /supply abi/);
+  await assert.rejects(service.read("alice", { network: "base", to: token, function_name: "name", args: ["unexpected"] }), /supply abi/);
+  assert.equal(calls, 1);
 });
 
 test("function_name without abi is encoded with the target's verified ABI, and only a verified one", async () => {
