@@ -435,6 +435,31 @@ def _daily_series(conn: sqlite3.Connection, since_ts: int, window_days: int) -> 
     }
 
 
+def _cumulative_wallet_installs(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Unique installs by first received wallet call, across retained history."""
+    rows = conn.execute(
+        """
+        SELECT date(first_ts, 'unixepoch'), COUNT(*) FROM (
+            SELECT MIN(received_ts) AS first_ts FROM ev
+            WHERE event = 'tool_invoke' GROUP BY install_id
+        ) GROUP BY date(first_ts, 'unixepoch') ORDER BY 1
+        """
+    ).fetchall()
+    if not rows:
+        return []
+    counts = {str(day): int(count) for day, count in rows}
+    day = date.fromisoformat(str(rows[0][0]))
+    today = date.today()
+    total = 0
+    result = []
+    while day <= today:
+        key = day.isoformat()
+        total += counts.get(key, 0)
+        result.append({"day": key, "count": total})
+        day += timedelta(days=1)
+    return result
+
+
 def _tool_category_breakdown(conn: sqlite3.Connection, since_ts: int) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
@@ -1203,6 +1228,7 @@ def summary(window_days: int = 30) -> dict[str, Any]:
         success_by_family = _success_rate_breakdown(conn, since)
         x402 = _x402_summary(conn, since)
         daily = _daily_series(conn, since, window_days)
+        cumulative_wallet_active_installs = _cumulative_wallet_installs(conn)
 
     # Overall success is about wallet tool calls; installer events have their
     # own families in success_by_family.
@@ -1244,6 +1270,7 @@ def summary(window_days: int = 30) -> dict[str, Any]:
         "success_by_family": success_by_family,
         "x402": x402,
         "daily": daily,
+        "cumulative_wallet_active_installs": cumulative_wallet_active_installs,
         "npm_downloads": npm_downloads,
         "rpc_usage": rpc_usage_summary(window_days),
     }
