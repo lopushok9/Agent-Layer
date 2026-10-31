@@ -23,26 +23,33 @@ const defi = [
   { address: lp.toLowerCase(), protocol: "aerodrome-metadex", primaryAddress: "0x0fEf9e88A7b76BCDBF451780C6774FE32965Ee98", apy: null, apyBase: null, apyReward: null, tvl: null, underlyingTokens: [{ address: usdc, symbol: "USDC", decimals: 6 }, { address: weth, symbol: "WETH", decimals: 18 }] },
 ];
 
-function harness({ poolType = "V2_VOLATILE", rpcDown = false, alchemyDown = false, url = rpcUrl as string | undefined } = {}) {
+function harness({ poolType = "V2_VOLATILE", rpcDown = false, alchemyDown = false, url = rpcUrl as string | undefined, peapodsBalance = 0n, morphoDown = false, morphoRows = [] as any[] } = {}) {
   const enso: { path: string; query: any }[] = [], http: { url: string; body: any }[] = [];
   const api = { get: async (path: string, query: any) => { enso.push({ path, query }); return path === "wallet/balances" ? [{ token: "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", amount: "10000000000000000", decimals: 18, price: "2000", symbol: "ETH" }] : { data: defi.filter(d => query.address.map((a: string) => a.toLowerCase()).includes(d.address)) }; } };
   const fetcher = async (u: string, init: any) => {
     http.push({ url: u, body: JSON.parse(init.body) });
+    if (u === "https://api.morpho.org/graphql") return morphoDown ? new Response("down", { status: 503 }) : Response.json({ data: { userByAddress: { marketPositions: morphoRows } } });
     if (alchemyDown) return new Response("down", { status: 503 });
     if (u.includes("/prices/v1/")) return Response.json({ data: [{ prices: [{ currency: "usd", value: "2000" }] }] });
     return Response.json({ data: { tokens } });
   };
   const reads: string[] = [];
   const rpc = {
-    readContract: async ({ functionName, blockNumber }: { functionName: string; blockNumber?: bigint }) => {
+    readContract: async ({ address, functionName, blockNumber }: { address: string; functionName: string; blockNumber?: bigint }) => {
       reads.push(functionName);
       if (rpcDown) throw new Error("rpc down");
+      if (address.toLowerCase() === "0x23574154842bc86cf5bbc5f99376cfa1e2f82497") {
+        if (functionName === "balanceOf") return peapodsBalance;
+        if (functionName === "asset") return weth;
+        if (functionName === "convertToAssets") return 127n * 10n ** 16n;
+      }
       const past = blockNumber !== undefined && blockNumber <= 100_000n;
       // 0.1% of each reserve per LP token over the day: index growth of 1e18 x (reserve / supply) x 0.001.
       const values: Record<string, unknown> = {
         getReserves: [1_000n * 10n ** 18n, 2_000_000n * 10n ** 6n, 0n], totalSupply: 10n ** 16n, token0: weth, token1: usdc,
         POOL_TYPE: stringToHex(poolType, { size: 32 }), index0: past ? 0n : 10n ** 21n * 10n ** 18n / 10n ** 16n / 1000n, index1: past ? 0n : 2n * 10n ** 12n * 10n ** 18n / 10n ** 16n / 1000n,
         convertToAssets: 1_050_000n, asset: usdc,
+        balanceOf: peapodsBalance,
       };
       return functionName in values ? values[functionName] : Promise.reject(new Error("reverted"));
     },
@@ -68,6 +75,29 @@ test("Alchemy gives balances and prices; Enso is asked only which tokens are pos
   const v = find(r, "gtUSDCp");
   assert.equal(v.price_usd, 1.05, "ERC-4626 convertToAssets x the asset's price");
   assert.deepEqual([v.position.apy, v.position.apy_source, v.position.tvl_usd], [6.2, "enso", 405e6]);
+});
+
+test("portfolio includes a curated Peapods balance and Morpho collateral and debt", async () => {
+  const market = { marketId: `0x${"a".repeat(64)}`, lltv: "860000000000000000", loanAsset: { address: weth, symbol: "WETH", decimals: 18 }, collateralAsset: { address: usdc, symbol: "USDC", decimals: 6 }, state: { borrowApy: 0.01 } };
+  const state = { supplyAssets: 0, supplyAssetsUsd: 0, borrowAssets: "30000000000000", borrowAssetsUsd: 0.06, collateral: "100000", collateralUsd: 0.1 };
+  const h = harness({ peapodsBalance: 10n ** 18n, morphoRows: [{ market, state }] });
+  const r: any = await h.p.portfolio("alice", { network: "base", min_value_usd: 0 });
+  const pea = find(r, "pfWETH-12");
+  assert.equal(pea.amount, 1); assert.equal(pea.position.protocol, "peapods-finance");
+  assert.equal(r.morpho_market_positions[0].collateral, 0.1);
+  assert.equal(r.morpho_market_positions[0].borrow, 0.00003);
+  assert.equal(r.morpho_market_positions[0].borrow_apy_percent, 1);
+  assert.equal(r.morpho_market_positions[0].liquidation_ltv_percent, 86);
+  assert.equal(r.defi_totals.net_portfolio_usd, Math.round((r.total_value_usd + 0.1 - 0.06) * 100) / 100);
+});
+
+test("failed Morpho or Peapods reads are visible and do not produce a net total", async () => {
+  const r: any = await harness({ morphoDown: true }).p.portfolio("alice", { network: "base" });
+  assert.equal(r.morpho_market_positions, null); assert.equal(r.defi_totals.net_portfolio_usd, null);
+  assert.ok(r.defi_errors.includes("Morpho market positions unavailable"));
+  const down: any = await harness({ rpcDown: true }).p.portfolio("alice", { network: "base" });
+  assert.ok(down.defi_errors.includes("Peapods vault balance could not be read"));
+  assert.equal(down.defi_totals.net_portfolio_usd, null);
 });
 
 test("Enso metadata is cached per token across users and calls", async () => {

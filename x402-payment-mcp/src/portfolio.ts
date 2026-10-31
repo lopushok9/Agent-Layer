@@ -29,6 +29,10 @@ const poolAbi = parseAbi([
   "function index1() view returns (uint256)",
 ]);
 const vaultAbi = parseAbi(["function convertToAssets(uint256 shares) view returns (uint256)", "function asset() view returns (address)"]);
+const balanceAbi = parseAbi(["function balanceOf(address) view returns (uint256)"]);
+const PEAPODS_BASE = getAddress("0x23574154842bc86cf5bbc5f99376cfa1e2f82497");
+const WETH_BASE = getAddress("0x4200000000000000000000000000000000000006");
+const MORPHO_QUERY = `query Portfolio($address: String!, $chainId: Int!) { userByAddress(address: $address, chainId: $chainId) { marketPositions { market { marketId lltv loanAsset { address symbol decimals } collateralAsset { address symbol decimals } state { borrowApy } } state { supplyAssets supplyAssetsUsd borrowAssets borrowAssetsUsd collateral collateralUsd } } } }`;
 
 // One read of what the account holds, what it is worth and what each DeFi
 // position earns. Alchemy's Portfolio API gives balances and plain-token
@@ -56,8 +60,21 @@ export class Portfolio {
       source = "enso";
       holdings = await this.cached(`enso:${p.network}:${address}`, 30_000, () => this.ensoHoldings(p.network, address)) as Holding[];
     }
+    // This supported vault is not indexed consistently by wallet balance or
+    // Enso metadata APIs. On-chain balance is authoritative for this token.
+    let peapodsError: string | null = null;
+    if (p.network === "base") {
+      try {
+        const balance = await this.wallets.rpc(p.network).readContract({ address: PEAPODS_BASE, abi: balanceAbi, functionName: "balanceOf", args: [address] });
+        holdings = holdings.filter(h => h.token.toLowerCase() !== PEAPODS_BASE.toLowerCase());
+        if (balance > 0n) holdings.push({ token: PEAPODS_BASE.toLowerCase(), symbol: "pfWETH-12", decimals: 18, amount_raw: balance, price: null });
+      } catch { peapodsError = "Peapods vault balance could not be read"; }
+    }
     const meta = await this.defiTokens(p.network, holdings.filter(h => h.token !== NATIVE).map(h => h.token));
+    if (p.network === "base" && holdings.some(h => h.token === PEAPODS_BASE.toLowerCase())) meta.set(PEAPODS_BASE.toLowerCase(), { protocol: "peapods-finance", primaryAddress: PEAPODS_BASE, underlyingTokens: [{ address: WETH_BASE, symbol: "WETH", decimals: 18 }] });
     const prices = new Map(holdings.filter(h => h.price !== null).map(h => [h.token, h.price!]));
+    if (p.network === "base" && prices.has(NATIVE) && !prices.has(WETH_BASE.toLowerCase())) prices.set(WETH_BASE.toLowerCase(), prices.get(NATIVE)!);
+    const morpho = await this.morphoPositions(p.network, address).catch(() => null);
     const rows = await Promise.all(holdings.map(async h => {
       const d = meta.get(h.token);
       const amount = Number(h.amount_raw) / 10 ** h.decimals;
@@ -71,6 +88,10 @@ export class Portfolio {
     // anything else needs a price at or above the dust threshold.
     const shown = rows.filter(r => r.value_usd === null ? r.defi : r.value_usd >= p.min_value_usd);
     shown.sort((a, b) => (b.value_usd ?? -1) - (a.value_usd ?? -1));
+    const walletTotal = shown.reduce((s, r) => s + (r.value_usd ?? 0), 0);
+    const supplied = morpho?.reduce((s, m) => s + (m.supply_usd ?? 0) + (m.collateral_usd ?? 0), 0) ?? 0;
+    const debt = morpho?.reduce((s, m) => s + (m.borrow_usd ?? 0), 0) ?? 0;
+    const totalsComplete = morpho !== null && !peapodsError && shown.every(r => r.value_usd !== null) && morpho.every(m => (m.supply === 0 || m.supply_usd !== null) && (m.collateral === 0 || m.collateral_usd !== null) && (m.borrow === 0 || m.borrow_usd !== null));
     return {
       network: p.network, address,
       total_value_usd: round(shown.reduce((s, r) => s + (r.value_usd ?? 0), 0)),
@@ -78,9 +99,40 @@ export class Portfolio {
       hidden_asset_count: rows.length - shown.length,
       hidden_reason: `no price and not a DeFi position, or worth less than $${p.min_value_usd}; names of hidden tokens are not shown (airdropped tokens are often spam)`,
       assets: shown.map(({ defi: _, ...r }) => r),
-      sources: { balances_and_prices: source, positions: "enso", position_prices: "on-chain (pool reserves, ERC-4626 convertToAssets)" },
+      morpho_market_positions: morpho,
+      defi_errors: [...(peapodsError ? [peapodsError] : []), ...(morpho === null ? ["Morpho market positions unavailable"] : [])],
+      defi_totals: { collateral_and_supply_usd: morpho === null || morpho.some(m => (m.supply > 0 && m.supply_usd === null) || (m.collateral > 0 && m.collateral_usd === null)) ? null : round(supplied), debt_usd: morpho === null || morpho.some(m => m.borrow > 0 && m.borrow_usd === null) ? null : round(debt), net_portfolio_usd: totalsComplete ? round(walletTotal + supplied - debt) : null, complete: totalsComplete, note: "Complete applies only to visible wallet assets and supported Morpho market positions. Other non-tokenized positions and hidden assets are not included." },
+      sources: { balances_and_prices: source, positions: "enso and curated on-chain Peapods vault", morpho_markets: "Morpho API", position_prices: "on-chain (pool reserves, ERC-4626 convertToAssets)" },
       trust: "Balances, prices, APY and TVL are third-party data; fee APR is estimated by this server from one day of the pool's fee index. Informational, not advice; past fees do not predict future ones.",
     };
+  }
+
+  private async morphoPositions(network: WalletNetwork, address: Address) {
+    const data = await this.cached(`morpho:${network}:${address}`, 30_000, async () => {
+      const res = await this.fetcher("https://api.morpho.org/graphql", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: MORPHO_QUERY, variables: { address, chainId: chainIds[network] } }), signal: AbortSignal.timeout(10_000) });
+      if (!res.ok) throw new Error("Morpho API unavailable");
+      const body = await res.json() as any;
+      const positions = body?.data?.userByAddress?.marketPositions;
+      if (body?.errors || !Array.isArray(positions)) throw new Error("Invalid Morpho response");
+      return positions;
+    }) as any[];
+    if (data.length > 500) throw new Error("Too many Morpho positions");
+    return data.map(row => {
+      const m = row?.market, s = row?.state;
+      const asset = (a: any) => {
+        if (!isAddress(a?.address ?? "") || !Number.isInteger(a?.decimals) || a.decimals < 0 || a.decimals > 36) throw new Error("Invalid Morpho asset");
+        return { token: getAddress(a.address), symbol: text(a.symbol, 30), decimals: a.decimals as number };
+      };
+      const loan = asset(m?.loanAsset), collateralAsset = asset(m?.collateralAsset);
+      const quantity = (v: unknown, decimals: number) => {
+        if (!(typeof v === "number" && Number.isFinite(v) && v >= 0 && Number.isInteger(v)) && !/^\d{1,78}$/.test(String(v))) throw new Error("Invalid Morpho amount");
+        return Number(v) / 10 ** decimals;
+      };
+      if (typeof m?.marketId !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(m.marketId)) throw new Error("Invalid Morpho market");
+      const supply = quantity(s?.supplyAssets, loan.decimals), borrow = quantity(s?.borrowAssets, loan.decimals), collateral = quantity(s?.collateral, collateralAsset.decimals);
+      const collateralUsd = num(s?.collateralUsd), borrowUsd = num(s?.borrowAssetsUsd);
+      return { market_id: m.marketId, protocol: "morpho", loan_asset: loan, collateral_asset: collateralAsset, supply, supply_usd: num(s?.supplyAssetsUsd), collateral, collateral_usd: collateralUsd, borrow, borrow_usd: borrowUsd, borrow_apy_percent: num(m?.state?.borrowApy) === null ? null : m.state.borrowApy * 100, liquidation_ltv_percent: /^\d{1,20}$/.test(String(m?.lltv)) ? Number(m.lltv) / 1e16 : null, ltv_percent: collateralUsd !== null && collateralUsd > 0 && borrowUsd !== null ? borrowUsd / collateralUsd * 100 : null };
+    }).filter(m => m.supply > 0 || m.borrow > 0 || m.collateral > 0);
   }
 
   private async alchemyHoldings(key: string, network: WalletNetwork, address: Address): Promise<Holding[]> {

@@ -251,6 +251,17 @@ These follow the AgentLayer wallet's portfolio and Morpho readers: dust hidden
 by count, value-sorted totals, per-source errors next to the data, base and
 reward yield kept apart, short caches.
 
+`wallet_portfolio` additionally reads the Base Peapods pfWETH-12 vault balance
+directly (even if the balance indexer or Enso does not list it), then uses its
+ERC-4626 exchange rate for valuation. This is a curated vault, not automatic
+detection of every Peapods market. Morpho Blue market supply, collateral,
+borrow, LTV, liquidation threshold and borrow APY are retrieved from Morpho's
+API for the smart account. `total_value_usd` remains the visible wallet-token
+total; `defi_totals.net_portfolio_usd` adds Morpho market supply/collateral and
+subtracts Morpho debt. It excludes hidden tokens and unsupported non-tokenized
+positions. Source errors are reported in `defi_errors`, and an incomplete
+valuation returns a null net total instead of assuming zero.
+
 ### Protocol catalog and actions
 
 The same key enables three more tools:
@@ -261,9 +272,18 @@ The same key enables three more tools:
   `onBehalfOf`) or never forwards (`maxAmountOut`, which sends output above a
   limit to Enso's fee receiver) are left out. Cached for six hours.
 - `defi_positions({network, underlying_token?, protocol?, min_tvl_usd?,
-  min_apy?})` searches tokenized positions (vault shares, lending receipt
+  min_apy?, sort_by?, offset?, limit?})` searches tokenized positions (vault shares, lending receipt
   tokens, LP tokens) and returns token, protocol, `primary_address`, APY, TVL and
-  underlying tokens, sorted by TVL. Third-party data, informational only.
+  underlying tokens. Sort by `tvl` (default), `apy` or `apy_base`, descending,
+  with missing values last. It fetches at most five Enso pages of 1000 records,
+  caches the sample for five minutes, and sorts that sample; `source_complete`
+  says whether the source was exhausted and `total` counts valid sampled rows,
+  not all markets. `offset`, `limit` (max 50), `next_offset` and `truncated`
+  page through the sample. Repeating a query after cache expiry may give a
+  different sample. `fetched_at` is our fetch time, not Enso's data timestamp.
+  A malformed provider response is an error, not an empty result. Third-party
+  data, informational only; an empty result does not prove a market is absent,
+  and a position listing does not verify rewards, entry or exit.
 - `action_preview({network, protocol, action, token_in, amount_in, token_out,
   primary_address, slippage_bps, pool?})` asks the Bundle API for that one
   action with the `router` strategy. Its answer is the same EnsoRouter

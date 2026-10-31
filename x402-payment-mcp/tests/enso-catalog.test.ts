@@ -79,6 +79,31 @@ test("positions are filtered by Enso, sorted by TVL, bounded and cached", async 
   assert.equal(h.calls.length, 2, "refreshed after five minutes");
 });
 
+test("positions collect pages before sorting and paginate the cached sample with missing APY last", async () => {
+  const first = Array.from({ length: 1000 }, (_, i) => ({ address: `0x${(i + 1).toString(16).padStart(40, "0")}`, tvl: i, apy: i === 0 ? null : i }));
+  const h = api(u => u.searchParams.get("page") === "1" ? { data: first, meta: { next: 2 } } : { data: [{ address: vault, tvl: 1, apy: 2000 }], meta: { next: null } });
+  const c = new EnsoCatalog(h.api, () => 1_000);
+  const r = await c.positions({ network: "base", sort_by: "apy", limit: 1 });
+  assert.equal(r.source_complete, true); assert.equal(r.total, 1001);
+  assert.equal(r.positions[0]!.token, vault); assert.equal(r.next_offset, 1);
+  assert.equal(r.truncated, true); assert.equal(r.fetched_at, new Date(1_000).toISOString());
+  const last = await c.positions({ network: "base", sort_by: "apy", offset: 1000, limit: 1 });
+  assert.equal(last.positions[0]!.apy, null); assert.equal(last.next_offset, null);
+  assert.equal(h.calls.length, 2, "sort and offset reuse the sample");
+});
+
+test("positions report bounded source scans and reject malformed provider responses", async () => {
+  const rows = Array.from({ length: 1000 }, (_, i) => ({ address: `0x${(i + 1).toString(16).padStart(40, "0")}` }));
+  const h = api(u => ({ data: rows, meta: { next: Number(u.searchParams.get("page")) + 1 } }));
+  const r = await new EnsoCatalog(h.api).positions({ network: "base", offset: 4999, limit: 1 });
+  assert.equal(r.source_complete, false); assert.equal(r.source_pages_fetched, 5); assert.equal(r.truncated, true);
+  const bad = api(() => ({ error: "unexpected" }));
+  const c = new EnsoCatalog(bad.api);
+  await assert.rejects(c.positions({ network: "base" }), /invalid positions response/);
+  await assert.rejects(c.positions({ network: "base" }), /invalid positions response/);
+  assert.equal(bad.calls.length, 2, "malformed responses are not cached");
+});
+
 function actionHarness(bundle: unknown = { tx: { to: ENSO_ROUTER, from: account, value: "0", data: encodeFunctionData({ abi: routerAbi, functionName: "routeSingle", args: [erc20(usdc, 100_000n), "0xabcd"] }) }, amountsOut: { [vault.toLowerCase()]: "1000" }, priceImpact: 1 }) {
   const prepared: any[] = []; const bodies: { url: URL; body: any }[] = [];
   const rpc = { getChainId: async () => 8453, readContract: async (p: { functionName: string }) => p.functionName === "shortcuts" ? ENSO_SHORTCUTS : 0n };

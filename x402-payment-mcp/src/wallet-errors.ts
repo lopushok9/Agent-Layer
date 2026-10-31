@@ -1,6 +1,7 @@
 // Provider exceptions can embed authenticated RPC URLs or request bodies. Only
 // our fixed, credential-free diagnostics may cross the MCP boundary.
 const publicMessages = new Set([
+  "Enso returned an invalid positions response", "Enso returned invalid positions pagination",
   "Original nonce proof is unavailable; legacy CDP operation cannot be safely cancelled by this tool",
   "Original nonce has changed; reconcile transaction_status before cancellation",
   "cancellation target is no longer eligible", "cancellation preview not found for this user",
