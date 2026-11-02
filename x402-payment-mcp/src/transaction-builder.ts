@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { decodeFunctionData, encodeFunctionData, erc20Abi, getAddress, isAddress, maxUint256, zeroAddress, type Abi, type Address, type Hex } from "viem";
 import { z } from "zod";
 import type { AbiSource, ClearSigning, ContractMetadata } from "./contract-metadata.js";
+import { inspectCall } from "./nested-calls.js";
 
 export const walletNetwork = z.enum(["base", "ethereum"]);
 export type WalletNetwork = z.infer<typeof walletNetwork>;
@@ -29,7 +30,7 @@ export const transactionInput = z.strictObject({
 });
 export type TransactionInput = z.input<typeof transactionInput>;
 export type NormalizedCall = { to: Address; value: string; data: Hex };
-export type CallDescription = { index: number; to: Address; value_wei: string; data: Hex; function?: string; arguments?: unknown; abi_source: "caller_supplied_unverified" | "standard_erc20" | "unknown" | "internal_verified" | AbiSource; implementation?: Address; clear_signing?: ClearSigning; warnings: string[] };
+export type CallDescription = { index: number; to: Address; value_wei: string; data: Hex; function?: string; arguments?: unknown; inspection?: unknown; abi_source: "caller_supplied_unverified" | "standard_erc20" | "unknown" | "internal_verified" | AbiSource; implementation?: Address; clear_signing?: ClearSigning; warnings: string[] };
 
 function assertSafeNumbers(value: unknown): void {
   if (typeof value === "number" && !Number.isSafeInteger(value)) throw new Error("ABI numeric arguments must be safe integers; use strings for token amounts");
@@ -54,7 +55,8 @@ export function normalizeTransaction(input: TransactionInput, account: Address, 
     try { decoded = decodeFunctionData({ abi: (c.abi as Abi | undefined) ?? erc20Abi, data }); if (!c.abi) source = "standard_erc20"; } catch { /* opaque calldata remains usable, explicitly labelled */ }
     if (!decoded && data !== "0x") warnings.push(OPAQUE);
     warnings.push(...functionWarnings(decoded?.functionName));
-    descriptions.push({ index, to, value_wei: c.value, data, ...(decoded ? { function: decoded.functionName, arguments: jsonValue(decoded.args) } : {}), abi_source: source, warnings });
+    const inspection = inspectCall(to, data);
+    descriptions.push({ index, to, value_wei: c.value, data, ...(decoded ? { function: decoded.functionName, arguments: jsonValue(decoded.args) } : {}), ...(inspection ? { inspection } : {}), abi_source: source, warnings });
     return { to, value: c.value, data };
   });
   return { network: parsed.network, chainId: chainIds[parsed.network], account: getAddress(account), calls, descriptions };
@@ -116,6 +118,7 @@ export async function annotateCalls(network: WalletNetwork, account: Address, ca
       } else if (verified && !decoded) next.warnings.push("Calldata matches no function in the contract's verified ABI.");
     }
     if (clear) next.clear_signing = clear;
+    if (resolved && resolved.source !== "bytecode_selectors") next.inspection ??= inspectCall(call.to, call.data, resolved.abi) ?? undefined;
     return next;
   }));
 }

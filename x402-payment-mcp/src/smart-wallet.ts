@@ -41,10 +41,10 @@ export class SmartWalletService {
     const [balance, code] = await Promise.all([rpc.getBalance({ address: account.address }), rpc.getCode({ address: account.address })]);
     return { network, chain_id: chainIds[network], account_type: "cdp_smart_account", address: account.address, native_balance_wei: balance.toString(), deployed: Boolean(code && code !== "0x"), signing: "managed_cdp_owner", receive: `Fund only this smart account address on ${network}. The owner EOA is an internal signer.` };
   }
-  async simulate(network: WalletNetwork, account: Address, calls: NormalizedCall[]) {
+  async simulate(network: WalletNetwork, account: Address, calls: NormalizedCall[], atBlock?: bigint) {
     const rpc = this.rpc(network);
     if (await rpc.getChainId() !== chainIds[network]) throw new Error("RPC chain ID mismatch");
-    const blockNumber = await rpc.getBlockNumber();
+    const blockNumber = atBlock ?? await rpc.getBlockNumber();
     for (const call of calls) if (call.data !== "0x") {
       const code = await rpc.getCode({ address: call.to, blockNumber });
       if (!code || code === "0x") throw new Error("calldata target has no contract code on the selected network");

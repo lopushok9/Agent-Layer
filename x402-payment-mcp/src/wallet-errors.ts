@@ -1,6 +1,8 @@
 // Provider exceptions can embed authenticated RPC URLs or request bodies. Only
 // our fixed, credential-free diagnostics may cross the MCP boundary.
 const publicMessages = new Set([
+  "Cannot determine Uniswap v4 position output", "Cannot establish the Uniswap v4 simulation block", "Uniswap v4 pool currencies do not match the position", "Automatic Uniswap v4 minimums do not support liquidity-removal hooks", "Uniswap v4 fee simulation block mismatch", "Cannot separate Uniswap v4 principal from fees", "Uniswap v4 principal exceeds uint128", "Uniswap v4 output too small for a nonzero minimum", "Uniswap v4 existing minimum exceeds simulated principal", "Cannot establish nonzero Uniswap v4 principal from the simulation",
+  "operation must be confirmed before its events can be read", "matched operation receipt or log boundaries are unavailable", "event input too large",
   "Enso returned an invalid positions response", "Enso returned invalid positions pagination",
   "Original nonce proof is unavailable; legacy CDP operation cannot be safely cancelled by this tool",
   "Original nonce has changed; reconcile transaction_status before cancellation",

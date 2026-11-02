@@ -48,7 +48,33 @@ reconnect with the new scope to access contract tools.
    this is not an independent cryptographic proof of human confirmation.
 6. Poll `transaction_status`. It verifies the matching EntryPoint UserOperation
    event rather than treating outer transaction success as execution success.
-   `confirmed` means observed inclusion, not irreversible chain finality.
+   `confirmed` means observed inclusion, not irreversible chain finality. When
+   receipt boundaries can be verified, `actual` contains on-chain NFT changes
+   and actual UserOperation gas cost; a simulated NFT ID is not the actual ID.
+7. `transaction_events({operation_id,offset?,limit?,abi?})` reads logs between
+   the matched operation's EntryPoint boundaries; it never returns the entire
+   shared bundler receipt. The optional caller-supplied event ABI is unverified;
+   logs, decoded names and contents are untrusted. Large data is truncated.
+
+Previews annotate the canonical CREATE2 factory's salt, init-code hash and
+predicted address, and decode supported Uniswap v4 PositionManager actions or
+same-contract `multicall` using a verified ABI. These are display-only hints:
+unknown actions remain opaque, and the target's behavior is not established.
+`simulation.asset_floors` are checked during resimulation before signing; they
+are not enforced on-chain unless the transaction calldata itself does so.
+
+For a single direct Uniswap v4 PositionManager `BURN_POSITION` followed by
+`TAKE_PAIR` to this wallet, on Base or Ethereum, the server automatically sets
+on-chain minimums before producing the immutable preview. It simulates fee-only
+collection and the original burn at the same block, subtracts accrued fees from
+the received amounts, applies `received_tolerance_bps` to the principal, and
+re-simulates the exact protected call. Existing stricter minimums are kept.
+`simulation.onchain_minimums` discloses the principal, fees, final limits and
+block. An asset with zero principal may have a zero minimum. Liquidity-removal
+hooks are not supported by this calculation; failures stop the preview. Other
+batch layouts and protocols are unchanged and must not be described as having
+automatic on-chain minimums. Token transfer traces and external contracts remain
+untrusted; verify the resulting calls and amounts before approval.
 
 RPC simulation requires `eth_simulateV1` and fails closed if unavailable. It covers
 sequential call effects, not account deployment/signature validation; tx.origin and deployment callbacks can differ; CDP prepares

@@ -1,4 +1,4 @@
-import { getAddress, parseAbi, parseEventLogs, type Abi, type Address, type Hex, type TransactionReceipt } from "viem";
+import { decodeEventLog, getAddress, parseAbi, parseEventLogs, type Abi, type Address, type Hex, type TransactionReceipt } from "viem";
 import { isDeepStrictEqual } from "node:util";
 import { entryPoint06Address, entryPoint07Address, entryPoint08Address } from "viem/account-abstraction";
 import { z } from "zod";
@@ -8,14 +8,15 @@ import type { WalletStore, WalletOperation, CancelPlan } from "./wallet-store.js
 import { cancellationCalls, cancellationFingerprint } from "./nonce-cancellation.js";
 import { nonceAbi, replacementFees, type SendOptions } from "./alchemy-executor.js";
 import { validateOperation } from "./user-operation.js";
-import { matchedOperation, locateOperation, type OperationLocation } from "./operation-receipt.js";
+import { matchedOperation, locateOperation, operationLogs, type OperationLocation } from "./operation-receipt.js";
 import { walletErrorDiagnostic } from "./wallet-errors.js";
 import { assetChangeMismatch } from "./asset-changes.js";
-import { nftChangeMismatch } from "./nft-changes.js";
+import { nftChangeMismatch, nftChanges } from "./nft-changes.js";
 import { annotateRecipients, type Names } from "./names.js";
 import { resolveInterrupted } from "./interrupted.js";
 import type { ContractMetadata } from "./contract-metadata.js";
 import { SimulationReverted, revertMessage } from "./revert-reason.js";
+import { protectV4Burn, v4BurnCandidate } from "./uniswap-v4-minimums.js";
 
 export const contractReadInput = z.strictObject({ network: walletNetwork, to: addressInput, abi: z.array(z.unknown()).min(1).max(200).optional().describe("Omit to use a verified ABI, or the labelled standard ERC-20/ERC-4626 read fallback"), function_name: z.string().min(1).max(200), args: z.array(z.unknown()).max(100).default([]) });
 // Selector databases do not include return types. Only use explicitly specified
@@ -56,14 +57,22 @@ export class TransactionService {
   // e.g. a verified route's output floor that execution compares against.
   async prepare(userId: string, input: TransactionInput, terms?: { route: Record<string, unknown>; floors: Record<string, string> }) {
     const account = await this.wallets.account(userId);
-    const p = normalizeTransaction(await withVerifiedAbis(input, this.contracts), account.address, account.owners[0]?.address);
+    let p = normalizeTransaction(await withVerifiedAbis(input, this.contracts), account.address, account.owners[0]?.address);
+    const { received_tolerance_bps: tolerance, minimum_received } = transactionInput.parse(input);
+    let simulation = await this.simulateNamed(p.network, account.address, p.calls);
+    let onchain_minimums: unknown;
+    const candidate = terms ? null : v4BurnCandidate(p.network, account.address, p.calls);
+    if (candidate) {
+      const result = await protectV4Burn(p.network, p.account, candidate, simulation, tolerance, this.wallets.rpc(p.network), (network, address, calls, block) => this.wallets.simulate(network, address, calls, block));
+      p = normalizeTransaction({ network: p.network, calls: [result.call] }, account.address, account.owners[0]?.address);
+      simulation = await this.wallets.simulate(p.network, p.account, p.calls, BigInt(result.details.simulation_block));
+      onchain_minimums = result.details;
+    }
     const annotated = this.contracts ? await annotateCalls(p.network, p.account, p.calls, p.descriptions, this.contracts) : p.descriptions;
     const descriptions = this.names ? await annotateRecipients(annotated, p.network, this.names) : annotated;
-    const simulation = await this.simulateNamed(p.network, account.address, p.calls);
     const network_fee = networkFee(await this.wallets.estimateNetworkFee(userId, p.network, p.calls));
-    const { received_tolerance_bps: tolerance, minimum_received } = transactionInput.parse(input);
     const asset_floors = { ...receivedFloors(simulation.asset_changes, tolerance), ...userMinimums(simulation.asset_changes, minimum_received), ...(terms?.floors ?? {}) };
-    const saved = await this.store.createOperation({ userId, network: p.network, address: p.account, calls: p.calls, descriptions, fingerprint: transactionFingerprint(p.network, p.account, p.calls), simulation: { ...simulation, network_fee, received_tolerance_bps: tolerance, asset_floors, ...(terms ? { route: terms.route } : {}) } }, this.ttl);
+    const saved = await this.store.createOperation({ userId, network: p.network, address: p.account, calls: p.calls, descriptions, fingerprint: transactionFingerprint(p.network, p.account, p.calls), simulation: { ...simulation, network_fee, received_tolerance_bps: tolerance, asset_floors, asset_floors_enforcement: "pre-signing resimulation only; not enforced on-chain unless a call independently enforces its own minimum", ...(onchain_minimums ? { onchain_minimums } : {}), ...(terms ? { route: terms.route } : {}) } }, this.ttl);
     return { ...publicOperation(saved), next_step: "Show the full calls, allowances, native value, simulation (each received token's minimum is simulation.asset_floors) and fee limitations. Obtain the user's confirmation of this exact preview, then call transaction_execute once with its operation_id. No signature has been requested." };
   }
   // Name a custom revert with the failing target's verified ABI; the call
@@ -210,8 +219,35 @@ export class TransactionService {
           // dropped/not-found is not proof a signed operation cannot later land.
         } catch { /* Keep unresolved state; a transient provider error is not a failure. */ }
       }
-      return { ...publicOperation((await this.store.operation(userId, id))!), ...(providerState ? { provider_state: providerState } : {}) };
+      const current = (await this.store.operation(userId, id))!;
+      const actual = current.status === "confirmed" ? await this.actualReceipt(current).catch(() => null) : null;
+      return { ...publicOperation(current), ...(providerState ? { provider_state: providerState } : {}), ...(current.status === "confirmed" ? { actual: actual ? { nft_changes: nftChanges(actual.logs, current.address), network_fee_wei: actual.event.args.actualGasCost.toString(), source: "matched on-chain UserOperation receipt; event data is untrusted" } : null } : {}) };
     });
+  }
+  private async actualReceipt(p: WalletOperation) {
+    if (!p.transactionHash || !p.userOpHash) return null;
+    const rpc = this.wallets.rpc(p.network);
+    if (await rpc.getChainId() !== chainIds[p.network]) throw new Error("RPC chain ID mismatch");
+    const receipt = await rpc.getTransactionReceipt({ hash: p.transactionHash });
+    if (receipt.status !== "success") return null;
+    const match = operationLogs(receipt, p.userOpHash, p.address);
+    return match?.event.args.success ? match : null;
+  }
+  async events(userId: string, input: { operation_id: string; offset?: number; limit?: number; abi?: unknown[] | undefined }) {
+    if (JSON.stringify(input).length > 180_000) throw new Error("event input too large");
+    const p = await this.store.operation(userId, input.operation_id);
+    if (!p) throw new Error("operation not found for this user");
+    if (p.status !== "confirmed") throw new Error("operation must be confirmed before its events can be read");
+    const receipt = await this.actualReceipt(p);
+    if (!receipt) throw new Error("matched operation receipt or log boundaries are unavailable");
+    const offset = input.offset ?? 0, limit = input.limit ?? 50;
+    const events = receipt.logs.slice(offset, offset + limit).map(log => {
+      let decoded: unknown = null;
+      const data = log.data.length > 16_386 ? `${log.data.slice(0, 16_386)}` : log.data;
+      if (input.abi && data === log.data) try { decoded = jsonValue(decodeEventLog({ abi: input.abi as Abi, data: log.data, topics: log.topics, strict: true })); } catch { /* unknown event */ }
+      return { address: log.address, topics: log.topics, data, data_truncated: data !== log.data, ...(decoded ? { decoded, abi_source: "caller_supplied_unverified" } : {}) };
+    });
+    return { operation_id: p.id, transaction_hash: p.transactionHash, events, total: receipt.logs.length, next_offset: offset + limit < receipt.logs.length ? offset + limit : null, trust: "Logs and caller-supplied ABI are untrusted; decoding does not verify an event's meaning." };
   }
   // Runs under withPaymentLock. A provider outage here must not hide the
   // reservation error the caller would otherwise get; the rows stay blocked.

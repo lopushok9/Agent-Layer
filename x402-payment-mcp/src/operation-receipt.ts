@@ -1,7 +1,31 @@
-import { parseAbiItem, parseEventLogs, type Address, type Hex, type PublicClient, type TransactionReceipt } from "viem";
-import { entryPoint06Address } from "viem/account-abstraction";
+import { parseAbiItem, parseEventLogs, toEventSelector, type Address, type Hex, type PublicClient, type TransactionReceipt } from "viem";
+import { entryPoint06Address, entryPoint07Address, entryPoint08Address } from "viem/account-abstraction";
 import { nonceAbi } from "./alchemy-executor.js";
 const event = parseAbiItem("event UserOperationEvent(bytes32 indexed userOpHash,address indexed sender,address indexed paymaster,uint256 nonce,bool success,uint256 actualGasCost,uint256 actualGasUsed)");
+const beforeExecution = toEventSelector("BeforeExecution()");
+const operationEvent = toEventSelector("UserOperationEvent(bytes32,address,address,uint256,bool,uint256,uint256)");
+const entryPoints = [entryPoint06Address, entryPoint07Address, entryPoint08Address].map(a => a.toLowerCase());
+
+// In an ERC-4337 bundle, events for one operation lie after BeforeExecution or
+// the preceding UserOperationEvent, up to its own event. Do not expose the
+// rest of a bundler transaction or guess when the boundary is unavailable.
+export function operationLogs(receipt: TransactionReceipt, hash: Hex, sender: Address) {
+  const logs = receipt.logs;
+  for (let i = 0; i < logs.length; i++) {
+    const log = logs[i]!;
+    if (!entryPoints.includes(log.address.toLowerCase()) || log.topics[0]?.toLowerCase() !== operationEvent.toLowerCase()) continue;
+    const match = parseEventLogs({ abi: [event], logs: [log] })[0];
+    if (!match || match.args.userOpHash.toLowerCase() !== hash.toLowerCase() || match.args.sender.toLowerCase() !== sender.toLowerCase()) continue;
+    for (let j = i - 1; j >= 0; j--) {
+      const prior = logs[j]!;
+      if (prior.address.toLowerCase() !== log.address.toLowerCase()) continue;
+      const topic = prior.topics[0]?.toLowerCase();
+      if (topic === beforeExecution.toLowerCase() || topic === operationEvent.toLowerCase()) return { logs: logs.slice(j + 1, i), event: match };
+    }
+    return null;
+  }
+  return null;
+}
 export function matchedOperation(receipt: TransactionReceipt, hash: Hex, sender: Address, nonce?: bigint) {
   return parseEventLogs({ abi: [event], logs: receipt.logs.filter(l => l.address.toLowerCase() === entryPoint06Address.toLowerCase()) }).find(e => e.args.userOpHash.toLowerCase() === hash.toLowerCase() && e.args.sender.toLowerCase() === sender.toLowerCase() && (nonce === undefined || e.args.nonce === nonce));
 }

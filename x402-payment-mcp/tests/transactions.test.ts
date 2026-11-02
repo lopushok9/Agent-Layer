@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { TransactionService } from "../src/transactions.js";
 import { transactionFingerprint } from "../src/transaction-builder.js";
-import { encodeAbiParameters, encodeEventTopics, parseAbi } from "viem";
+import { decodeAbiParameters, decodeFunctionData, encodeAbiParameters, encodeEventTopics, encodeFunctionData, parseAbi, parseAbiParameters, zeroAddress } from "viem";
 import { entryPoint06Address } from "viem/account-abstraction";
 import type { WalletOperation } from "../src/wallet-store.js";
 
@@ -111,6 +111,23 @@ test("preview records the estimated prefund and a doubled approval ceiling", asy
   await h.service.prepare("alice", { network: "base", calls: [{ to: "0x3333333333333333333333333333333333333333", value: "1" }] });
   assert.equal(created.simulation.network_fee.estimated_max_prefund_wei, "400");
   assert.equal(created.simulation.network_fee.approved_max_prefund_wei, "800");
+});
+
+test("a supported v4 burn is simulated, protected on-chain, and re-simulated before saving its fingerprint", async () => {
+  const h = harness(), pos = "0x7C5f5A4bBd8fD63184577525326123B519429bDc", usdc = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", native = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+  const abi = parseAbi(["function modifyLiquidities(bytes unlockData,uint256 deadline) payable"]), cmds = parseAbiParameters("bytes,bytes[]"), burn = parseAbiParameters("uint256,uint128,uint128,bytes");
+  const action = encodeAbiParameters(burn,[4n,0n,0n,"0x"]), take = encodeAbiParameters(parseAbiParameters("address,address,address"),[zeroAddress,usdc,address]);
+  const raw = encodeFunctionData({abi,functionName:"modifyLiquidities",args:[encodeAbiParameters(cmds,["0x0311",[action,take]]),9999999999n]});
+  let count=0, created:any;
+  (h.wallets as any).simulate=async (_n:any,_a:any,_calls:any, block:any)=>{count++;if(count>1)assert.equal(block,123n);return {block_number:"123",asset_changes:[{token:{address:native},value:{diff:count===2?"100":"1000"}},{token:{address:usdc},value:{diff:count===2?"50":"2000"}}]}};
+  (h.wallets as any).rpc=()=>({readContract:async()=>[{currency0:zeroAddress,currency1:usdc,hooks:zeroAddress},"0x"]});
+  (h.wallets as any).estimateNetworkFee=async()=>400n;
+  (h.service as any).store.createOperation=async (p:any)=>{created=p;return {...h.p,...p,id:"new",status:"prepared"}};
+  await h.service.prepare("alice",{network:"base",calls:[{to:pos,data:raw}]});
+  const d=decodeFunctionData({abi,data:created.calls[0].data});const [,parts]=decodeAbiParameters(cmds,d.args[0]);
+  assert.deepEqual(decodeAbiParameters(burn,parts[0]!),[4n,895n,1940n,"0x"]);
+  assert.equal(count,3);assert.equal(created.fingerprint,transactionFingerprint("base",address,created.calls));
+  assert.deepEqual(created.simulation.onchain_minimums.accrued_fees,["100","50"]);
 });
 
 test("a route preview's stored output floor lets execution accept a lower fresh output, never one below the floor", async () => {
