@@ -70,8 +70,12 @@ collection and the original burn at the same block, subtracts accrued fees from
 the received amounts, applies `received_tolerance_bps` to the principal, and
 re-simulates the exact protected call. Existing stricter minimums are kept.
 `simulation.onchain_minimums` discloses the principal, fees, final limits and
-block. An asset with zero principal may have a zero minimum. Liquidity-removal
-hooks are not supported by this calculation; failures stop the preview. Other
+block. An asset with zero principal or dust rounded down may have a zero minimum,
+which offers no on-chain protection for that asset. Liquidity-removal hooks and
+other calculation failures fall back to the original, already simulated call;
+`simulation.onchain_minimums_unavailable` explicitly warns that automatic
+protection was not added. Original simulation or final protected-call simulation
+failures still stop the preview. Other
 batch layouts and protocols are unchanged and must not be described as having
 automatic on-chain minimums. Token transfer traces and external contracts remain
 untrusted; verify the resulting calls and amounts before approval.

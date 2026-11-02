@@ -1,13 +1,13 @@
-import { decodeAbiParameters, decodeFunctionData, getCreate2Address, keccak256, parseAbi, parseAbiParameters, sliceHex, type Abi, type AbiParameter, type Address, type Hex } from "viem";
+import { decodeAbiParameters, decodeFunctionData, getCreate2Address, keccak256, parseAbiParameters, sliceHex, type Abi, type AbiParameter, type Address, type Hex } from "viem";
+import type { WalletNetwork } from "./transaction-builder.js";
+import { v4PositionManagers, v4ModifyAbi as posAbi, v4Commands, v4BurnParams, v4TakeParams } from "./uniswap-v4-constants.js";
 
 const factory = "0x4e59b44847b379578588920ca78fbf26c0b4956c";
-const positionManagers = new Set(["0x7c5f5a4bbd8fd63184577525326123b519429bdc", "0xbd216513d74c8cf14cf4747e6aaa6420ff64ee9e"]);
-const posAbi = parseAbi(["function modifyLiquidities(bytes unlockData,uint256 deadline) payable"]);
 const actions: Record<number, { name: string; params: readonly AbiParameter[] }> = {
   2: { name: "mint_position", params: parseAbiParameters("(address currency0,address currency1,uint24 fee,int24 tickSpacing,address hooks),int24 tickLower,int24 tickUpper,uint256 liquidity,uint128 amount0Max,uint128 amount1Max,address recipient,bytes hookData") },
-  3: { name: "burn_position", params: parseAbiParameters("uint256 tokenId,uint128 amount0Min,uint128 amount1Min,bytes hookData") },
+  3: { name: "burn_position", params: v4BurnParams },
   13: { name: "settle_pair", params: parseAbiParameters("address currency0,address currency1") },
-  17: { name: "take_pair", params: parseAbiParameters("address currency0,address currency1,address recipient") },
+  17: { name: "take_pair", params: v4TakeParams },
   20: { name: "sweep", params: parseAbiParameters("address currency,address recipient") },
 };
 function json(x: unknown): unknown {
@@ -17,15 +17,15 @@ function json(x: unknown): unknown {
   return x;
 }
 // Display-only: never influences the transaction, signing or safety checks.
-export function inspectCall(to: Address, data: Hex, abi?: Abi) {
+export function inspectCall(network: WalletNetwork, to: Address, data: Hex, abi?: Abi) {
   if (to.toLowerCase() === factory && data.length >= 68) {
     const salt = sliceHex(data, 0, 32), code = sliceHex(data, 32), hash = keccak256(code);
     return { kind: "create2_factory", salt, init_code_hash: hash, predicted_address: getCreate2Address({ from: to, salt, bytecodeHash: hash }), warning: "Predicted address only; verify factory code and deployed runtime independently." };
   }
-  if (positionManagers.has(to.toLowerCase())) try {
+  if (to.toLowerCase() === v4PositionManagers[network]) try {
     const outer = decodeFunctionData({ abi: posAbi, data });
     const [bytes, deadline] = outer.args;
-    const [codes, params] = decodeAbiParameters(parseAbiParameters("bytes,bytes[]"), bytes);
+    const [codes, params] = decodeAbiParameters(v4Commands, bytes);
     const numbers = codes.slice(2).match(/.{2}/g)?.map(x => parseInt(x, 16)) ?? [];
     if (numbers.length !== params.length || numbers.length > 32) throw new Error("invalid action count");
     const decoded = numbers.map((code, i) => {

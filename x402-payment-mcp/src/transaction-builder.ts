@@ -55,7 +55,7 @@ export function normalizeTransaction(input: TransactionInput, account: Address, 
     try { decoded = decodeFunctionData({ abi: (c.abi as Abi | undefined) ?? erc20Abi, data }); if (!c.abi) source = "standard_erc20"; } catch { /* opaque calldata remains usable, explicitly labelled */ }
     if (!decoded && data !== "0x") warnings.push(OPAQUE);
     warnings.push(...functionWarnings(decoded?.functionName));
-    const inspection = inspectCall(to, data);
+    const inspection = inspectCall(parsed.network, to, data);
     descriptions.push({ index, to, value_wei: c.value, data, ...(decoded ? { function: decoded.functionName, arguments: jsonValue(decoded.args) } : {}), ...(inspection ? { inspection } : {}), abi_source: source, warnings });
     return { to, value: c.value, data };
   });
@@ -118,7 +118,7 @@ export async function annotateCalls(network: WalletNetwork, account: Address, ca
       } else if (verified && !decoded) next.warnings.push("Calldata matches no function in the contract's verified ABI.");
     }
     if (clear) next.clear_signing = clear;
-    if (resolved && resolved.source !== "bytecode_selectors") next.inspection ??= inspectCall(call.to, call.data, resolved.abi) ?? undefined;
+    if (resolved && resolved.source !== "bytecode_selectors") next.inspection ??= inspectCall(network, call.to, call.data, resolved.abi) ?? undefined;
     return next;
   }));
 }

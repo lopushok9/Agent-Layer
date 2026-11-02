@@ -1,4 +1,4 @@
-import { decodeEventLog, getAddress, parseAbi, parseEventLogs, type Abi, type Address, type Hex, type TransactionReceipt } from "viem";
+import { decodeEventLog, decodeFunctionData, getAddress, parseAbi, parseEventLogs, type Abi, type Address, type Hex, type TransactionReceipt } from "viem";
 import { isDeepStrictEqual } from "node:util";
 import { entryPoint06Address, entryPoint07Address, entryPoint08Address } from "viem/account-abstraction";
 import { z } from "zod";
@@ -61,24 +61,38 @@ export class TransactionService {
     const { received_tolerance_bps: tolerance, minimum_received } = transactionInput.parse(input);
     let simulation = await this.simulateNamed(p.network, account.address, p.calls);
     let onchain_minimums: unknown;
+    let onchain_minimums_unavailable: string | undefined;
     const candidate = terms ? null : v4BurnCandidate(p.network, account.address, p.calls);
     if (candidate) {
-      const result = await protectV4Burn(p.network, p.account, candidate, simulation, tolerance, this.wallets.rpc(p.network), (network, address, calls, block) => this.wallets.simulate(network, address, calls, block));
-      p = normalizeTransaction({ network: p.network, calls: [result.call] }, account.address, account.owners[0]?.address);
-      simulation = await this.wallets.simulate(p.network, p.account, p.calls, BigInt(result.details.simulation_block));
-      onchain_minimums = result.details;
+      let result: Awaited<ReturnType<typeof protectV4Burn>> | undefined;
+      try {
+        result = await protectV4Burn(p.network, p.account, candidate, simulation, tolerance, this.wallets.rpc(p.network), (network, address, calls, block) => this.simulateNamed(network, address, calls, block));
+      } catch (error) {
+        // Only the optional calculation falls back. Never expose raw provider
+        // errors or claim the original calldata has automatic protection.
+        onchain_minimums_unavailable = error instanceof Error && error.message === "Automatic Uniswap v4 minimums do not support liquidity-removal hooks"
+          ? "Liquidity-removal hook: automatic on-chain minimums are unavailable; the original call is unchanged. Review its existing minimums."
+          : "Automatic on-chain minimum calculation failed; the original call is unchanged. Review its existing minimums; resimulation floors are not on-chain protection.";
+      }
+      if (result) {
+        const abi = parseAbi(["function modifyLiquidities(bytes unlockData,uint256 deadline) payable"]);
+        const decoded = decodeFunctionData({ abi, data: result.call.data });
+        p = normalizeTransaction({ network: p.network, calls: [{ to: result.call.to, value: result.call.value, abi: [...abi], function_name: "modifyLiquidities", args: [decoded.args[0], decoded.args[1].toString()] }] }, account.address, account.owners[0]?.address);
+        simulation = await this.simulateNamed(p.network, p.account, p.calls, BigInt(result.details.simulation_block));
+        onchain_minimums = result.details;
+      }
     }
     const annotated = this.contracts ? await annotateCalls(p.network, p.account, p.calls, p.descriptions, this.contracts) : p.descriptions;
     const descriptions = this.names ? await annotateRecipients(annotated, p.network, this.names) : annotated;
     const network_fee = networkFee(await this.wallets.estimateNetworkFee(userId, p.network, p.calls));
     const asset_floors = { ...receivedFloors(simulation.asset_changes, tolerance), ...userMinimums(simulation.asset_changes, minimum_received), ...(terms?.floors ?? {}) };
-    const saved = await this.store.createOperation({ userId, network: p.network, address: p.account, calls: p.calls, descriptions, fingerprint: transactionFingerprint(p.network, p.account, p.calls), simulation: { ...simulation, network_fee, received_tolerance_bps: tolerance, asset_floors, asset_floors_enforcement: "pre-signing resimulation only; not enforced on-chain unless a call independently enforces its own minimum", ...(onchain_minimums ? { onchain_minimums } : {}), ...(terms ? { route: terms.route } : {}) } }, this.ttl);
+    const saved = await this.store.createOperation({ userId, network: p.network, address: p.account, calls: p.calls, descriptions, fingerprint: transactionFingerprint(p.network, p.account, p.calls), simulation: { ...simulation, network_fee, received_tolerance_bps: tolerance, asset_floors, asset_floors_enforcement: "pre-signing resimulation only; not enforced on-chain unless a call independently enforces its own minimum", ...(onchain_minimums ? { onchain_minimums } : {}), ...(onchain_minimums_unavailable ? { onchain_minimums_unavailable } : {}), ...(terms ? { route: terms.route } : {}) } }, this.ttl);
     return { ...publicOperation(saved), next_step: "Show the full calls, allowances, native value, simulation (each received token's minimum is simulation.asset_floors) and fee limitations. Obtain the user's confirmation of this exact preview, then call transaction_execute once with its operation_id. No signature has been requested." };
   }
   // Name a custom revert with the failing target's verified ABI; the call
   // index and target are already in the message.
-  private async simulateNamed(network: WalletNetwork, account: Address, calls: NormalizedCall[]) {
-    try { return await this.wallets.simulate(network, account, calls); }
+  private async simulateNamed(network: WalletNetwork, account: Address, calls: NormalizedCall[], block?: bigint) {
+    try { return await this.wallets.simulate(network, account, calls, block); }
     catch (e) {
       if (!(e instanceof SimulationReverted) || !this.contracts) throw e;
       const abi = await this.contracts.contract(network, e.to).then(r => r && r.source !== "bytecode_selectors" ? r.abi : undefined, () => undefined);
@@ -173,7 +187,7 @@ export class TransactionService {
     });
   }
   async status(userId: string, id: string) {
-    return this.lock.withPaymentLock(userId, async () => {
+    const result = await this.lock.withPaymentLock(userId, async () => {
       await this.resolveInterruptedFor(userId, id);
       const p = await this.store.operation(userId, id);
       if (!p) throw new Error("operation not found for this user");
@@ -220,9 +234,13 @@ export class TransactionService {
         } catch { /* Keep unresolved state; a transient provider error is not a failure. */ }
       }
       const current = (await this.store.operation(userId, id))!;
-      const actual = current.status === "confirmed" ? await this.actualReceipt(current).catch(() => null) : null;
-      return { ...publicOperation(current), ...(providerState ? { provider_state: providerState } : {}), ...(current.status === "confirmed" ? { actual: actual ? { nft_changes: nftChanges(actual.logs, current.address), network_fee_wei: actual.event.args.actualGasCost.toString(), source: "matched on-chain UserOperation receipt; event data is untrusted" } : null } : {}) };
+      return { current, providerState };
     });
+    // Receipt enrichment is read-only and may be slow; do not hold the user's
+    // payment lock during this RPC. Read afresh to avoid hiding chain reorgs.
+    const { current, providerState } = result;
+    const actual = current.status === "confirmed" ? await this.actualReceipt(current).catch(() => null) : null;
+    return { ...publicOperation(current), ...(providerState ? { provider_state: providerState } : {}), ...(current.status === "confirmed" ? { actual: actual ? { nft_changes: nftChanges(actual.logs, current.address), network_fee_wei: actual.event.args.actualGasCost.toString(), source: "matched on-chain UserOperation receipt; event data is untrusted" } : null } : {}) };
   }
   private async actualReceipt(p: WalletOperation) {
     if (!p.transactionHash || !p.userOpHash) return null;
@@ -240,10 +258,10 @@ export class TransactionService {
     if (p.status !== "confirmed") throw new Error("operation must be confirmed before its events can be read");
     const receipt = await this.actualReceipt(p);
     if (!receipt) throw new Error("matched operation receipt or log boundaries are unavailable");
-    const offset = input.offset ?? 0, limit = input.limit ?? 50;
+    const offset = input.offset ?? 0, limit = input.limit ?? 20;
     const events = receipt.logs.slice(offset, offset + limit).map(log => {
       let decoded: unknown = null;
-      const data = log.data.length > 16_386 ? `${log.data.slice(0, 16_386)}` : log.data;
+      const data = log.data.length > 16_386 ? log.data.slice(0, 16_386) as Hex : log.data;
       if (input.abi && data === log.data) try { decoded = jsonValue(decodeEventLog({ abi: input.abi as Abi, data: log.data, topics: log.topics, strict: true })); } catch { /* unknown event */ }
       return { address: log.address, topics: log.topics, data, data_truncated: data !== log.data, ...(decoded ? { decoded, abi_source: "caller_supplied_unverified" } : {}) };
     });

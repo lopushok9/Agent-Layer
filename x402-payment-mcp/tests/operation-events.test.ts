@@ -26,8 +26,9 @@ test("confirmed status exposes actual NFT id, and event access is scoped to the 
   const receipt = { status: "success", logs: [boundary, transfer(9n), operation(hash, me)] };
   const p = { id: "id", userId: "alice", network: "base", address: me, status: "confirmed", userOpHash: hash, transactionHash: `0x${"12".repeat(32)}`, calls: [], descriptions: [], simulation: {}, fingerprint: "f", expiresAt: new Date(), error: null };
   const store = { operation: async (user: string) => user === "alice" ? p : null, interruptedOperations: async () => [] };
-  const rpc = { getChainId: async () => 8453, getTransactionReceipt: async () => receipt };
-  const service = new TransactionService({ rpc: () => rpc } as any, store as any, { withPaymentLock: async (_u, f) => f() }, 60);
+  let locked = false;
+  const rpc = { getChainId: async () => { assert.equal(locked, false); return 8453; }, getTransactionReceipt: async () => { assert.equal(locked, false); return receipt; } };
+  const service = new TransactionService({ rpc: () => rpc } as any, store as any, { withPaymentLock: async (_u, f) => { locked=true; try { return await f(); } finally { locked=false; } } }, 60);
   const status: any = await service.status("alice", "id");
   assert.equal(status.actual.nft_changes[0].token_id, "9"); assert.equal(status.actual.network_fee_wei, "42");
   const result: any = await service.events("alice", { operation_id: "id", abi: [events[2]] });

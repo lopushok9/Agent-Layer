@@ -127,7 +127,26 @@ test("a supported v4 burn is simulated, protected on-chain, and re-simulated bef
   const d=decodeFunctionData({abi,data:created.calls[0].data});const [,parts]=decodeAbiParameters(cmds,d.args[0]);
   assert.deepEqual(decodeAbiParameters(burn,parts[0]!),[4n,895n,1940n,"0x"]);
   assert.equal(count,3);assert.equal(created.fingerprint,transactionFingerprint("base",address,created.calls));
+  assert.equal(created.descriptions[0].function,"modifyLiquidities");
   assert.deepEqual(created.simulation.onchain_minimums.accrued_fees,["100","50"]);
+});
+
+test("v4 minimum calculation failure preserves the original successful preview and warns", async () => {
+  const pos="0x7C5f5A4bBd8fD63184577525326123B519429bDc", usdc="0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+  const abi=parseAbi(["function modifyLiquidities(bytes unlockData,uint256 deadline) payable"]), cmds=parseAbiParameters("bytes,bytes[]"), burn=parseAbiParameters("uint256,uint128,uint128,bytes");
+  const action=encodeAbiParameters(burn,[4n,0n,0n,"0x"]),take=encodeAbiParameters(parseAbiParameters("address,address,address"),[zeroAddress,usdc,address]);
+  const raw=encodeFunctionData({abi,functionName:"modifyLiquidities",args:[encodeAbiParameters(cmds,["0x0311",[action,take]]),9999999999n]});
+  for(const mode of ["hook","fee_error","empty"]){
+    const h=harness();let count=0,created:any;
+    (h.wallets as any).simulate=async()=>{count++;if(mode==="fee_error"&&count===2)throw new Error("secret provider detail");return {block_number:"123",asset_changes:mode==="empty"?[]:[{token:{address:usdc},value:{diff:"1000"}}]}};
+    (h.wallets as any).rpc=()=>({readContract:async()=>[{currency0:zeroAddress,currency1:usdc,hooks:mode==="hook"?"0x0000000000000000000000000000000000000200":zeroAddress},"0x"]});
+    (h.wallets as any).estimateNetworkFee=async()=>100n;
+    (h.service as any).store.createOperation=async(p:any)=>{created=p;return {...h.p,...p,id:"new",status:"prepared"}};
+    await h.service.prepare("alice",{network:"base",calls:[{to:pos,data:raw}]});
+    assert.equal(created.calls[0].data,raw,mode);assert.match(created.simulation.onchain_minimums_unavailable,/original call is unchanged/);
+    assert.doesNotMatch(created.simulation.onchain_minimums_unavailable,/secret/);
+    assert.equal(created.simulation.onchain_minimums,undefined);
+  }
 });
 
 test("a route preview's stored output floor lets execution accept a lower fresh output, never one below the floor", async () => {

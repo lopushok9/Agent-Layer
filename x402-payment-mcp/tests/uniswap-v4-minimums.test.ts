@@ -24,3 +24,10 @@ test("fails closed when fee calculation or hook behavior is unsafe",async()=>{
  assert.equal(v4BurnCandidate("base",account,[call(),call()]),null);
  assert.equal(v4BurnCandidate("base",account,[call(0n,0n,"0x2222222222222222222222222222222222222222")]),null);
 });
+
+test("dust rounds to zero without blocking the other protected asset",async()=>{
+ const candidate=v4BurnCandidate("base",account,[call()])!;
+ const r=await protectV4Burn("base",account,candidate,{block_number:"123",asset_changes:changes("1","2000")},50,rpc(),async()=>({block_number:"123",asset_changes:[]}));
+ assert.deepEqual(minimums(r.call.data),[4n,0n,1990n,"0x"]);
+ assert.match(r.details.note,/zero offers no protection/);
+});
