@@ -202,6 +202,34 @@ OpenSea floor in ETH. Collections Alchemy classifies as spam are excluded
 unless `include_spam`. It is a separate call so `wallet_portfolio` never waits
 on NFT metadata. Names are deployer-chosen text, cleaned and labelled untrusted.
 
+### History
+
+`wallet_activity({network, limit?, offset?, include_unverified?})` lists the
+account's past transactions, newest first, from Alchemy's Transfers API
+(`alchemy_getAssetTransfers`, both directions; native, internal, ERC-20,
+ERC-721, ERC-1155). A smart account's transactions are sent by bundlers, so a
+list of transactions "from" the address misses them; asset movements do not.
+Up to 3,000 transfers per direction are read and cached for 30 seconds;
+`history_complete: false` says older ones are missing.
+
+- Transfers are grouped per transaction with a heuristic `kind` (send, receive,
+  swap, deposit, withdraw, lending, nft_mint, mint_received, burn,
+  contract_call, self_transfer) and a static label for well-known
+  counterparties (EntryPoints, Morpho Blue, Enso, Permit2); the zero address
+  reads as minted/burned.
+- ETH sent to the ERC-4337 EntryPoint is the gas prefund
+  (`entrypoint_prefund_eth`), not a transfer; the actual fee can be lower.
+- Incoming-only transfers of tokens without an Alchemy price (airdropped spam)
+  are hidden and counted unless `include_unverified`. Symbols are cleaned to
+  ASCII.
+- An incoming transfer from an address sharing the first and last four hex
+  characters with one the account sent to, or that funded it with ETH, is
+  flagged as possible address poisoning and always shown. Zero-value incoming
+  transfers are flagged too.
+
+Approvals and calls that move no assets are not in this history. The tool is
+registered when Base or Ethereum has an Alchemy RPC URL.
+
 ### Names
 
 `name_resolve({network, name} | {network, address})` reads ENS on Ethereum
@@ -251,10 +279,17 @@ These follow the AgentLayer wallet's portfolio and Morpho readers: dust hidden
 by count, value-sorted totals, per-source errors next to the data, base and
 reward yield kept apart, short caches.
 
-`wallet_portfolio` additionally reads the Base Peapods pfWETH-12 vault balance
-directly (even if the balance indexer or Enso does not list it), then uses its
-ERC-4626 exchange rate for valuation. This is a curated vault, not automatic
-detection of every Peapods market. Morpho Blue market supply, collateral,
+`wallet_portfolio` also finds vault shares neither the balance index nor Enso
+lists, from the account's transfer history (see History): an ERC-20 minted to
+the account in a transaction where the account itself sent funds, other than
+the EntryPoint gas prefund, is a deposit share. An airdrop can mint a token to
+anyone but cannot make the account pay, so spam lookalike vaults never qualify.
+Up to 30 such tokens have their balance read on-chain and, when they answer
+ERC-4626 `asset()`, are valued with `convertToAssets` (`position.discovered_by:
+transfer_history`, protocol unknown, APY null). A short curated list (the Base
+Peapods pfWETH-12 vault) is always read on-chain and labelled with its protocol
+(`discovered_by: curated`), and also works without history. A failing history
+read is reported in `defi_errors` and nulls the net total. Morpho Blue market supply, collateral,
 borrow, LTV, liquidation threshold and borrow APY are retrieved from Morpho's
 API for the smart account. `total_value_usd` remains the visible wallet-token
 total; `defi_totals.net_portfolio_usd` adds Morpho market supply/collateral and

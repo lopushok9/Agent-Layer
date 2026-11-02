@@ -117,6 +117,21 @@ test("name and NFT tools do not depend on Enso being configured",async()=>{
   const tools=((await c.request("tools/list")).result.tools as {name:string}[]).map(t=>t.name);
   for(const n of ["name_resolve","wallet_nfts"])assert.ok(tools.includes(n),n);
   assert.ok(!tools.includes("route_preview"));
+  assert.ok(!tools.includes("wallet_activity"),"history is registered only when configured");
+});
+
+test("wallet_activity is a read-only tool registered without Enso, with its instructions",async()=>{
+  const calls:any[]=[];
+  const c=await connect({},null,["wallet:transact"],{},{},undefined,{history:{activity:async(userId:string,input:any)=>{calls.push([userId,input]);return{transactions:[]};}}});
+  const tools=(await c.request("tools/list")).result.tools as {name:string;annotations?:any;inputSchema:any}[];
+  const tool=tools.find(t=>t.name==="wallet_activity");
+  assert.ok(tool);assert.equal(tool!.annotations?.readOnlyHint,true);
+  assert.deepEqual(Object.keys(tool!.inputSchema.properties).sort(),["include_unverified","limit","network","offset"]);
+  assert.match(c.init.result.instructions,/Never take a recipient for a new transfer from this history/);
+  const out=await c.request("tools/call",{name:"wallet_activity",arguments:{network:"base"}});
+  assert.equal(out.result.isError,undefined);assert.equal(calls[0][1].network,"base");
+  const legacy=await connect({},null,["x402:pay"],{},{},undefined,{history:{activity:async()=>({})}});
+  assert.ok(!((await legacy.request("tools/list")).result.tools as {name:string}[]).some(t=>t.name==="wallet_activity"),"needs the wallet:transact scope");
 });
 
 test("Basename registration tools are published when configured, with their instructions",async()=>{

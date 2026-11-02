@@ -1,6 +1,7 @@
 import { getAddress, hexToString, isAddress, parseAbi, type Address, type Hex, type PublicClient } from "viem";
 import { z } from "zod";
 import type { EnsoApi } from "./enso-routes.js";
+import { depositedShareTokens, WalletHistory } from "./history.js";
 import { chainIds, walletNetwork, type WalletNetwork } from "./transaction-builder.js";
 
 export const portfolioInput = z.strictObject({
@@ -29,8 +30,15 @@ const poolAbi = parseAbi([
   "function index1() view returns (uint256)",
 ]);
 const vaultAbi = parseAbi(["function convertToAssets(uint256 shares) view returns (uint256)", "function asset() view returns (address)"]);
-const balanceAbi = parseAbi(["function balanceOf(address) view returns (uint256)"]);
-const PEAPODS_BASE = getAddress("0x23574154842bc86cf5bbc5f99376cfa1e2f82497");
+const erc20Abi = parseAbi(["function balanceOf(address) view returns (uint256)", "function symbol() view returns (string)", "function decimals() view returns (uint8)"]);
+// Vaults that balance indexes and Enso do not cover consistently: always read
+// on-chain, with a protocol label. Other vaults are found from the account's
+// transfer history (see discover).
+const CURATED: Record<WalletNetwork, Record<string, string>> = {
+  base: { "0x23574154842bc86cf5bbc5f99376cfa1e2f82497": "peapods-finance" },
+  ethereum: {},
+};
+const MAX_DISCOVERED = 30;
 const WETH_BASE = getAddress("0x4200000000000000000000000000000000000006");
 const MORPHO_QUERY = `query Portfolio($address: String!, $chainId: Int!) { userByAddress(address: $address, chainId: $chainId) { marketPositions { market { marketId lltv loanAsset { address symbol decimals } collateralAsset { address symbol decimals } state { borrowApy } } state { supplyAssets supplyAssetsUsd borrowAssets borrowAssetsUsd collateral collateralUsd } } } }`;
 
@@ -45,7 +53,7 @@ const MORPHO_QUERY = `query Portfolio($address: String!, $chainId: Int!) { userB
 export class Portfolio {
   private cache = new Map<string, { at: number; data: unknown }>();
   private defi = new Map<string, { at: number; data: DefiToken | null }>();
-  constructor(private api: EnsoApi, private wallets: Wallets, private rpcUrl: (network: WalletNetwork) => string | undefined, private fetcher: Fetch = fetch, private now: () => number = Date.now) {}
+  constructor(private api: EnsoApi, private wallets: Wallets, private rpcUrl: (network: WalletNetwork) => string | undefined, private fetcher: Fetch = fetch, private now: () => number = Date.now, private history: WalletHistory = new WalletHistory(wallets, rpcUrl, fetcher, now)) {}
 
   async portfolio(userId: string, input: z.input<typeof portfolioInput>) {
     const p = portfolioInput.parse(input);
@@ -60,18 +68,15 @@ export class Portfolio {
       source = "enso";
       holdings = await this.cached(`enso:${p.network}:${address}`, 30_000, () => this.ensoHoldings(p.network, address)) as Holding[];
     }
-    // This supported vault is not indexed consistently by wallet balance or
-    // Enso metadata APIs. On-chain balance is authoritative for this token.
-    let peapodsError: string | null = null;
-    if (p.network === "base") {
-      try {
-        const balance = await this.wallets.rpc(p.network).readContract({ address: PEAPODS_BASE, abi: balanceAbi, functionName: "balanceOf", args: [address] });
-        holdings = holdings.filter(h => h.token.toLowerCase() !== PEAPODS_BASE.toLowerCase());
-        if (balance > 0n) holdings.push({ token: PEAPODS_BASE.toLowerCase(), symbol: "pfWETH-12", decimals: 18, amount_raw: balance, price: null });
-      } catch { peapodsError = "Peapods vault balance could not be read"; }
-    }
+    const found = await this.discover(p.network, address, holdings);
+    holdings = found.holdings;
+    const discoveryErrors = found.errors;
     const meta = await this.defiTokens(p.network, holdings.filter(h => h.token !== NATIVE).map(h => h.token));
-    if (p.network === "base" && holdings.some(h => h.token === PEAPODS_BASE.toLowerCase())) meta.set(PEAPODS_BASE.toLowerCase(), { protocol: "peapods-finance", primaryAddress: PEAPODS_BASE, underlyingTokens: [{ address: WETH_BASE, symbol: "WETH", decimals: 18 }] });
+    for (const token of found.candidates) {
+      if (meta.has(token) || !holdings.some(h => h.token === token)) continue;
+      const vault = await this.vaultMeta(p.network, token);
+      if (vault) meta.set(token, vault);
+    }
     const prices = new Map(holdings.filter(h => h.price !== null).map(h => [h.token, h.price!]));
     if (p.network === "base" && prices.has(NATIVE) && !prices.has(WETH_BASE.toLowerCase())) prices.set(WETH_BASE.toLowerCase(), prices.get(NATIVE)!);
     const morpho = await this.morphoPositions(p.network, address).catch(() => null);
@@ -91,7 +96,7 @@ export class Portfolio {
     const walletTotal = shown.reduce((s, r) => s + (r.value_usd ?? 0), 0);
     const supplied = morpho?.reduce((s, m) => s + (m.supply_usd ?? 0) + (m.collateral_usd ?? 0), 0) ?? 0;
     const debt = morpho?.reduce((s, m) => s + (m.borrow_usd ?? 0), 0) ?? 0;
-    const totalsComplete = morpho !== null && !peapodsError && shown.every(r => r.value_usd !== null) && morpho.every(m => (m.supply === 0 || m.supply_usd !== null) && (m.collateral === 0 || m.collateral_usd !== null) && (m.borrow === 0 || m.borrow_usd !== null));
+    const totalsComplete = morpho !== null && discoveryErrors.length === 0 && shown.every(r => r.value_usd !== null) && morpho.every(m => (m.supply === 0 || m.supply_usd !== null) && (m.collateral === 0 || m.collateral_usd !== null) && (m.borrow === 0 || m.borrow_usd !== null));
     return {
       network: p.network, address,
       total_value_usd: round(shown.reduce((s, r) => s + (r.value_usd ?? 0), 0)),
@@ -100,11 +105,61 @@ export class Portfolio {
       hidden_reason: `no price and not a DeFi position, or worth less than $${p.min_value_usd}; names of hidden tokens are not shown (airdropped tokens are often spam)`,
       assets: shown.map(({ defi: _, ...r }) => r),
       morpho_market_positions: morpho,
-      defi_errors: [...(peapodsError ? [peapodsError] : []), ...(morpho === null ? ["Morpho market positions unavailable"] : [])],
+      defi_errors: [...discoveryErrors, ...(morpho === null ? ["Morpho market positions unavailable"] : [])],
       defi_totals: { collateral_and_supply_usd: morpho === null || morpho.some(m => (m.supply > 0 && m.supply_usd === null) || (m.collateral > 0 && m.collateral_usd === null)) ? null : round(supplied), debt_usd: morpho === null || morpho.some(m => m.borrow > 0 && m.borrow_usd === null) ? null : round(debt), net_portfolio_usd: totalsComplete ? round(walletTotal + supplied - debt) : null, complete: totalsComplete, note: "Complete applies only to visible wallet assets and supported Morpho market positions. Other non-tokenized positions and hidden assets are not included." },
-      sources: { balances_and_prices: source, positions: "enso and curated on-chain Peapods vault", morpho_markets: "Morpho API", position_prices: "on-chain (pool reserves, ERC-4626 convertToAssets)" },
+      sources: { balances_and_prices: source, positions: "enso; ERC-4626 vaults found in the account's transfer history (shares minted in a transaction where the account sent funds) and curated vaults, read on-chain", morpho_markets: "Morpho API", position_prices: "on-chain (pool reserves, ERC-4626 convertToAssets)" },
       trust: "Balances, prices, APY and TVL are third-party data; fee APR is estimated by this server from one day of the pool's fee index. Informational, not advice; past fees do not predict future ones.",
     };
+  }
+
+  // Share tokens balance indexes and Enso may miss: those minted to the
+  // account in one of its own deposits (from its transfer history), plus the
+  // curated vaults. Their balances are read on-chain; a curated vault's
+  // on-chain balance replaces whatever the index reported.
+  private async discover(network: WalletNetwork, address: Address, holdings: Holding[]) {
+    const errors: string[] = [];
+    let minted: string[] = [];
+    if (this.history.available(network)) {
+      try { minted = depositedShareTokens(await this.history.load(network, address)); }
+      catch { errors.push("Transfer history unavailable: vault positions that Enso does not index may be missing"); }
+    }
+    const curated = Object.keys(CURATED[network]);
+    const candidates = [...new Set([...curated, ...minted])].slice(0, MAX_DISCOVERED);
+    const rpc = this.wallets.rpc(network);
+    const read = await Promise.all(candidates.map(async token => {
+      if (!curated.includes(token) && holdings.some(h => h.token === token)) return null;
+      const a = getAddress(token);
+      try {
+        const balance = await rpc.readContract({ address: a, abi: erc20Abi, functionName: "balanceOf", args: [address] });
+        if (balance === 0n) return { token, holding: null };
+        const [symbol, decimals] = await Promise.all([rpc.readContract({ address: a, abi: erc20Abi, functionName: "symbol" }).catch(() => null), rpc.readContract({ address: a, abi: erc20Abi, functionName: "decimals" })]);
+        const d = Number(decimals);
+        return { token, holding: Number.isInteger(d) && d >= 0 && d <= 36 ? { token, symbol: text(symbol, 30), decimals: d, amount_raw: balance, price: null } as Holding : null };
+      } catch {
+        errors.push(`Vault balance could not be read: ${a}`);
+        return null;
+      }
+    }));
+    const replaced = new Set(read.flatMap(r => r ? [r.token] : []));
+    return {
+      holdings: [...holdings.filter(h => !replaced.has(h.token)), ...read.flatMap(r => r?.holding ? [r.holding] : [])],
+      candidates, errors,
+    };
+  }
+
+  // ERC-4626 metadata for a found share token, read on-chain and cached per
+  // token for an hour; null when it is not a vault (it stays a plain token).
+  private async vaultMeta(network: WalletNetwork, token: string) {
+    const meta = await this.cached(`vault:${network}:${token}`, 3600_000, async () => {
+      const rpc = this.wallets.rpc(network);
+      try {
+        const asset = getAddress(await rpc.readContract({ address: getAddress(token), abi: vaultAbi, functionName: "asset" }));
+        const [symbol, decimals] = await Promise.all([rpc.readContract({ address: asset, abi: erc20Abi, functionName: "symbol" }).catch(() => null), rpc.readContract({ address: asset, abi: erc20Abi, functionName: "decimals" })]);
+        const label = CURATED[network][token];
+        return { protocol: label ?? null, primaryAddress: getAddress(token), underlyingTokens: [{ address: asset, symbol: text(symbol, 30), decimals: Number(decimals) }], discovered: label ? "curated" : "transfer_history" };
+      } catch { return null; }
+    });
+    return meta as DefiToken | null;
   }
 
   private async morphoPositions(network: WalletNetwork, address: Address) {
@@ -192,6 +247,7 @@ export class Portfolio {
     const out: Record<string, unknown> & { price_usd: number | null; tvl_usd: number | null; apy: number | null } = {
       protocol: text(d.protocol ?? d.protocolSlug, 64), primary_address: typeof d.primaryAddress === "string" && isAddress(d.primaryAddress) ? getAddress(d.primaryAddress) : null,
       apy: num(d.apy), apy_base: num(d.apyBase), apy_reward: num(d.apyReward), tvl_usd: num(d.tvl), apy_source: num(d.apy) === null ? null : "enso", underlying, price_usd: null,
+      ...(d.discovered === "transfer_history" || d.discovered === "curated" ? { discovered_by: d.discovered, discovery_note: "ERC-4626 vault outside Enso's index; value is the vault's own convertToAssets, APY unknown" } : {}),
     };
     const info = (t: Address) => underlying.find(u => u.token === t);
     const priceOf = async (t: Address) => prices.get(t.toLowerCase()) ?? await this.alchemyPrice(key, network, t);

@@ -23,26 +23,51 @@ const defi = [
   { address: lp.toLowerCase(), protocol: "aerodrome-metadex", primaryAddress: "0x0fEf9e88A7b76BCDBF451780C6774FE32965Ee98", apy: null, apyBase: null, apyReward: null, tvl: null, underlyingTokens: [{ address: usdc, symbol: "USDC", decimals: 6 }, { address: weth, symbol: "WETH", decimals: 18 }] },
 ];
 
-function harness({ poolType = "V2_VOLATILE", rpcDown = false, alchemyDown = false, url = rpcUrl as string | undefined, peapodsBalance = 0n, morphoDown = false, morphoRows = [] as any[] } = {}) {
+// A vault Enso does not know, entered in the account's own deposit, and an
+// ERC-4626 lookalike minted to it as an airdrop.
+const found = "0x3333333333333333333333333333333333333333", airdrop = "0x4444444444444444444444444444444444444444";
+const entryPoint = "0x5ff137d4b0fdcd49dca30c7cf57e578a026d2789";
+const move = (hash: string, from: string, to: string, token: string, value: bigint, symbol: string) => ({ blockNum: "0x10", uniqueId: `${hash}:log:${from}${to}`, hash, from: from.toLowerCase(), to: to.toLowerCase(), asset: symbol, category: token === "native" ? "internal" : "erc20", rawContract: { value: hex(value), address: token === "native" ? null : token.toLowerCase(), decimal: "0x12" }, metadata: { blockTimestamp: "2026-10-30T10:00:00.000Z" } });
+const depositHash = `0x${"d".repeat(64)}`, airdropHash = `0x${"e".repeat(64)}`;
+const depositHistory = [
+  move(depositHash, account, found, weth, 10n ** 18n, "WETH"),
+  move(depositHash, "0x0000000000000000000000000000000000000000", account, found, 2n * 10n ** 18n, "xVAULT"),
+  move(depositHash, account, entryPoint, "native", 10n ** 12n, "ETH"),
+  move(airdropHash, "0x0000000000000000000000000000000000000000", account, airdrop, 10n ** 24n, "FREE"),
+];
+
+function harness({ poolType = "V2_VOLATILE", rpcDown = false, alchemyDown = false, url = rpcUrl as string | undefined, peapodsBalance = 0n, morphoDown = false, morphoRows = [] as any[], transfers = [] as any[], historyDown = false } = {}) {
   const enso: { path: string; query: any }[] = [], http: { url: string; body: any }[] = [];
   const api = { get: async (path: string, query: any) => { enso.push({ path, query }); return path === "wallet/balances" ? [{ token: "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", amount: "10000000000000000", decimals: 18, price: "2000", symbol: "ETH" }] : { data: defi.filter(d => query.address.map((a: string) => a.toLowerCase()).includes(d.address)) }; } };
   const fetcher = async (u: string, init: any) => {
     http.push({ url: u, body: JSON.parse(init.body) });
     if (u === "https://api.morpho.org/graphql") return morphoDown ? new Response("down", { status: 503 }) : Response.json({ data: { userByAddress: { marketPositions: morphoRows } } });
+    if (u.startsWith("https://base-mainnet.g.alchemy.com/v2/")) {
+      if (historyDown) return new Response("down", { status: 503 });
+      const body = JSON.parse(init.body).params[0];
+      return Response.json({ result: { transfers: transfers.filter(t => body.fromAddress ? t.from === account.toLowerCase() : t.to === account.toLowerCase()) } });
+    }
     if (alchemyDown) return new Response("down", { status: 503 });
     if (u.includes("/prices/v1/")) return Response.json({ data: [{ prices: [{ currency: "usd", value: "2000" }] }] });
     return Response.json({ data: { tokens } });
   };
-  const reads: string[] = [];
+  const reads: string[] = [], readAddresses: string[] = [];
   const rpc = {
     readContract: async ({ address, functionName, blockNumber }: { address: string; functionName: string; blockNumber?: bigint }) => {
-      reads.push(functionName);
+      reads.push(functionName); readAddresses.push(address.toLowerCase());
       if (rpcDown) throw new Error("rpc down");
       if (address.toLowerCase() === "0x23574154842bc86cf5bbc5f99376cfa1e2f82497") {
         if (functionName === "balanceOf") return peapodsBalance;
         if (functionName === "asset") return weth;
         if (functionName === "convertToAssets") return 127n * 10n ** 16n;
+        if (functionName === "symbol") return "pfWETH-12";
+        if (functionName === "decimals") return 18;
       }
+      if (address.toLowerCase() === found || address.toLowerCase() === airdrop) {
+        const vault: Record<string, unknown> = { balanceOf: 2n * 10n ** 18n, asset: weth, convertToAssets: 15n * 10n ** 17n, symbol: "xVAULT", decimals: 18 };
+        return vault[functionName];
+      }
+      if (address.toLowerCase() === weth.toLowerCase() && (functionName === "symbol" || functionName === "decimals")) return functionName === "symbol" ? "WETH" : 18;
       const past = blockNumber !== undefined && blockNumber <= 100_000n;
       // 0.1% of each reserve per LP token over the day: index growth of 1e18 x (reserve / supply) x 0.001.
       const values: Record<string, unknown> = {
@@ -56,7 +81,7 @@ function harness({ poolType = "V2_VOLATILE", rpcDown = false, alchemyDown = fals
     getBlockNumber: async () => 143_200n,
   };
   const p = new Portfolio(api as any, { account: async () => ({ address: account }), rpc: () => rpc as any }, () => url, fetcher as any);
-  return { p, enso, http, reads };
+  return { p, enso, http, reads, readAddresses };
 }
 const find = (r: any, symbol: string) => r.assets.find((a: any) => a.symbol === symbol);
 
@@ -96,8 +121,35 @@ test("failed Morpho or Peapods reads are visible and do not produce a net total"
   assert.equal(r.morpho_market_positions, null); assert.equal(r.defi_totals.net_portfolio_usd, null);
   assert.ok(r.defi_errors.includes("Morpho market positions unavailable"));
   const down: any = await harness({ rpcDown: true }).p.portfolio("alice", { network: "base" });
-  assert.ok(down.defi_errors.includes("Peapods vault balance could not be read"));
+  assert.ok(down.defi_errors.includes("Vault balance could not be read: 0x23574154842bC86Cf5BbC5f99376Cfa1E2f82497"));
   assert.equal(down.defi_totals.net_portfolio_usd, null);
+  const noHistory: any = await harness({ historyDown: true }).p.portfolio("alice", { network: "base" });
+  assert.ok(noHistory.defi_errors.includes("Transfer history unavailable: vault positions that Enso does not index may be missing"));
+  assert.equal(noHistory.defi_totals.net_portfolio_usd, null);
+});
+
+test("a vault from the account's own deposit is found in its history and priced on-chain; an airdropped lookalike is ignored", async () => {
+  const h = harness({ transfers: depositHistory });
+  const r: any = await h.p.portfolio("alice", { network: "base" });
+  const v = find(r, "xVAULT");
+  assert.equal(v.token, found);
+  assert.equal(v.amount, 2);
+  assert.equal(v.price_usd, 3000, "1.5 WETH per share x $2000");
+  assert.equal(v.value_usd, 6000);
+  assert.equal(v.position.discovered_by, "transfer_history");
+  assert.equal(v.position.protocol, null);
+  assert.equal(v.position.apy, null, "no APY is invented");
+  assert.deepEqual(v.position.underlying, [{ token: weth, symbol: "WETH", decimals: 18 }]);
+  assert.ok(!h.readAddresses.includes(airdrop), "a mint without a payment by the account is never read");
+  assert.equal(r.assets.filter((a: any) => a.symbol === "xVAULT").length, 1);
+  assert.deepEqual(r.defi_errors, []);
+  const transfersCalls = h.http.filter(c => c.body?.method === "alchemy_getAssetTransfers");
+  assert.deepEqual(transfersCalls.map(c => Object.keys(c.body.params[0]).find(k => k.endsWith("Address"))).sort(), ["fromAddress", "toAddress"]);
+});
+
+test("a curated vault is labelled with its protocol", async () => {
+  const pea = find(await harness({ peapodsBalance: 10n ** 18n }).p.portfolio("alice", { network: "base" }), "pfWETH-12");
+  assert.deepEqual([pea.position.protocol, pea.position.discovered_by, pea.price_usd], ["peapods-finance", "curated", 1.27 * 2000]);
 });
 
 test("Enso metadata is cached per token across users and calls", async () => {
