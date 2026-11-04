@@ -1228,6 +1228,29 @@ def _build_evm_sdk_signer(backend: AgentWalletBackend, address: str) -> Any:
     return _OpenClawEvmX402Signer(backend, address)
 
 
+def _bind_sdk_spend_limit(client: Any, selected_payment: dict[str, Any]) -> None:
+    """Bound the SDK to the already policy-checked canonical USDC requirement.
+
+    New SDKs default to $1 independently of the wallet's approval policy.
+    Older SDKs have no spend-controls API. Leave other assets on SDK defaults.
+    """
+    setter = getattr(client, "set_spend_controls", None)
+    if not callable(setter):
+        return
+    network = _trim(selected_payment.get("network"))
+    asset = _trim(selected_payment.get("asset"))
+    amount = _trim(selected_payment.get("amount"))
+    canonical_usdc = {
+        "eip155:8453": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+        "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    }
+    expected = canonical_usdc.get(network)
+    matches = bool(expected) and (asset.lower() == expected if network.startswith("eip155:") else asset == expected)
+    if not matches or not amount.isascii() or not amount.isdigit():
+        return
+    setter({"allowed_assets": [{"network": network, "asset": asset, "max_amount_per_payment": amount}]})
+
+
 async def _create_payment_headers(
     *,
     backend: AgentWalletBackend,
@@ -1244,6 +1267,7 @@ async def _create_payment_headers(
             selected_payment=selected_payment,
         )
         client = sdk["x402Client"]()
+        _bind_sdk_spend_limit(client, selected_payment)
         sdk_rpc_url = _backend_solana_sdk_rpc_url(backend)
         if not sdk_rpc_url:
             raise ProviderError(
@@ -1282,6 +1306,7 @@ async def _create_payment_headers(
             selected_payment=selected_payment,
         )
         client = sdk["x402Client"]()
+        _bind_sdk_spend_limit(client, selected_payment)
         address = await backend.get_address()
         if not isinstance(address, str) or not address.strip():
             raise ProviderError("x402-evm", "The active EVM backend did not resolve a payer address.")

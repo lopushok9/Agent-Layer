@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.142 - 2026-11-04
+
+- Fix x402 SDK spend controls rejecting approved USDC payments over $1 by
+  binding the SDK limit to the selected payment amount on Base and Solana.
+- Align the Codex x402 confirmation threshold with the wallet's $2 policy,
+  and make search and preview requests stop before payment.
+- Improve discovery guidance for merchant-specific checkout links and requests.
+
 ## v0.1.140 - 2026-10-25
 
 Codex integration polish.
