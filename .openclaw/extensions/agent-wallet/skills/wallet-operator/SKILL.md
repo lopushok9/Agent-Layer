@@ -8,6 +8,7 @@ Safety rules:
 - When a wallet tool exists for the task, do not fall back to `exec`, `solana`, `spl-token`, `bitcoin-cli`, `curl`, or any shell-based wallet workflow. If the wallet tool fails, report the tool error and stop.
 - Jupiter Portfolio tools are temporarily disabled. Do not suggest or call them until they are re-enabled.
 - Use Kamino market/reserve reads before Kamino writes when the user needs lending context.
+- Buying/selling a stock onchain ("buy TSLA on base"): call `get_evm_tokenized_stock` first — on Base it resolves the ticker to the canonical Coinbase Tokenized Stock (symbol = ticker + `c`, e.g. `TSLAc`, 8 decimals) by address. Never pick a stock token by ticker from `search_uniswap_pairs`. Ask for the amount and funding asset (default USDC on Base) if missing, quote with `get_evm_swap_quote` (token_out = the returned address), show the quote plus the returned notices (not for U.S. persons; exposure certificate, not a share), and swap with `swap_evm_tokens` only after confirmation.
 - Use Aave account reads before Aave writes when the user needs EVM lending context.
 - For transfers, native staking, swaps, Aave writes, and Kamino writes, use `preview` before `prepare` or `execute`.
 - For Solana Jupiter swaps through `swap_solana_tokens`, prefer `intent_preview` then `intent_execute` after explicit chat confirmation. The user confirms risk limits; the backend refreshes the quote and only executes inside those limits.

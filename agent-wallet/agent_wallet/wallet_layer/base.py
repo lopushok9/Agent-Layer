@@ -328,6 +328,15 @@ class AgentWalletBackend(ABC):
     ) -> dict[str, Any]:
         raise WalletBackendError(f"{self.name} does not support Uniswap pair search.")
 
+    async def get_evm_tokenized_stock(
+        self,
+        *,
+        query: str,
+        network: str | None = None,
+        limit: int = 5,
+    ) -> dict[str, Any]:
+        raise WalletBackendError(f"{self.name} does not support tokenized stock lookup.")
+
     async def get_uniswap_liquidity_pools(
         self,
         *,

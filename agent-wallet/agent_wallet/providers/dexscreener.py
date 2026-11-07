@@ -89,7 +89,9 @@ async def get_pairs_for_token(*, chain: str, token_address: str) -> list[dict[st
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
-    data = await _get(f"/tokens/v1/{chain}/{token_address}")
+    # /token-pairs/v1 lists every pool for the token; /tokens/v1 returns only one
+    # pair per token, which hid the deepest venue (e.g. Aerodrome) for some tokens.
+    data = await _get(f"/token-pairs/v1/{chain}/{token_address}")
     pairs = _extract_pairs(data)
     _cache_set(cache_key, pairs)
     return pairs

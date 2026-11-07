@@ -101,6 +101,16 @@ Use this skill before calling OpenClaw wallet tools. It is the routing guide for
 - EVM swap quote only: `get_evm_swap_quote`
   - Params: `token_in`, `token_out`, `amount_in_raw`, optional `network`.
 
+## Tokenized Stocks (EVM)
+
+- "Buy TSLA/NVDA/Apple stock on Base": call `get_evm_tokenized_stock` (`query` = ticker, company name, or ISIN) BEFORE any DEX search.
+  - On `base` it resolves through Coinbase's official registry (~300 Coinbase Tokenized Stocks, B20/ERC-20, symbol = ticker + `c`, e.g. `TSLAc`, 8 decimals) and returns the canonical `address`, top DEX venues with liquidity, `notices`, and `next_step`.
+  - Never choose a stock token by ticker from `search_uniswap_pairs`; there, pairs carry `canonical_tokenized_stock` true/false. SwarmX, Dinari, xStocks, or Robinhood-chain tokens are different products: offer one only if the user asks, and say it is a different issuer.
+  - If amount or funding asset is missing, ask once (default funding: USDC on Base, `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`). Amount `amount_in_raw` is in the funding token's base units.
+  - Quote with `get_evm_swap_quote` (Velora, aggregates Aerodrome + Uniswap pools — usually the deepest route), fallback `get_uniswap_swap_quote`. Show input, estimated and minimum TSLAc out, and price vs. the venue price.
+  - Surface the notices: not available to U.S. persons (Reg S); an exposure certificate, not a direct share; multiplier can change; DEX prices may drift outside U.S. market hours.
+  - Execute with `swap_evm_tokens` (preview → confirm → execute) for the quoted route.
+
 ## Cross-Chain Commands
 
 - Solana -> Ethereum/Base: `swap_solana_lifi_cross_chain_tokens`

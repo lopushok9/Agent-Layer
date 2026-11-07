@@ -285,6 +285,7 @@ function inferBackendForTool(toolName) {
     toolName.startsWith("transfer_evm_") ||
     toolName.startsWith("rebalance_evm_") ||
     toolName.includes("morpho") ||
+    toolName.includes("uniswap") ||
     toolName === "set_evm_network"
   ) {
     return "wdk_evm_local";
@@ -1975,6 +1976,20 @@ const evmToolDefinitions = [
         network: { type: "string", enum: EVM_CORE_NETWORKS },
       },
       required: ["token_in", "token_out", "amount_in_raw"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_evm_tokenized_stock",
+    description: "Resolve a stock ticker, company name, or ISIN (e.g. TSLA, Tesla, NVDA) to the canonical tokenized-stock ERC-20 from the issuer's official registry. Use this FIRST whenever the user wants to buy, sell, or quote a stock onchain, before any DEX search. On base this is Coinbase Tokenized Stocks (symbol = ticker + \"c\", e.g. TSLAc). Returns the canonical address, decimals, top DEX venues with liquidity, eligibility notices, and the next quoting step (get_evm_swap_quote). Read-only.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        network: { type: "string", enum: ["base"] },
+        limit: { type: "integer", minimum: 1, maximum: 20 },
+      },
+      required: ["query"],
       additionalProperties: false,
     },
   },

@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.1.143 - 2026-11-07
+
+Reliable tokenized-stock buys on Base.
+
+- Add `get_evm_tokenized_stock`: resolves a ticker, company name or ISIN
+  ("TSLA", "Tesla") to the canonical Coinbase Tokenized Stock on Base (e.g.
+  `TSLAc`) from Coinbase's official registry, with top DEX venues, eligibility
+  notices and the next quoting step.
+- `search_uniswap_pairs` on Base now finds pairs cut off by DexScreener's
+  global result cap, injects the canonical stock pools and flags each token
+  with `canonical_tokenized_stock`. Token lookups list every pool, so the
+  deepest venue (e.g. Aerodrome) is no longer missing.
+- Route `get_uniswap_swap_quote` and `search_uniswap_pairs` to the EVM wallet
+  when the session's active wallet is Solana.
+
 ## v0.1.142 - 2026-11-04
 
 - Fix x402 SDK spend controls rejecting approved USDC payments over $1 by

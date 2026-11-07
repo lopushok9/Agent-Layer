@@ -8,7 +8,8 @@ from typing import Any
 from agent_wallet.config import normalize_evm_network
 from agent_wallet.providers.evm_portfolio import build_portfolio_snapshot
 from agent_wallet.providers.evm_activity import get_activity
-from agent_wallet.providers import dexscreener, lifi
+from agent_wallet.exceptions import ProviderError
+from agent_wallet.providers import dexscreener, lifi, tokenized_stocks
 from agent_wallet.providers.wdk_evm_local import WdkEvmLocalClient
 from agent_wallet.wallet_layer.base import AgentWalletBackend, WalletBackendError, WalletCapabilities
 
@@ -71,6 +72,27 @@ def _normalize_token_metadata(payload: Any, token_address: str | None = None) ->
         "source": str(payload.get("source") or "erc20-rpc"),
     }
     return normalized
+
+
+_BASE_USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+
+
+def _filter_pairs_to_chain(pairs: list[dict[str, Any]], chain: str) -> list[dict[str, Any]]:
+    return [p for p in pairs if str(p.get("chainId") or "").lower() == chain]
+
+
+def _pair_has_token(pair: dict[str, Any], address_lower: str) -> bool:
+    return any(
+        str((pair.get(side) or {}).get("address") or "").lower() == address_lower
+        for side in ("baseToken", "quoteToken")
+    )
+
+
+def _first_exact_stock(registry_result: dict[str, Any] | None) -> dict[str, Any] | None:
+    for match in (registry_result or {}).get("matches") or []:
+        if match.get("exact_match"):
+            return match
+    return None
 
 
 def _normalize_swap_allowance(payload: Any) -> dict[str, Any] | None:
@@ -2034,18 +2056,56 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
         if not query and not token_address:
             raise WalletBackendError("Either query or token_address is required.")
         resolved_chain = (chain or self.network).strip().lower()
+        canonical_stocks: dict[str, Any] | None = None
+        if query and not all_chains and tokenized_stocks.is_supported_network(resolved_chain):
+            try:
+                canonical_stocks = await tokenized_stocks.find_tokenized_stocks(
+                    query, network=resolved_chain, limit=3
+                )
+            except ProviderError:
+                canonical_stocks = None
         if token_address:
             pairs = await dexscreener.get_pairs_for_token(chain=resolved_chain, token_address=token_address)
         else:
             pairs = await dexscreener.search_pairs(query)
             if not all_chains:
-                pairs = [p for p in pairs if str(p.get("chainId") or "").lower() == resolved_chain]
+                pairs = _filter_pairs_to_chain(pairs, resolved_chain)
+                if not pairs:
+                    # DexScreener search returns at most ~30 pairs across *all* chains, so
+                    # a chain's results are often cut before this filter; a chain-qualified
+                    # query surfaces them.
+                    pairs = _filter_pairs_to_chain(
+                        await dexscreener.search_pairs(f"{query} {resolved_chain}"), resolved_chain
+                    )
+                exact_stock = _first_exact_stock(canonical_stocks)
+                if exact_stock is not None:
+                    canonical_address = exact_stock["address"].lower()
+                    if not any(_pair_has_token(pair, canonical_address) for pair in pairs):
+                        pairs = (
+                            await dexscreener.get_pairs_for_token(
+                                chain=resolved_chain, token_address=exact_stock["address"]
+                            )
+                            + pairs
+                        )
         if dex_id:
             wanted_dex = dex_id.strip().lower()
             pairs = [p for p in pairs if str(p.get("dexId") or "").lower() == wanted_dex]
         bounded_limit = max(1, min(int(limit or 10), 30))
         normalized = [dexscreener.normalize_pair(pair) for pair in pairs[:bounded_limit]]
-        return {
+        canonical_addresses: set[str] = set()
+        if tokenized_stocks.is_supported_network(resolved_chain) and not all_chains:
+            try:
+                canonical_addresses = await tokenized_stocks.canonical_address_set(resolved_chain)
+            except ProviderError:
+                canonical_addresses = set()
+        if canonical_addresses:
+            for pair in normalized:
+                for side in ("base_token", "quote_token"):
+                    token = pair.get(side) or {}
+                    token["canonical_tokenized_stock"] = (
+                        str(token.get("address") or "").lower() in canonical_addresses
+                    )
+        result: dict[str, Any] = {
             "chain": None if all_chains else resolved_chain,
             "all_chains": all_chains,
             "query": query,
@@ -2055,6 +2115,75 @@ class WdkEvmLocalWalletBackend(AgentWalletBackend):
             "pairs": normalized,
             "source": "dexscreener",
         }
+        if _first_exact_stock(canonical_stocks) is not None:
+            result["canonical_tokenized_stocks"] = canonical_stocks
+            result["hint"] = (
+                "This query matches the issuer's canonical tokenized-stock registry. Use the "
+                "canonical address from canonical_tokenized_stocks, not a ticker match; pairs "
+                "whose token has canonical_tokenized_stock=false are not issued by that issuer."
+            )
+        return result
+
+    async def get_evm_tokenized_stock(
+        self,
+        *,
+        query: str,
+        network: str | None = None,
+        limit: int = 5,
+    ) -> dict[str, Any]:
+        resolved_network = (network or self.network).strip().lower()
+        try:
+            data = await tokenized_stocks.find_tokenized_stocks(query, network=resolved_network, limit=limit)
+        except ProviderError as exc:
+            raise WalletBackendError(str(exc)) from exc
+        exact = _first_exact_stock(data)
+        if exact is not None:
+            try:
+                pairs = await dexscreener.get_pairs_for_token(
+                    chain=resolved_network, token_address=exact["address"]
+                )
+            except ProviderError:
+                pairs = []
+            venues = sorted(
+                (dexscreener.normalize_pair(pair) for pair in pairs),
+                key=lambda pair: float(pair.get("liquidity_usd") or 0),
+                reverse=True,
+            )[:5]
+            data["liquidity"] = {
+                "source": "dexscreener",
+                "total_liquidity_usd": round(sum(float(p.get("liquidity_usd") or 0) for p in venues), 2),
+                "top_venues": [
+                    {
+                        "dex_id": p.get("dex_id"),
+                        "labels": p.get("labels"),
+                        "pair_address": p.get("pair_address"),
+                        "pair": f"{(p.get('base_token') or {}).get('symbol')}/{(p.get('quote_token') or {}).get('symbol')}",
+                        "price_usd": p.get("price_usd"),
+                        "liquidity_usd": p.get("liquidity_usd"),
+                        "volume_24h_usd": (p.get("volume_usd") or {}).get("h24"),
+                    }
+                    for p in venues
+                ],
+            }
+            usdc = _BASE_USDC if resolved_network == "base" else None
+            data["next_step"] = {
+                "tool": "get_evm_swap_quote",
+                "description": (
+                    "Ask the user for the amount and funding asset if not given, then quote "
+                    f"token_in=<funding asset> -> token_out={exact['address']} on {resolved_network} "
+                    "(Velora aggregates Aerodrome and Uniswap pools; get_uniswap_swap_quote is the "
+                    "alternative). Show the quote and wait for explicit confirmation before swapping."
+                ),
+                "token_out": exact["address"],
+                "token_out_decimals": exact.get("decimals"),
+                "suggested_token_in": usdc,
+            }
+        elif not data.get("matches"):
+            data["hint"] = (
+                "No canonical tokenized stock matched. Do not substitute a DEX search hit or another "
+                "issuer's token without telling the user it is a different product."
+            )
+        return data
 
     async def get_uniswap_liquidity_pools(
         self,

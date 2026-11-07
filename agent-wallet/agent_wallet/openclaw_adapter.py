@@ -3475,7 +3475,10 @@ class OpenClawWalletAdapter:
                             "same chain aren't impersonators just for lacking a canonical issuer. When the "
                             "query is a real-world-asset ticker, cross-check the returned token_address "
                             "against Robinhood's own canonical list at docs.robinhood.com/chain/contracts "
-                            "(or the equivalent official source for other chains) before relying on the result."
+                            "(or the equivalent official source for other chains) before relying on the result. "
+                            "For stocks on base use get_evm_tokenized_stock instead; here, base results also carry "
+                            "canonical_tokenized_stock true/false per token and a canonical_tokenized_stocks block "
+                            "when the query matches Coinbase's official registry."
                         ),
                         input_schema={
                             "type": "object",
@@ -3506,6 +3509,44 @@ class OpenClawWalletAdapter:
                                 },
                             },
                             "required": [],
+                            "additionalProperties": False,
+                        },
+                        read_only=True,
+                        risk_level="low",
+                    ),
+                )
+                tools.append(
+                    AgentToolSpec(
+                        name="get_evm_tokenized_stock",
+                        description=(
+                            "Resolve a stock ticker, company name, or ISIN (e.g. \"TSLA\", \"Tesla\", "
+                            "\"NVDA\") to the canonical tokenized-stock ERC-20 on an EVM chain, from the "
+                            "issuer's official registry. Use this FIRST whenever the user wants to buy, sell, "
+                            "or quote a stock/equity onchain, before any DEX search. On base this is Coinbase "
+                            "Tokenized Stocks (B20 tokens, symbol = ticker + \"c\", e.g. TSLAc, 8 decimals, "
+                            "~300 stocks). Returns the canonical address, decimals, multiplier, top DEX venues "
+                            "with liquidity, eligibility notices, and the next quoting step. Then quote with "
+                            "get_evm_swap_quote (token_out = the returned address). Never pick a stock token "
+                            "by ticker from DEX search when this tool returns a canonical match. Read-only."
+                        ),
+                        input_schema={
+                            "type": "object",
+                            "properties": {
+                                "query": {
+                                    "type": "string",
+                                    "description": "Stock ticker, company name, ISIN, or token address, e.g. \"TSLA\" or \"Tesla\".",
+                                },
+                                "network": {
+                                    "type": "string",
+                                    "enum": ["base"],
+                                    "description": "EVM network with a wired canonical registry. Defaults to base.",
+                                },
+                                "limit": {
+                                    "type": "integer",
+                                    "description": "Max matches to return (1-20). Defaults to 5.",
+                                },
+                            },
+                            "required": ["query"],
                             "additionalProperties": False,
                         },
                         read_only=True,
@@ -6795,6 +6836,23 @@ class OpenClawWalletAdapter:
                     chain=chain,
                     dex_id=dex_id,
                     all_chains=all_chains,
+                    limit=limit,
+                )
+                return AgentToolResult(tool=tool_name, ok=True, data=data)
+
+            if tool_name == "get_evm_tokenized_stock":
+                query = args.get("query")
+                network = args.get("network")
+                limit = args.get("limit", 5)
+                if not isinstance(query, str) or not query.strip():
+                    raise WalletBackendError("query is required.")
+                if network is not None and network != "base":
+                    raise WalletBackendError("network must be base.")
+                if not isinstance(limit, int) or limit < 1 or limit > 20:
+                    raise WalletBackendError("limit must be an integer between 1 and 20.")
+                data = await active_backend.get_evm_tokenized_stock(
+                    query=query.strip(),
+                    network=network or "base",
                     limit=limit,
                 )
                 return AgentToolResult(tool=tool_name, ok=True, data=data)

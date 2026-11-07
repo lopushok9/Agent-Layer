@@ -625,6 +625,7 @@ def _infer_backend_for_tool(tool_name: str) -> str | None:
         or tool_name.startswith("transfer_evm_")
         or tool_name.startswith("rebalance_evm_")
         or "morpho" in tool_name
+        or "uniswap" in tool_name
         or tool_name == "set_evm_network"
     ):
         return "wdk_evm_local"

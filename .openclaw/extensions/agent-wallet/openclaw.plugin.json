@@ -2,7 +2,7 @@
   "id": "agent-wallet",
   "name": "Agent Wallet",
   "description": "Official OpenClaw plugin bridge for the agent-wallet backends, including Solana and local EVM.",
-  "version": "0.1.142",
+  "version": "0.1.143",
   "contracts": {
     "tools": [
       "agentlayer_autonomous_approve",
@@ -60,6 +60,7 @@
       "manage_evm_lido_position",
       "manage_evm_lido_withdrawal",
       "manage_evm_uniswap_liquidity",
+      "get_evm_tokenized_stock",
       "search_uniswap_pairs",
       "get_evm_uniswap_pools",
       "get_evm_uniswap_positions",

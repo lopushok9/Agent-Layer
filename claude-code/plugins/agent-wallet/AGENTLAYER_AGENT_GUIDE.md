@@ -191,6 +191,13 @@ There is no narrower version of the full permission group — pass `scope:
     `token_address` independently (`get_evm_token_metadata`, or the chain's
     official contract list) before quoting or swapping a real-world-asset
     ticker — a successful quote does not itself prove legitimacy.
+- **Tokenized stocks** ("buy TSLA on Base"): `get_evm_tokenized_stock`
+  first. On Base it resolves ticker/name/ISIN to the canonical Coinbase
+  Tokenized Stock (`TSLAc`, 8 decimals) from Coinbase's official registry,
+  with top venues and a `next_step`. Then `get_evm_swap_quote` (USDC →
+  returned address) → confirm → `swap_evm_tokens`. Show the returned
+  notices (not for U.S. persons; exposure certificate, not a share). Never
+  pick a stock token by ticker from `search_uniswap_pairs`.
 - **DeFi protocols** (read tools are free; every write follows preview →
   execute):
   - **Aave v3** (lending): `get_evm_aave_account` (health factor etc.),
