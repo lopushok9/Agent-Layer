@@ -111,11 +111,13 @@ const UNISWAP_EXECUTION_PROFILES = {
   },
 };
 // Compatibility export for callers/tests. New execution code resolves a router
-// from UNISWAP_EXECUTION_PROFILES and its explicitly selected version.
+// from UNISWAP_EXECUTION_PROFILES and its explicitly selected version. Each
+// network approves exactly one router, which is not always the "2.0" one
+// (Robinhood's is "2.1.1"), so take the approved entry rather than a fixed key.
 const UNISWAP_UNIVERSAL_ROUTER_BY_NETWORK = Object.fromEntries(
   Object.entries(UNISWAP_EXECUTION_PROFILES).map(([network, profile]) => [
     network,
-    profile.universalRouters["2.0"],
+    Object.values(profile.universalRouters)[0],
   ])
 );
 const UNISWAP_WRAPPED_NATIVE_BY_NETWORK = Object.fromEntries(
