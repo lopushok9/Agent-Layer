@@ -76,7 +76,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     throw new Error("OAUTH_SIGNING_PRIVATE_JWK must be a private P-256 JWK");
   }
   const resource = `${value.PUBLIC_BASE_URL}/mcp`;
-  return { ...value, privateJwk, issuer: value.PUBLIC_BASE_URL, resource, link: linkConfig(value) };
+  return { ...value, privateJwk, issuer: value.PUBLIC_BASE_URL, resource, nearResource: `${value.PUBLIC_BASE_URL}/near/mcp`, nearEnabled: Boolean(env.NEAR_RPC_URL), link: linkConfig(value) };
 }
 
 export type LinkConfig = { clientId: string; clientSecret: string; publishableKey: string; encryptionKey: Buffer };

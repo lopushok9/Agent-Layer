@@ -29,6 +29,27 @@ import { WalletHistory } from "./history.js";
 import { Names } from "./names.js";
 import { NameRegistration } from "./name-registration.js";
 import { tokenManagerRouter } from "./token-manager.js";
+import { NEAR_SCOPE } from "./security.js";
+import { loadNearConfig } from "./near/config.js";
+import { NearStore } from "./near/store.js";
+import { NearRpc } from "./near/rpc.js";
+import { NearAccountService } from "./near/account.js";
+import { NearOperations } from "./near/operations.js";
+import { ChainSignatures } from "./near/chain-signatures.js";
+import { createNearMcp, type NearServices } from "./near/mcp.js";
+
+// NEAR Omni Account: independent product on its own MCP resource (/near/mcp).
+// Enabled only by NEAR_RPC_URL; it reuses login, the database and the
+// deployment-owned EVM RPCs, and never touches the smart wallet or x402 paths.
+function nearServices(config:Config,store:Store,wallets:SmartWalletService):NearServices|null{
+  const near=loadNearConfig();if(!near)return null;
+  const nearStore=new NearStore(store.pool);const accounts=new NearAccountService(near,nearStore,new NearRpc(near.rpcUrl,near.network),wallets.cdp.solana);
+  const operations=new NearOperations(accounts,nearStore);
+  // Chain Signatures target Base/Ethereum mainnet, so they run only for NEAR mainnet.
+  const chainSignatures=new ChainSignatures(accounts,operations,nearStore,network=>{if(near.network!=="mainnet")throw new Error("evm Chain Signatures require NEAR mainnet");return wallets.rpc(network);});
+  if(!config.nearEnabled)throw new Error("NEAR configuration mismatch");
+  return{accounts,operations,chainSignatures};
+}
 
 export async function createApp(config:Config){
   const store=new Store(config.DATABASE_URL);await store.migrate();await store.startOAuthCleanup();const tokens=await TokenService.create(config);const walletStore=new WalletStore(store.pool,config.WALLET_OPERATION_ENCRYPTION_KEY);const wallets=new SmartWalletService(config,walletStore);const names=config.ETHEREUM_RPC_URL?new Names(network=>wallets.rpc(network)):null;const contracts=new RegistryContractMetadata(network=>wallets.rpc(network),{...(config.ETHERSCAN_API_KEY?{etherscanApiKey:config.ETHERSCAN_API_KEY}:{})});const transactions=new TransactionService(wallets,walletStore,store,config.PREVIEW_TTL_SECONDS,contracts,names);const signatures=new SignatureService(wallets,walletStore,config.PREVIEW_TTL_SECONDS,contracts);const walletKit=await walletConnectClient(config,store.pool);const dapps=walletKit?new DappService(walletKit,new DappStore(store.pool),wallets,transactions,signatures):undefined;const routes=config.ENSO_API_KEY?new EnsoRoutes(wallets,transactions,config.ENSO_API_KEY):undefined;const catalog=routes?new EnsoCatalog(routes.api):undefined;const rpcUrl=(network:"base"|"ethereum")=>network==="base"?config.BASE_RPC_URL:config.ETHEREUM_RPC_URL;const hasAlchemy=Boolean(alchemyKey(config.BASE_RPC_URL)||alchemyKey(config.ETHEREUM_RPC_URL));const history=new WalletHistory(wallets,rpcUrl);const portfolio=routes?new Portfolio(routes.api,wallets,rpcUrl,fetch,Date.now,history):undefined;const nfts=hasAlchemy?new Nfts(wallets,rpcUrl):undefined;const nameRegistration=config.BASE_RPC_URL?new NameRegistration(wallets,(userId,input)=>transactions.prepare(userId,input)):undefined;const swaps=new ManagedSwapService(wallets,walletStore,store,config.PREVIEW_TTL_SECONDS);const payments=new PaymentService(config,store,tokens,wallets);const link=config.link?new LinkService(config.issuer,config.link,store):null;
@@ -49,6 +70,12 @@ export async function createApp(config:Config){
   const auth=requireBearerAuth({verifier,requiredScopes:[],resourceMetadataUrl:`${config.issuer}/.well-known/oauth-protected-resource/mcp`});
   app.post("/mcp",auth,async(req,res,next)=>{try{const authInfo=(req as typeof req&{auth?:{scopes?:string[];extra?:Record<string,unknown>}}).auth;const userId=authInfo?.extra?.userId;if(typeof userId!=="string")throw new OAuthError(OAuthErrorCode.InvalidToken,"token has no user identity");const server=createUserMcp(userId,payments,link,wallets,transactions,authInfo?.scopes??[],swaps,{signatures,...(dapps?{dapps}:{}),...(routes?{routes}:{}),...(catalog?{catalog}:{}),...(portfolio?{portfolio}:{}),...(names?{names}:{}),...(nfts?{nfts}:{}),...(nameRegistration?{nameRegistration}:{}),...(hasAlchemy?{history}:{})});const transport=new NodeStreamableHTTPServerTransport({sessionIdGenerator:undefined});await server.connect(transport);await transport.handleRequest(req,res,req.body);}catch(e){next(e);}});
   app.all("/mcp",(_req,res)=>res.status(405).set("Allow","POST").end());
+  const near=nearServices(config,store,wallets);
+  if(near){
+    const nearAuth=requireBearerAuth({verifier:createTokenVerifier(config,tokens,store,config.nearResource),requiredScopes:[NEAR_SCOPE],resourceMetadataUrl:`${config.issuer}/.well-known/oauth-protected-resource/near/mcp`});
+    app.post("/near/mcp",nearAuth,async(req,res,next)=>{try{const authInfo=(req as typeof req&{auth?:{extra?:Record<string,unknown>}}).auth;const userId=authInfo?.extra?.userId;if(typeof userId!=="string")throw new OAuthError(OAuthErrorCode.InvalidToken,"token has no user identity");const server=createNearMcp(userId,near);const transport=new NodeStreamableHTTPServerTransport({sessionIdGenerator:undefined});await server.connect(transport);await transport.handleRequest(req,res,req.body);}catch(e){next(e);}});
+    app.all("/near/mcp",(_req,res)=>res.status(405).set("Allow","POST").end());
+  }
   app.use((err:unknown,_req:express.Request,res:express.Response,_next:express.NextFunction)=>{console.error(err);if(res.headersSent)return;res.status(500).json({error:"server_error",error_description:"The request could not be completed"});});
   return{app:outer,store};
 }

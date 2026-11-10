@@ -2,6 +2,10 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { calculateJwkThumbprint, decodeProtectedHeader, importJWK, jwtVerify, SignJWT } from "jose";
 import type { Config } from "./config.js";
 
+// The NEAR Omni Account endpoint is a separate protected resource. Its scope is
+// never combined with other scopes, and its tokens carry the NEAR audience.
+export const NEAR_SCOPE = "near:transact";
+
 export const randomToken = (bytes = 32) => randomBytes(bytes).toString("base64url");
 
 // Prefixed so secret scanners can recognize a leaked token.
@@ -47,15 +51,15 @@ export class TokenService {
   async accessToken(userId: string, clientId: string, scopes: string[]): Promise<string> {
     return new SignJWT({ client_id: clientId, scope: scopes.join(" ") })
       .setProtectedHeader({ alg: "ES256", kid: this.kid, typ: "at+jwt" })
-      .setIssuer(this.config.issuer).setSubject(userId).setAudience(this.config.resource)
+      .setIssuer(this.config.issuer).setSubject(userId).setAudience(scopes.includes(NEAR_SCOPE) ? this.config.nearResource : this.config.resource)
       .setIssuedAt().setExpirationTime(`${this.config.ACCESS_TOKEN_TTL_SECONDS}s`).setJti(randomToken(16))
       .sign(this.privateKey);
   }
 
-  async verifyAccessToken(token: string) {
+  async verifyAccessToken(token: string, audience: string = this.config.resource) {
     const { payload } = await jwtVerify(token, this.publicKey, {
       issuer: this.config.issuer,
-      audience: this.config.resource,
+      audience,
       algorithms: ["ES256"],
       typ: "at+jwt",
     });
