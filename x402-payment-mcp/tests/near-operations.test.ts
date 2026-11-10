@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import test from "node:test";
 import { decodeSignedTransaction } from "@near-js/transactions";
 import { baseEncode } from "@near-js/utils";
@@ -8,36 +8,12 @@ import { loadNearConfig } from "../src/near/config.js";
 import { verifyEd25519 } from "../src/near/keys.js";
 import { NearOperations, publicNearError } from "../src/near/operations.js";
 import { NearRpc } from "../src/near/rpc.js";
-import type { NearAccountRecord, NearOperation, NearStore } from "../src/near/store.js";
+import { memoryStore } from "./near-fakes.js";
 import { transactionDigest } from "../src/near/transaction.js";
 
 const KEY = randomBytes(32).toString("base64");
 const config = loadNearConfig({ NEAR_RPC_URL: "https://rpc.example", NEAR_KEY_ENCRYPTION_KEY: KEY })!;
 const NEAR = 10n ** 24n;
-
-// Same contract as NearStore.reserve/markSigning, in memory.
-function memoryStore() {
-  const accounts = new Map<string, NearAccountRecord>(), ops = new Map<string, NearOperation & { consumed?: boolean }>();
-  const store = {
-    async account(u: string, n: string) { return accounts.get(`${u}:${n}`) ?? null; },
-    async saveAccount(a: NearAccountRecord) { const k = `${a.userId}:${a.network}`; if (!accounts.has(k)) accounts.set(k, a); return accounts.get(k)!; },
-    async createOperation(p: any, ttl: number) { const op = { ...structuredClone(p), id: randomUUID(), expiresAt: new Date(Date.now() + ttl * 1000), status: "prepared", purpose: null, nonce: null, txHash: null, signedTx: null, outcome: null, result: null, error: null, createdAt: new Date() }; ops.set(op.id, op); return structuredClone(op); },
-    async operation(u: string, id: string) { const o = ops.get(id); return o && o.userId === u ? structuredClone(o) : null; },
-    async recent() { return [...ops.values()]; },
-    async reserve(u: string, id: string, kind: string, purpose: string) {
-      const o = ops.get(id);
-      if (!o || o.userId !== u) throw new Error("operation not found for this user");
-      if (o.kind !== kind) throw new Error("operation type does not match this execution tool");
-      if (o.status !== "prepared" || o.consumed) throw new Error("preview already consumed; check near_operation_status, never submit it again");
-      if ([...ops.values()].some(x => x.userId === u && ["reserved", "signing", "submitted", "unknown"].includes(x.status))) throw new Error("an unresolved NEAR operation exists for this account; reconcile it with near_operation_status first");
-      if (o.expiresAt < new Date()) throw new Error("preview expired; prepare a new operation");
-      Object.assign(o, { status: "reserved", consumed: true, purpose }); return structuredClone(o);
-    },
-    async markSigning(u: string, id: string, nonce: string, txHash: string, signedTx: string) { const o = ops.get(id)!; if (o.status !== "reserved") throw new Error("operation is no longer available for signing"); Object.assign(o, { status: "signing", nonce, txHash, signedTx }); },
-    async update(u: string, id: string, p: any) { const o = ops.get(id)!; Object.assign(o, { status: p.status, ...(p.outcome !== undefined ? { outcome: p.outcome } : {}), ...(p.result !== undefined ? { result: p.result } : {}), error: p.error ?? null }); },
-  };
-  return { store: store as unknown as NearStore, ops };
-}
 
 type Chain = { balance: bigint; nonce: number; sent: string[]; known: Set<string>; failSend?: string; dropFirst?: boolean };
 function chainRpc(chain: Chain, accountKey: () => string | undefined) {
