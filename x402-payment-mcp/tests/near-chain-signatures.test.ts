@@ -3,10 +3,12 @@ import { randomBytes } from "node:crypto";
 import test from "node:test";
 import { decodeSignedTransaction } from "@near-js/transactions";
 import { baseEncode } from "@near-js/utils";
-import { encodeErrorResult, erc20Abi, keccak256, parseTransaction, recoverTransactionAddress, serializeTransaction, type Hex, type PublicClient } from "viem";
+import { decodeFunctionData, encodeErrorResult, erc20Abi, keccak256, parseAbi, parseTransaction, recoverTransactionAddress, serializeTransaction, type Hex, type PublicClient } from "viem";
+import { getAddress } from "viem";
 import { generatePrivateKey, privateKeyToAccount, sign } from "viem/accounts";
 import { NearAccountService } from "../src/near/account.js";
-import { ChainSignatures, parseMpcSignature, secp256k1KeyToAddress } from "../src/near/chain-signatures.js";
+import { ChainSignatures, parseMpcSignature, secp256k1KeyToAddress, SIMPLE_7702_ACCOUNT } from "../src/near/chain-signatures.js";
+import { EvmSwaps, UNISWAP_V3 } from "../src/near/swap.js";
 import { loadNearConfig } from "../src/near/config.js";
 import { NearOperations } from "../src/near/operations.js";
 import { NearRpc } from "../src/near/rpc.js";
@@ -27,7 +29,7 @@ function world(opts: { mpcKey?: Hex; wrongSigner?: boolean; ethBalance?: bigint;
   const mpc = privateKeyToAccount(mpcKey);
   const impostor = generatePrivateKey();
   const near = { nonce: 1, signs: [] as { path: string; payload: string; predecessor: string }[] };
-  const evm = { sent: [] as Hex[], nonce: 5, latest: 5, nonceTooLow: false, rpcDown: false, receipts: new Set<Hex>(), assetChanges: [] as unknown[], simulated: 0 };
+  const evm = { sent: [] as Hex[], nonce: 5, latest: 5, nonceTooLow: false, rpcDown: false, receipts: new Set<Hex>(), assetChanges: [] as unknown[], simulated: 0, allowance: 0n, delegatedTo: null as string | null, quotes: { 100: 48_000_000_000_000n, 500: 48_700_000_000_000n, 3000: 48_500_000_000_000n } as Record<number, bigint> };
   const { store } = memoryStore();
   const rpc = new NearRpc("https://rpc.example", "mainnet", (async (_u: string, init: RequestInit) => {
     const b = JSON.parse(String(init.body));
@@ -66,12 +68,18 @@ function world(opts: { mpcKey?: Hex; wrongSigner?: boolean; ethBalance?: bigint;
     async getBalance() { return opts.ethBalance ?? ETH; },
     async estimateGas() { if (opts.revert) throw new Error("execution reverted"); return 21_000n; },
     async getBlockNumber() { return 100n; },
-    async getCode() { return "0x6080"; },
-    async simulateCalls({ account }: { account: Hex }) {
+    async getCode({ address }: { address: string }) { if (address.toLowerCase() === mpc.address.toLowerCase()) return evm.delegatedTo ? `0xef0100${evm.delegatedTo.slice(2).toLowerCase()}` : "0x"; return "0x6080"; },
+    async readContract({ functionName }: { functionName: string }) { if (functionName === "symbol") return "USDC"; if (functionName === "decimals") return 6; if (functionName === "allowance") return evm.allowance; throw new Error(functionName); },
+    async simulateContract({ functionName, args }: { functionName: string; args: any[] }) {
+      if (functionName === "quoteExactInputSingle") { const q = evm.quotes[args[0].fee]; if (!q) throw new Error("no pool"); return { result: [q, 0n, 0, 0n] }; }
+      if (functionName === "quoteExactInput") return { result: [1n, [], [], 0n] };
+      throw new Error(functionName);
+    },
+    async simulateCalls({ account, calls }: { account: Hex; calls: unknown[] }) {
       assert.equal(account.toLowerCase(), mpc.address.toLowerCase(), "simulated from the derived address");
       evm.simulated++;
       if (opts.revert) return { results: [{ status: "failure", data: encodeErrorResult({ abi: [{ type: "error", name: "Error", inputs: [{ type: "string" }] }], errorName: "Error", args: ["ERC20: transfer amount exceeds balance"] }), gasUsed: 0n, logs: [] }], assetChanges: [] };
-      return { results: [{ status: "success", data: "0x", gasUsed: 30000n, logs: [] }], assetChanges: evm.assetChanges };
+      return { results: calls.map(() => ({ status: "success", data: "0x", gasUsed: 30000n, logs: [] })), assetChanges: evm.assetChanges };
     },
     async sendRawTransaction({ serializedTransaction }: { serializedTransaction: Hex }) {
       assert.equal((await recoverTransactionAddress({ serializedTransaction: serializedTransaction as any })).toLowerCase(), mpc.address.toLowerCase());
@@ -241,4 +249,61 @@ test("MPC response parser accepts the mainnet wire format and rejects malformed 
   assert.throws(() => parseMpcSignature({ scheme: "Ed25519", signature: [] }));
   assert.throws(() => parseMpcSignature({ big_r: { affine_point: "04" + "a".repeat(64) }, s: { scalar: "1".repeat(64) }, recovery_id: 0 }));
   assert.throws(() => parseMpcSignature(null));
+});
+
+const routerAbi = parseAbi([
+  "function exactInputSingle((address tokenIn,address tokenOut,uint24 fee,address recipient,uint256 amountIn,uint256 amountOutMinimum,uint160 sqrtPriceLimitX96)) payable returns (uint256 amountOut)",
+  "function unwrapWETH9(uint256 amountMinimum,address recipient) payable",
+  "function multicall(uint256 deadline,bytes[] data) payable returns (bytes[])",
+  "function executeBatch((address target,uint256 value,bytes data)[] calls)",
+]);
+
+test("swap: best direct pool, on-chain minimum from slippage, unwrap to native ETH for the derived address", async () => {
+  const w = world();
+  w.evm.allowance = 10n ** 6n;
+  const p = await new EvmSwaps(w.chainSigs, () => 1_800_000_000_000).prepare("u", { network: "base", token_in: USDC, token_out: "ETH", amount_in: "100000", slippage_bps: 100 }) as any;
+  assert.equal(p.swap.step, "swap");
+  assert.deepEqual(p.swap.route.fee_tiers_bps, [5]);
+  assert.equal(p.swap.token_out.quoted, "48700000000000");
+  assert.equal(p.swap.token_out.minimum, (48_700_000_000_000n * 99n / 100n).toString());
+  assert.equal(p.evm_transaction.to, UNISWAP_V3.base.router);
+  assert.equal(p.evm_transaction.value_wei, "0");
+  const outer = decodeFunctionData({ abi: routerAbi, data: p.evm_transaction.data });
+  assert.equal(outer.functionName, "multicall");
+  assert.equal(outer.args[0], 1_800_001_800n, "30 minute deadline");
+  const [swap, unwrap] = (outer.args[1] as Hex[]).map(d => decodeFunctionData({ abi: routerAbi, data: d }));
+  assert.equal(swap!.functionName, "exactInputSingle");
+  const params = (swap!.args as any)[0];
+  assert.equal(params.fee, 500);
+  assert.equal(params.recipient, "0x0000000000000000000000000000000000000002");
+  assert.equal(params.amountOutMinimum, 48_700_000_000_000n * 99n / 100n);
+  assert.equal(unwrap!.functionName, "unwrapWETH9");
+  assert.equal((unwrap!.args as any)[1].toLowerCase(), w.mpc.address.toLowerCase());
+  await assert.rejects(new EvmSwaps(w.chainSigs).prepare("u", { network: "base", token_in: "ETH", token_out: UNISWAP_V3.base.weth, amount_in: "1" }), /two different tokens/);
+  w.evm.quotes = {};
+  await assert.rejects(new EvmSwaps(w.chainSigs).prepare("u", { network: "base", token_in: USDC, token_out: "ETH", amount_in: "1" }), /no Uniswap V3 route/);
+});
+
+test("swap without allowance: approve first on a plain EOA; approve+swap atomically when delegated to Simple7702Account", async () => {
+  const w = world();
+  const swaps = new EvmSwaps(w.chainSigs);
+  const first = await swaps.prepare("u", { network: "base", token_in: USDC, token_out: "ETH", amount_in: "100000" }) as any;
+  assert.equal(first.swap.step, "approval_required");
+  assert.equal(first.evm_call.function, "approve");
+  assert.equal(first.evm_transaction.to, getAddress(USDC));
+  const approve = decodeFunctionData({ abi: erc20Abi, data: first.evm_transaction.data });
+  assert.deepEqual(approve.args, [UNISWAP_V3.base.router, 100000n], "exact amount, never unlimited");
+  w.evm.delegatedTo = SIMPLE_7702_ACCOUNT;
+  const atomic = await swaps.prepare("u", { network: "base", token_in: USDC, token_out: "ETH", amount_in: "100000" }) as any;
+  assert.equal(atomic.swap.step, "approve_and_swap_atomic");
+  assert.equal(atomic.evm_transaction.kind, "eip7702_execute_batch");
+  assert.equal(atomic.evm_transaction.to.toLowerCase(), w.mpc.address.toLowerCase(), "the batch is sent to the account itself");
+  const batch = decodeFunctionData({ abi: routerAbi, data: atomic.evm_transaction.data });
+  assert.equal(batch.functionName, "executeBatch");
+  const calls = batch.args[0] as readonly { target: string }[];
+  assert.deepEqual(calls.map(c => c.target), [getAddress(USDC), UNISWAP_V3.base.router]);
+  assert.deepEqual(atomic.evm_calls.map((c: any) => c.index), [0, 1]);
+  // A batch to an address delegated elsewhere is refused.
+  w.evm.delegatedTo = "0x000000009B1D0aF20D8C6d0A44e162d11F9b8f00";
+  await assert.rejects(swaps.prepare("u", { network: "base", token_in: USDC, token_out: "ETH", amount_in: "100000" }).then(r => { if ((r as any).swap.step === "approval_required") throw new Error("needs delegation"); }), /needs delegation/);
 });

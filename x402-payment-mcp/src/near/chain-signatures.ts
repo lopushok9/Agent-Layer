@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { baseDecode } from "@near-js/utils";
 import { publicKeyToAddress } from "viem/accounts";
-import { formatEther, keccak256, recoverAddress, serializeTransaction, isAddress, type Address, type Hex, type PublicClient, type TransactionSerializableEIP1559 } from "viem";
+import { encodeFunctionData, formatEther, getAddress, keccak256, recoverAddress, serializeTransaction, isAddress, type Address, type Hex, type PublicClient, type TransactionSerializableEIP1559 } from "viem";
 import { assetChangeMismatch } from "../asset-changes.js";
 import type { ContractMetadata } from "../contract-metadata.js";
 import { nftChangeMismatch, nftChanges } from "../nft-changes.js";
@@ -40,12 +40,19 @@ export const evmCallInput = z.strictObject({
 export type EvmCallInput = z.input<typeof evmCallInput>;
 type ParsedEvmCall = z.output<typeof evmCallInput>;
 
-export type EvmPlan = { network: EvmNetwork; chainId: number; from: Address; path: string; tx: { to: Address; value: string; data: Hex; nonce: number; gas: string; maxFeePerGas: string; maxPriorityFeePerGas: string }; payload: Hex; simulation?: EvmSimulation };
+export type EvmPlan = { network: EvmNetwork; chainId: number; from: Address; path: string; tx: { to: Address; value: string; data: Hex; nonce: number; gas: string; maxFeePerGas: string; maxPriorityFeePerGas: string }; payload: Hex; simulation?: EvmSimulation; calls?: NormalizedCall[] };
 export type EvmSimulation = { status: "success"; block_number: string; asset_changes: unknown; nft_changes: unknown; asset_floors: Record<string, string>; received_tolerance_bps: number; gas_used_execution_only: string; max_amount_growth_bps?: number };
 // A "max" argument (type(uint256).max, e.g. Aave withdraw/repay of the whole
 // position) moves an amount that accrues every block. Before signing, the whole
 // previewed trade may scale up by at most this much, never at a worse rate.
 export const MAX_AMOUNT_GROWTH_BPS = 100;
+// EIP-7702 delegate: eth-infinitism Simple7702Account (account-abstraction v0.8),
+// stateless; execute/executeBatch only from the account itself or EntryPoint
+// v0.8. Same address on Base and Ethereum (Sourcify-verified). The service only
+// ever signs authorizations for this address or for revocation (zero address).
+export const SIMPLE_7702_ACCOUNT = "0x4Cd241E8d1510e30b2076397afc7508Ae59C66c9" as Address;
+export const MAX_BATCH_CALLS = 8;
+const EXECUTE_BATCH_ABI = [{ type: "function", name: "executeBatch", stateMutability: "nonpayable", inputs: [{ name: "calls", type: "tuple[]", components: [{ name: "target", type: "address" }, { name: "value", type: "uint256" }, { name: "data", type: "bytes" }] }], outputs: [] }] as const;
 const UINT256_MAX = ((1n << 256n) - 1n).toString();
 
 export class ChainSignatures {
@@ -82,50 +89,72 @@ export class ChainSignatures {
   private client(network: EvmNetwork): PublicClient {
     return this.evm(network);
   }
+  rpcFor(network: EvmNetwork): PublicClient { return this.client(network); }
 
   // Builds the exact EIP-1559 transaction with the same builder as the smart
   // wallet (verified ABI, decoded call, ERC-7730 display), simulates it from the
   // derived address with asset tracing, and previews the NEAR sign() over its hash.
   async prepare(userId: string, input: EvmCallInput) {
     const parsed = evmCallInput.parse(input);
-    const account = await this.accounts.account(userId);
-    const from = await this.address(account.accountId);
-    const network = parsed.network;
+    const from = await this.fromAddress(userId);
+    const built = await this.build(parsed.network, from, parsed);
+    return this.previewCalls(userId, parsed.network, from, built.calls, [built.description], parsed.received_tolerance_bps);
+  }
+
+  async fromAddress(userId: string) {
+    return this.address((await this.accounts.account(userId)).accountId);
+  }
+
+  // Delegation of the derived EOA (EIP-7702): the 23-byte designator 0xef0100 || implementation.
+  async delegation(network: EvmNetwork, from: Address): Promise<Address | null> {
+    const code = await this.client(network).getCode({ address: from });
+    if (!code || code === "0x") return null;
+    if (/^0xef0100[0-9a-f]{40}$/i.test(code)) return getAddress(`0x${code.slice(8)}`);
+    throw new NearPublicError("derived address has unexpected contract code; nothing was signed");
+  }
+
+  // One EVM transaction from the derived address: a single call is sent as is;
+  // several calls are sent atomically as executeBatch to the address itself,
+  // which requires its EIP-7702 delegation to the pinned Simple7702Account.
+  async previewCalls(userId: string, network: EvmNetwork, from: Address, calls: NormalizedCall[], descriptions: CallDescription[], toleranceBps: number, extra: Record<string, unknown> = {}) {
     const chainId = EVM_CHAINS[network];
     const rpc = this.client(network);
     if (await rpc.getChainId() !== chainId) throw new NearPublicError("evm RPC chain ID mismatch");
-    const built = await this.build(network, from, parsed);
-    const call = built.calls[0]!;
-    const value = BigInt(call.value);
-    const simulation = await this.simulate(network, from, call, parsed.received_tolerance_bps);
-    if (JSON.stringify(built.description.arguments ?? []).includes(`"${UINT256_MAX}"`)) simulation.max_amount_growth_bps = MAX_AMOUNT_GROWTH_BPS;
+    if (!calls.length || calls.length > MAX_BATCH_CALLS) throw new NearPublicError(`evm batch must have 1 to ${MAX_BATCH_CALLS} calls`);
+    if (calls.length > 1 && (await this.delegation(network, from))?.toLowerCase() !== SIMPLE_7702_ACCOUNT.toLowerCase()) throw new NearPublicError(`evm batches need the derived address delegated (EIP-7702) to Simple7702Account ${SIMPLE_7702_ACCOUNT} on ${network}; use evm_delegation_prepare first, or send the calls one at a time. Nothing was signed`);
+    const outer = calls.length === 1 ? calls[0]! : { to: from, value: "0", data: encodeFunctionData({ abi: EXECUTE_BATCH_ABI, functionName: "executeBatch", args: [calls.map(c => ({ target: c.to, value: BigInt(c.value), data: c.data }))] }) };
+    const value = BigInt(outer.value);
+    const spent = calls.reduce((n, c) => n + BigInt(c.value), 0n);
+    const simulation = await this.simulate(network, from, calls, toleranceBps);
+    if (JSON.stringify(descriptions.map(d => d.arguments ?? [])).includes(`"${UINT256_MAX}"`)) simulation.max_amount_growth_bps = MAX_AMOUNT_GROWTH_BPS;
     const [nonce, fees, balance] = await Promise.all([rpc.getTransactionCount({ address: from, blockTag: "pending" }), rpc.estimateFeesPerGas(), rpc.getBalance({ address: from })]);
     let gas: bigint;
-    try { gas = await rpc.estimateGas({ account: from, to: call.to, value, data: call.data }); }
+    try { gas = await rpc.estimateGas({ account: from, to: outer.to, value, data: outer.data }); }
     catch { throw new NearPublicError("evm call simulated but gas could not be estimated from the derived address; nothing was signed"); }
     gas = gas * 12n / 10n;
     // Head-room for base-fee growth while the user reads the preview.
     const maxPriorityFeePerGas = fees.maxPriorityFeePerGas ?? 0n;
     const maxFeePerGas = (fees.maxFeePerGas ?? 0n) * 2n + maxPriorityFeePerGas;
     const maxGasCost = gas * maxFeePerGas;
-    if (balance < value + maxGasCost) throw new NearPublicError(`insufficient ETH on derived address ${from}: needs up to ${formatEther(value + maxGasCost)} ETH on ${network}, has ${formatEther(balance)}; nothing was signed`);
-    const tx: TransactionSerializableEIP1559 = { type: "eip1559", chainId, nonce, to: call.to, value, data: call.data, gas, maxFeePerGas, maxPriorityFeePerGas };
+    if (balance < spent + maxGasCost) throw new NearPublicError(`insufficient ETH on derived address ${from}: needs up to ${formatEther(spent + maxGasCost)} ETH on ${network}, has ${formatEther(balance)}; nothing was signed`);
+    const tx: TransactionSerializableEIP1559 = { type: "eip1559", chainId, nonce, to: outer.to, value, data: outer.data, gas, maxFeePerGas, maxPriorityFeePerGas };
     const payload = keccak256(serializeTransaction(tx));
     if (BigInt(payload) === 0n || BigInt(payload) >= SECP256K1_N) throw new NearPublicError("evm transaction hash is not a valid signing payload; prepare again");
-    const plan: EvmPlan = { network, chainId, from, path: DERIVATION_PATH, tx: { to: call.to, value: value.toString(), data: call.data, nonce, gas: gas.toString(), maxFeePerGas: maxFeePerGas.toString(), maxPriorityFeePerGas: maxPriorityFeePerGas.toString() }, payload, simulation };
+    const plan: EvmPlan = { network, chainId, from, path: DERIVATION_PATH, tx: { to: outer.to, value: value.toString(), data: outer.data, nonce, gas: gas.toString(), maxFeePerGas: maxFeePerGas.toString(), maxPriorityFeePerGas: maxPriorityFeePerGas.toString() }, payload, simulation, ...(calls.length > 1 ? { calls } : {}) };
     const signArgs = { request: { path: DERIVATION_PATH, payload_v2: { Ecdsa: payload.slice(2) }, domain_id: 0 } };
     const nearTx = { receiverId: this.accounts.config.mpcContract, actions: [{ type: "function_call" as const, method: "sign", args_base64: Buffer.from(JSON.stringify(signArgs)).toString("base64"), gas: MPC_SIGN_GAS.toString(), deposit: "1" }] };
     return this.operations.preview(userId, nearTx, "chain_signature", { evm: plan }, {
-      evm_transaction: { network, chain_id: chainId, from, to: call.to, value_wei: value.toString(), value_eth: formatEther(value), data: call.data, nonce, gas_limit: gas.toString(), max_fee_per_gas: maxFeePerGas.toString(), max_evm_network_fee_wei: maxGasCost.toString(), max_evm_network_fee_eth: formatEther(maxGasCost), signing_payload: payload },
-      evm_call: built.description,
+      ...extra,
+      evm_transaction: { network, chain_id: chainId, from, to: outer.to, value_wei: value.toString(), value_eth: formatEther(value), data: outer.data, nonce, gas_limit: gas.toString(), max_fee_per_gas: maxFeePerGas.toString(), max_evm_network_fee_wei: maxGasCost.toString(), max_evm_network_fee_eth: formatEther(maxGasCost), signing_payload: payload, ...(calls.length > 1 ? { kind: "eip7702_execute_batch", atomic: true } : {}) },
+      ...(calls.length === 1 ? { evm_call: descriptions[0] } : { evm_calls: descriptions }),
       simulation,
-      limitations: ["Simulated from the derived address at the block shown; it is re-simulated before the MPC signature is requested and refused if any outflow grows or a received token falls below simulation.asset_floors. On-chain execution can still differ.", ...(simulation.max_amount_growth_bps ? [`A max (uint256) amount: the whole position may have grown by up to ${simulation.max_amount_growth_bps / 100}% (e.g. accrued interest) when re-simulated; it is accepted only if every received token grows by at least the same proportion.`] : []), "Asset changes come from RPC tracing and can be incomplete; contract safety and economic intent are not proven by the ABI or simulation.", "The EVM fee is paid in ETH by the derived address; the NEAR fee by the NEAR account.", "Signing is asynchronous on the MPC network; the EVM transaction is broadcast only after its signature verifies for the derived address."],
+      limitations: ["Simulated from the derived address at the block shown; it is re-simulated before the MPC signature is requested and refused if any outflow grows or a received token falls below simulation.asset_floors. On-chain execution can still differ.", ...(simulation.max_amount_growth_bps ? [`A max (uint256) amount: the whole position may have grown by up to ${simulation.max_amount_growth_bps / 100}% (e.g. accrued interest) when re-simulated; it is accepted only if every received token grows by at least the same proportion.`] : []), ...(calls.length > 1 ? ["The calls run in order in one transaction through the account's EIP-7702 code (Simple7702Account.executeBatch); if any call reverts, none takes effect."] : []), "Asset changes come from RPC tracing and can be incomplete; contract safety and economic intent are not proven by the ABI or simulation.", "The EVM fee is paid in ETH by the derived address; the NEAR fee by the NEAR account.", "Signing is asynchronous on the MPC network; the EVM transaction is broadcast only after its signature verifies for the derived address."],
     });
   }
 
   // One call through the smart wallet's builder: function_name alone uses the
   // verified ABI; the description is re-labelled from verification services.
-  private async build(network: EvmNetwork, from: Address, input: ParsedEvmCall): Promise<{ calls: NormalizedCall[]; description: CallDescription }> {
+  async build(network: EvmNetwork, from: Address, input: Omit<ParsedEvmCall, "network" | "received_tolerance_bps">): Promise<{ calls: NormalizedCall[]; description: CallDescription }> {
     const call = { to: input.to, value: input.value_wei, ...(input.data !== undefined ? { data: input.data } : {}), ...(input.function_name ? { function_name: input.function_name, args: input.args ?? [] } : {}), ...(input.abi ? { abi: input.abi } : {}) };
     let built: ReturnType<typeof normalizeTransaction>;
     try { built = normalizeTransaction(await withVerifiedAbis({ network, calls: [call] }, this.contracts), from); }
@@ -137,32 +166,35 @@ export class ChainSignatures {
 
   // eth_simulateV1 with asset tracing from the derived address (as the smart
   // wallet does for its account). A revert is named with the verified ABI.
-  private async simulate(network: EvmNetwork, from: Address, call: NormalizedCall, toleranceBps: number, atBlock?: bigint): Promise<EvmSimulation> {
+  private async simulate(network: EvmNetwork, from: Address, calls: NormalizedCall[], toleranceBps: number, atBlock?: bigint): Promise<EvmSimulation> {
     const rpc = this.client(network);
     const blockNumber = atBlock ?? await rpc.getBlockNumber();
-    if (call.data !== "0x") {
+    for (const call of calls) if (call.data !== "0x") {
       const code = await rpc.getCode({ address: call.to, blockNumber });
       if (!code || code === "0x") throw new NearPublicError("evm calldata target has no contract code on the selected network; nothing was signed");
     }
     let result: { results: readonly { status: string; data?: Hex; logs?: readonly any[]; gasUsed: bigint }[]; assetChanges?: unknown };
-    try { result = await (rpc.simulateCalls as (a: unknown) => Promise<typeof result>)({ account: from, calls: [{ to: call.to, value: BigInt(call.value), data: call.data }], blockNumber, traceAssetChanges: true, validation: false }); }
+    // Sequential calls from the derived address: the same msg.sender and order as
+    // executeBatch, which calls each target from the account itself.
+    try { result = await (rpc.simulateCalls as (a: unknown) => Promise<typeof result>)({ account: from, calls: calls.map(c => ({ to: c.to, value: BigInt(c.value), data: c.data })), blockNumber, traceAssetChanges: true, validation: false }); }
     catch { throw new NearPublicError("evm simulation is unavailable from the configured RPC; nothing was signed"); }
-    const r = result.results[0];
-    if (!r || r.status !== "success") {
-      const failure = new SimulationReverted(0, call.to, ((r as { data?: Hex } | undefined)?.data ?? "0x") as Hex);
+    const failed = calls.findIndex((_, i) => result.results[i]?.status !== "success");
+    if (failed >= 0) {
+      const call = calls[failed]!;
+      const failure = new SimulationReverted(failed, call.to, (result.results[failed]?.data ?? "0x") as Hex);
       const abi = this.contracts ? await this.contracts.contract(network, call.to).then(x => x && x.source !== "bytecode_selectors" ? x.abi : undefined, () => undefined) : undefined;
       throw new NearPublicError(`evm ${revertMessage(failure.index, failure.to, failure.data, abi)}`);
     }
     const asset_changes = jsonValue(result.assetChanges);
-    return { status: "success", block_number: blockNumber.toString(), asset_changes, nft_changes: nftChanges(r.logs ?? [], from), asset_floors: receivedFloors(asset_changes, toleranceBps), received_tolerance_bps: toleranceBps, gas_used_execution_only: r.gasUsed.toString() };
+    return { status: "success", block_number: blockNumber.toString(), asset_changes, nft_changes: nftChanges(result.results.flatMap(r => r.logs ?? []), from), asset_floors: receivedFloors(asset_changes, toleranceBps), received_tolerance_bps: toleranceBps, gas_used_execution_only: result.results.reduce((n, r) => n + r.gasUsed, 0n).toString() };
   }
 
   // Re-simulates the stored call right before the MPC request: anything worse
   // than the preview (or a revert now) refuses before NEAR is spent.
   private async recheck(plan: EvmPlan) {
     if (!plan.simulation) return;
-    const call: NormalizedCall = { to: plan.tx.to, value: plan.tx.value, data: plan.tx.data };
-    const fresh = await this.simulate(plan.network, plan.from, call, plan.simulation.received_tolerance_bps);
+    const calls: NormalizedCall[] = plan.calls ?? [{ to: plan.tx.to, value: plan.tx.value, data: plan.tx.data }];
+    const fresh = await this.simulate(plan.network, plan.from, calls, plan.simulation.received_tolerance_bps);
     const floors = Object.fromEntries(Object.entries(plan.simulation.asset_floors).map(([k, v]) => [k, BigInt(v)]));
     let mismatch = assetChangeMismatch(plan.simulation.asset_changes, fresh.asset_changes, floors);
     if (mismatch && plan.simulation.max_amount_growth_bps) mismatch = scaledAssetMismatch(plan.simulation.asset_changes, fresh.asset_changes, floors, plan.simulation.max_amount_growth_bps);

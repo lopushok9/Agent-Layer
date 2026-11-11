@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { NearAccountService } from "./account.js";
 import { evmCallInput, type ChainSignatures } from "./chain-signatures.js";
 import { nearReadInput, publicNearError, type NearOperations } from "./operations.js";
+import { evmSwapInput, type EvmSwaps } from "./swap.js";
 import { nearTransactionInput } from "./transaction.js";
 
 export const NEAR_INSTRUCTIONS = `AgentLayer NEAR Omni Account: a NEAR account created for the signed-in user, plus EVM addresses on Base and Ethereum controlled through NEAR Chain Signatures. It is a new wallet, separate from the user's AgentLayer Base smart wallet; never move funds between them unless the user asks.
@@ -13,6 +14,7 @@ Workflow:
 3. For NEAR writes call near_transaction_prepare (Transfer and FunctionCall actions; amounts are integer yoctoNEAR strings, 1 NEAR = 10^24; gas in gas units, 1 TGas = 10^12). Show the user the receiver, each action with args, attached NEAR and max_network_fee_near, then ask for confirmation.
 4. After confirmation call near_transaction_execute once with operation_id and purpose. Report the transaction hash, explorer link, and any failed receipts.
 5. For Base/Ethereum: evm_address_status gives the derived EVM address and its ETH. evm_call_prepare takes to + function_name + args (the contract's verified ABI encodes it; pass abi only when none is verified) or raw data, simulates from the derived address and previews the NEAR sign() request over the transaction hash. Show evm_call (function, decoded arguments, abi_source, clear_signing, warnings), every simulation.asset_changes / nft_changes entry and simulation.asset_floors, the EVM max fee and the NEAR fee; confirm, then evm_call_execute once (it re-simulates and refuses if anything got worse). Then near_operation_status until the EVM receipt is final.
+6. For token swaps use evm_swap_prepare (Uniswap V3, best direct or WETH two-hop route, on-chain minimum). Show swap.token_in, swap.token_out (quoted and minimum), route and step; when step is approval_required, execute that approve, then call evm_swap_prepare again.
 
 Rules:
 - Token amounts in args are in the token's smallest unit; NEP-141 transfers usually require deposit_yocto "1" and the receiver registered with storage_deposit.
@@ -29,7 +31,7 @@ const failure = (tool: string, error: unknown) => {
 const opId = z.strictObject({ operation_id: z.string().uuid() });
 const exec = z.strictObject({ operation_id: z.string().uuid(), purpose: z.string().min(3).max(500) });
 
-export type NearServices = { accounts: NearAccountService; operations: NearOperations; chainSignatures: ChainSignatures };
+export type NearServices = { accounts: NearAccountService; operations: NearOperations; chainSignatures: ChainSignatures; swaps?: EvmSwaps };
 
 export function createNearMcp(userId: string, s: NearServices) {
   const server = new McpServer({ name: "AgentLayer NEAR Omni Account", version: "0.1.0" }, { instructions: NEAR_INSTRUCTIONS });
@@ -52,6 +54,8 @@ export function createNearMcp(userId: string, s: NearServices) {
     () => s.chainSignatures.status(userId));
   tool("evm_call_prepare", { title: "Preview an EVM call via Chain Signatures", description: "Preview one EIP-1559 transaction on Base or Ethereum from the derived address: to, value_wei, and function_name + args (encoded with the contract's verified ABI, behind proxies; abi only if unverified) or raw data. Decodes the call (ERC-7730 display when registered), simulates it with asset tracing (a revert stops here with its reason), checks ETH, and previews the NEAR MPC sign() call over the exact transaction hash. Never signs.", inputSchema: evmCallInput, annotations: { readOnlyHint: true } },
     input => s.chainSignatures.prepare(userId, input));
+  if (s.swaps) tool("evm_swap_prepare", { title: "Preview a Uniswap swap via Chain Signatures", description: "Preview an exact-input Uniswap V3 swap on Base or Ethereum from the derived address: token_in/token_out are \"ETH\" or ERC-20 addresses, amount_in in the smallest unit. Quotes all direct pools and WETH two-hops, picks the best, and builds one SwapRouter02 multicall with an on-chain amountOutMinimum (slippage_bps below the quote). If the router lacks allowance it previews the exact approve first (or approve+swap atomically when the address is EIP-7702 delegated). Simulated like evm_call_prepare; execute with evm_call_execute. Never signs.", inputSchema: evmSwapInput, annotations: { readOnlyHint: true } },
+    input => s.swaps!.prepare(userId, input));
   tool("evm_call_execute", { title: "Execute a confirmed EVM call via Chain Signatures", description: "After user confirmation: re-check the nonce and re-simulate (refuses before signing if an outflow grew or a received token fell below its floor), send the NEAR sign() request once, verify the MPC signature recovers to the derived address, then broadcast the exact previewed EVM transaction. Poll near_operation_status for the receipt.", inputSchema: exec, annotations: { destructiveHint: true } },
     ({ operation_id, purpose }) => s.chainSignatures.execute(userId, operation_id, purpose));
   return server;
