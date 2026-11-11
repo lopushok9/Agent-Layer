@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import test from "node:test";
 import { decodeSignedTransaction } from "@near-js/transactions";
 import { baseEncode } from "@near-js/utils";
-import { keccak256, parseTransaction, recoverTransactionAddress, serializeTransaction, type Hex, type PublicClient } from "viem";
+import { encodeErrorResult, erc20Abi, keccak256, parseTransaction, recoverTransactionAddress, serializeTransaction, type Hex, type PublicClient } from "viem";
 import { generatePrivateKey, privateKeyToAccount, sign } from "viem/accounts";
 import { NearAccountService } from "../src/near/account.js";
 import { ChainSignatures, parseMpcSignature, secp256k1KeyToAddress } from "../src/near/chain-signatures.js";
@@ -18,12 +18,16 @@ const NEAR = 10n ** 24n;
 const ETH = 10n ** 18n;
 
 // A fake MPC network: one secp256k1 key stands for the key derived for (account, path).
-function world(opts: { mpcKey?: Hex; wrongSigner?: boolean; ethBalance?: bigint; revert?: boolean } = {}) {
+const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+const usdcChange = (diff: bigint) => [{ token: { address: USDC.toLowerCase(), symbol: "USDC", decimals: 6 }, value: { pre: 200000n, post: 200000n + diff, diff } }];
+const verifiedErc20 = { contract: async () => ({ abi: erc20Abi, source: "verified_sourcify" as const }), describeCall: async () => null, describeTypedData: async () => null };
+
+function world(opts: { mpcKey?: Hex; wrongSigner?: boolean; ethBalance?: bigint; revert?: boolean; contracts?: typeof verifiedErc20 } = {}) {
   const mpcKey = opts.mpcKey ?? generatePrivateKey();
   const mpc = privateKeyToAccount(mpcKey);
   const impostor = generatePrivateKey();
   const near = { nonce: 1, signs: [] as { path: string; payload: string; predecessor: string }[] };
-  const evm = { sent: [] as Hex[], nonce: 5, latest: 5, nonceTooLow: false, rpcDown: false, receipts: new Set<Hex>() };
+  const evm = { sent: [] as Hex[], nonce: 5, latest: 5, nonceTooLow: false, rpcDown: false, receipts: new Set<Hex>(), assetChanges: [] as unknown[], simulated: 0 };
   const { store } = memoryStore();
   const rpc = new NearRpc("https://rpc.example", "mainnet", (async (_u: string, init: RequestInit) => {
     const b = JSON.parse(String(init.body));
@@ -61,6 +65,14 @@ function world(opts: { mpcKey?: Hex; wrongSigner?: boolean; ethBalance?: bigint;
     async estimateFeesPerGas() { return { maxFeePerGas: 1_000_000n, maxPriorityFeePerGas: 1000n }; },
     async getBalance() { return opts.ethBalance ?? ETH; },
     async estimateGas() { if (opts.revert) throw new Error("execution reverted"); return 21_000n; },
+    async getBlockNumber() { return 100n; },
+    async getCode() { return "0x6080"; },
+    async simulateCalls({ account }: { account: Hex }) {
+      assert.equal(account.toLowerCase(), mpc.address.toLowerCase(), "simulated from the derived address");
+      evm.simulated++;
+      if (opts.revert) return { results: [{ status: "failure", data: encodeErrorResult({ abi: [{ type: "error", name: "Error", inputs: [{ type: "string" }] }], errorName: "Error", args: ["ERC20: transfer amount exceeds balance"] }), gasUsed: 0n, logs: [] }], assetChanges: [] };
+      return { results: [{ status: "success", data: "0x", gasUsed: 30000n, logs: [] }], assetChanges: evm.assetChanges };
+    },
     async sendRawTransaction({ serializedTransaction }: { serializedTransaction: Hex }) {
       assert.equal((await recoverTransactionAddress({ serializedTransaction: serializedTransaction as any })).toLowerCase(), mpc.address.toLowerCase());
       if (evm.nonceTooLow) throw new Error("nonce too low: next nonce 6, tx nonce 5");
@@ -70,7 +82,7 @@ function world(opts: { mpcKey?: Hex; wrongSigner?: boolean; ethBalance?: bigint;
   } as unknown as PublicClient;
   const accounts = new NearAccountService(config, store, rpc);
   const operations = new NearOperations(accounts, store);
-  const chainSigs = new ChainSignatures(accounts, operations, store, () => client);
+  const chainSigs = new ChainSignatures(accounts, operations, store, () => client, opts.contracts ?? null);
   return { chainSigs, accounts, near, evm, mpc };
 }
 
@@ -148,6 +160,41 @@ test("a submitted transaction whose nonce was taken by another one becomes dropp
   assert.equal((await w.chainSigs.operationStatus("u", p.operation_id) as any).stage, "evm_dropped");
 });
 
+test("function_name alone is encoded with the verified ABI and the preview shows the decoded call and simulated asset changes", async () => {
+  const w = world({ contracts: verifiedErc20 });
+  w.evm.assetChanges = usdcChange(-10000n);
+  const p = await w.chainSigs.prepare("u", { network: "base", to: USDC, function_name: "transfer", args: ["0x000000000000000000000000000000000000dEaD", "10000"] }) as any;
+  assert.equal(p.evm_call.function, "transfer");
+  assert.equal(p.evm_call.abi_source, "verified_sourcify");
+  assert.deepEqual(p.evm_call.arguments, ["0x000000000000000000000000000000000000dEaD", "10000"]);
+  assert.equal(p.simulation.asset_changes[0].value.diff, "-10000");
+  assert.ok(p.evm_transaction.data.startsWith("0xa9059cbb"));
+  // A function the verified ABI does not have is refused, never guessed.
+  await assert.rejects(w.chainSigs.prepare("u", { network: "base", to: USDC, function_name: "mint", args: ["1"] }), /no function mint in its verified ABI.*nothing was signed/);
+  // Without a verified ABI and without abi, function_name cannot be encoded.
+  await assert.rejects(world().chainSigs.prepare("u", { network: "base", to: USDC, function_name: "transfer", args: ["0x000000000000000000000000000000000000dEaD", "1"] }), /no verified ABI/);
+  // Self-calls from the derived address are refused like wallet self-calls.
+  await assert.rejects(w.chainSigs.prepare("u", { network: "base", to: w.mpc.address, value_wei: "1" }), /self-calls/);
+});
+
+test("approve is flagged; a worse re-simulation before signing refuses without paying for MPC", async () => {
+  const w = world({ contracts: verifiedErc20 });
+  w.evm.assetChanges = usdcChange(-10000n);
+  const approve = await w.chainSigs.prepare("u", { network: "base", to: USDC, function_name: "approve", args: ["0x000000000000000000000000000000000000dEaD", "115792089237316195423570985008687907853269984665640564039457584007913129639935"] }) as any;
+  assert.match(approve.evm_call.warnings.join(" "), /allowance/);
+  const p = await w.chainSigs.prepare("u", { network: "base", to: USDC, function_name: "transfer", args: ["0x000000000000000000000000000000000000dEaD", "10000"] }) as any;
+  w.evm.assetChanges = usdcChange(-20000n);
+  await assert.rejects(w.chainSigs.execute("u", p.operation_id, "x"), /asset changes differ from preview.*Nothing was signed/);
+  assert.equal(w.near.signs.length, 0);
+  assert.equal(w.evm.sent.length, 0);
+  // Same outcome as previewed: re-simulated, then signed and sent.
+  w.evm.assetChanges = usdcChange(-10000n);
+  const again = await w.chainSigs.prepare("u", { network: "base", to: USDC, function_name: "transfer", args: ["0x000000000000000000000000000000000000dEaD", "10000"] }) as any;
+  const before = w.evm.simulated;
+  assert.equal((await w.chainSigs.execute("u", again.operation_id, "y") as any).stage, "evm_submitted");
+  assert.equal(w.evm.simulated, before + 1);
+});
+
 test("a signature that does not recover to the derived address is never broadcast", async () => {
   const w = world({ wrongSigner: true });
   const preview = await w.chainSigs.prepare("u", { network: "base", to: "0x000000000000000000000000000000000000dEaD", value_wei: "1" }) as any;
@@ -156,7 +203,7 @@ test("a signature that does not recover to the derived address is never broadcas
 });
 
 test("prepare refuses reverting calls and unfunded derived addresses before anything is signed", async () => {
-  await assert.rejects(world({ revert: true }).chainSigs.prepare("u", { network: "base", to: "0x000000000000000000000000000000000000dEaD", value_wei: "0", data: "0x12345678" }), /reverts/);
+  await assert.rejects(world({ revert: true }).chainSigs.prepare("u", { network: "base", to: "0x000000000000000000000000000000000000dEaD", value_wei: "0", data: "0x12345678" }), /simulation reverted at call 0 .*exceeds balance.*nothing was signed/);
   await assert.rejects(world({ ethBalance: 0n }).chainSigs.prepare("u", { network: "base", to: "0x000000000000000000000000000000000000dEaD", value_wei: "1" }), /insufficient ETH/);
 });
 

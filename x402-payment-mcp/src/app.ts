@@ -16,7 +16,7 @@ import { oauthRouter } from "./oauth.js";
 import { PaymentService } from "./payments.js";
 import { TokenService } from "./security.js";
 import { Store } from "./store.js";
-import { RegistryContractMetadata } from "./contract-metadata.js";
+import { RegistryContractMetadata, type ContractMetadata } from "./contract-metadata.js";
 import { SignatureService } from "./signatures.js";
 import { DappService } from "./dapps.js";
 import { DappStore } from "./dapp-store.js";
@@ -41,12 +41,12 @@ import { createNearMcp, type NearServices } from "./near/mcp.js";
 // NEAR Omni Account: independent product on its own MCP resource (/near/mcp).
 // Enabled only by NEAR_RPC_URL; it reuses login, the database and the
 // deployment-owned EVM RPCs, and never touches the smart wallet or x402 paths.
-function nearServices(config:Config,store:Store,wallets:SmartWalletService):NearServices|null{
+function nearServices(config:Config,store:Store,wallets:SmartWalletService,contracts:ContractMetadata|null=null):NearServices|null{
   const near=loadNearConfig();if(!near)return null;
   const nearStore=new NearStore(store.pool);const accounts=new NearAccountService(near,nearStore,new NearRpc(near.rpcUrl,near.network),wallets.cdp.solana);
   const operations=new NearOperations(accounts,nearStore);
   // Chain Signatures target Base/Ethereum mainnet, so they run only for NEAR mainnet.
-  const chainSignatures=new ChainSignatures(accounts,operations,nearStore,network=>{if(near.network!=="mainnet")throw new Error("evm Chain Signatures require NEAR mainnet");return wallets.rpc(network);});
+  const chainSignatures=new ChainSignatures(accounts,operations,nearStore,network=>{if(near.network!=="mainnet")throw new Error("evm Chain Signatures require NEAR mainnet");return wallets.rpc(network);},contracts);
   if(!config.nearEnabled)throw new Error("NEAR configuration mismatch");
   return{accounts,operations,chainSignatures};
 }
@@ -70,7 +70,7 @@ export async function createApp(config:Config){
   const auth=requireBearerAuth({verifier,requiredScopes:[],resourceMetadataUrl:`${config.issuer}/.well-known/oauth-protected-resource/mcp`});
   app.post("/mcp",auth,async(req,res,next)=>{try{const authInfo=(req as typeof req&{auth?:{scopes?:string[];extra?:Record<string,unknown>}}).auth;const userId=authInfo?.extra?.userId;if(typeof userId!=="string")throw new OAuthError(OAuthErrorCode.InvalidToken,"token has no user identity");const server=createUserMcp(userId,payments,link,wallets,transactions,authInfo?.scopes??[],swaps,{signatures,...(dapps?{dapps}:{}),...(routes?{routes}:{}),...(catalog?{catalog}:{}),...(portfolio?{portfolio}:{}),...(names?{names}:{}),...(nfts?{nfts}:{}),...(nameRegistration?{nameRegistration}:{}),...(hasAlchemy?{history}:{})});const transport=new NodeStreamableHTTPServerTransport({sessionIdGenerator:undefined});await server.connect(transport);await transport.handleRequest(req,res,req.body);}catch(e){next(e);}});
   app.all("/mcp",(_req,res)=>res.status(405).set("Allow","POST").end());
-  const near=nearServices(config,store,wallets);
+  const near=nearServices(config,store,wallets,contracts);
   if(near){
     const nearAuth=requireBearerAuth({verifier:createTokenVerifier(config,tokens,store,config.nearResource),requiredScopes:[NEAR_SCOPE],resourceMetadataUrl:`${config.issuer}/.well-known/oauth-protected-resource/near/mcp`});
     app.post("/near/mcp",nearAuth,async(req,res,next)=>{try{const authInfo=(req as typeof req&{auth?:{extra?:Record<string,unknown>}}).auth;const userId=authInfo?.extra?.userId;if(typeof userId!=="string")throw new OAuthError(OAuthErrorCode.InvalidToken,"token has no user identity");const server=createNearMcp(userId,near);const transport=new NodeStreamableHTTPServerTransport({sessionIdGenerator:undefined});await server.connect(transport);await transport.handleRequest(req,res,req.body);}catch(e){next(e);}});
