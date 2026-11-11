@@ -13,7 +13,7 @@ const config = loadNearConfig({ NEAR_RPC_URL: "https://rpc.example", NEAR_KEY_EN
 const WNEAR = "nep141:wrap.near", USDC = "nep141:usdc.near", SOL = "nep141:sol.omft.near";
 const TOKENS: Record<string, { assetId: string; symbol: string; decimals: number; blockchain: string }> = { NEAR: { assetId: WNEAR, symbol: "wNEAR", decimals: 24, blockchain: "near" }, "USDC@near": { assetId: USDC, symbol: "USDC", decimals: 6, blockchain: "near" }, "SOL@sol": { assetId: SOL, symbol: "SOL", decimals: 9, blockchain: "sol" } };
 
-type World = { balance: Record<string, string>; quotes: { amount_out: string; hash: string }[]; published: any[]; relayStatus: string; simError?: string; usedNonces: Set<string>; publishStatus?: string; registered?: boolean; oneclickDeadlineMs?: number; submitted?: string[] };
+type World = { balance: Record<string, string>; quotes: { amount_out: string; hash: string }[]; published: any[]; relayStatus: string; simError?: string; usedNonces: Set<string>; publishStatus?: string; registered?: boolean; oneclickDeadlineMs?: number; submitted?: string[]; oneclickOut?: string };
 
 function setup(w: World, now = () => Date.now()) {
   const { store, ops } = memoryStore();
@@ -51,12 +51,13 @@ function setup(w: World, now = () => Date.now()) {
   }) as typeof fetch);
   const accounts = new NearAccountService(config, store, rpc);
   const intents = {
-    asset: async (ref: string) => TOKENS[ref]!, intentsBalanceOf: async (_a: string, t: string) => BigInt(w.balance[t] ?? "0"),
+    asset: async (ref: string) => TOKENS[ref] ?? Object.values(TOKENS).find(t => t.assetId === ref)!, intentsBalanceOf: async (_a: string, t: string) => BigInt(w.balance[t] ?? "0"),
     quoteFromIntents: async (u: string, input: any) => {
       const self = (await accounts.account(u)).accountId;
-      const plan = { deposit_address: "d".repeat(64), deposit_memo: null, correlation_id: "c1", deadline: new Date(now() + (w.oneclickDeadlineMs ?? 1_800_000)).toISOString(), origin_asset: TOKENS[input.origin_asset]!.assetId, destination_asset: SOL, amount_in: input.amount, min_amount_out: "123", recipient: self, pay_from: "intents", deliver_to: "intents" };
+      const plan = { deposit_address: "d".repeat(64), deposit_memo: null, correlation_id: "c1", deadline: new Date(now() + (w.oneclickDeadlineMs ?? 1_800_000)).toISOString(), origin_asset: (TOKENS[input.origin_asset] ?? { assetId: input.origin_asset }).assetId, destination_asset: SOL, amount_in: input.amount, min_amount_out: "123", recipient: self, pay_from: "intents", deliver_to: "intents" };
       return { self, plan, have: BigInt(w.balance[plan.origin_asset] ?? "0"), description: { protocol: "near_intents_1click" } };
     },
+    dryQuoteFromIntents: async () => w.oneclickOut === undefined ? null : { amountOut: w.oneclickOut, timeEstimate: 12 },
     oneClickStatus: async () => ({ swap_status: "PROCESSING" }),
     submitDeposit: async (tx: string, dep: string, sender: string) => { w.submitted = [tx, dep, sender]; },
   } as any;
@@ -233,4 +234,34 @@ test("binding survives Postgres jsonb key reordering of the stored plan", async 
   (op as any).plan = reorder(op.plan);
   const r: any = await trades.execute("u1", p.operation_id, "x", "withdraw");
   assert.equal(r.status, "confirmed");
+});
+
+test("auto route: relay when it is within 0.5% of 1Click, 1Click when it pays clearly more or the relay has no quote", async () => {
+  const w = world();
+  const { trades, init } = setup(w);
+  await init("u1");
+  const args = { token_in: "NEAR", token_out: "USDC@near", amount_in: ONE };
+  w.oneclickOut = "3740000"; // relay best 3727723 is 0.33% lower: relay wins on speed
+  const a: any = await trades.prepareAuto("u1", args);
+  assert.equal(a.route.chosen, "solver_relay"); assert.equal(a.kind, "intents_trade"); assert.deepEqual(a.route.quotes, { solver_relay_out: "3727723", oneclick_out: "3740000" });
+  const r: any = await trades.execute("u1", a.operation_id, "x");
+  assert.equal(r.status, "confirmed"); assert.deepEqual(w.published[0].quote_hashes, ["q2"]);
+  w.oneclickOut = "3760000"; // 0.86% better: 1Click
+  const b: any = await trades.prepareAuto("u1", args);
+  assert.equal(b.route.chosen, "1click"); assert.equal(b.kind, "intents_swap"); assert.equal(b.signed_intent.intent, "transfer");
+  w.quotes = []; w.oneclickOut = "3700000";
+  const c: any = await trades.prepareAuto("u1", args);
+  assert.equal(c.route.chosen, "1click"); assert.match(c.route.why, /no quote/);
+  delete w.oneclickOut;
+  await assert.rejects(trades.prepareAuto("u1", args), /neither the Solver Relay nor 1Click/);
+  w.quotes = [{ amount_out: "3727723", hash: "q2" }];
+  const d: any = await trades.prepareAuto("u1", args);
+  assert.equal(d.route.chosen, "solver_relay"); assert.match(d.route.why, /1Click gave no quote/);
+});
+
+test("auto route: wallet delivery through 1Click is refused when the wallet is not registered on the token", async () => {
+  const w = world(); w.quotes = []; w.oneclickOut = "3700000"; w.registered = false;
+  const { trades, init } = setup(w);
+  await init("u1");
+  await assert.rejects(trades.prepareAuto("u1", { token_in: "NEAR", token_out: "USDC@near", amount_in: ONE, deliver_to: "wallet" }), /only 1Click quotes this pair.*deliver_to intents/);
 });

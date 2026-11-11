@@ -200,6 +200,19 @@ export class NearIntents {
     return { self, plan, have, description: this.describe(p, origin, dest, q, plan, 0n) };
   }
 
+  // Non-binding 1Click price for an intents-balance swap (no deposit address),
+  // used to compare routes before anything is prepared.
+  async dryQuoteFromIntents(userId: string, input: IntentsSwapInput): Promise<{ amountOut: string; timeEstimate?: number } | null> {
+    const p = intentsSwapInput.parse({ ...input, pay_from: "intents" });
+    const self = (await this.accounts.account(userId)).accountId;
+    const [origin, dest] = await Promise.all([this.resolve(p.origin_asset, "origin_asset"), this.resolve(p.destination_asset, "destination_asset")]);
+    const recipient = p.deliver_to === "intents" ? self : await this.recipient(userId, self, dest.blockchain, p.recipient);
+    const q = await this.client.quote({ dry: true, swapType: "EXACT_INPUT", slippageTolerance: p.slippage_bps, originAsset: origin.assetId, depositType: "INTENTS", destinationAsset: dest.assetId, amount: p.amount, refundTo: self, refundType: "INTENTS", recipient, recipientType: p.deliver_to === "intents" ? "INTENTS" : "DESTINATION_CHAIN", deadline: new Date(this.now() + QUOTE_DEADLINE_MS).toISOString(), quoteWaitingTimeMs: 3000 });
+    const out = q?.quote?.amountOut;
+    if (q?.quote?.amountIn !== p.amount || typeof out !== "string" || !UINT.test(out) || out === "0") return null;
+    return { amountOut: out, ...(typeof q.quote.timeEstimate === "number" ? { timeEstimate: q.quote.timeEstimate } : {}) };
+  }
+
   submitDeposit(txHash: string, depositAddress: string, sender: string) { return this.client.submit(txHash, depositAddress, sender); }
 
   private describe(p: z.infer<typeof intentsSwapInput>, origin: OneClickToken, dest: OneClickToken, q: OneClickQuote, plan: IntentsPlan, wrap: bigint) {

@@ -106,6 +106,15 @@ export const intentsTradeInput = z.strictObject({
   slippage_bps: z.number().int().min(1).max(500).default(50).describe("At execution the best fresh quote must give at least the previewed quote minus this many bps, otherwise nothing is signed"),
   deliver_to: z.enum(["intents", "wallet"]).default("intents").describe("intents: keep the bought asset in the intents balance; wallet: withdraw it to the NEAR wallet in the same signed intent (NEAR-chain tokens only; NEAR arrives as native NEAR)"),
 });
+export const intentsExchangeInput = z.strictObject({
+  token_in: z.string().min(2).max(200).describe("Asset to sell from the intents balance: \"NEAR\" for wNEAR, a 1Click assetId, or SYMBOL@chain such as USDC@near, SOL@sol"),
+  token_out: z.string().min(2).max(200).describe("Asset to buy, same formats"),
+  amount_in: z.string().regex(/^[1-9]\d{0,77}$/).describe("Exact amount to sell, in token_in's smallest unit"),
+  slippage_bps: z.number().int().min(1).max(500).default(50).describe("Minimum accepted below the quote, in bps"),
+  deliver_to: z.enum(["intents", "wallet"]).default("intents").describe("intents: keep the bought asset in the intents balance; wallet: deliver it to the NEAR wallet (NEAR-chain tokens only)"),
+});
+// Prefer the Solver Relay (one settlement, seconds) unless 1Click pays this much more.
+const RELAY_PREFERENCE_BPS = 50n;
 export const intentsWithdrawInput = z.strictObject({
   asset: z.string().min(2).max(200).describe("\"NEAR\" (arrives as native NEAR, e.g. to refill gas) or a NEAR-chain NEP-141 token held in the intents balance (assetId or SYMBOL@near)"),
   amount: z.string().regex(/^[1-9]\d{0,77}$/).describe("Amount in the token's smallest unit (NEAR: yocto, 24 decimals)"),
@@ -218,6 +227,39 @@ export class IntentsTrades {
       how_it_executes: `At execution the server signs ONE NEP-413 ${intent.intent} intent with this NEAR account's key (${INTENT_LIFETIME_MS / 1000}s deadline, single-use nonce), dry-runs it on intents.near and publishes it to the Solver Relay.${native ? " wNEAR is unwrapped and arrives as native NEAR." : " If the token transfer fails, intents.near returns the tokens to the intents balance."}`,
       confirmation: "Show withdraw and any storage_deposit to the user; call intents_withdraw_execute only after they confirm this exact preview.",
     };
+  }
+
+  // One entry point for swaps from the intents balance: ask the Solver Relay and
+  // 1Click (non-binding) in parallel, take the relay when it quotes within
+  // RELAY_PREFERENCE_BPS of 1Click (single settlement, seconds), otherwise
+  // 1Click (any pair, ~20-60 s), then return that route's normal preview.
+  async prepareAuto(userId: string, input: z.input<typeof intentsExchangeInput>) {
+    const p = intentsExchangeInput.parse(input);
+    const self = (await this.accounts.account(userId)).accountId;
+    const [tin, tout] = await Promise.all([this.intents.asset(p.token_in, "token_in"), this.intents.asset(p.token_out, "token_out")]);
+    if (tin.assetId === tout.assetId) throw new NearPublicError("intents: token_in and token_out are the same; nothing was signed");
+    const toWallet = p.deliver_to === "wallet";
+    const storage = toWallet ? (await this.walletDelivery(self, tout, "token_out")).storage : 0n;
+    const have = await this.intents.intentsBalanceOf(self, tin.assetId);
+    if (have < BigInt(p.amount_in)) throw new NearPublicError(`intents: the intents balance holds ${have} of ${tin.symbol} (smallest units), needs ${p.amount_in}; see intents_balances. Nothing was signed`);
+    const oneclickInput = { origin_asset: tin.assetId, destination_asset: tout.assetId, amount: p.amount_in, deliver_to: toWallet ? "chain" as const : "intents" as const, slippage_bps: p.slippage_bps };
+    const [relay, oneclick] = await Promise.all([
+      TOKEN_ID.test(tin.assetId) && TOKEN_ID.test(tout.assetId) ? this.bestQuote(tin.assetId, tout.assetId, p.amount_in).then(r => r.best).catch(() => null) : Promise.resolve(null),
+      this.intents.dryQuoteFromIntents(userId, oneclickInput).catch(() => null),
+    ]);
+    const relayOut = relay ? BigInt(relay.amount_out) : null, ocOut = oneclick ? BigInt(oneclick.amountOut) : null;
+    const comparison = { solver_relay_out: relay?.amount_out ?? "no quote", oneclick_out: oneclick?.amountOut ?? "no quote" };
+    const useRelay = relayOut !== null && (ocOut === null || relayOut * (10_000n + RELAY_PREFERENCE_BPS) >= ocOut * 10_000n);
+    if (useRelay) {
+      try {
+        const preview = await this.prepare(userId, { token_in: tin.assetId, token_out: tout.assetId, amount_in: p.amount_in, slippage_bps: p.slippage_bps, deliver_to: p.deliver_to });
+        return { ...preview, route: { chosen: "solver_relay", why: ocOut === null ? "1Click gave no quote" : `relay quote is within ${Number(RELAY_PREFERENCE_BPS) / 100}% of 1Click or better; one settlement`, expected_seconds: "~5", quotes: comparison }, confirmation: "Show route, sell, buy (quoted and minimum) and deliver_to; call intents_exchange_execute only after the user confirms this exact preview." };
+      } catch (e) { if (ocOut === null) throw e; /* relay quote vanished: fall through to 1Click */ }
+    }
+    if (ocOut === null) throw new NearPublicError(`intents: neither the Solver Relay nor 1Click quotes ${tin.symbol} -> ${tout.symbol} for this amount right now; try a larger amount. Nothing was signed`);
+    if (toWallet && storage) throw new NearPublicError(`intents: only 1Click quotes this pair, and it cannot register the wallet on ${tout.symbol}; use deliver_to intents and then intents_withdraw_prepare. Nothing was signed`);
+    const preview = await this.prepareOneClick(userId, oneclickInput);
+    return { ...preview, route: { chosen: "1click", why: relayOut === null ? "the Solver Relay gave no quote for this pair or size" : `1Click pays more than ${Number(RELAY_PREFERENCE_BPS) / 100}% above the relay`, expected_seconds: oneclick?.timeEstimate !== undefined ? `~${oneclick.timeEstimate + 30} (1Click estimate ${oneclick.timeEstimate} s plus deposit detection)` : "~20-60", quotes: comparison, ...(toWallet && tout.assetId === WNEAR_ID ? { note: "Through 1Click NEAR is delivered to the wallet as wNEAR." } : {}) }, confirmation: "Show route, intents.origin, intents.destination (quoted and minimum), recipient and signed_intent; call intents_exchange_execute only after the user confirms this exact preview." };
   }
 
   // 1Click paid from the intents balance with ONE signed transfer intent to the
