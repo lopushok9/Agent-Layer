@@ -148,6 +148,8 @@ export class NearOperations {
   async status(userId: string, id: string) {
     const op = await this.store.operation(userId, id);
     if (!op) throw new NearPublicError("operation not found for this user");
+    // Signed intents are reconciled by intents_status, never re-sent as NEAR transactions.
+    if (op.kind === "intents_trade") return { operation_id: id, kind: op.kind, status: op.status, intent_hash: op.txHash, result: op.result, error: op.error, message: "Use intents_status for this operation." };
     if (!op.txHash || op.status === "confirmed" || op.status === "failed" || op.status === "prepared" || op.status === "reserved") {
       return { operation_id: id, kind: op.kind, status: op.status, transaction_hash: op.txHash, ...(op.txHash ? { explorer_url: this.explorer(op.txHash) } : {}), outcome: op.outcome, result: op.result, error: op.error };
     }

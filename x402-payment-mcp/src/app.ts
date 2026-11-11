@@ -38,6 +38,7 @@ import { NearOperations } from "./near/operations.js";
 import { ChainSignatures } from "./near/chain-signatures.js";
 import { EvmSwaps } from "./near/swap.js";
 import { NearIntents, OneClickClient } from "./near/intents.js";
+import { IntentsTrades, SolverRelayClient } from "./near/solver-relay.js";
 import { createNearMcp, type NearServices } from "./near/mcp.js";
 
 // NEAR Omni Account: independent product on its own MCP resource (/near/mcp).
@@ -50,7 +51,8 @@ function nearServices(config:Config,store:Store,wallets:SmartWalletService,contr
   // Chain Signatures target Base/Ethereum mainnet, so they run only for NEAR mainnet.
   const chainSignatures=new ChainSignatures(accounts,operations,nearStore,network=>{if(near.network!=="mainnet")throw new Error("evm Chain Signatures require NEAR mainnet");return wallets.rpc(network);},contracts);
   if(!config.nearEnabled)throw new Error("NEAR configuration mismatch");
-  return{accounts,operations,chainSignatures,swaps:new EvmSwaps(chainSignatures),intents:new NearIntents(accounts,operations,nearStore,chainSignatures,new OneClickClient(undefined,undefined,process.env.ONECLICK_JWT||undefined))};
+  const intents=new NearIntents(accounts,operations,nearStore,chainSignatures,new OneClickClient(undefined,undefined,process.env.ONECLICK_JWT||undefined));
+  return{accounts,operations,chainSignatures,swaps:new EvmSwaps(chainSignatures),intents,trades:new IntentsTrades(accounts,nearStore,intents,new SolverRelayClient(undefined,undefined,process.env.SOLVER_RELAY_API_KEY||undefined))};
 }
 
 export async function createApp(config:Config){

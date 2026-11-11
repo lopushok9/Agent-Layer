@@ -4,6 +4,7 @@ import type { NearAccountService } from "./account.js";
 import { evmBatchInput, evmCallInput, evmDelegationInput, type ChainSignatures } from "./chain-signatures.js";
 import { nearReadInput, publicNearError, type NearOperations } from "./operations.js";
 import { intentsSwapInput, intentsTokensInput, intentsTransferInput, type NearIntents } from "./intents.js";
+import { intentsTradeInput, type IntentsTrades } from "./solver-relay.js";
 import { evmSwapInput, type EvmSwaps } from "./swap.js";
 import { nearTransactionInput } from "./transaction.js";
 
@@ -18,7 +19,8 @@ Workflow:
 6. evm_delegation_prepare delegates the derived address (EIP-7702) to Simple7702Account so several calls run atomically in one transaction; show delegation (authorization, transaction, steps) and warnings, confirm, then evm_call_execute. evm_address_status shows eip7702_delegation per network.
 7. For token swaps use evm_swap_prepare (Uniswap V3, best direct or WETH two-hop route, on-chain minimum). Show swap.token_in, swap.token_out (quoted and minimum), route and step; when step is approval_required, execute that approve, then call evm_swap_prepare again.
 8. Cross-chain swaps use NEAR Intents (1Click): intents_tokens lists assets; intents_swap_prepare swaps any listed asset; pay_from wallet sells a NEAR-chain token (\"NEAR\" is wrapped automatically), pay_from intents spends the NEAR Intents balance; deliver_to chain sends to recipient (default: this NEAR account or its Chain Signatures EVM address), deliver_to intents credits the intents balance, so e.g. SOL or BTC can be held inside the NEAR account without an address on that chain. Refunds return to where the funds came from. Show intents.origin, intents.destination (quoted and minimum), recipient, deposit_address, fees and every NEAR action; confirm, then intents_swap_execute once, then intents_status until SUCCESS or REFUNDED.
-9. intents_balances lists the NEAR Intents balance. intents_deposit_prepare moves NEAR-chain tokens from the wallet into it and intents_withdraw_prepare moves them back; both are NEAR transactions executed with near_transaction_execute after confirmation.
+9. For swaps INSIDE the intents balance prefer intents_trade_prepare (Solver Relay, no 1Click): solvers quote, the NEAR account signs one NEP-413 token_diff intent with its own key, intents.near settles it in seconds, the relay pays the gas. Show sell, buy (quoted and minimum) and the signed-message description; confirm, then intents_trade_execute once; intents_status reconciles it. Use intents_swap_prepare for moving value between the wallet or other chains and the intents balance.
+10. intents_balances lists the NEAR Intents balance. intents_deposit_prepare moves NEAR-chain tokens from the wallet into it and intents_withdraw_prepare moves them back; both are NEAR transactions executed with near_transaction_execute after confirmation.
 
 Rules:
 - Token amounts in args are in the token's smallest unit; NEP-141 transfers usually require deposit_yocto "1" and the receiver registered with storage_deposit.
@@ -35,7 +37,7 @@ const failure = (tool: string, error: unknown) => {
 const opId = z.strictObject({ operation_id: z.string().uuid() });
 const exec = z.strictObject({ operation_id: z.string().uuid(), purpose: z.string().min(3).max(500) });
 
-export type NearServices = { accounts: NearAccountService; operations: NearOperations; chainSignatures: ChainSignatures; swaps?: EvmSwaps; intents?: NearIntents };
+export type NearServices = { accounts: NearAccountService; operations: NearOperations; chainSignatures: ChainSignatures; swaps?: EvmSwaps; intents?: NearIntents; trades?: IntentsTrades };
 
 export function createNearMcp(userId: string, s: NearServices) {
   const server = new McpServer({ name: "AgentLayer NEAR Omni Account", version: "0.1.0" }, { instructions: NEAR_INSTRUCTIONS });
@@ -74,8 +76,15 @@ export function createNearMcp(userId: string, s: NearServices) {
       input => intents.prepareWithdraw(userId, input));
     tool("intents_swap_execute", { title: "Execute a confirmed NEAR Intents swap", description: "After user confirmation: refuses if the 1Click deposit deadline is near, signs and sends the previewed NEAR transaction once, then notifies 1Click of the deposit. Follow with intents_status.", inputSchema: exec, annotations: { destructiveHint: true } },
       ({ operation_id, purpose }) => intents.execute(userId, operation_id, purpose));
+    if (s.trades) {
+      const trades = s.trades;
+      tool("intents_trade_prepare", { title: "Preview a swap inside the NEAR Intents balance", description: "Preview swapping assets held in this account's NEAR Intents balance via the Solver Relay (no 1Click, no deposit address, no NEAR gas): fetches solver quotes, keeps the best, and previews the NEP-413 token_diff intent the NEAR key will sign. slippage_bps sets the minimum a fresh quote must meet at execution. Never signs.", inputSchema: intentsTradeInput, annotations: { readOnlyHint: true } },
+        input => trades.prepare(userId, input));
+      tool("intents_trade_execute", { title: "Execute a confirmed NEAR Intents trade", description: "After user confirmation: re-quotes, refuses if below the confirmed minimum, signs ONE NEP-413 token_diff intent (45s deadline, single-use nonce) with the NEAR account key, dry-runs it on intents.near, publishes it to the Solver Relay and waits briefly for settlement. Follow with intents_status if not yet settled.", inputSchema: exec, annotations: { destructiveHint: true } },
+        ({ operation_id, purpose }) => trades.execute(userId, operation_id, purpose));
+    }
     tool("intents_status", { title: "NEAR Intents swap status", description: "Status of an intents swap: the NEAR deposit transaction, then the 1Click swap status (PENDING_DEPOSIT, PROCESSING, SUCCESS, REFUNDED, FAILED) with delivered amount and destination transaction hashes. Safe to repeat.", inputSchema: opId, annotations: { readOnlyHint: true } },
-      ({ operation_id }) => intents.status(userId, operation_id));
+      ({ operation_id }) => s.trades ? s.trades.status(userId, operation_id).catch(e => /not an intents trade/.test(String(e?.message)) ? intents.status(userId, operation_id) : Promise.reject(e)) : intents.status(userId, operation_id));
   }
   tool("evm_batch_prepare", { title: "Preview an atomic EVM batch via Chain Signatures", description: "Preview 2-8 calls (each like evm_call_prepare: to, value_wei, function_name+args with the verified ABI, or data) that run in order in ONE transaction from the derived address, all or nothing (e.g. approve + supply). Requires the address to be EIP-7702 delegated to Simple7702Account (evm_delegation_prepare). Simulated as a whole; execute with evm_call_execute. Never signs.", inputSchema: evmBatchInput, annotations: { readOnlyHint: true } },
     input => s.chainSignatures.prepareBatch(userId, input));

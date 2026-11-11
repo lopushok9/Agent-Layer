@@ -106,6 +106,9 @@ export class NearIntents {
     return { count: all.length, tokens: all.slice(0, 100).map(t => ({ asset_id: t.assetId, symbol: t.symbol, blockchain: t.blockchain, decimals: t.decimals, ...(t.price !== undefined ? { price_usd: t.price } : {}), ...(t.contractAddress ? { contract: t.contractAddress } : {}) })), ...(all.length > 100 ? { note: "Showing the first 100; filter by blockchain or symbol." } : {}), origin_note: "intents_swap_prepare sells NEAR-chain assets from the wallet (pay_from wallet) or any asset held in the intents balance (pay_from intents)." };
   }
 
+  asset(ref: string, role: string) { return this.resolve(ref, role); }
+  intentsBalanceOf(account: string, tokenId: string) { return this.intentsBalance(account, tokenId); }
+
   private async resolve(ref: string, role: string): Promise<OneClickToken> {
     const tokens = await this.client.tokens();
     if (ref.toUpperCase() === "NEAR") ref = `nep141:${WRAP_NEAR}`;
