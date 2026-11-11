@@ -23,7 +23,7 @@ const TOKENS = [
   { assetId: "nep141:sol.omft.near", decimals: 9, blockchain: "sol", symbol: "SOL" },
 ];
 
-type World = { ft: Record<string, string>; registered: Set<string>; sent: { method: string; args: any; deposit: string }[][]; quotes: any[]; submits: any[]; nonce: number; tamper?: (q: any) => void; swapStatus?: any };
+type World = { mt: Record<string, string>; ft: Record<string, string>; registered: Set<string>; sent: { method: string; args: any; deposit: string }[][]; quotes: any[]; submits: any[]; nonce: number; tamper?: (q: any) => void; swapStatus?: any };
 
 function setup(w: World, now = () => Date.now()) {
   const { store, ops } = memoryStore();
@@ -36,11 +36,18 @@ function setup(w: World, now = () => Date.now()) {
     if (b.method === "gas_price") return ok({ gas_price: "100000000" });
     if (b.method === "block") return ok({ header: { hash: baseEncode(new Uint8Array(32).fill(3)), height: 10 } });
     if (b.method === "EXPERIMENTAL_protocol_config") return err("UNKNOWN");
-    if (b.method === "query" && b.params.request_type === "view_account") return ok({ amount: (NEAR / 10n).toString(), locked: "0", storage_usage: 100, code_hash: "1", block_height: 1, block_hash: "x" });
+    if (b.method === "query" && b.params.request_type === "view_account") return ok({ amount: (NEAR / 5n).toString(), locked: "0", storage_usage: 100, code_hash: "1", block_height: 1, block_hash: "x" });
     if (b.method === "query" && b.params.request_type === "view_access_key") return b.params.public_key === pk ? ok({ nonce: w.nonce, permission: "FullAccess", block_hash: "x", block_height: 1 }) : err("UNKNOWN_ACCESS_KEY");
     if (b.method === "query" && b.params.request_type === "call_function") {
       const args = JSON.parse(Buffer.from(b.params.args_base64, "base64").toString());
-      const r = b.params.method_name === "ft_balance_of" ? (w.ft[`${b.params.account_id}:${args.account_id}`] ?? "0")
+      const mts = Object.entries(w.mt).filter(([k]) => k.startsWith(`${args.account_id}|`));
+      const r = b.params.account_id === "intents.near" ? ({
+        is_auth_by_predecessor_id_enabled: true,
+        mt_balance_of: w.mt[`${args.account_id}|${args.token_id}`] ?? "0",
+        mt_tokens_for_owner: mts.map(([k]) => ({ token_id: k.split("|")[1] })),
+        mt_batch_balance_of: (args.token_ids ?? []).map((t: string) => w.mt[`${args.account_id}|${t}`] ?? "0"),
+      } as Record<string, unknown>)[b.params.method_name]
+        : b.params.method_name === "ft_balance_of" ? (w.ft[`${b.params.account_id}:${args.account_id}`] ?? "0")
         : b.params.method_name === "storage_balance_of" ? (w.registered.has(`${b.params.account_id}:${args.account_id}`) ? { total: "1250000000000000000000", available: "0" } : null)
         : b.params.method_name === "storage_balance_bounds" ? { min: "1250000000000000000000", max: "1250000000000000000000" } : null;
       return ok({ result: [...Buffer.from(JSON.stringify(r))], logs: [], block_height: 1 });
@@ -74,7 +81,7 @@ function setup(w: World, now = () => Date.now()) {
   const intents = new NearIntents(accounts, operations, store, cs, oneclick, now);
   return { intents, operations, ops, init: async (u: string) => { pk = (await accounts.account(u)).publicKey; return (await accounts.account(u)).accountId; } };
 }
-const world = (): World => ({ ft: {}, registered: new Set(), sent: [], quotes: [], submits: [], nonce: 5 });
+const world = (): World => ({ mt: {}, ft: {}, registered: new Set(), sent: [], quotes: [], submits: [], nonce: 5 });
 
 test("intents prepare: NEAR -> ETH@base wraps, registers storage and transfers to the deposit address; recipient is the derived EVM address", async () => {
   const w = world();
@@ -150,4 +157,54 @@ test("intents execute: refuses before signing when the deposit deadline is near"
   t += 29 * 60_000;
   await assert.rejects(intents.execute("u1", p.operation_id, "late"), /deadline is too close/);
   assert.equal(w.sent.length, 0);
+});
+
+const decode = (op: any) => op.actions.map((a: any) => [a.method, JSON.parse(Buffer.from(a.args_base64, "base64").toString()), a.deposit]);
+
+test("intents prepare: deliver_to intents credits this account's intents balance (NEAR -> SOL without a Solana address)", async () => {
+  const w = world();
+  const { intents, ops, init } = setup(w);
+  const self = await init("u1");
+  const p: any = await intents.prepare("u1", { origin_asset: "NEAR", destination_asset: "SOL@sol", amount: AMOUNT, deliver_to: "intents" });
+  assert.equal(w.quotes[0].recipientType, "INTENTS"); assert.equal(w.quotes[0].recipient, self); assert.equal(w.quotes[0].depositType, "ORIGIN_CHAIN");
+  assert.equal(p.intents.deliver_to, "intents"); assert.equal(p.intents.recipient, self);
+  assert.deepEqual(decode([...ops.values()][0]).at(-1), ["ft_transfer", { receiver_id: DEPOSIT, amount: AMOUNT }, "1"]);
+  await assert.rejects(intents.prepare("u1", { origin_asset: "NEAR", destination_asset: "SOL@sol", amount: AMOUNT, deliver_to: "intents", recipient: "SoLAddress1111111" }), /do not pass recipient/);
+});
+
+test("intents prepare: pay_from intents spends the intents balance with one mt_transfer on intents.near; refunds stay in intents", async () => {
+  const w = world();
+  const { intents, ops, init } = setup(w);
+  const self = await init("u1");
+  await assert.rejects(intents.prepare("u1", { origin_asset: "SOL@sol", destination_asset: "USDC@near", amount: "1000000", pay_from: "intents" }), /intents balance holds 0 of SOL/);
+  assert.equal(w.quotes.length, 0);
+  w.mt[`${self}|nep141:sol.omft.near`] = "5000000";
+  const p: any = await intents.prepare("u1", { origin_asset: "SOL@sol", destination_asset: "USDC@near", amount: "1000000", pay_from: "intents" });
+  const q = w.quotes[0];
+  assert.equal(q.depositType, "INTENTS"); assert.equal(q.refundType, "INTENTS"); assert.equal(q.refundTo, self); assert.equal(q.recipient, self); assert.equal(q.recipientType, "DESTINATION_CHAIN");
+  assert.equal(p.receiver_id, "intents.near");
+  assert.deepEqual(decode([...ops.values()][0]), [["mt_transfer", { receiver_id: DEPOSIT, token_id: "nep141:sol.omft.near", amount: "1000000" }, "1"]]);
+});
+
+test("intents balances, deposit and withdraw", async () => {
+  const w = world();
+  const { intents, ops, init } = setup(w);
+  const self = await init("u1");
+  w.mt[`${self}|nep141:sol.omft.near`] = "865000"; w.mt[`${self}|nep141:wrap.near`] = "0";
+  const b: any = await intents.balances("u1");
+  assert.deepEqual(b.balances.map((x: any) => [x.symbol, x.formatted]), [["SOL", "0.000865"]]);
+
+  const d: any = await intents.prepareDeposit("u1", { asset: "NEAR", amount: AMOUNT });
+  assert.equal(d.receiver_id, "wrap.near"); assert.equal(d.kind, "near_tx");
+  assert.deepEqual(decode([...ops.values()].at(-1)).map((a: any) => a[0]), ["storage_deposit", "near_deposit", "ft_transfer_call"]);
+  assert.deepEqual(decode([...ops.values()].at(-1)).at(-1), ["ft_transfer_call", { receiver_id: "intents.near", amount: AMOUNT, msg: "" }, "1"]);
+
+  await assert.rejects(intents.prepareWithdraw("u1", { asset: "NEAR", amount: AMOUNT }), /intents balance holds 0/);
+  w.mt[`${self}|nep141:wrap.near`] = AMOUNT;
+  await assert.rejects(intents.prepareWithdraw("u1", { asset: "NEAR", amount: AMOUNT }), /not registered on wrap.near/);
+  w.registered.add(`wrap.near:${self}`);
+  const r: any = await intents.prepareWithdraw("u1", { asset: "NEAR", amount: AMOUNT });
+  assert.equal(r.receiver_id, "intents.near");
+  assert.deepEqual(decode([...ops.values()].at(-1)), [["ft_withdraw", { token: "wrap.near", receiver_id: self, amount: AMOUNT }, "1"]]);
+  await assert.rejects(intents.prepareWithdraw("u1", { asset: "SOL@sol", amount: "1" }), /NEAR-chain NEP-141/);
 });
