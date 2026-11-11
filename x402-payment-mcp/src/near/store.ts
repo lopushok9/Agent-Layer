@@ -6,7 +6,7 @@ import type { NormalizedNearAction } from "./transaction.js";
 export type NearNetwork = "mainnet" | "testnet";
 export type NearAccountRecord = { userId: string; network: NearNetwork; accountId: string; publicKey: string; signerKind: NearSignerKind; cdpAccountName: string | null; sealedKey: string | null };
 export type NearOperationState = "prepared" | "reserved" | "signing" | "submitted" | "confirmed" | "failed" | "unknown";
-export type NearOperationKind = "near_tx" | "chain_signature";
+export type NearOperationKind = "near_tx" | "chain_signature" | "intents_swap";
 export type NearOperation = {
   id: string; userId: string; network: NearNetwork; accountId: string; publicKey: string; kind: NearOperationKind;
   receiverId: string; actions: NormalizedNearAction[]; descriptions: unknown[]; plan: Record<string, unknown> | null;

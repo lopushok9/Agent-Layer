@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { NearAccountService } from "./account.js";
 import { evmBatchInput, evmCallInput, evmDelegationInput, type ChainSignatures } from "./chain-signatures.js";
 import { nearReadInput, publicNearError, type NearOperations } from "./operations.js";
+import { intentsSwapInput, intentsTokensInput, type NearIntents } from "./intents.js";
 import { evmSwapInput, type EvmSwaps } from "./swap.js";
 import { nearTransactionInput } from "./transaction.js";
 
@@ -16,6 +17,7 @@ Workflow:
 5. For Base/Ethereum: evm_address_status gives the derived EVM address and its ETH. evm_call_prepare takes to + function_name + args (the contract's verified ABI encodes it; pass abi only when none is verified) or raw data, simulates from the derived address and previews the NEAR sign() request over the transaction hash. Show evm_call (function, decoded arguments, abi_source, clear_signing, warnings), every simulation.asset_changes / nft_changes entry and simulation.asset_floors, the EVM max fee and the NEAR fee; confirm, then evm_call_execute once (it re-simulates and refuses if anything got worse). Then near_operation_status until the EVM receipt is final.
 6. evm_delegation_prepare delegates the derived address (EIP-7702) to Simple7702Account so several calls run atomically in one transaction; show delegation (authorization, transaction, steps) and warnings, confirm, then evm_call_execute. evm_address_status shows eip7702_delegation per network.
 7. For token swaps use evm_swap_prepare (Uniswap V3, best direct or WETH two-hop route, on-chain minimum). Show swap.token_in, swap.token_out (quoted and minimum), route and step; when step is approval_required, execute that approve, then call evm_swap_prepare again.
+8. Cross-chain swaps use NEAR Intents (1Click): intents_tokens lists assets; intents_swap_prepare sells a NEAR-chain token (\"NEAR\" is wrapped automatically) for any listed asset, delivered by default to this NEAR account or its Chain Signatures EVM address, refunds to this NEAR account. Show intents.origin, intents.destination (quoted and minimum), recipient, deposit_address, fees and every NEAR action; confirm, then intents_swap_execute once, then intents_status until SUCCESS or REFUNDED.
 
 Rules:
 - Token amounts in args are in the token's smallest unit; NEP-141 transfers usually require deposit_yocto "1" and the receiver registered with storage_deposit.
@@ -32,7 +34,7 @@ const failure = (tool: string, error: unknown) => {
 const opId = z.strictObject({ operation_id: z.string().uuid() });
 const exec = z.strictObject({ operation_id: z.string().uuid(), purpose: z.string().min(3).max(500) });
 
-export type NearServices = { accounts: NearAccountService; operations: NearOperations; chainSignatures: ChainSignatures; swaps?: EvmSwaps };
+export type NearServices = { accounts: NearAccountService; operations: NearOperations; chainSignatures: ChainSignatures; swaps?: EvmSwaps; intents?: NearIntents };
 
 export function createNearMcp(userId: string, s: NearServices) {
   const server = new McpServer({ name: "AgentLayer NEAR Omni Account", version: "0.1.0" }, { instructions: NEAR_INSTRUCTIONS });
@@ -57,6 +59,17 @@ export function createNearMcp(userId: string, s: NearServices) {
     input => s.chainSignatures.prepare(userId, input));
   if (s.swaps) tool("evm_swap_prepare", { title: "Preview a Uniswap swap via Chain Signatures", description: "Preview an exact-input Uniswap V3 swap on Base or Ethereum from the derived address: token_in/token_out are \"ETH\" or ERC-20 addresses, amount_in in the smallest unit. Quotes all direct pools and WETH two-hops, picks the best, and builds one SwapRouter02 multicall with an on-chain amountOutMinimum (slippage_bps below the quote). If the router lacks allowance it previews the exact approve first (or approve+swap atomically when the address is EIP-7702 delegated). Simulated like evm_call_prepare; execute with evm_call_execute. Never signs.", inputSchema: evmSwapInput, annotations: { readOnlyHint: true } },
     input => s.swaps!.prepare(userId, input));
+  if (s.intents) {
+    const intents = s.intents;
+    tool("intents_tokens", { title: "NEAR Intents assets", description: "Assets tradable through NEAR Intents (1Click) on NEAR, EVM chains, Solana, Bitcoin and more, with asset_id, chain, decimals and USD price. Read only.", inputSchema: intentsTokensInput, annotations: { readOnlyHint: true } },
+      input => intents.tokens(input));
+    tool("intents_swap_prepare", { title: "Preview a NEAR Intents cross-chain swap", description: "Preview selling a NEAR-chain token from the NEAR account through NEAR Intents (1Click) for an asset on any supported chain (e.g. NEAR -> ETH@base). Gets a binding 1Click quote with a one-time deposit address, then previews ONE NEAR transaction on the token contract: storage registration if needed, wrapping NEAR into wNEAR if needed, and ft_transfer to the deposit address. Recipient defaults to this NEAR account (NEAR assets) or its Chain Signatures EVM address (EVM chains); refunds go to this NEAR account. Never signs.", inputSchema: intentsSwapInput, annotations: { readOnlyHint: true } },
+      input => intents.prepare(userId, input));
+    tool("intents_swap_execute", { title: "Execute a confirmed NEAR Intents swap", description: "After user confirmation: refuses if the 1Click deposit deadline is near, signs and sends the previewed NEAR transaction once, then notifies 1Click of the deposit. Follow with intents_status.", inputSchema: exec, annotations: { destructiveHint: true } },
+      ({ operation_id, purpose }) => intents.execute(userId, operation_id, purpose));
+    tool("intents_status", { title: "NEAR Intents swap status", description: "Status of an intents swap: the NEAR deposit transaction, then the 1Click swap status (PENDING_DEPOSIT, PROCESSING, SUCCESS, REFUNDED, FAILED) with delivered amount and destination transaction hashes. Safe to repeat.", inputSchema: opId, annotations: { readOnlyHint: true } },
+      ({ operation_id }) => intents.status(userId, operation_id));
+  }
   tool("evm_batch_prepare", { title: "Preview an atomic EVM batch via Chain Signatures", description: "Preview 2-8 calls (each like evm_call_prepare: to, value_wei, function_name+args with the verified ABI, or data) that run in order in ONE transaction from the derived address, all or nothing (e.g. approve + supply). Requires the address to be EIP-7702 delegated to Simple7702Account (evm_delegation_prepare). Simulated as a whole; execute with evm_call_execute. Never signs.", inputSchema: evmBatchInput, annotations: { readOnlyHint: true } },
     input => s.chainSignatures.prepareBatch(userId, input));
   tool("evm_delegation_prepare", { title: "Preview an EIP-7702 delegation via Chain Signatures", description: "Preview delegating the derived EVM address (EIP-7702) to the pinned, Sourcify-verified Simple7702Account on Base or Ethereum, or revoking it. The address, key and balances stay the same; delegation enables atomic batches (e.g. approve+swap in one transaction). Execution signs the authorization and then the self-sent type-4 transaction (two NEAR sign() calls) under one confirmation via evm_call_execute. Never signs.", inputSchema: evmDelegationInput, annotations: { readOnlyHint: true } },

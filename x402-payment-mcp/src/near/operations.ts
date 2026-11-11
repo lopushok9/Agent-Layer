@@ -190,6 +190,6 @@ export function publicNearError(e: unknown): Error {
   if (e instanceof NearRpcError) return new Error(`NEAR RPC error: ${e.kind}`);
   if (e instanceof z.ZodError) return new Error(e.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; "));
   const m = e instanceof Error ? e.message : "";
-  if (/^(preview|operation|an unresolved NEAR|insufficient|transfer amount|total prepaid gas|function call args|receiver_id|contract_id|amount_yocto|deposit_yocto|gas must|NEAR account|this NEAR|service key|chain signature|path|evm|derived|unsupported|value|calldata)/i.test(m) && m.length < 400) return new Error(m);
+  if (/^(preview|operation|an unresolved NEAR|insufficient|transfer amount|total prepaid gas|function call args|receiver_id|contract_id|amount_yocto|deposit_yocto|gas must|NEAR account|this NEAR|service key|chain signature|path|evm|derived|unsupported|value|calldata|intents)/i.test(m) && m.length < 400) return new Error(m);
   return new Error("NEAR request could not be completed. Check the parameters; use near_operation_status for any existing execution. Provider details are withheld.");
 }
