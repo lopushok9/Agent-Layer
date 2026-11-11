@@ -92,10 +92,11 @@ export const intentsTransferInput = z.strictObject({
 
 export type IntentsPlan = { deposit_address: string; deposit_memo: string | null; correlation_id: string | null; deadline: string; origin_asset: string; destination_asset: string; amount_in: string; min_amount_out: string; recipient: string; pay_from?: "wallet" | "intents"; deliver_to?: "chain" | "intents" };
 export const INTENTS_CONTRACT = "intents.near";
-// Deposits use 30 TGas like the near-intents.org app (FT_DEPOSIT_GAS): with an
-// empty msg ft_on_transfer only credits the balance. ft_withdraw schedules
-// ft_transfer plus a 15 TGas resolve. mt_transfer has no callbacks.
-const MT_TRANSFER_GAS = 15n * GAS_PER_TGAS, FT_CALL_GAS = 30n * GAS_PER_TGAS, WITHDRAW_GAS = 50n * GAS_PER_TGAS;
+// ft_transfer_call keeps ~30 TGas for itself and its resolve and gives the rest
+// to ft_on_transfer, so 30 TGas fails with FunctionCallZeroAttachedGas (seen on
+// mainnet); 50 TGas matches the near-intents.org app (FT_TRANSFER_GAS).
+// ft_withdraw schedules ft_transfer plus a 15 TGas resolve.
+const MT_TRANSFER_GAS = 15n * GAS_PER_TGAS, FT_CALL_GAS = 50n * GAS_PER_TGAS, WITHDRAW_GAS = 50n * GAS_PER_TGAS;
 
 export class NearIntents {
   constructor(private accounts: NearAccountService, private operations: NearOperations, private store: NearStore, private cs: ChainSignatures | null, private client = new OneClickClient(), private now: () => number = Date.now) {}
