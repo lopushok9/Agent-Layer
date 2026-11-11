@@ -16,11 +16,18 @@ export const nearReadInput = z.strictObject({
 // the network fee shown in the preview (actual burn is usually far lower).
 const ACTION_OVERHEAD_GAS = 5n * GAS_PER_TGAS;
 // RPC errors that prove the transaction was rejected before execution.
+// Protocol 88 mainnet values, used only when the RPC does not report them.
+// Gas is bought at max(gas_price, min_gas_purchase_price) and the difference is
+// refunded; creating an account burns account_creation_charge plus its gas.
+const DEFAULT_FEES = { minGasPurchasePrice: 10n ** 9n, accountCreationCharge: 7n * 10n ** 21n, createAccountGas: 7_700_000_000_000n };
+const IMPLICIT = /^([0-9a-f]{64}|0x[0-9a-f]{40})$/;
+type FeeConfig = typeof DEFAULT_FEES;
 const REJECTED = new Set(["INVALID_TRANSACTION", "InvalidTransaction", "InvalidNonce", "NotEnoughBalance", "InvalidSignature", "InvalidAccessKeyError", "Expired", "LackBalanceForState", "CostOverflow", "InvalidSignerId", "SignerDoesNotExist"]);
 
 export class NearPublicError extends Error {}
 
 export class NearOperations {
+  private fees: { value: FeeConfig; at: number } | null = null;
   constructor(private accounts: NearAccountService, private store: NearStore) {}
   private get rpc() { return this.accounts.rpc; }
   private get config() { return this.accounts.config; }
@@ -37,6 +44,23 @@ export class NearOperations {
     return BigInt(r.gas_price);
   }
 
+  async feeConfig(): Promise<FeeConfig> {
+    if (this.fees && Date.now() - this.fees.at < 3_600_000) return this.fees.value;
+    let value = DEFAULT_FEES;
+    try {
+      const r = await this.rpc.call<any>("EXPERIMENTAL_protocol_config", { finality: "final" });
+      const rc = r.runtime_config, create = rc?.transaction_costs?.action_creation_config?.create_account_cost;
+      const big = (v: unknown, d: bigint) => typeof v === "string" && /^\d+$/.test(v) ? BigInt(v) : typeof v === "number" && Number.isSafeInteger(v) ? BigInt(v) : d;
+      value = {
+        minGasPurchasePrice: big(rc?.min_gas_purchase_price, DEFAULT_FEES.minGasPurchasePrice),
+        accountCreationCharge: big(rc?.account_creation_charge, 0n),
+        createAccountGas: create ? big(create.execution, 0n) + big(create.send_not_sir, 0n) : DEFAULT_FEES.createAccountGas,
+      };
+    } catch { /* keep conservative defaults */ }
+    this.fees = { value, at: Date.now() };
+    return value;
+  }
+
   // Creates an immutable, single-use preview. Never signs.
   async prepare(userId: string, input: NearTransactionInput) {
     const tx = normalizeNearTransaction(input);
@@ -46,22 +70,31 @@ export class NearOperations {
   async preview(userId: string, tx: NormalizedNearTransaction, kind: NearOperation["kind"], plan: Record<string, unknown> | null, extra: Record<string, unknown> = {}) {
     const account = await this.accounts.account(userId);
     await this.rpc.assertNetwork();
-    const [view, gasPrice] = await Promise.all([this.rpc.viewAccount(account.accountId), this.gasPrice()]);
+    const self = tx.receiverId === account.accountId;
+    const [view, gasPrice, fees, receiver] = await Promise.all([this.rpc.viewAccount(account.accountId), this.gasPrice(), this.feeConfig(), self ? Promise.resolve(null) : this.rpc.viewAccount(tx.receiverId)]);
     if (!view) throw new NearPublicError(`NEAR account ${account.accountId} is not active yet; fund it with NEAR first (see near_account_status)`);
     const { deposit, gas } = totals(tx);
-    const maxFee = (gas + ACTION_OVERHEAD_GAS * BigInt(tx.actions.length)) * gasPrice;
-    const available = BigInt(view.amount) - BigInt(view.storage_usage) * STORAGE_BYTE_COST;
     const warnings: string[] = [];
-    if (deposit + maxFee > available) throw new NearPublicError(`insufficient NEAR: needs up to ${formatNear(deposit + maxFee)} NEAR (attached ${formatNear(deposit)} + max fee ${formatNear(maxFee)}), available ${formatNear(available > 0n ? available : 0n)}; nothing was signed`);
-    if (tx.receiverId === account.accountId && tx.actions.some(a => a.type === "function_call")) warnings.push("Calls this account itself.");
+    // A missing receiver: only a plain transfer to an implicit ID creates it (and burns the creation charge); anything else fails on chain after burning gas.
+    const creates = !self && !receiver;
+    if (creates && !(IMPLICIT.test(tx.receiverId) && tx.actions.every(a => a.type === "transfer"))) throw new NearPublicError(`receiver ${tx.receiverId} does not exist on NEAR ${this.config.network}; check the account ID. Nothing was signed`);
+    let gasBound = gas + ACTION_OVERHEAD_GAS * BigInt(tx.actions.length);
+    if (creates) gasBound += fees.createAccountGas;
+    const creationCharge = creates ? fees.accountCreationCharge : 0n;
+    const maxFee = gasBound * gasPrice + creationCharge;
+    const prepay = gasBound * (gasPrice > fees.minGasPurchasePrice ? gasPrice : fees.minGasPurchasePrice) + creationCharge;
+    const available = BigInt(view.amount) - BigInt(view.storage_usage) * STORAGE_BYTE_COST;
+    if (deposit + prepay > available) throw new NearPublicError(`insufficient NEAR: needs ${formatNear(deposit + prepay)} NEAR up front (attached ${formatNear(deposit)} + max fee ${formatNear(maxFee)}; gas is prepaid at ${formatNear(fees.minGasPurchasePrice * 10n ** 12n)} NEAR/TGas and the excess refunded), available ${formatNear(available > 0n ? available : 0n)}; nothing was signed`);
+    if (creates) warnings.push(`Receiver ${tx.receiverId} does not exist yet: this transfer creates it and the network burns an account creation fee of ${formatNear(creationCharge)} NEAR (included in max_network_fee_near). Double-check the ID.`);
+    if (self && tx.actions.some(a => a.type === "function_call")) warnings.push("Calls this account itself.");
     const descriptions = describeNearTransaction(tx);
     const fingerprint = nearFingerprint(this.config.network, account.accountId, account.publicKey, tx);
-    const fullPlan = { ...(plan ?? {}), gas_price: gasPrice.toString(), max_fee_yocto: maxFee.toString() };
+    const fullPlan = { ...(plan ?? {}), gas_price: gasPrice.toString(), max_fee_yocto: maxFee.toString(), creates_receiver: creates };
     const op = await this.store.createOperation({ userId, network: this.config.network, accountId: account.accountId, publicKey: account.publicKey, kind, receiverId: tx.receiverId, actions: tx.actions, descriptions, plan: fullPlan, fingerprint }, this.config.previewTtlSeconds);
     return {
       operation_id: op.id, kind, network: this.config.network, signer_id: account.accountId, receiver_id: tx.receiverId, actions: descriptions,
       total_attached_yocto: deposit.toString(), total_attached_near: formatNear(deposit), prepaid_gas: gas.toString(),
-      max_network_fee_yocto: maxFee.toString(), max_network_fee_near: formatNear(maxFee), available_near: formatNear(available),
+      max_network_fee_yocto: maxFee.toString(), max_network_fee_near: formatNear(maxFee), ...(creates ? { creates_receiver_account: true, account_creation_fee_near: formatNear(creationCharge) } : {}), available_near: formatNear(available),
       expires_at: op.expiresAt.toISOString(), ...extra, ...(warnings.length ? { warnings } : {}),
       confirmation: "Show the receiver, every action, attached NEAR and the maximum network fee to the user; execute only after they confirm this exact preview. Unused gas is refunded. Cross-contract effects run asynchronously after inclusion.",
     };

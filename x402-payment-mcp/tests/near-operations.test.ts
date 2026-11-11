@@ -15,7 +15,7 @@ const KEY = randomBytes(32).toString("base64");
 const config = loadNearConfig({ NEAR_RPC_URL: "https://rpc.example", NEAR_KEY_ENCRYPTION_KEY: KEY })!;
 const NEAR = 10n ** 24n;
 
-type Chain = { balance: bigint; nonce: number; sent: string[]; known: Set<string>; failSend?: string; dropFirst?: boolean };
+type Chain = { balance: bigint; nonce: number; sent: string[]; known: Set<string>; failSend?: string; dropFirst?: boolean; missing?: Set<string> };
 function chainRpc(chain: Chain, accountKey: () => string | undefined) {
   return new NearRpc("https://rpc.example", "mainnet", (async (_u: string, init: RequestInit) => {
     const b = JSON.parse(String(init.body));
@@ -24,6 +24,8 @@ function chainRpc(chain: Chain, accountKey: () => string | undefined) {
     if (b.method === "status") return ok({ chain_id: "mainnet" });
     if (b.method === "gas_price") return ok({ gas_price: "100000000" });
     if (b.method === "block") return ok({ header: { hash: baseEncode(new Uint8Array(32).fill(3)), height: 10 } });
+    if (b.method === "EXPERIMENTAL_protocol_config") return ok({ runtime_config: { min_gas_purchase_price: "1000000000", account_creation_charge: "7000000000000000000000", transaction_costs: { action_creation_config: { create_account_cost: { execution: 7200000000000, send_not_sir: 500000000000 } } } } });
+    if (b.method === "query" && b.params.request_type === "view_account" && chain.missing?.has(b.params.account_id)) return err("UNKNOWN_ACCOUNT");
     if (b.method === "query" && b.params.request_type === "view_account") return chain.balance ? ok({ amount: chain.balance.toString(), locked: "0", storage_usage: 100, code_hash: "1", block_height: 1, block_hash: "x" }) : err("UNKNOWN_ACCOUNT");
     if (b.method === "query" && b.params.request_type === "view_access_key") return b.params.public_key === accountKey() && chain.balance ? ok({ nonce: chain.nonce, permission: "FullAccess", block_hash: "x", block_height: 1 }) : err("UNKNOWN_ACCESS_KEY");
     if (b.method === "send_tx") {
@@ -76,6 +78,24 @@ test("prepare: inactive account and insufficient balance are refused before any 
   await poor.init("u");
   await assert.rejects(poor.operations.prepare("u", transfer), /insufficient NEAR/);
   assert.equal(poor.ops.size, 0);
+});
+
+test("prepare: a missing implicit receiver shows the account creation fee; a missing named receiver is refused", async () => {
+  const implicit = "2de1b2769ad4ea889ebc32c7168a12ec1e437f52aa49a26cac86494cd7e8718e";
+  const chain: Chain = { balance: NEAR / 20n, nonce: 0, sent: [], known: new Set(), missing: new Set([implicit, "nobody.near"]) };
+  const { operations, init, ops } = setup(chain);
+  await init("u");
+  const p = await operations.prepare("u", { receiver_id: implicit, actions: [{ type: "transfer", amount_yocto: (NEAR / 1000n).toString() }] }) as any;
+  assert.equal(p.creates_receiver_account, true);
+  assert.equal(p.account_creation_fee_near, "0.007");
+  // 0.007 NEAR charge + (5 + 7.7) TGas at the 1e8 gas price.
+  assert.equal(p.max_network_fee_yocto, (7n * 10n ** 21n + 12_700_000_000_000n * 100_000_000n).toString());
+  assert.match(p.warnings.join(" "), /does not exist yet/);
+  await assert.rejects(operations.prepare("u", { receiver_id: "nobody.near", actions: [{ type: "transfer", amount_yocto: "1" }] }), /does not exist/);
+  await assert.rejects(operations.prepare("u", { receiver_id: implicit, actions: [{ type: "function_call", method_name: "x", deposit_yocto: "0" }] }), /does not exist/);
+  // Gas is prepaid at the 1e9 minimum purchase price: 300 TGas needs 0.3 NEAR up front even though the fee bound at 1e8 is 0.03.
+  await assert.rejects(operations.prepare("u", { receiver_id: "wrap.near", actions: [{ type: "function_call", method_name: "x", deposit_yocto: "0", gas: "295000000000000" }] }), /up front/);
+  assert.equal(ops.size, 1);
 });
 
 test("unknown broadcast blocks new executions; status re-sends the identical bytes, which execute at most once", async () => {
