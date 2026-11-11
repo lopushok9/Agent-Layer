@@ -5,6 +5,7 @@ import { evmBatchInput, evmCallInput, evmDelegationInput, type ChainSignatures }
 import { nearReadInput, publicNearError, type NearOperations } from "./operations.js";
 import { intentsSwapInput, intentsTokensInput, intentsTransferInput, type NearIntents } from "./intents.js";
 import { intentsTradeInput, intentsWithdrawInput, type IntentsTrades } from "./solver-relay.js";
+import { intentsDepositAddressInput, type IntentsDeposits } from "./poa-bridge.js";
 import { evmSwapInput, type EvmSwaps } from "./swap.js";
 import { nearTransactionInput } from "./transaction.js";
 
@@ -20,7 +21,8 @@ Workflow:
 7. For token swaps use evm_swap_prepare (Uniswap V3, best direct or WETH two-hop route, on-chain minimum). Show swap.token_in, swap.token_out (quoted and minimum), route and step; when step is approval_required, execute that approve, then call evm_swap_prepare again.
 8. Cross-chain swaps use NEAR Intents (1Click): intents_tokens lists assets; intents_swap_prepare swaps any listed asset; pay_from wallet sells a NEAR-chain token (\"NEAR\" is wrapped automatically), pay_from intents spends the NEAR Intents balance with one signed transfer intent the relay submits (no NEAR gas); deliver_to chain sends to recipient (default: this NEAR account or its Chain Signatures EVM address), deliver_to intents credits the intents balance, so e.g. SOL or BTC can be held inside the NEAR account without an address on that chain. Refunds return to where the funds came from. Show intents.origin, intents.destination (quoted and minimum), recipient, deposit_address, fees and every NEAR action; confirm, then intents_swap_execute once, then intents_status until SUCCESS or REFUNDED.
 9. For swaps of assets already in the intents balance prefer intents_trade_prepare (Solver Relay, no 1Click): solvers quote, the NEAR account signs one NEP-413 message with its own key, intents.near settles it in seconds and the relay pays the gas. deliver_to wallet adds the withdrawal of the bought amount to the NEAR wallet in the same signed message (NEAR-chain tokens; NEAR arrives as native NEAR). Show sell, buy (quoted and minimum), deliver_to and the signed-message description; confirm, then intents_trade_execute once; intents_status reconciles it. If no solver quotes, use intents_swap_prepare with pay_from intents (1Click).
-10. intents_balances lists the NEAR Intents balance. intents_deposit_prepare moves NEAR-chain tokens from the wallet into it (a NEAR transaction, executed with near_transaction_execute). intents_withdraw_prepare moves them back as a signed intent the relay submits, so it needs no NEAR gas; "NEAR" arrives as native NEAR. Confirm, then intents_withdraw_execute. If the wallet lacks NEAR for gas (e.g. Chain Signatures) and the intents balance holds wNEAR, offer intents_withdraw_prepare NEAR to refill it.
+10. To move ETH or tokens from Base/Ethereum into the intents balance, call intents_deposit_address (PoA bridge address assigned to this NEAR account, accepted tokens and minimums), then evm_call_prepare from the Chain Signatures address to that exact deposit_address (ETH as value_wei; ERC-20 via transfer). Never use a deposit address from anywhere else. intents_balances shows it once credited (minutes); then swap it with intents_trade_prepare or intents_swap_prepare.
+11. intents_balances lists the NEAR Intents balance. intents_deposit_prepare moves NEAR-chain tokens from the wallet into it (a NEAR transaction, executed with near_transaction_execute). intents_withdraw_prepare moves them back as a signed intent the relay submits, so it needs no NEAR gas; "NEAR" arrives as native NEAR. Confirm, then intents_withdraw_execute. If the wallet lacks NEAR for gas (e.g. Chain Signatures) and the intents balance holds wNEAR, offer intents_withdraw_prepare NEAR to refill it.
 
 Rules:
 - Token amounts in args are in the token's smallest unit; NEP-141 transfers usually require deposit_yocto "1" and the receiver registered with storage_deposit.
@@ -37,7 +39,7 @@ const failure = (tool: string, error: unknown) => {
 const opId = z.strictObject({ operation_id: z.string().uuid() });
 const exec = z.strictObject({ operation_id: z.string().uuid(), purpose: z.string().min(3).max(500) });
 
-export type NearServices = { accounts: NearAccountService; operations: NearOperations; chainSignatures: ChainSignatures; swaps?: EvmSwaps; intents?: NearIntents; trades?: IntentsTrades };
+export type NearServices = { accounts: NearAccountService; operations: NearOperations; chainSignatures: ChainSignatures; swaps?: EvmSwaps; intents?: NearIntents; trades?: IntentsTrades; deposits?: IntentsDeposits };
 
 export function createNearMcp(userId: string, s: NearServices) {
   const server = new McpServer({ name: "AgentLayer NEAR Omni Account", version: "0.1.0" }, { instructions: NEAR_INSTRUCTIONS });
@@ -70,6 +72,8 @@ export function createNearMcp(userId: string, s: NearServices) {
       (input: z.input<typeof intentsSwapInput>) => s.trades && input.pay_from === "intents" ? s.trades.prepareOneClick(userId, input) : intents.prepare(userId, input));
     tool("intents_balances", { title: "NEAR Intents balance", description: "Assets held for this NEAR account inside the NEAR Intents contract (intents.near), e.g. SOL, BTC, ETH, USDC from any chain, with amounts and USD value. Spent only by this account's key. Read only.", inputSchema: z.strictObject({}), annotations: { readOnlyHint: true } },
       () => intents.balances(userId));
+    if (s.deposits) tool("intents_deposit_address", { title: "NEAR Intents deposit address on Base/Ethereum", description: "The PoA bridge deposit address assigned to this NEAR account on Base or Ethereum, with the tokens it accepts (intents asset id, token contract, minimum deposit). Anything of a listed token sent there is credited to this account's NEAR Intents balance within minutes, e.g. ETH from the Chain Signatures address via evm_call_prepare. Read only; sends nothing.", inputSchema: intentsDepositAddressInput, annotations: { readOnlyHint: true } },
+      input => s.deposits!.depositAddress(userId, input));
     tool("intents_deposit_prepare", { title: "Preview a deposit into the NEAR Intents balance", description: "Preview moving a NEAR-chain token (\"NEAR\" is wrapped first) from the NEAR wallet into its NEAR Intents balance via ft_transfer_call to intents.near. Execute with near_transaction_execute after confirmation. Never signs.", inputSchema: intentsTransferInput, annotations: { readOnlyHint: true } },
       input => intents.prepareDeposit(userId, input));
     if (!s.trades) tool("intents_withdraw_prepare", { title: "Preview a withdrawal from the NEAR Intents balance", description: "Preview moving a NEAR-chain NEP-141 token from the NEAR Intents balance back to the NEAR wallet (ft_withdraw on intents.near; wNEAR arrives as wNEAR). For assets of other chains use intents_swap_prepare with pay_from intents. Execute with near_transaction_execute after confirmation. Never signs.", inputSchema: intentsTransferInput, annotations: { readOnlyHint: true } },
