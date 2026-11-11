@@ -15,7 +15,9 @@ import { GAS_PER_TGAS } from "./units.js";
 export const EVM_CHAINS = { base: 8453, ethereum: 1 } as const;
 export type EvmNetwork = keyof typeof EVM_CHAINS;
 export const DERIVATION_PATH = "agentlayer-evm-1";
-export const MPC_SIGN_GAS = 100n * GAS_PER_TGAS;
+// A direct sign() burns ~7.6 TGas on mainnet (4.2 sign + 3.4 resume callback); the
+// contract requires >= 15 TGas. Prepaid gas is bought at 0.001 NEAR/TGas up front.
+export const MPC_SIGN_GAS = 50n * GAS_PER_TGAS;
 const SECP256K1_N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
 
 export const evmNetworkInput = z.enum(["base", "ethereum"]);
