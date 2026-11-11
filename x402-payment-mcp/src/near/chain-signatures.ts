@@ -41,7 +41,12 @@ export type EvmCallInput = z.input<typeof evmCallInput>;
 type ParsedEvmCall = z.output<typeof evmCallInput>;
 
 export type EvmPlan = { network: EvmNetwork; chainId: number; from: Address; path: string; tx: { to: Address; value: string; data: Hex; nonce: number; gas: string; maxFeePerGas: string; maxPriorityFeePerGas: string }; payload: Hex; simulation?: EvmSimulation };
-export type EvmSimulation = { status: "success"; block_number: string; asset_changes: unknown; nft_changes: unknown; asset_floors: Record<string, string>; received_tolerance_bps: number; gas_used_execution_only: string };
+export type EvmSimulation = { status: "success"; block_number: string; asset_changes: unknown; nft_changes: unknown; asset_floors: Record<string, string>; received_tolerance_bps: number; gas_used_execution_only: string; max_amount_growth_bps?: number };
+// A "max" argument (type(uint256).max, e.g. Aave withdraw/repay of the whole
+// position) moves an amount that accrues every block. Before signing, the whole
+// previewed trade may scale up by at most this much, never at a worse rate.
+export const MAX_AMOUNT_GROWTH_BPS = 100;
+const UINT256_MAX = ((1n << 256n) - 1n).toString();
 
 export class ChainSignatures {
   private derived = new Map<string, Address>();
@@ -93,6 +98,7 @@ export class ChainSignatures {
     const call = built.calls[0]!;
     const value = BigInt(call.value);
     const simulation = await this.simulate(network, from, call, parsed.received_tolerance_bps);
+    if (JSON.stringify(built.description.arguments ?? []).includes(`"${UINT256_MAX}"`)) simulation.max_amount_growth_bps = MAX_AMOUNT_GROWTH_BPS;
     const [nonce, fees, balance] = await Promise.all([rpc.getTransactionCount({ address: from, blockTag: "pending" }), rpc.estimateFeesPerGas(), rpc.getBalance({ address: from })]);
     let gas: bigint;
     try { gas = await rpc.estimateGas({ account: from, to: call.to, value, data: call.data }); }
@@ -113,7 +119,7 @@ export class ChainSignatures {
       evm_transaction: { network, chain_id: chainId, from, to: call.to, value_wei: value.toString(), value_eth: formatEther(value), data: call.data, nonce, gas_limit: gas.toString(), max_fee_per_gas: maxFeePerGas.toString(), max_evm_network_fee_wei: maxGasCost.toString(), max_evm_network_fee_eth: formatEther(maxGasCost), signing_payload: payload },
       evm_call: built.description,
       simulation,
-      limitations: ["Simulated from the derived address at the block shown; it is re-simulated before the MPC signature is requested and refused if any outflow grows or a received token falls below simulation.asset_floors. On-chain execution can still differ.", "Asset changes come from RPC tracing and can be incomplete; contract safety and economic intent are not proven by the ABI or simulation.", "The EVM fee is paid in ETH by the derived address; the NEAR fee by the NEAR account.", "Signing is asynchronous on the MPC network; the EVM transaction is broadcast only after its signature verifies for the derived address."],
+      limitations: ["Simulated from the derived address at the block shown; it is re-simulated before the MPC signature is requested and refused if any outflow grows or a received token falls below simulation.asset_floors. On-chain execution can still differ.", ...(simulation.max_amount_growth_bps ? [`A max (uint256) amount: the whole position may have grown by up to ${simulation.max_amount_growth_bps / 100}% (e.g. accrued interest) when re-simulated; it is accepted only if every received token grows by at least the same proportion.`] : []), "Asset changes come from RPC tracing and can be incomplete; contract safety and economic intent are not proven by the ABI or simulation.", "The EVM fee is paid in ETH by the derived address; the NEAR fee by the NEAR account.", "Signing is asynchronous on the MPC network; the EVM transaction is broadcast only after its signature verifies for the derived address."],
     });
   }
 
@@ -158,7 +164,9 @@ export class ChainSignatures {
     const call: NormalizedCall = { to: plan.tx.to, value: plan.tx.value, data: plan.tx.data };
     const fresh = await this.simulate(plan.network, plan.from, call, plan.simulation.received_tolerance_bps);
     const floors = Object.fromEntries(Object.entries(plan.simulation.asset_floors).map(([k, v]) => [k, BigInt(v)]));
-    const mismatch = assetChangeMismatch(plan.simulation.asset_changes, fresh.asset_changes, floors) ?? nftChangeMismatch(plan.simulation.nft_changes, fresh.nft_changes);
+    let mismatch = assetChangeMismatch(plan.simulation.asset_changes, fresh.asset_changes, floors);
+    if (mismatch && plan.simulation.max_amount_growth_bps) mismatch = scaledAssetMismatch(plan.simulation.asset_changes, fresh.asset_changes, floors, plan.simulation.max_amount_growth_bps);
+    mismatch ??= nftChangeMismatch(plan.simulation.nft_changes, fresh.nft_changes);
     if (mismatch) throw new NearPublicError(`evm ${mismatch}. Nothing was signed`);
   }
 
@@ -248,6 +256,45 @@ export class ChainSignatures {
     if (!op || !result?.evm_raw_tx || !result.evm_network) throw new NearPublicError("operation has no signed EVM transaction");
     await this.client(result.evm_network).sendRawTransaction({ serializedTransaction: result.evm_raw_tx }).catch(() => undefined);
   }
+}
+
+function assetDeltas(changes: unknown): Map<string, bigint> | null {
+  if (!Array.isArray(changes)) return changes == null ? new Map() : null;
+  const out = new Map<string, bigint>();
+  for (const c of changes as { token?: { address?: unknown }; value?: { diff?: unknown } }[]) {
+    const token = c?.token?.address, diff = c?.value?.diff;
+    if (typeof token !== "string" || !/^-?\d+$/.test(String(diff)) || out.has(token.toLowerCase())) return null;
+    out.set(token.toLowerCase(), BigInt(String(diff)));
+  }
+  return out;
+}
+
+// For a call with a "max" amount: accepts the fresh simulation when it is the
+// previewed trade scaled up by a factor k <= 1 + maxBps, where k is the largest
+// growth of any outflow; every received token must grow by at least k too
+// (against its floor). Same tokens, same or better rate, bounded size.
+export function scaledAssetMismatch(preview: unknown, fresh: unknown, floors: Record<string, bigint>, maxBps: number): string | null {
+  const approved = assetDeltas(preview), current = assetDeltas(fresh);
+  const refuse = (why: string) => `simulated asset changes differ from preview (${why}); prepare and confirm a new operation`;
+  if (!approved || !current) return refuse("unreadable");
+  for (const [token, diff] of current) if (!approved.has(token) && diff !== 0n) return refuse(`${token}: previewed none, now ${diff}`);
+  let kBps = 10_000n;
+  for (const [token, diff] of approved) {
+    if (diff >= 0n) continue;
+    const now = current.get(token) ?? 0n;
+    if (now > 0n) return refuse(`${token}: previewed outflow ${-diff}, now inflow ${now}`);
+    const ratio = (-now * 10_000n + (-diff) - 1n) / -diff; // ceil, in bps of the previewed outflow
+    if (ratio > kBps) kBps = ratio;
+  }
+  if (kBps > 10_000n + BigInt(maxBps)) return refuse(`a max amount grew more than ${maxBps} bps`);
+  for (const [token, diff] of approved) {
+    if (diff <= 0n) continue;
+    const floor = floors[token] !== undefined && floors[token]! >= 0n && floors[token]! <= diff ? floors[token]! : diff;
+    const minimum = floor * kBps / 10_000n;
+    const now = current.get(token) ?? 0n;
+    if (now < minimum) return refuse(`${token}: previewed ${diff}, minimum ${minimum} after scaling the max amount by ${kBps} bps, now ${now}`);
+  }
+  return null;
 }
 
 // Distinguishes "no receipt for this hash" from an RPC failure, so a transient

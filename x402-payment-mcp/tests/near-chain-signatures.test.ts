@@ -195,6 +195,33 @@ test("approve is flagged; a worse re-simulation before signing refuses without p
   assert.equal(w.evm.simulated, before + 1);
 });
 
+test("a max withdrawal may grow with accrued interest only if what is received grows in proportion", async () => {
+  const MAX = ((1n << 256n) - 1n).toString();
+  const A_USDC = "0x4e65fe4dba92790696d040ac24aa414708f5c0ab";
+  const changes = (aOut: bigint, usdcIn: bigint) => [
+    { token: { address: A_USDC, symbol: "aBasUSDC", decimals: 6 }, value: { pre: aOut, post: 0n, diff: -aOut } },
+    { token: { address: USDC.toLowerCase(), symbol: "USDC", decimals: 6 }, value: { pre: 0n, post: usdcIn, diff: usdcIn } },
+  ];
+  const pool = "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5";
+  const withdrawAbi = [{ type: "function", name: "withdraw", stateMutability: "nonpayable", inputs: [{ name: "asset", type: "address" }, { name: "amount", type: "uint256" }, { name: "to", type: "address" }], outputs: [{ type: "uint256" }] }];
+  const run = async (aNow: bigint, usdcNow: bigint, amount = MAX) => {
+    const w = world();
+    w.evm.assetChanges = changes(1_000_000n, 1_000_000n);
+    const p = await w.chainSigs.prepare("u", { network: "base", to: pool, abi: withdrawAbi, function_name: "withdraw", args: [USDC, amount, w.mpc.address] }) as any;
+    w.evm.assetChanges = changes(aNow, usdcNow);
+    return { p, exec: w.chainSigs.execute("u", p.operation_id, "withdraw"), w };
+  };
+  const ok = await run(1_000_500n, 1_000_500n); // interest accrued: 5 bps more burned and received
+  assert.equal(ok.p.simulation.max_amount_growth_bps, 100);
+  assert.equal((await ok.exec as any).stage, "evm_submitted");
+  // More burned but received below the scaled floor (floor 995000 x 1.0005 = 995497).
+  await assert.rejects((await run(1_000_500n, 990_000n)).exec, /after scaling the max amount.*Nothing was signed/);
+  await assert.rejects((await run(1_200_000n, 1_200_000n)).exec, /grew more than 100 bps/); // beyond the bound
+  const exact = await run(1_000_500n, 1_000_500n, "1000000"); // not a max amount: outflows stay strict
+  assert.equal(exact.p.simulation.max_amount_growth_bps, undefined);
+  await assert.rejects(exact.exec, /asset changes differ/);
+});
+
 test("a signature that does not recover to the derived address is never broadcast", async () => {
   const w = world({ wrongSigner: true });
   const preview = await w.chainSigs.prepare("u", { network: "base", to: "0x000000000000000000000000000000000000dEaD", value_wei: "1" }) as any;
