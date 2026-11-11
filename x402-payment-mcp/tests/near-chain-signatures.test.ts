@@ -23,7 +23,7 @@ function world(opts: { mpcKey?: Hex; wrongSigner?: boolean; ethBalance?: bigint;
   const mpc = privateKeyToAccount(mpcKey);
   const impostor = generatePrivateKey();
   const near = { nonce: 1, signs: [] as { path: string; payload: string; predecessor: string }[] };
-  const evm = { sent: [] as Hex[], nonce: 5, receipts: new Set<Hex>() };
+  const evm = { sent: [] as Hex[], nonce: 5, latest: 5, nonceTooLow: false, rpcDown: false, receipts: new Set<Hex>() };
   const { store } = memoryStore();
   const rpc = new NearRpc("https://rpc.example", "mainnet", (async (_u: string, init: RequestInit) => {
     const b = JSON.parse(String(init.body));
@@ -57,15 +57,16 @@ function world(opts: { mpcKey?: Hex; wrongSigner?: boolean; ethBalance?: bigint;
   }) as typeof fetch);
   const client = {
     async getChainId() { return 8453; },
-    async getTransactionCount() { return evm.nonce; },
+    async getTransactionCount({ blockTag }: { blockTag?: string }) { return blockTag === "latest" ? evm.latest : evm.nonce; },
     async estimateFeesPerGas() { return { maxFeePerGas: 1_000_000n, maxPriorityFeePerGas: 1000n }; },
     async getBalance() { return opts.ethBalance ?? ETH; },
     async estimateGas() { if (opts.revert) throw new Error("execution reverted"); return 21_000n; },
     async sendRawTransaction({ serializedTransaction }: { serializedTransaction: Hex }) {
       assert.equal((await recoverTransactionAddress({ serializedTransaction: serializedTransaction as any })).toLowerCase(), mpc.address.toLowerCase());
-      evm.sent.push(serializedTransaction); return keccak256(serializedTransaction);
+      if (evm.nonceTooLow) throw new Error("nonce too low: next nonce 6, tx nonce 5");
+      evm.sent.push(serializedTransaction); evm.nonce++; return keccak256(serializedTransaction);
     },
-    async getTransactionReceipt({ hash }: { hash: Hex }) { if (!evm.receipts.has(hash)) throw new Error("not found"); return { status: "success", blockNumber: 9n, gasUsed: 21000n }; },
+    async getTransactionReceipt({ hash }: { hash: Hex }) { if (evm.rpcDown) throw new Error("fetch failed"); if (!evm.receipts.has(hash)) throw Object.assign(new Error("not found"), { name: "TransactionReceiptNotFoundError" }); return { status: "success", blockNumber: 9n, gasUsed: 21000n }; },
   } as unknown as PublicClient;
   const accounts = new NearAccountService(config, store, rpc);
   const operations = new NearOperations(accounts, store);
@@ -104,6 +105,47 @@ test("chain signature: MPC signs exactly the previewed EIP-1559 hash; broadcast 
   const s = await w.chainSigs.operationStatus("u", preview.operation_id) as any;
   assert.equal(s.stage, "evm_final");
   assert.equal(s.evm.status, "success");
+});
+
+test("a preview whose nonce was used since is refused before the MPC sign() is paid", async () => {
+  const w = world();
+  const a = await w.chainSigs.prepare("u", { network: "base", to: "0x000000000000000000000000000000000000dEaD", value_wei: "1" }) as any;
+  const b = await w.chainSigs.prepare("u", { network: "base", to: "0x000000000000000000000000000000000000dEaD", value_wei: "2" }) as any;
+  assert.equal(a.evm_transaction.nonce, 5);
+  assert.equal(b.evm_transaction.nonce, 5);
+  assert.equal((await w.chainSigs.execute("u", a.operation_id, "first") as any).stage, "evm_submitted");
+  await assert.rejects(w.chainSigs.execute("u", b.operation_id, "second"), /nonce on base is now 6.*Nothing was signed/);
+  assert.equal(w.near.signs.length, 1, "no second MPC request");
+  const c = await w.chainSigs.prepare("u", { network: "base", to: "0x000000000000000000000000000000000000dEaD", value_wei: "2" }) as any;
+  assert.equal(c.evm_transaction.nonce, 6);
+});
+
+test("'nonce too low' for a transaction that was never mined is reported as dropped, not submitted", async () => {
+  const w = world();
+  const p = await w.chainSigs.prepare("u", { network: "base", to: "0x000000000000000000000000000000000000dEaD", value_wei: "1" }) as any;
+  // Another wallet with the same key raced us between the nonce check and the broadcast.
+  w.evm.nonceTooLow = true; w.evm.latest = 6;
+  const r = await w.chainSigs.execute("u", p.operation_id, "x") as any;
+  assert.equal(r.stage, "evm_dropped");
+  assert.equal(w.evm.sent.length, 0);
+  const s = await w.chainSigs.operationStatus("u", p.operation_id) as any;
+  assert.equal(s.stage, "evm_dropped");
+  // The account is not blocked: a new preview can be prepared and executed.
+  w.evm.nonceTooLow = false; w.evm.nonce = 6;
+  const next = await w.chainSigs.prepare("u", { network: "base", to: "0x000000000000000000000000000000000000dEaD", value_wei: "1" }) as any;
+  assert.equal((await w.chainSigs.execute("u", next.operation_id, "y") as any).stage, "evm_submitted");
+});
+
+test("a submitted transaction whose nonce was taken by another one becomes dropped on status", async () => {
+  const w = world();
+  const p = await w.chainSigs.prepare("u", { network: "base", to: "0x000000000000000000000000000000000000dEaD", value_wei: "1" }) as any;
+  await w.chainSigs.execute("u", p.operation_id, "x");
+  assert.equal((await w.chainSigs.operationStatus("u", p.operation_id) as any).stage, "evm_pending");
+  w.evm.latest = 6; // nonce 5 mined, but not by our hash
+  w.evm.rpcDown = true;
+  assert.equal((await w.chainSigs.operationStatus("u", p.operation_id) as any).stage, "evm_pending", "an RPC failure is never read as dropped");
+  w.evm.rpcDown = false;
+  assert.equal((await w.chainSigs.operationStatus("u", p.operation_id) as any).stage, "evm_dropped");
 });
 
 test("a signature that does not recover to the derived address is never broadcast", async () => {

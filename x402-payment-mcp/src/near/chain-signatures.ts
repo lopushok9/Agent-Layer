@@ -104,6 +104,14 @@ export class ChainSignatures {
   }
 
   async execute(userId: string, id: string, purpose: string) {
+    // The nonce is fixed in the preview. If the derived address sent anything
+    // since, the signed transaction could never be mined: refuse before paying for MPC.
+    const op = await this.store.operation(userId, id);
+    const evmPlan = op?.kind === "chain_signature" && op.status === "prepared" ? (op.plan as { evm?: EvmPlan } | null)?.evm : undefined;
+    if (evmPlan) {
+      const pending = await this.client(evmPlan.network).getTransactionCount({ address: evmPlan.from, blockTag: "pending" });
+      if (pending !== evmPlan.tx.nonce) throw new NearPublicError(`the derived address nonce on ${evmPlan.network} is now ${pending}, but this preview was built for nonce ${evmPlan.tx.nonce} (another transaction was sent since); call evm_call_prepare again. Nothing was signed`);
+    }
     const near = await this.operations.execute(userId, id, purpose, "chain_signature", "FINAL");
     if (near.status !== "confirmed") return { ...near, stage: "near_signature" };
     return this.complete(userId, id);
@@ -112,14 +120,18 @@ export class ChainSignatures {
   async operationStatus(userId: string, id: string) {
     const op = await this.store.operation(userId, id);
     if (!op || op.kind !== "chain_signature") return this.operations.status(userId, id);
-    const result = op.result as { evm_tx_hash?: Hex } | null;
+    const result = op.result as { evm_tx_hash?: Hex; evm_receipt?: { status: string } } | null;
+    const plan0 = (op.plan as { evm: EvmPlan }).evm;
+    if (result?.evm_receipt?.status === "dropped") return this.dropped(id, op.txHash, plan0, result.evm_tx_hash!);
     if (op.status !== "confirmed" || !result?.evm_tx_hash) {
       const near = op.status === "confirmed" ? { status: "confirmed" } : await this.operations.status(userId, id);
       if (near.status !== "confirmed") return { ...near, stage: "near_signature" };
       return this.complete(userId, id);
     }
     const plan = (op.plan as { evm: EvmPlan }).evm;
-    const receipt = await this.client(plan.network).getTransactionReceipt({ hash: result.evm_tx_hash }).catch(() => null);
+    const lookup = await receiptLookup(this.client(plan.network), result.evm_tx_hash);
+    const receipt = lookup.receipt;
+    if (lookup.notFound && await this.nonceConsumed(plan)) return this.markDropped(userId, id, op.txHash, plan, result);
     if (!receipt) await this.rebroadcast(userId, id);
     const evm = receipt ? { status: receipt.status, block_number: receipt.blockNumber.toString(), gas_used: receipt.gasUsed.toString() } : { status: "pending" };
     await this.store.update(userId, id, { status: "confirmed", result: { ...result, evm_receipt: evm } });
@@ -145,9 +157,28 @@ export class ChainSignatures {
     catch (e) {
       // Re-sending identical bytes is safe; "already known" means it is in the pool.
       const message = e instanceof Error ? e.message : "";
-      if (!/already known|known transaction|nonce too low/i.test(message)) return { operation_id: id, stage: "evm_broadcast_unknown", evm_network: plan.network, evm_tx_hash: hash, message: "Signed EVM transaction could not be confirmed as broadcast; call near_operation_status to retry the same bytes. Do not prepare a replacement." };
+      if (/nonce too low|nonce has already been used/i.test(message)) {
+        // Fine only if this exact transaction is the one that used the nonce.
+        if ((await receiptLookup(rpc, hash)).notFound && await this.nonceConsumed(plan)) return this.markDropped(userId, id, op.txHash, plan, { evm_tx_hash: hash, evm_raw_tx: raw, evm_network: plan.network });
+      } else if (!/already known|known transaction/i.test(message)) return { operation_id: id, stage: "evm_broadcast_unknown", evm_network: plan.network, evm_tx_hash: hash, message: "Signed EVM transaction could not be confirmed as broadcast; call near_operation_status to retry the same bytes. Do not prepare a replacement." };
     }
     return { operation_id: id, stage: "evm_submitted", near_transaction_hash: op.txHash, evm_network: plan.network, evm_from: plan.from, evm_tx_hash: hash, evm_explorer_url: evmExplorer(plan.network, hash), next: "Call near_operation_status for the EVM receipt." };
+  }
+
+  // True when a mined transaction already used this plan's nonce (so ours never can be).
+  private async nonceConsumed(plan: EvmPlan) {
+    const latest = await this.client(plan.network).getTransactionCount({ address: plan.from, blockTag: "latest" }).catch(() => null);
+    return latest !== null && latest > plan.tx.nonce;
+  }
+
+  private async markDropped(userId: string, id: string, nearTx: string | null, plan: EvmPlan, result: Record<string, unknown>) {
+    const hash = result.evm_tx_hash as Hex;
+    await this.store.update(userId, id, { status: "failed", result: { ...result, evm_receipt: { status: "dropped" } }, error: "evm nonce was used by another transaction; the signed transaction can never be mined" });
+    return this.dropped(id, nearTx, plan, hash);
+  }
+
+  private dropped(id: string, nearTx: string | null, plan: EvmPlan, hash: Hex) {
+    return { operation_id: id, stage: "evm_dropped", near_transaction_hash: nearTx, evm_network: plan.network, evm_tx_hash: hash, evm: { status: "dropped" }, message: `Another transaction from ${plan.from} used nonce ${plan.tx.nonce}, so this signed transaction can never be mined and nothing moved on ${plan.network}. Only the NEAR signing fee was spent. Prepare a new call if still needed.` };
   }
 
   // Re-broadcast of the persisted signed bytes when the EVM step is uncertain.
@@ -157,6 +188,13 @@ export class ChainSignatures {
     if (!op || !result?.evm_raw_tx || !result.evm_network) throw new NearPublicError("operation has no signed EVM transaction");
     await this.client(result.evm_network).sendRawTransaction({ serializedTransaction: result.evm_raw_tx }).catch(() => undefined);
   }
+}
+
+// Distinguishes "no receipt for this hash" from an RPC failure, so a transient
+// error is never mistaken for a dropped transaction.
+async function receiptLookup(rpc: PublicClient, hash: Hex) {
+  try { return { receipt: await rpc.getTransactionReceipt({ hash }), notFound: false }; }
+  catch (e) { return { receipt: null, notFound: (e as { name?: string })?.name === "TransactionReceiptNotFoundError" }; }
 }
 
 export function secp256k1KeyToAddress(value: unknown): Address {
