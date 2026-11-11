@@ -13,7 +13,7 @@ const config = loadNearConfig({ NEAR_RPC_URL: "https://rpc.example", NEAR_KEY_EN
 const WNEAR = "nep141:wrap.near", USDC = "nep141:usdc.near", SOL = "nep141:sol.omft.near";
 const TOKENS: Record<string, { assetId: string; symbol: string; decimals: number; blockchain: string }> = { NEAR: { assetId: WNEAR, symbol: "wNEAR", decimals: 24, blockchain: "near" }, "USDC@near": { assetId: USDC, symbol: "USDC", decimals: 6, blockchain: "near" }, "SOL@sol": { assetId: SOL, symbol: "SOL", decimals: 9, blockchain: "sol" } };
 
-type World = { balance: Record<string, string>; quotes: { amount_out: string; hash: string }[]; published: any[]; relayStatus: string; simError?: string; usedNonces: Set<string>; publishStatus?: string; registered?: boolean };
+type World = { balance: Record<string, string>; quotes: { amount_out: string; hash: string }[]; published: any[]; relayStatus: string; simError?: string; usedNonces: Set<string>; publishStatus?: string; registered?: boolean; oneclickDeadlineMs?: number; submitted?: string[] };
 
 function setup(w: World, now = () => Date.now()) {
   const { store, ops } = memoryStore();
@@ -50,7 +50,16 @@ function setup(w: World, now = () => Date.now()) {
     throw new Error("unexpected relay method");
   }) as typeof fetch);
   const accounts = new NearAccountService(config, store, rpc);
-  const intents = { asset: async (ref: string) => TOKENS[ref]!, intentsBalanceOf: async (_a: string, t: string) => BigInt(w.balance[t] ?? "0") } as any;
+  const intents = {
+    asset: async (ref: string) => TOKENS[ref]!, intentsBalanceOf: async (_a: string, t: string) => BigInt(w.balance[t] ?? "0"),
+    quoteFromIntents: async (u: string, input: any) => {
+      const self = (await accounts.account(u)).accountId;
+      const plan = { deposit_address: "d".repeat(64), deposit_memo: null, correlation_id: "c1", deadline: new Date(now() + (w.oneclickDeadlineMs ?? 1_800_000)).toISOString(), origin_asset: TOKENS[input.origin_asset]!.assetId, destination_asset: SOL, amount_in: input.amount, min_amount_out: "123", recipient: self, pay_from: "intents", deliver_to: "intents" };
+      return { self, plan, have: BigInt(w.balance[plan.origin_asset] ?? "0"), description: { protocol: "near_intents_1click" } };
+    },
+    oneClickStatus: async () => ({ swap_status: "PROCESSING" }),
+    submitDeposit: async (tx: string, dep: string, sender: string) => { w.submitted = [tx, dep, sender]; },
+  } as any;
   const trades = new IntentsTrades(accounts, store, intents, relay, now);
   return { trades, ops, init: async (u: string) => { const a = await accounts.account(u); pk = a.publicKey; return a; } };
 }
@@ -167,7 +176,7 @@ test("withdraw: NEAR leaves intents as native NEAR via ONE relayed native_withdr
   const half = (5n * 10n ** 23n).toString();
   const p: any = await trades.prepareWithdraw("u1", { asset: "NEAR", amount: half });
   assert.equal(p.kind, "intents_withdraw"); assert.equal(p.withdraw.symbol, "NEAR (native)");
-  await assert.rejects(trades.execute("u1", p.operation_id, "x", "trade"), /not an intents trade/);
+  await assert.rejects(trades.execute("u1", p.operation_id, "x", "trade"), /not an intents_trade/);
   const r: any = await trades.execute("u1", p.operation_id, "refill gas", "withdraw");
   assert.equal(r.status, "confirmed"); assert.equal(r.kind, "intents_withdraw"); assert.equal(r.withdrawn, half);
   const { s, msg } = signedOf(w);
@@ -193,4 +202,23 @@ test("withdraw: a withdrawal must simulate cleanly (no invariant allowance) and 
   await trades.execute("u1", p2.operation_id, "x", "withdraw");
   assert.deepEqual(signedOf(w).msg.intents, [{ intent: "ft_withdraw", token: "usdc.near", receiver_id: a.accountId, amount: "5000000", storage_deposit: "1250000000000000000000", min_gas: "17050000000000" }]);
   await assert.rejects(trades.prepareWithdraw("u1", { asset: "SOL@sol", amount: "1" }), /not a NEAR-chain token/);
+});
+
+test("1Click from the intents balance: ONE signed transfer intent to the deposit address, no quote, 1Click notified with the settlement hash", async () => {
+  const w = world();
+  const { trades, init } = setup(w);
+  const a = await init("u1");
+  const p: any = await trades.prepareOneClick("u1", { origin_asset: "NEAR", destination_asset: "SOL@sol", amount: ONE, deliver_to: "intents" });
+  assert.equal(p.kind, "intents_swap");
+  assert.deepEqual(p.signed_intent, { intent: "transfer", receiver_id: "d".repeat(64), tokens: { [WNEAR]: ONE } });
+  await assert.rejects(trades.execute("u1", p.operation_id, "x", "withdraw"), /not an intents_withdraw/);
+  const r: any = await trades.execute("u1", p.operation_id, "swap via 1Click", "oneclick");
+  assert.equal(r.status, "confirmed"); assert.equal(r.kind, "intents_swap"); assert.equal(r.oneclick.swap_status, "PROCESSING");
+  assert.deepEqual(w.published[0].quote_hashes, []);
+  assert.deepEqual(signedOf(w).msg.intents, [p.signed_intent]);
+  assert.deepEqual(w.submitted, ["SettleTx111", "d".repeat(64), a.accountId]);
+  w.oneclickDeadlineMs = 60_000;
+  const p2: any = await trades.prepareOneClick("u1", { origin_asset: "NEAR", destination_asset: "SOL@sol", amount: ONE, deliver_to: "intents" });
+  await assert.rejects(trades.execute("u1", p2.operation_id, "x", "oneclick"), /deadline is too close/);
+  assert.equal(w.published.length, 1);
 });

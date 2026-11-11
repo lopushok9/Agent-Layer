@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { baseEncode } from "@near-js/utils";
 import { z } from "zod";
 import type { NearAccountService } from "./account.js";
-import { INTENTS_CONTRACT, WRAP_NEAR, type NearIntents } from "./intents.js";
+import { INTENTS_CONTRACT, WRAP_NEAR, type IntentsPlan, type IntentsSwapInput, type NearIntents } from "./intents.js";
 import { NearPublicError } from "./operations.js";
 import { NearRpcError } from "./rpc.js";
 import type { NearStore } from "./store.js";
@@ -14,7 +14,9 @@ import type { NearStore } from "./store.js";
 // - trades: token_diff against a solver quote, optionally followed in the same
 //   signed message by a withdrawal of the bought amount to the wallet;
 // - withdrawals: ft_withdraw to the wallet, or native_withdraw of wNEAR as
-//   native NEAR (which also refills gas for the wallet).
+//   native NEAR (which also refills gas for the wallet);
+// - 1Click swaps paid from the intents balance: a transfer intent to the
+//   quote's deposit address, as the near-intents.org app does.
 export const SOLVER_RELAY_URL = "https://solver-relay-v2.chaindefuser.com/rpc";
 const NEP413_TAG = 2147484061; // 2^31 + 413
 const VERSIONED_NONCE_PREFIX = Buffer.from("5628f6c6", "hex");
@@ -25,6 +27,8 @@ const TOKEN_ID = /^nep(141|245):[a-z0-9._:-]{2,200}$/i;
 const WNEAR_ID = `nep141:${WRAP_NEAR}`;
 // ft_withdraw's ft_transfer, as used by the official intents SDK (+10% margin).
 const FT_WITHDRAW_MIN_GAS = "17050000000000";
+// The signed transfer must settle well before the 1Click deposit deadline.
+const ONECLICK_MARGIN_MS = 2 * 60_000;
 
 // ---- NEP-413 ----
 export type Nep413Payload = { message: string; nonce: Buffer; recipient: string };
@@ -108,7 +112,11 @@ export const intentsWithdrawInput = z.strictObject({
 });
 export type IntentsTradePlan = { token_in: string; token_out: string; amount_in: string; quoted_out: string; min_amount_out: string; deliver_to?: "intents" | "wallet"; storage_deposit?: string | null };
 export type IntentsWithdrawPlan = { asset_id: string; amount: string; receiver_id: string; storage_deposit: string | null };
-type SignedPlan = { trade: IntentsTradePlan } | { withdraw: IntentsWithdrawPlan };
+type SignedPlan = { trade: IntentsTradePlan } | { withdraw: IntentsWithdrawPlan } | { oneclick: IntentsPlan };
+type PlanKind = "trade" | "withdraw" | "oneclick";
+const KIND_NAME: Record<PlanKind, string> = { trade: "intents_trade", withdraw: "intents_withdraw", oneclick: "intents_swap" };
+const planKind = (plan: SignedPlan): PlanKind => "trade" in plan ? "trade" : "withdraw" in plan ? "withdraw" : "oneclick";
+const transferIntent = (plan: IntentsPlan): IntentJson => ({ intent: "transfer", receiver_id: plan.deposit_address, tokens: { [plan.origin_asset]: plan.amount_in } });
 type Asset = { assetId: string; symbol: string; decimals: number; blockchain?: string };
 
 export class IntentsTrades {
@@ -210,12 +218,31 @@ export class IntentsTrades {
     };
   }
 
+  // 1Click paid from the intents balance with ONE signed transfer intent to the
+  // quote's deposit address; refunds return to the intents balance. No NEAR
+  // transaction, so the wallet needs no gas.
+  async prepareOneClick(userId: string, input: IntentsSwapInput) {
+    const account = await this.accounts.account(userId);
+    const { self, plan, have, description } = await this.intents.quoteFromIntents(userId, input);
+    if (self !== account.accountId) throw new Error("account mismatch");
+    const intent = transferIntent(plan);
+    const op = await this.preview(userId, account, { oneclick: plan }, { type: "nep413_intents", verifying_contract: INTENTS_CONTRACT, signer_id: self, intents: [intent] });
+    return {
+      operation_id: op.id, kind: "intents_swap", signer_id: self, intents: description, signed_intent: intent,
+      intents_balance_before: have.toString(),
+      network_fee: "none for this account: the relay submits and pays for the transfer; 1Click fees are inside the quote",
+      expires_at: op.expiresAt.toISOString(),
+      how_it_executes: `At execution the server signs ONE NEP-413 transfer intent with this NEAR account's key moving ${plan.amount_in} ${plan.origin_asset} inside intents.near to the 1Click deposit account ${plan.deposit_address} (${INTENT_LIFETIME_MS / 1000}s deadline, single-use nonce), dry-runs it and publishes it to the Solver Relay; 1Click then delivers at least the minimum or refunds to the intents balance.`,
+      confirmation: "Show intents.origin, intents.destination (quoted and minimum), recipient, deposit_address and signed_intent to the user; call intents_swap_execute only after they confirm this exact preview.",
+    };
+  }
+
   // One signed message per operation: build it from the confirmed plan (trades
   // re-quote first), dry-run it on intents.near, persist, then publish.
-  async execute(userId: string, id: string, purpose: string, expect?: "trade" | "withdraw") {
+  async execute(userId: string, id: string, purpose: string, expect?: PlanKind) {
     if (expect) {
       const peek = await this.store.operation(userId, id);
-      if (peek?.kind === "intents_trade" && !(expect in (peek.plan as SignedPlan))) throw new NearPublicError(`intents: this operation is not an intents ${expect}; use the matching execute tool. Nothing was signed`);
+      if (peek?.kind === "intents_trade" && planKind(peek.plan as SignedPlan) !== expect) throw new NearPublicError(`intents: this operation is not an ${KIND_NAME[expect]}; use the matching execute tool. Nothing was signed`);
     }
     const op = await this.store.reserve(userId, id, "intents_trade", purpose);
     let signed = false;
@@ -240,6 +267,15 @@ export class IntentsTrades {
         quoteHashes = [best.quote_hash];
         expected = { amount_out: best.amount_out, deliver_to: t.deliver_to ?? "intents" };
         matched = true;
+      } else if ("oneclick" in plan) {
+        const o = plan.oneclick;
+        if (Date.parse(o.deadline) - ONECLICK_MARGIN_MS < this.now()) throw new NearPublicError("intents: the 1Click deposit deadline is too close; prepare a new swap. Nothing was signed");
+        const have = await this.intents.intentsBalanceOf(op.accountId, o.origin_asset);
+        if (have < BigInt(o.amount_in)) throw new NearPublicError("intents: the intents balance no longer covers the swap; nothing was signed");
+        intents = [transferIntent(o)];
+        quoteHashes = [];
+        expected = { deposit_address: o.deposit_address, amount_in: o.amount_in, min_amount_out: o.min_amount_out };
+        matched = false;
       } else {
         const w = plan.withdraw;
         const have = await this.intents.intentsBalanceOf(op.accountId, w.asset_id);
@@ -300,16 +336,21 @@ export class IntentsTrades {
   async status(userId: string, id: string): Promise<Record<string, unknown> & { status: string }> {
     const op = await this.store.operation(userId, id);
     if (!op || op.kind !== "intents_trade") throw new NearPublicError("operation not found for this user, or not an intents trade");
-    const kind = "withdraw" in (op.plan as SignedPlan) ? "intents_withdraw" : "intents_trade";
-    const base = { operation_id: id, kind, intent_hash: op.txHash };
-    if (!op.txHash || !["signing", "submitted", "unknown"].includes(op.status)) return { ...base, status: op.status, result: op.result, error: op.error };
+    const plan = op.plan as SignedPlan;
+    const base = { operation_id: id, kind: KIND_NAME[planKind(plan)], intent_hash: op.txHash };
+    // A funded 1Click swap continues off this account: report 1Click's status.
+    const swap = async () => "oneclick" in plan ? { oneclick: await this.intents.oneClickStatus(plan.oneclick).catch(() => ({ swap_status: "UNAVAILABLE" })) } : {};
+    if (!op.txHash || !["signing", "submitted", "unknown"].includes(op.status)) return { ...base, status: op.status, result: op.result, error: op.error, ...(op.status === "confirmed" ? await swap() : {}) };
     const { signed: _s, quote_hashes: _q, deadline, ...expected } = JSON.parse(op.signedTx ?? "{}") as Record<string, unknown> & { deadline?: string };
     let relay: Awaited<ReturnType<SolverRelayClient["status"]>> | null = null;
     try { relay = await this.relay.status(op.txHash); } catch { /* fall back to chain */ }
     if (relay?.status === "SETTLED") {
       const result = { intent_hash: op.txHash, settlement_tx: relay.data?.hash ?? null, ...expected, ...(relay.filled_amounts ? { filled_amounts: relay.filled_amounts } : {}) };
       await this.store.update(userId, id, { status: "confirmed", result });
-      return { ...base, status: "confirmed", ...result, ...(relay.data?.hash ? { explorer_url: `https://nearblocks.io/txns/${relay.data.hash}` } : {}) };
+      // Like the official app: tell 1Click the settlement hash, best effort
+      // (it also detects the transfer on its own).
+      if ("oneclick" in plan && relay.data?.hash) await this.intents.submitDeposit(relay.data.hash, plan.oneclick.deposit_address, op.accountId).catch(() => undefined);
+      return { ...base, status: "confirmed", ...result, ...(relay.data?.hash ? { explorer_url: `https://nearblocks.io/txns/${relay.data.hash}` } : {}), ...(await swap()) };
     }
     if (deadline && Date.parse(deadline) + 10_000 < this.now()) {
       const used = await this.view(INTENTS_CONTRACT, "is_nonce_used", { account_id: op.accountId, nonce: op.nonce });
@@ -319,7 +360,7 @@ export class IntentsTrades {
       }
       if (used === true) {
         await this.store.update(userId, id, { status: "confirmed", result: { intent_hash: op.txHash, ...expected, note: "nonce consumed on intents.near" } });
-        return { ...base, status: "confirmed", ...expected };
+        return { ...base, status: "confirmed", ...expected, ...(await swap()) };
       }
     }
     return { ...base, status: "submitted", relay_status: relay?.status ?? "unavailable", deadline, message: "Waiting for settlement; check again shortly." };

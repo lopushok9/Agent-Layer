@@ -172,26 +172,52 @@ export class NearIntents {
     if (p.pay_from === "intents" && q.quote.depositMemo) throw new NearPublicError("intents: unexpected deposit memo for an intents-balance deposit; nothing was signed");
     await funding();
 
-    const fmt = (v: string, d: number) => formatUnits(BigInt(v), d);
     const plan: IntentsPlan = { deposit_address: deposit, deposit_memo: q.quote.depositMemo ?? null, correlation_id: q.correlationId ?? null, deadline, origin_asset: origin.assetId, destination_asset: dest.assetId, amount_in: p.amount, min_amount_out: q.quote.minAmountOut, recipient, pay_from: p.pay_from, deliver_to: p.deliver_to };
+    return this.operations.preview(userId, { receiverId, actions }, "intents_swap", { oneclick: plan }, { intents: this.describe(p, origin, dest, q, plan, wrap) });
+  }
+
+  // Pay 1Click from the intents balance without a NEAR transaction: the binding
+  // quote (INTENTS deposit and refund) for a transfer intent that the caller
+  // signs and the Solver Relay submits, as the near-intents.org app does.
+  async quoteFromIntents(userId: string, input: IntentsSwapInput) {
+    const p = intentsSwapInput.parse({ ...input, pay_from: "intents" });
+    const self = (await this.accounts.account(userId)).accountId;
+    const [origin, dest] = await Promise.all([this.resolve(p.origin_asset, "origin_asset"), this.resolve(p.destination_asset, "destination_asset")]);
+    if (origin.assetId === dest.assetId) throw new NearPublicError("intents: origin and destination are the same asset; nothing was signed");
+    if (!/^nep(141|245):/.test(origin.assetId)) throw new NearPublicError("intents: this origin_asset cannot be held in the intents balance; nothing was signed");
+    if (p.deliver_to === "intents" && p.recipient) throw new NearPublicError("intents: deliver_to intents credits this NEAR account; do not pass recipient. Nothing was signed");
+    const have = await this.intentsBalance(self, origin.assetId);
+    if (have < BigInt(p.amount)) throw new NearPublicError(`intents: the intents balance holds ${have} of ${origin.symbol} (smallest units), needs ${p.amount}; see intents_balances. Nothing was signed`);
+    const recipient = p.deliver_to === "intents" ? self : await this.recipient(userId, self, dest.blockchain, p.recipient);
+    const deadline = new Date(this.now() + QUOTE_DEADLINE_MS).toISOString();
+    const request = { dry: false, swapType: "EXACT_INPUT", slippageTolerance: p.slippage_bps, originAsset: origin.assetId, depositType: "INTENTS", destinationAsset: dest.assetId, amount: p.amount, refundTo: self, refundType: "INTENTS", recipient, recipientType: p.deliver_to === "intents" ? "INTENTS" : "DESTINATION_CHAIN", deadline, quoteWaitingTimeMs: 3000 };
+    const q = await this.client.quote(request);
+    const deposit = this.checkQuote(q, request, self);
+    if (q.quote.depositMemo) throw new NearPublicError("intents: unexpected deposit memo for an intents-balance deposit; nothing was signed");
+    const plan: IntentsPlan = { deposit_address: deposit, deposit_memo: null, correlation_id: q.correlationId ?? null, deadline, origin_asset: origin.assetId, destination_asset: dest.assetId, amount_in: p.amount, min_amount_out: q.quote.minAmountOut, recipient, pay_from: "intents", deliver_to: p.deliver_to };
+    return { self, plan, have, description: this.describe(p, origin, dest, q, plan, 0n) };
+  }
+
+  submitDeposit(txHash: string, depositAddress: string, sender: string) { return this.client.submit(txHash, depositAddress, sender); }
+
+  private describe(p: z.infer<typeof intentsSwapInput>, origin: OneClickToken, dest: OneClickToken, q: OneClickQuote, plan: IntentsPlan, wrap: bigint) {
+    const fmt = (v: string, d: number) => formatUnits(BigInt(v), d);
     const warnings: string[] = [];
-    if (p.recipient) warnings.push(`Recipient ${recipient} was given explicitly; check it, delivery to a wrong address is irreversible.`);
+    if (p.recipient) warnings.push(`Recipient ${plan.recipient} was given explicitly; check it, delivery to a wrong address is irreversible.`);
     if (p.deliver_to === "chain" && EVM_CHAINS.has(dest.blockchain) && !SPENDABLE_EVM.has(dest.blockchain)) warnings.push(`Delivery on ${dest.blockchain}: the same key controls the address there, but this server's EVM tools only send on Base and Ethereum.`);
     const fees = q.quoteRequest.appFees;
-    return this.operations.preview(userId, { receiverId, actions }, "intents_swap", { oneclick: plan }, {
-      intents: {
-        protocol: "near_intents_1click", pay_from: p.pay_from, deliver_to: p.deliver_to,
-        origin: { asset_id: origin.assetId, symbol: origin.symbol, amount: p.amount, formatted: fmt(p.amount, origin.decimals), ...(wrap ? { wraps_near_yocto: wrap.toString(), wraps_near: fmt(wrap.toString(), 24) } : {}) },
-        destination: { asset_id: dest.assetId, symbol: dest.symbol, blockchain: dest.blockchain, quoted: q.quote.amountOut, quoted_formatted: fmt(q.quote.amountOut, dest.decimals), minimum: q.quote.minAmountOut, minimum_formatted: fmt(q.quote.minAmountOut, dest.decimals), ...(q.quote.amountOutUsd ? { quoted_usd: q.quote.amountOutUsd } : {}) },
-        ...(q.quote.amountInUsd ? { amount_in_usd: q.quote.amountInUsd } : {}),
-        recipient, refund_to: self, deposit_address: deposit, ...(q.quote.depositMemo ? { deposit_memo: q.quote.depositMemo } : {}),
-        deposit_deadline: deadline, ...(q.quote.timeEstimate !== undefined ? { time_estimate_seconds: q.quote.timeEstimate } : {}),
-        ...(Array.isArray(fees) && fees.length ? { app_fees_bps: fees.map((f: any) => Number(f?.fee) || 0).reduce((a: number, b: number) => a + b, 0) } : {}),
-        ...(q.quote.withdrawFee ? { destination_withdraw_fee: q.quote.withdrawFee } : {}),
-        protection: `Solvers must deliver at least the minimum to the recipient; otherwise, or after the deposit deadline, 1Click refunds the deposit to this NEAR account${p.pay_from === "intents" ? "'s intents balance" : ""}.`,
-        ...(warnings.length ? { warnings } : {}),
-      },
-    });
+    return {
+      protocol: "near_intents_1click", pay_from: p.pay_from, deliver_to: p.deliver_to,
+      origin: { asset_id: origin.assetId, symbol: origin.symbol, amount: p.amount, formatted: fmt(p.amount, origin.decimals), ...(wrap ? { wraps_near_yocto: wrap.toString(), wraps_near: fmt(wrap.toString(), 24) } : {}) },
+      destination: { asset_id: dest.assetId, symbol: dest.symbol, blockchain: dest.blockchain, quoted: q.quote.amountOut, quoted_formatted: fmt(q.quote.amountOut, dest.decimals), minimum: q.quote.minAmountOut, minimum_formatted: fmt(q.quote.minAmountOut, dest.decimals), ...(q.quote.amountOutUsd ? { quoted_usd: q.quote.amountOutUsd } : {}) },
+      ...(q.quote.amountInUsd ? { amount_in_usd: q.quote.amountInUsd } : {}),
+      recipient: plan.recipient, refund_to: plan.pay_from === "intents" ? `intents balance of ${String(q.quoteRequest.refundTo)}` : String(q.quoteRequest.refundTo), deposit_address: plan.deposit_address, ...(q.quote.depositMemo ? { deposit_memo: q.quote.depositMemo } : {}),
+      deposit_deadline: plan.deadline, ...(q.quote.timeEstimate !== undefined ? { time_estimate_seconds: q.quote.timeEstimate } : {}),
+      ...(Array.isArray(fees) && fees.length ? { app_fees_bps: fees.map((f: any) => Number(f?.fee) || 0).reduce((a: number, b: number) => a + b, 0) } : {}),
+      ...(q.quote.withdrawFee ? { destination_withdraw_fee: q.quote.withdrawFee } : {}),
+      protection: `Solvers must deliver at least the minimum to the recipient; otherwise, or after the deposit deadline, 1Click refunds the deposit to this NEAR account${p.pay_from === "intents" ? "'s intents balance" : ""}.`,
+      ...(warnings.length ? { warnings } : {}),
+    };
   }
 
   private async assertPredecessorAuth(self: string) {
@@ -321,17 +347,22 @@ export class NearIntents {
     const plan = (op.plan as { oneclick: IntentsPlan }).oneclick;
     const near = await this.operations.status(userId, id) as Record<string, unknown>;
     if (near.status !== "confirmed") return { ...near, stage: "near_deposit", deposit_address: plan.deposit_address };
+    return { operation_id: id, stage: "intents", near_transaction_hash: op.txHash, ...(await this.oneClickStatus(plan)) };
+  }
+
+  // 1Click's view of a funded deposit address (shared with relay-funded swaps).
+  async oneClickStatus(plan: IntentsPlan) {
     const s = await this.client.status(plan.deposit_address);
     const d = s?.swapDetails ?? {};
     const hashes = (v: unknown) => Array.isArray(v) ? v.flatMap(x => typeof x?.hash === "string" ? [{ hash: x.hash.slice(0, 120), ...(typeof x.explorerUrl === "string" && /^https:\/\//.test(x.explorerUrl) ? { explorer_url: x.explorerUrl.slice(0, 300) } : {}) }] : []) : [];
     const clean = (v: unknown) => typeof v === "string" && UINT.test(v) ? v : undefined;
     return {
-      operation_id: id, stage: "intents", near_transaction_hash: op.txHash, deposit_address: plan.deposit_address,
+      deposit_address: plan.deposit_address,
       swap_status: typeof s?.status === "string" ? s.status.replace(/[^A-Z_]/g, "").slice(0, 40) : "UNKNOWN",
       recipient: plan.recipient, minimum_out: plan.min_amount_out,
       ...(clean(d.amountOut) ? { amount_out: d.amountOut } : {}), ...(clean(d.refundedAmount) && d.refundedAmount !== "0" ? { refunded_amount: d.refundedAmount } : {}),
       origin_tx: hashes(d.originChainTxHashes), destination_tx: hashes(d.destinationChainTxHashes),
-      note: "SUCCESS: delivered. PENDING_DEPOSIT/KNOWN_DEPOSIT_TX/PROCESSING: in progress, check again. REFUNDED: returned to this NEAR account. INCOMPLETE_DEPOSIT/FAILED: report the operation_id.",
+      note: `SUCCESS: delivered. PENDING_DEPOSIT/KNOWN_DEPOSIT_TX/PROCESSING: in progress, check again. REFUNDED: returned to this NEAR account${plan.pay_from === "intents" ? "'s intents balance" : ""}. INCOMPLETE_DEPOSIT/FAILED: report the operation_id.`,
     };
   }
 }
