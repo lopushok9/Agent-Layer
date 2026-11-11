@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { baseDecode } from "@near-js/utils";
 import { publicKeyToAddress } from "viem/accounts";
-import { encodeFunctionData, formatEther, getAddress, keccak256, recoverAddress, serializeTransaction, isAddress, type Address, type Hex, type PublicClient, type TransactionSerializableEIP1559 } from "viem";
+import { hashAuthorization, recoverAuthorizationAddress } from "viem/utils";
+import { encodeFunctionData, formatEther, getAddress, keccak256, zeroAddress, type TransactionSerializableEIP7702, recoverAddress, serializeTransaction, isAddress, type Address, type Hex, type PublicClient, type TransactionSerializableEIP1559 } from "viem";
 import { assetChangeMismatch } from "../asset-changes.js";
 import type { ContractMetadata } from "../contract-metadata.js";
 import { nftChangeMismatch, nftChanges } from "../nft-changes.js";
@@ -38,9 +39,23 @@ export const evmCallInput = z.strictObject({
   received_tolerance_bps: z.number().int().min(0).max(500).default(50).describe("How far below the simulated amount a received token may fall when re-simulated before signing, in bps. Outgoing amounts never tolerate any increase."),
 }).refine(v => !(v.data && v.function_name), "provide data, or function_name (+ args), not both").refine(v => !v.abi || v.function_name, "abi requires function_name");
 export type EvmCallInput = z.input<typeof evmCallInput>;
+const batchCall = z.strictObject({
+  to: z.string().refine(v => isAddress(v, { strict: false }), "to must be an EVM address"),
+  value_wei: z.string().regex(/^\d{1,78}$/).default("0"),
+  data: z.string().regex(/^0x([0-9a-fA-F]{2})*$/).max(2 + 2 * 24_576).optional(),
+  function_name: z.string().min(1).max(200).optional(),
+  args: z.array(z.unknown()).max(30).optional(),
+  abi: z.array(z.unknown()).min(1).max(50).optional(),
+}).refine(v => !(v.data && v.function_name), "provide data, or function_name (+ args), not both").refine(v => !v.abi || v.function_name, "abi requires function_name");
+export const evmBatchInput = z.strictObject({
+  network: evmNetworkInput,
+  calls: z.array(batchCall).min(2).max(8).describe("Calls run in order, atomically, in one transaction (e.g. approve then supply)"),
+  received_tolerance_bps: z.number().int().min(0).max(500).default(50),
+});
 type ParsedEvmCall = z.output<typeof evmCallInput>;
 
-export type EvmPlan = { network: EvmNetwork; chainId: number; from: Address; path: string; tx: { to: Address; value: string; data: Hex; nonce: number; gas: string; maxFeePerGas: string; maxPriorityFeePerGas: string }; payload: Hex; simulation?: EvmSimulation; calls?: NormalizedCall[] };
+type SignedAuth = { address: Address; chainId: number; nonce: number; r: Hex; s: Hex; yParity: number };
+export type EvmPlan = { network: EvmNetwork; chainId: number; from: Address; path: string; tx: { to: Address; value: string; data: Hex; nonce: number; gas: string; maxFeePerGas: string; maxPriorityFeePerGas: string; authorizationList?: SignedAuth[] }; payload: Hex; simulation?: EvmSimulation; calls?: NormalizedCall[]; authorization?: { address: Address; chainId: number; nonce: number } };
 export type EvmSimulation = { status: "success"; block_number: string; asset_changes: unknown; nft_changes: unknown; asset_floors: Record<string, string>; received_tolerance_bps: number; gas_used_execution_only: string; max_amount_growth_bps?: number };
 // A "max" argument (type(uint256).max, e.g. Aave withdraw/repay of the whole
 // position) moves an amount that accrues every block. Before signing, the whole
@@ -52,6 +67,15 @@ export const MAX_AMOUNT_GROWTH_BPS = 100;
 // ever signs authorizations for this address or for revocation (zero address).
 export const SIMPLE_7702_ACCOUNT = "0x4Cd241E8d1510e30b2076397afc7508Ae59C66c9" as Address;
 export const MAX_BATCH_CALLS = 8;
+// A self-sent type-4 transaction with one authorization: 21000 intrinsic +
+// 25000 per authorization + the empty call into the delegate's fallback.
+const DELEGATION_GAS = 100_000n;
+export const evmDelegationInput = z.strictObject({ network: evmNetworkInput, action: z.enum(["delegate", "revoke"]).default("delegate").describe("delegate: point the derived address at Simple7702Account (enables atomic batches); revoke: clear the delegation") });
+
+function txFromPlan(plan: EvmPlan): TransactionSerializableEIP1559 | TransactionSerializableEIP7702 {
+  const base = { chainId: plan.chainId, nonce: plan.tx.nonce, to: plan.tx.to, value: BigInt(plan.tx.value), data: plan.tx.data, gas: BigInt(plan.tx.gas), maxFeePerGas: BigInt(plan.tx.maxFeePerGas), maxPriorityFeePerGas: BigInt(plan.tx.maxPriorityFeePerGas) };
+  return plan.tx.authorizationList ? { ...base, type: "eip7702", authorizationList: plan.tx.authorizationList } : { ...base, type: "eip1559" };
+}
 const EXECUTE_BATCH_ABI = [{ type: "function", name: "executeBatch", stateMutability: "nonpayable", inputs: [{ name: "calls", type: "tuple[]", components: [{ name: "target", type: "address" }, { name: "value", type: "uint256" }, { name: "data", type: "bytes" }] }], outputs: [] }] as const;
 const UINT256_MAX = ((1n << 256n) - 1n).toString();
 
@@ -75,7 +99,11 @@ export class ChainSignatures {
     const account = await this.accounts.account(userId);
     const address = await this.address(account.accountId);
     const balances = await Promise.all((Object.keys(EVM_CHAINS) as EvmNetwork[]).map(async network => {
-      try { const wei = await this.client(network).getBalance({ address }); return { network, chain_id: EVM_CHAINS[network], balance_wei: wei.toString(), balance_eth: formatEther(wei) }; }
+      try {
+        const [wei, delegate] = await Promise.all([this.client(network).getBalance({ address }), this.delegation(network, address).catch(() => "unknown" as const)]);
+        const eip7702 = delegate === null ? "none" : delegate === "unknown" ? "unknown" : delegate.toLowerCase() === SIMPLE_7702_ACCOUNT.toLowerCase() ? "simple7702_account (atomic batches enabled)" : `other delegate ${delegate}`;
+        return { network, chain_id: EVM_CHAINS[network], balance_wei: wei.toString(), balance_eth: formatEther(wei), eip7702_delegation: eip7702 };
+      }
       catch { return { network, chain_id: EVM_CHAINS[network], error: "balance unavailable" }; }
     }));
     return {
@@ -99,6 +127,14 @@ export class ChainSignatures {
     const from = await this.fromAddress(userId);
     const built = await this.build(parsed.network, from, parsed);
     return this.previewCalls(userId, parsed.network, from, built.calls, [built.description], parsed.received_tolerance_bps);
+  }
+
+  // Several calls in one atomic transaction (EIP-7702 executeBatch).
+  async prepareBatch(userId: string, input: z.input<typeof evmBatchInput>) {
+    const parsed = evmBatchInput.parse(input);
+    const from = await this.fromAddress(userId);
+    const built = await Promise.all(parsed.calls.map(c => this.build(parsed.network, from, c)));
+    return this.previewCalls(userId, parsed.network, from, built.map(b => b.calls[0]!), built.map((b, index) => ({ ...b.description, index })), parsed.received_tolerance_bps);
   }
 
   async fromAddress(userId: string) {
@@ -217,10 +253,12 @@ export class ChainSignatures {
     return this.complete(userId, id);
   }
 
-  async operationStatus(userId: string, id: string) {
+  async operationStatus(userId: string, id: string): Promise<Record<string, unknown>> {
     const op = await this.store.operation(userId, id);
     if (!op || op.kind !== "chain_signature") return this.operations.status(userId, id);
-    const result = op.result as { evm_tx_hash?: Hex; evm_receipt?: { status: string } } | null;
+    const result = op.result as { evm_tx_hash?: Hex; evm_receipt?: { status: string }; child_operation_id?: string; stage?: string } | null;
+    if (result?.child_operation_id) return { ...await this.operationStatus(userId, result.child_operation_id) as Record<string, unknown>, operation_id: id, child_operation_id: result.child_operation_id };
+    if (op.status === "failed" && result?.stage === "authorization_signed") return { operation_id: id, stage: "evm_dropped", message: op.error };
     const plan0 = (op.plan as { evm: EvmPlan }).evm;
     if (result?.evm_receipt?.status === "dropped") return this.dropped(id, op.txHash, plan0, result.evm_tx_hash!);
     if (op.status !== "confirmed" || !result?.evm_tx_hash) {
@@ -240,12 +278,13 @@ export class ChainSignatures {
 
   // Turns the MPC response into an EVM signature, proves it recovers to the
   // derived address for the stored payload, then broadcasts the stored tx.
-  private async complete(userId: string, id: string) {
+  private async complete(userId: string, id: string): Promise<Record<string, unknown>> {
     const op = (await this.store.operation(userId, id))!;
     const plan = (op.plan as { evm: EvmPlan }).evm;
     const returned = (op.outcome as { return_value?: unknown } | null)?.return_value;
     const signature = parseMpcSignature(returned);
-    const tx: TransactionSerializableEIP1559 = { type: "eip1559", chainId: plan.chainId, nonce: plan.tx.nonce, to: plan.tx.to, value: BigInt(plan.tx.value), data: plan.tx.data, gas: BigInt(plan.tx.gas), maxFeePerGas: BigInt(plan.tx.maxFeePerGas), maxPriorityFeePerGas: BigInt(plan.tx.maxPriorityFeePerGas) };
+    if (plan.authorization) return this.completeAuthorization(userId, id, plan, signature);
+    const tx = txFromPlan(plan);
     if (keccak256(serializeTransaction(tx)) !== plan.payload) throw new Error("stored evm transaction does not match its signing payload");
     const recovered = await recoverAddress({ hash: plan.payload, signature });
     if (recovered.toLowerCase() !== plan.from.toLowerCase()) throw new NearPublicError("chain signature does not recover to the derived address; nothing was broadcast");
@@ -279,6 +318,70 @@ export class ChainSignatures {
 
   private dropped(id: string, nearTx: string | null, plan: EvmPlan, hash: Hex) {
     return { operation_id: id, stage: "evm_dropped", near_transaction_hash: nearTx, evm_network: plan.network, evm_tx_hash: hash, evm: { status: "dropped" }, message: `Another transaction from ${plan.from} used nonce ${plan.tx.nonce}, so this signed transaction can never be mined and nothing moved on ${plan.network}. Only the NEAR signing fee was spent. Prepare a new call if still needed.` };
+  }
+
+  // EIP-7702, step 1 of 2: the MPC signed the authorization tuple. Prove it
+  // recovers to the derived address, then preview and run the NEAR sign() of the
+  // self-sent type-4 transaction carrying it (step 2) under the same confirmation.
+  private async completeAuthorization(userId: string, id: string, plan: EvmPlan, signature: { r: Hex; s: Hex; yParity: number }): Promise<Record<string, unknown>> {
+    const auth = plan.authorization!;
+    if (hashAuthorization(auth) !== plan.payload) throw new Error("stored authorization does not match its signing payload");
+    if ((await recoverAuthorizationAddress({ authorization: auth, signature })).toLowerCase() !== plan.from.toLowerCase()) throw new NearPublicError("authorization signature does not recover to the derived address; nothing was broadcast");
+    const signed: SignedAuth = { ...auth, ...signature };
+    const rpc = this.client(plan.network);
+    const nonce = await rpc.getTransactionCount({ address: plan.from, blockTag: "pending" });
+    if (nonce + 1 !== auth.nonce) {
+      await this.store.update(userId, id, { status: "failed", result: { stage: "authorization_signed", evm_network: plan.network }, error: "derived address nonce moved after the authorization was signed" });
+      return { operation_id: id, stage: "evm_dropped", message: `Another transaction from ${plan.from} changed its nonce, so the signed authorization can no longer be used. Nothing changed on ${plan.network}; only the NEAR signing fee was spent. Prepare the delegation again.` };
+    }
+    const txPlan: EvmPlan = { network: plan.network, chainId: plan.chainId, from: plan.from, path: plan.path, tx: { ...plan.tx, nonce, authorizationList: [signed] }, payload: "0x" };
+    txPlan.payload = keccak256(serializeTransaction(txFromPlan(txPlan)));
+    const signArgs = { request: { path: DERIVATION_PATH, payload_v2: { Ecdsa: txPlan.payload.slice(2) }, domain_id: 0 } };
+    const nearTx = { receiverId: this.accounts.config.mpcContract, actions: [{ type: "function_call" as const, method: "sign", args_base64: Buffer.from(JSON.stringify(signArgs)).toString("base64"), gas: MPC_SIGN_GAS.toString(), deposit: "1" }] };
+    const child = await this.operations.preview(userId, nearTx, "chain_signature", { evm: txPlan, parent_operation_id: id });
+    await this.store.update(userId, id, { status: "confirmed", result: { stage: "authorization_signed", authorization: signed, child_operation_id: child.operation_id, evm_network: plan.network } });
+    const near = await this.operations.execute(userId, child.operation_id, `EIP-7702 ${auth.address === zeroAddress ? "revocation" : "delegation"} transaction for operation ${id}`, "chain_signature", "FINAL");
+    if (near.status !== "confirmed") return { ...near, operation_id: id, child_operation_id: child.operation_id, stage: "near_signature", next: "Call near_operation_status with this operation_id." };
+    return { ...await this.complete(userId, child.operation_id), operation_id: id, child_operation_id: child.operation_id };
+  }
+
+  // Preview of an EIP-7702 delegation to the pinned Simple7702Account (or its
+  // revocation): the MPC signs the authorization, then the type-4 transaction.
+  async prepareDelegation(userId: string, input: z.input<typeof evmDelegationInput>) {
+    const { network, action } = evmDelegationInput.parse(input);
+    const from = await this.fromAddress(userId);
+    const chainId = EVM_CHAINS[network];
+    const rpc = this.client(network);
+    if (await rpc.getChainId() !== chainId) throw new NearPublicError("evm RPC chain ID mismatch");
+    const current = await this.delegation(network, from);
+    const target = action === "delegate" ? SIMPLE_7702_ACCOUNT : zeroAddress;
+    if (action === "delegate" && current?.toLowerCase() === SIMPLE_7702_ACCOUNT.toLowerCase()) throw new NearPublicError(`evm address is already delegated to Simple7702Account on ${network}; nothing to do`);
+    if (action === "revoke" && !current) throw new NearPublicError(`evm address has no delegation on ${network}; nothing to do`);
+    const [nonce, fees, balance] = await Promise.all([rpc.getTransactionCount({ address: from, blockTag: "pending" }), rpc.estimateFeesPerGas(), rpc.getBalance({ address: from })]);
+    const maxPriorityFeePerGas = fees.maxPriorityFeePerGas ?? 0n;
+    const maxFeePerGas = (fees.maxFeePerGas ?? 0n) * 2n + maxPriorityFeePerGas;
+    const maxGasCost = DELEGATION_GAS * maxFeePerGas;
+    if (balance < maxGasCost) throw new NearPublicError(`insufficient ETH on derived address ${from}: needs up to ${formatEther(maxGasCost)} ETH on ${network}, has ${formatEther(balance)}; nothing was signed`);
+    // Self-sponsored: the sender's nonce is consumed before the authorization is processed.
+    const authorization = { address: target, chainId, nonce: nonce + 1 };
+    const payload = hashAuthorization(authorization);
+    const plan: EvmPlan = { network, chainId, from, path: DERIVATION_PATH, tx: { to: from, value: "0", data: "0x", nonce, gas: DELEGATION_GAS.toString(), maxFeePerGas: maxFeePerGas.toString(), maxPriorityFeePerGas: maxPriorityFeePerGas.toString() }, payload, authorization };
+    const signArgs = { request: { path: DERIVATION_PATH, payload_v2: { Ecdsa: payload.slice(2) }, domain_id: 0 } };
+    const nearTx = { receiverId: this.accounts.config.mpcContract, actions: [{ type: "function_call" as const, method: "sign", args_base64: Buffer.from(JSON.stringify(signArgs)).toString("base64"), gas: MPC_SIGN_GAS.toString(), deposit: "1" }] };
+    return this.operations.preview(userId, nearTx, "chain_signature", { evm: plan }, {
+      delegation: {
+        network, action, evm_address: from, current_delegate: current, new_delegate: action === "delegate" ? { address: target, contract: "Simple7702Account (eth-infinitism account-abstraction v0.8)", source: "Sourcify-verified, stateless" } : null,
+        authorization: { chain_id: chainId, address: target, nonce: nonce + 1, signing_payload: payload },
+        transaction: { type: "eip7702", to: from, value_wei: "0", data: "0x", nonce, gas_limit: DELEGATION_GAS.toString(), max_fee_per_gas: maxFeePerGas.toString(), max_evm_network_fee_wei: maxGasCost.toString(), max_evm_network_fee_eth: formatEther(maxGasCost) },
+        steps: ["NEAR sign() #1: the MPC signs this EIP-7702 authorization hash (shown above).", "NEAR sign() #2: the MPC signs the self-sent type-4 transaction carrying it (built right after #1, same nonce and fees).", "Broadcast after both signatures recover to the derived address."],
+        near_fee: "Two sign() calls: up to 2 × max_network_fee_near (about 0.0008 NEAR each in practice).",
+      },
+      warnings: action === "delegate" ? [
+        "The address keeps its key, balances and address; it also runs Simple7702Account code. execute/executeBatch accept calls only from the address itself or from EntryPoint v0.8 with a UserOperation signed by this key (this service never signs UserOperations).",
+        "While delegated, ERC-1271 isValidSignature accepts any raw-hash signature of this key for this address.",
+        "Undo any time with action \"revoke\".",
+      ] : ["After revocation, batches (approve+swap in one transaction) are no longer possible; single calls still work."],
+    });
   }
 
   // Re-broadcast of the persisted signed bytes when the EVM step is uncertain.

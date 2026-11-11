@@ -76,7 +76,7 @@ test("NEAR MCP publishes its own tools and instructions and hides provider error
   const init = await request("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "0" } });
   assert.equal(init.result.instructions, NEAR_INSTRUCTIONS);
   const tools = (await request("tools/list")).result.tools as { name: string; inputSchema: any; annotations?: any }[];
-  assert.deepEqual(tools.map(t => t.name).sort(), ["evm_address_status", "evm_call_execute", "evm_call_prepare", "near_account_status", "near_activity", "near_contract_read", "near_operation_status", "near_transaction_execute", "near_transaction_prepare"]);
+  assert.deepEqual(tools.map(t => t.name).sort(), ["evm_address_status", "evm_batch_prepare", "evm_call_execute", "evm_call_prepare", "evm_delegation_prepare", "near_account_status", "near_activity", "near_contract_read", "near_operation_status", "near_transaction_execute", "near_transaction_prepare"]);
   assert.ok(!tools.some(t => /^(x402|transaction_|smart_wallet)/.test(t.name)), "no Base wallet tools on the NEAR endpoint");
   assert.equal(tools.find(t => t.name === "near_transaction_execute")!.annotations.destructiveHint, true);
   const status = await request("tools/call", { name: "near_account_status", arguments: {} });

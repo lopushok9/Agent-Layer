@@ -9,6 +9,7 @@ import { generatePrivateKey, privateKeyToAccount, sign } from "viem/accounts";
 import { NearAccountService } from "../src/near/account.js";
 import { ChainSignatures, parseMpcSignature, secp256k1KeyToAddress, SIMPLE_7702_ACCOUNT } from "../src/near/chain-signatures.js";
 import { EvmSwaps, UNISWAP_V3 } from "../src/near/swap.js";
+import { hashAuthorization, recoverAuthorizationAddress } from "viem/utils";
 import { loadNearConfig } from "../src/near/config.js";
 import { NearOperations } from "../src/near/operations.js";
 import { NearRpc } from "../src/near/rpc.js";
@@ -306,4 +307,57 @@ test("swap without allowance: approve first on a plain EOA; approve+swap atomica
   // A batch to an address delegated elsewhere is refused.
   w.evm.delegatedTo = "0x000000009B1D0aF20D8C6d0A44e162d11F9b8f00";
   await assert.rejects(swaps.prepare("u", { network: "base", token_in: USDC, token_out: "ETH", amount_in: "100000" }).then(r => { if ((r as any).swap.step === "approval_required") throw new Error("needs delegation"); }), /needs delegation/);
+});
+
+test("EIP-7702 delegation: MPC signs the pinned authorization, then the self-sent type-4 transaction carrying it", async () => {
+  const w = world();
+  const p = await w.chainSigs.prepareDelegation("u", { network: "base" }) as any;
+  assert.equal(p.delegation.new_delegate.address, SIMPLE_7702_ACCOUNT);
+  assert.deepEqual({ chainId: p.delegation.authorization.chain_id, address: p.delegation.authorization.address, nonce: p.delegation.authorization.nonce }, { chainId: 8453, address: SIMPLE_7702_ACCOUNT, nonce: 6 }, "self-sponsored: tx nonce 5, authorization nonce 6");
+  assert.equal(p.actions[0].args.request.payload_v2.Ecdsa, hashAuthorization({ chainId: 8453, address: SIMPLE_7702_ACCOUNT, nonce: 6 }).slice(2));
+  const r = await w.chainSigs.execute("u", p.operation_id, "enable batches") as any;
+  assert.equal(r.stage, "evm_submitted");
+  assert.equal(w.near.signs.length, 2, "authorization, then transaction");
+  const tx = parseTransaction(w.evm.sent[0]!) as any;
+  assert.equal(tx.type, "eip7702");
+  assert.equal(tx.nonce, 5);
+  assert.equal(tx.to.toLowerCase(), w.mpc.address.toLowerCase());
+  assert.equal(getAddress(tx.authorizationList[0].address), SIMPLE_7702_ACCOUNT);
+  assert.equal(tx.authorizationList[0].nonce, 6);
+  assert.equal((await recoverAuthorizationAddress({ authorization: tx.authorizationList[0] })).toLowerCase(), w.mpc.address.toLowerCase());
+  assert.equal(`0x${w.near.signs[1]!.payload}`, keccak256(serializeTransaction({ ...tx, r: undefined, s: undefined, v: undefined, yParity: undefined })));
+  // Status of the parent follows the child transaction.
+  w.evm.receipts.add(r.evm_tx_hash);
+  const s = await w.chainSigs.operationStatus("u", p.operation_id) as any;
+  assert.equal(s.stage, "evm_final");
+  assert.equal(s.child_operation_id, r.child_operation_id);
+  // Already delegated / nothing to revoke.
+  w.evm.delegatedTo = SIMPLE_7702_ACCOUNT;
+  await assert.rejects(w.chainSigs.prepareDelegation("u", { network: "base" }), /already delegated/);
+  const revoke = await w.chainSigs.prepareDelegation("u", { network: "base", action: "revoke" }) as any;
+  assert.equal(revoke.delegation.authorization.address, "0x0000000000000000000000000000000000000000");
+  w.evm.delegatedTo = null;
+  await assert.rejects(w.chainSigs.prepareDelegation("u", { network: "base", action: "revoke" }), /no delegation/);
+});
+
+test("EIP-7702: a nonce change between the two signatures drops the operation without broadcasting", async () => {
+  const w = world();
+  const p = await w.chainSigs.prepareDelegation("u", { network: "base" }) as any;
+  const orig = w.near.signs.push.bind(w.near.signs);
+  w.near.signs.push = (...items: any[]) => { w.evm.nonce = 6; return orig(...items); };
+  const r = await w.chainSigs.execute("u", p.operation_id, "x") as any;
+  assert.equal(r.stage, "evm_dropped");
+  assert.equal(w.evm.sent.length, 0);
+  assert.equal(w.near.signs.length, 1);
+});
+
+test("evm batch: approve + supply run atomically only under the pinned delegation", async () => {
+  const w = world({ contracts: verifiedErc20 });
+  const calls = [{ to: USDC, function_name: "approve", args: ["0xA238Dd80C259a72e81d7e4664a9801593F98d1c5", "100000"] }, { to: USDC, function_name: "transfer", args: ["0x000000000000000000000000000000000000dEaD", "1"] }];
+  await assert.rejects(w.chainSigs.prepareBatch("u", { network: "base", calls }), /delegated \(EIP-7702\).*Nothing was signed/);
+  w.evm.delegatedTo = SIMPLE_7702_ACCOUNT;
+  const p = await w.chainSigs.prepareBatch("u", { network: "base", calls }) as any;
+  assert.equal(p.evm_transaction.kind, "eip7702_execute_batch");
+  assert.deepEqual(p.evm_calls.map((c: any) => c.function), ["approve", "transfer"]);
+  assert.equal((await w.chainSigs.execute("u", p.operation_id, "batch") as any).stage, "evm_submitted");
 });
