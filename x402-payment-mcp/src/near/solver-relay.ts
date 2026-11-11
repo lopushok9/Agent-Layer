@@ -123,7 +123,9 @@ export class IntentsTrades {
   constructor(private accounts: NearAccountService, private store: NearStore, private intents: NearIntents, private relay = new SolverRelayClient(), private now: () => number = Date.now) {}
   private get rpc() { return this.accounts.rpc; }
   private async view(contract: string, method: string, args: unknown) { return (await this.rpc.callFunction(contract, method, args)).result; }
-  private fingerprint(accountId: string, publicKey: string, plan: unknown) { return createHash("sha256").update(JSON.stringify(["intents-signed:v2", accountId, publicKey, plan])).digest("hex"); }
+  // Plans round-trip through Postgres jsonb, which reorders object keys, so the
+  // binding hashes a key-sorted encoding.
+  private fingerprint(accountId: string, publicKey: string, plan: unknown) { return createHash("sha256").update(canonicalJson(["intents-signed:v2", accountId, publicKey, plan])).digest("hex"); }
 
   private async bestQuote(tokenIn: string, tokenOut: string, amountIn: string) {
     const quotes = await this.relay.quote(tokenIn, tokenOut, amountIn);
@@ -365,6 +367,12 @@ export class IntentsTrades {
     }
     return { ...base, status: "submitted", relay_status: relay?.status ?? "unavailable", deadline, message: "Waiting for settlement; check again shortly." };
   }
+}
+
+export function canonicalJson(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(",")}]`;
+  if (v && typeof v === "object") return `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${canonicalJson((v as Record<string, unknown>)[k])}`).join(",")}}`;
+  return JSON.stringify(v) ?? "null";
 }
 
 export function formatUnits(v: bigint, decimals: number): string {

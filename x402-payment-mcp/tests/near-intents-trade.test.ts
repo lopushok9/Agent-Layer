@@ -222,3 +222,15 @@ test("1Click from the intents balance: ONE signed transfer intent to the deposit
   await assert.rejects(trades.execute("u1", p2.operation_id, "x", "oneclick"), /deadline is too close/);
   assert.equal(w.published.length, 1);
 });
+
+test("binding survives Postgres jsonb key reordering of the stored plan", async () => {
+  const w = world();
+  const { trades, ops, init } = setup(w);
+  await init("u1");
+  const p: any = await trades.prepareWithdraw("u1", { asset: "NEAR", amount: "1000" });
+  const op = ops.get(p.operation_id)!;
+  const reorder = (x: any): any => Array.isArray(x) ? x.map(reorder) : x && typeof x === "object" ? Object.fromEntries(Object.entries(x).reverse().map(([k, v]) => [k, reorder(v)])) : x;
+  (op as any).plan = reorder(op.plan);
+  const r: any = await trades.execute("u1", p.operation_id, "x", "withdraw");
+  assert.equal(r.status, "confirmed");
+});
