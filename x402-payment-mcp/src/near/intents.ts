@@ -33,6 +33,7 @@ export type OneClickQuote = {
 
 export class OneClickClient {
   private cache: { at: number; tokens: OneClickToken[] } | null = null;
+  private inflight: Promise<OneClickToken[]> | null = null;
   constructor(private base = ONECLICK_URL, private fetcher: typeof fetch = globalThis.fetch, private jwt?: string) {}
 
   private async request<T>(path: string, init?: { method: "POST"; body: unknown }): Promise<T> {
@@ -52,8 +53,14 @@ export class OneClickClient {
     return body as T;
   }
 
-  async tokens(): Promise<OneClickToken[]> {
-    if (this.cache && Date.now() - this.cache.at < 300_000) return this.cache.tokens;
+  // Concurrent callers share one fetch of the list.
+  tokens(): Promise<OneClickToken[]> {
+    if (this.cache && Date.now() - this.cache.at < 300_000) return Promise.resolve(this.cache.tokens);
+    this.inflight ??= this.fetchTokens().finally(() => { this.inflight = null; });
+    return this.inflight;
+  }
+
+  private async fetchTokens(): Promise<OneClickToken[]> {
     const raw = await this.request<unknown[]>("/v0/tokens");
     if (!Array.isArray(raw)) throw new NearPublicError("intents: unexpected 1Click token list; nothing was signed");
     const tokens = raw.flatMap(t => {
@@ -101,6 +108,8 @@ const MT_TRANSFER_GAS = 15n * GAS_PER_TGAS, FT_CALL_GAS = 50n * GAS_PER_TGAS, WI
 export class NearIntents {
   constructor(private accounts: NearAccountService, private operations: NearOperations, private store: NearStore, private cs: ChainSignatures | null, private client = new OneClickClient(), private now: () => number = Date.now) {}
   private get rpc() { return this.accounts.rpc; }
+  // The 1Click token list (cached): metadata and USD prices for other readers.
+  catalog() { return this.client.tokens(); }
 
   async tokens(input: z.infer<typeof intentsTokensInput>) {
     const b = input.blockchain?.toLowerCase(), s = input.symbol?.toUpperCase();

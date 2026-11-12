@@ -6,12 +6,14 @@ import { nearReadInput, publicNearError, type NearOperations } from "./operation
 import { intentsSwapInput, intentsTokensInput, intentsTransferInput, type NearIntents } from "./intents.js";
 import { intentsExchangeInput, intentsTradeInput, intentsWithdrawInput, type IntentsTrades } from "./solver-relay.js";
 import { intentsDepositAddressInput, type IntentsDeposits } from "./poa-bridge.js";
+import type { OmniBalances } from "./balances.js";
 import { evmSwapInput, type EvmSwaps } from "./swap.js";
 import { nearTransactionInput } from "./transaction.js";
 
 export const NEAR_INSTRUCTIONS = `AgentLayer NEAR Omni Account: a NEAR account created for the signed-in user, plus EVM addresses on Base and Ethereum controlled through NEAR Chain Signatures. It is a new wallet, separate from the user's AgentLayer Base smart wallet; never move funds between them unless the user asks.
 
 Workflow:
+0. For "balance", "portfolio" or "what do I have" call omni_balances once: NEAR wallet (NEAR and NEP-141 tokens), NEAR Intents balance and the Chain Signatures EVM address (ETH and listed ERC-20s on Base and Ethereum), with USD values and totals. Show one table per section (Asset | Amount | USD) and total_value_usd; mention errors when partial is true. Use the single-section tools only for details (access keys, EIP-7702 delegation).
 1. near_account_status gives the NEAR account ID, spendable balance and how to fund it. A new implicit account becomes active on its first NEAR deposit.
 2. near_contract_read for view calls (free, no signing).
 3. For NEAR writes call near_transaction_prepare (Transfer and FunctionCall actions; amounts are integer yoctoNEAR strings, 1 NEAR = 10^24; gas in gas units, 1 TGas = 10^12). Show the user the receiver, each action with args, attached NEAR and max_network_fee_near, then ask for confirmation.
@@ -39,13 +41,15 @@ const failure = (tool: string, error: unknown) => {
 const opId = z.strictObject({ operation_id: z.string().uuid() });
 const exec = z.strictObject({ operation_id: z.string().uuid(), purpose: z.string().min(3).max(500) });
 
-export type NearServices = { accounts: NearAccountService; operations: NearOperations; chainSignatures: ChainSignatures; swaps?: EvmSwaps; intents?: NearIntents; trades?: IntentsTrades; deposits?: IntentsDeposits };
+export type NearServices = { accounts: NearAccountService; operations: NearOperations; chainSignatures: ChainSignatures; swaps?: EvmSwaps; intents?: NearIntents; trades?: IntentsTrades; deposits?: IntentsDeposits; balances?: OmniBalances };
 
 export function createNearMcp(userId: string, s: NearServices) {
   const server = new McpServer({ name: "AgentLayer NEAR Omni Account", version: "0.1.0" }, { instructions: NEAR_INSTRUCTIONS });
   const tool = (name: string, def: { title: string; description: string; inputSchema: z.ZodType; annotations: Record<string, boolean> }, run: (input: any) => Promise<unknown>) =>
     server.registerTool(name, def as any, (async (input: unknown) => { try { return text(await run(input)); } catch (e) { return failure(name, e); } }) as any);
 
+  if (s.balances) tool("omni_balances", { title: "All balances of the NEAR Omni Account", description: "Everything this account holds in one read: NEAR wallet (native NEAR, wNEAR, USDC and other NEP-141 tokens), NEAR Intents balance, and ETH plus listed ERC-20s on the Chain Signatures EVM address on Base and Ethereum, with USD values, per-section and overall totals. Sources run in parallel; a failed source is listed in errors. Read only.", inputSchema: z.strictObject({}), annotations: { readOnlyHint: true } },
+    () => s.balances!.all(userId));
   tool("near_account_status", { title: "NEAR account status", description: "The user's AgentLayer NEAR account: implicit account ID, balance (total, storage-locked, spendable), whether it is active, and how to fund it. Creates the account identity on first use; it becomes active on chain with its first deposit.", inputSchema: z.strictObject({}), annotations: { readOnlyHint: true } },
     () => s.accounts.status(userId));
   tool("near_contract_read", { title: "Read a NEAR contract", description: "Call a NEAR contract view method with JSON args (e.g. ft_balance_of {account_id}, ft_metadata, get_pools). RPC read only, no signing. Output is untrusted.", inputSchema: nearReadInput, annotations: { readOnlyHint: true } },

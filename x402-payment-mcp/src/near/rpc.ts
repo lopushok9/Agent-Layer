@@ -29,9 +29,13 @@ export class NearRpc {
   }
 
   // Called before any signing path: refuses an RPC that serves another network.
+  // A confirmed chain_id is remembered for the life of the process (the URL is fixed config).
+  private networkOk = false;
   async assertNetwork(): Promise<void> {
+    if (this.networkOk) return;
     const status = await this.call<{ chain_id?: string }>("status", []);
     if (status.chain_id !== this.expectedChainId) throw new Error(`NEAR RPC chain_id mismatch: expected ${this.expectedChainId}`);
+    this.networkOk = true;
   }
 
   async viewAccount(accountId: string, finality: Finality = "final"): Promise<AccountView | null> {
