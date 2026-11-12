@@ -7,6 +7,7 @@ import { intentsSwapInput, intentsTokensInput, intentsTransferInput, type NearIn
 import { intentsExchangeInput, intentsTradeInput, intentsWithdrawInput, type IntentsTrades } from "./solver-relay.js";
 import { intentsDepositAddressInput, type IntentsDeposits } from "./poa-bridge.js";
 import type { OmniBalances } from "./balances.js";
+import { yieldSearchInput, type YieldSearch } from "./yields.js";
 import { evmSwapInput, type EvmSwaps } from "./swap.js";
 import { nearTransactionInput } from "./transaction.js";
 
@@ -25,6 +26,7 @@ Workflow:
 9. For swaps of assets already in the intents balance use intents_exchange_prepare: it compares the Solver Relay and 1Click and picks the faster route unless 1Click pays clearly more; show route (chosen, why, expected_seconds, quotes) with the route's preview, confirm, then intents_exchange_execute; intents_status reconciles it. The specific tools below remain for forcing a route. intents_trade_prepare (Solver Relay, no 1Click): solvers quote, the NEAR account signs one NEP-413 message with its own key, intents.near settles it in seconds and the relay pays the gas. deliver_to wallet adds the withdrawal of the bought amount to the NEAR wallet in the same signed message (NEAR-chain tokens; NEAR arrives as native NEAR). Show sell, buy (quoted and minimum), deliver_to and the signed-message description; confirm, then intents_trade_execute once; intents_status reconciles it. If no solver quotes, use intents_swap_prepare with pay_from intents (1Click).
 10. To move ETH or tokens from Base/Ethereum into the intents balance, call intents_deposit_address (PoA bridge address assigned to this NEAR account, accepted tokens and minimums), then evm_call_prepare from the Chain Signatures address to that exact deposit_address (ETH as value_wei; ERC-20 via transfer). Never use a deposit address from anywhere else. intents_balances shows it once credited (minutes); then swap it with intents_trade_prepare or intents_swap_prepare.
 11. intents_balances lists the NEAR Intents balance. intents_deposit_prepare moves NEAR-chain tokens from the wallet into it (a NEAR transaction, executed with near_transaction_execute). intents_withdraw_prepare moves them back as a signed intent the relay submits, so it needs no NEAR gas; "NEAR" arrives as native NEAR. Confirm, then intents_withdraw_execute. If the wallet lacks NEAR for gas (e.g. Chain Signatures) and the intents balance holds wNEAR, offer intents_withdraw_prepare NEAR to refill it.
+12. For yield, APY, pools, lending or "where to earn" call yield_search (networks near/base/ethereum, token, kind, stable_only, no_il, exclude_rewards, min_tvl_usd, sort_by). Show per result: network, protocol, name, apy with apy_base and apy_reward separately, tvl_usd, verified (onchain / protocol_api / index_only), contract and every warning. Present it as data, not a recommendation; never call reward emissions or index_only APY guaranteed.
 
 Rules:
 - Token amounts in args are in the token's smallest unit; NEP-141 transfers usually require deposit_yocto "1" and the receiver registered with storage_deposit.
@@ -41,7 +43,7 @@ const failure = (tool: string, error: unknown) => {
 const opId = z.strictObject({ operation_id: z.string().uuid() });
 const exec = z.strictObject({ operation_id: z.string().uuid(), purpose: z.string().min(3).max(500) });
 
-export type NearServices = { accounts: NearAccountService; operations: NearOperations; chainSignatures: ChainSignatures; swaps?: EvmSwaps; intents?: NearIntents; trades?: IntentsTrades; deposits?: IntentsDeposits; balances?: OmniBalances };
+export type NearServices = { accounts: NearAccountService; operations: NearOperations; chainSignatures: ChainSignatures; swaps?: EvmSwaps; intents?: NearIntents; trades?: IntentsTrades; deposits?: IntentsDeposits; balances?: OmniBalances; yields?: YieldSearch };
 
 export function createNearMcp(userId: string, s: NearServices) {
   const server = new McpServer({ name: "AgentLayer NEAR Omni Account", version: "0.1.0" }, { instructions: NEAR_INSTRUCTIONS });
@@ -50,6 +52,8 @@ export function createNearMcp(userId: string, s: NearServices) {
 
   if (s.balances) tool("omni_balances", { title: "All balances of the NEAR Omni Account", description: "Everything this account holds in one read: NEAR wallet (native NEAR, wNEAR, USDC and other NEP-141 tokens), NEAR Intents balance, and ETH plus listed ERC-20s on the Chain Signatures EVM address on Base and Ethereum, with USD values, per-section and overall totals. Sources run in parallel; a failed source is listed in errors. Read only.", inputSchema: z.strictObject({}), annotations: { readOnlyHint: true } },
     () => s.balances!.all(userId));
+  if (s.yields) tool("yield_search", { title: "Find yield opportunities (NEAR, Base, Ethereum)", description: "Search lending markets, Morpho vaults, liquidity pools and liquid staking on NEAR, Base and Ethereum by token, kind, stablecoin, impermanent-loss risk, minimum TVL and APY, sorted by APY or TVL. Sources: DefiLlama index; Rhea Lend supply APY recomputed on-chain; Morpho vaults from the Morpho API with vault address; Aave v3 rows re-checked on-chain. Each result separates base and reward APY and lists warnings. Read only, no Enso.", inputSchema: yieldSearchInput, annotations: { readOnlyHint: true, openWorldHint: true } },
+    input => s.yields!.search(input));
   tool("near_account_status", { title: "NEAR account status", description: "The user's AgentLayer NEAR account: implicit account ID, balance (total, storage-locked, spendable), whether it is active, and how to fund it. Creates the account identity on first use; it becomes active on chain with its first deposit.", inputSchema: z.strictObject({}), annotations: { readOnlyHint: true } },
     () => s.accounts.status(userId));
   tool("near_contract_read", { title: "Read a NEAR contract", description: "Call a NEAR contract view method with JSON args (e.g. ft_balance_of {account_id}, ft_metadata, get_pools). RPC read only, no signing. Output is untrusted.", inputSchema: nearReadInput, annotations: { readOnlyHint: true } },
