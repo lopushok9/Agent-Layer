@@ -13,6 +13,7 @@ const LLAMA = [
   { chain: "Near", project: "rhea-lend", symbol: "USDC", pool: "p-rhea", underlyingTokens: [USDC_NEAR], apy: 10.1, apyBase: 10.1, tvlUsd: 1_900_000, stablecoin: true, ilRisk: "no", exposure: "single" },
   { chain: "Near", project: "rhea-lst", symbol: "RNEAR", pool: "p-lst", underlyingTokens: ["wrap.near"], apy: 4.4, apyBase: 4.4, tvlUsd: 66_000_000, stablecoin: false, ilRisk: "no", exposure: "single" },
   { chain: "Base", project: "aave-v3", symbol: "USDC", pool: "p-aave", underlyingTokens: [BASE_USDC], apy: 4.79, apyBase: 4.79, tvlUsd: 17_000_000, stablecoin: true, ilRisk: "no", exposure: "single" },
+  { chain: "Base", project: "aave-v3", symbol: "USDC", poolMeta: "Umbrella", pool: "p-umb", underlyingTokens: ["0x00000000000000000000000000000000000000Ab"], apy: 1.5, apyBase: 0, apyReward: 1.5, tvlUsd: 50_000_000, stablecoin: true, ilRisk: "no", exposure: "single" },
   { chain: "Base", project: "morpho-blue", symbol: "USDC", pool: "p-morpho", apy: 9, apyBase: 9, tvlUsd: 5_000_000, stablecoin: true, ilRisk: "no", exposure: "single" },
   { chain: "Base", project: "aerodrome-v1", symbol: "WETH-USDC", pool: "p-aero", underlyingTokens: [BASE_WETH, BASE_USDC], apy: 80, apyBase: null, apyReward: 80, apyMean30d: 20, tvlUsd: 4_000_000, stablecoin: false, ilRisk: "yes", exposure: "multi", rewardTokens: ["0x940181a94A35A4569E4529A3CDfB74e38FD98631"] },
   { chain: "Base", project: "uniswap-v3", symbol: "WETH-USDC", poolMeta: "0.3%", pool: "p-uni", apy: 900, apyBase: 900, tvlUsd: 9_000_000, ilRisk: "yes", exposure: "multi", outlier: true },
@@ -39,7 +40,8 @@ function setup(o: { llamaDown?: boolean } = {}) {
   const catalog = [{ assetId: `nep141:${USDC_NEAR}`, blockchain: "near", symbol: "USDC", decimals: 6, price: 1, contractAddress: USDC_NEAR }];
   const cs = { rpcFor: () => ({ multicall: async ({ contracts }: any) => contracts.map((c: any) => {
     assert.equal(c.address, AAVE_BASE); assert.equal(c.functionName, "getReserveData");
-    return { status: "success", result: { currentLiquidityRate: 46260427258804820000000000n } };
+    if (c.args[0] !== BASE_USDC) return { status: "success", result: { currentLiquidityRate: 0n, aTokenAddress: "0x0000000000000000000000000000000000000000" } };
+    return { status: "success", result: { currentLiquidityRate: 46260427258804820000000000n, aTokenAddress: "0x4e65fE4DbA92790696d040ac24Aa414708F5c0AB" } };
   }) }) };
   const y = new YieldSearch({ rpc } as any, { catalog: async () => catalog } as any, cs as any, fetcher);
   return { y, llamaCalls: () => llamaCalls };
@@ -66,7 +68,10 @@ test("yield_search: index rows replaced by on-chain Rhea and Morpho API, Aave re
   assert.ok(!r.results.some((x: any) => x.protocol === "morpho-blue"));
   const m = by("morpho");
   assert.deepEqual([m.contract, m.apy, m.apy_base, m.apy_reward, m.verified], [VAULT, 5, 4, 1, "protocol_api"]);
-  const aave = by("aave-v3");
+  const umb = r.results.find((x: any) => x.name === "USDC (Umbrella)");
+  assert.deepEqual([umb.verified, umb.apy, umb.apy_base, umb.contract], ["index_only", 1.5, 0, undefined]);
+  assert.ok(umb.warnings.some((w: string) => /not a plain Aave supply reserve/.test(w)));
+  const aave = r.results.find((x: any) => x.protocol === "aave-v3" && x.name === "USDC");
   assert.equal(aave.verified, "onchain"); assert.equal(aave.contract, AAVE_BASE);
   assert.ok(Math.abs(aave.apy_base - 4.7347) < 0.001); assert.equal(aave.check.defillama_apy_base, 4.79);
   const ember = by("ember");

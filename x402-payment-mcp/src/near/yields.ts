@@ -255,7 +255,10 @@ export class YieldSearch {
       results.forEach((res, i) => {
         const r = list[i]!;
         if (res.status !== "success") return;
-        const rate = (res.result as { currentLiquidityRate: bigint }).currentLiquidityRate;
+        const data = res.result as { currentLiquidityRate: bigint; aTokenAddress: string };
+        // Not a reserve of this Pool (e.g. Umbrella staking rows): all fields are zero.
+        if (!data.aTokenAddress || /^0x0{40}$/i.test(data.aTokenAddress)) { r.warnings.push("not a plain Aave supply reserve; APY from the index only"); return; }
+        const rate = data.currentLiquidityRate;
         const apr = Number(rate * 1_000_000n / RAY) / 1e6;
         const apy = round((Math.pow(1 + apr / S_PER_YEAR, S_PER_YEAR) - 1) * 100, 4);
         r.check = { ...r.check, onchain_supply_apy: apy, defillama_apy_base: r.apy_base };
