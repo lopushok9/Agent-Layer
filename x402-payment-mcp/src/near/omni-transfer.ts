@@ -81,6 +81,12 @@ export class OmniTransfer {
     }
     if (p.from === "intents") {
       if (!this.trades) throw new NearPublicError("the Solver Relay is not configured; nothing was signed");
+      if ((p.to === "base" || p.to === "ethereum") && same) {
+        if (!this.deposits || !this.cs) throw new NearPublicError("the PoA bridge or Chain Signatures is not configured; nothing was signed");
+        const terms = await this.deposits.withdrawTerms(p.to, origin.assetId);
+        const to = await this.cs.fromAddress(userId);
+        return summary("poa_withdraw", `one signed ft_withdraw intent (relay, no NEAR gas) to the PoA bridge, which pays out on ${p.to} to this account's EVM address minus its fee`, await this.trades.preparePoaWithdraw(userId, { asset_id: origin.assetId, amount, to, network: p.to, terms }));
+      }
       if (p.to === "near" && same) return summary("intents_to_wallet", "one signed withdraw intent submitted by the Solver Relay (no NEAR gas); NEAR arrives as native NEAR", await this.trades.prepareWithdraw(userId, { asset: dest.assetId === "nep141:wrap.near" ? "NEAR" : dest.assetId, amount: amount.toString() }));
       return summary("oneclick_from_intents", "1Click paid from the intents balance: one signed transfer intent submitted by the Solver Relay (no NEAR gas)", await this.trades.prepareOneClick(userId, { origin_asset: origin.assetId, destination_asset: dest.assetId, amount: amount.toString(), pay_from: "intents", deliver_to: deliver, slippage_bps: p.slippage_bps }));
     }

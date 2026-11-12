@@ -29,9 +29,9 @@ function setup(held: { asset_id: string; symbol: string }[] = []) {
     prepareDeposit: rec("prepareDeposit"), prepare: rec("intents.prepare"),
     quoteFromEvm: async (_u: string, p: any) => { calls.push(["quoteFromEvm", p]); return { from: EVM, plan: { deposit_address: DEP }, description: { protocol: "near_intents_1click" } }; },
   };
-  const trades: any = { prepareWithdraw: rec("trades.prepareWithdraw"), prepareOneClick: rec("trades.prepareOneClick") };
-  const cs: any = { prepare: async (_u: string, input: any, extra: any, planExtra: any) => { calls.push(["cs.prepare", input, extra, planExtra]); return { operation_id: "x", kind: "chain_signature" }; } };
-  const deposits: any = { depositAddress: async () => ({ deposit_address: POA, credited_to: `NEAR Intents balance of ${SELF}`, tokens: [{ intents_asset_id: "nep141:base-usdc.omft.near", min_deposit: "1000", min_deposit_formatted: "0.001" }] }) };
+  const trades: any = { prepareWithdraw: rec("trades.prepareWithdraw"), prepareOneClick: rec("trades.prepareOneClick"), preparePoaWithdraw: rec("trades.preparePoaWithdraw") };
+  const cs: any = { fromAddress: async () => EVM, prepare: async (_u: string, input: any, extra: any, planExtra: any) => { calls.push(["cs.prepare", input, extra, planExtra]); return { operation_id: "x", kind: "chain_signature" }; } };
+  const deposits: any = { withdrawTerms: async (network: string, id: string) => { calls.push(["withdrawTerms", network, id]); return { token: "base.omft.near", symbol: "ETH", decimals: 18, fee: 560000000000n, min: 1n }; }, depositAddress: async () => ({ deposit_address: POA, credited_to: `NEAR Intents balance of ${SELF}`, tokens: [{ intents_asset_id: "nep141:base-usdc.omft.near", min_deposit: "1000", min_deposit_formatted: "0.001" }] }) };
   return { t: new OmniTransfer({} as any, {} as any, {} as any, intents, trades, cs, deposits), calls };
 }
 
@@ -74,9 +74,19 @@ test("omni_transfer from Base: ETH to the NEAR wallet is one native transfer to 
 
 test("omni_transfer from intents: a bare symbol picks what the intents balance holds; several matches need the asset id", async () => {
   const one = setup([{ asset_id: "nep141:base.omft.near", symbol: "ETH" }]);
-  const r: any = await one.t.prepare("u1", { from: "intents", to: "base", asset: "ETH", amount: "0.001" });
+  const r: any = await one.t.prepare("u1", { from: "intents", to: "base", asset: "ETH", amount: "0.001", receive_asset: "USDC" });
   assert.equal(r.omni_transfer.route, "oneclick_from_intents");
   assert.equal(one.calls.at(-1)![1].origin_asset, "nep141:base.omft.near");
   const two = setup([{ asset_id: "nep141:usdc.near", symbol: "USDC" }, { asset_id: "nep141:base-usdc.omft.near", symbol: "USDC" }]);
   await assert.rejects(two.t.prepare("u1", { from: "intents", to: "near", asset: "USDC", amount: "1" }), /several USDC/);
+});
+
+test("omni_transfer intents -> base of the same bridged token is a PoA withdraw to this account's EVM address (1Click would refuse same asset)", async () => {
+  const { t, calls } = setup([{ asset_id: "nep141:base.omft.near", symbol: "ETH" }]);
+  const r: any = await t.prepare("u1", { from: "intents", to: "base", asset: "ETH", amount: "0.0002" });
+  assert.equal(r.omni_transfer.route, "poa_withdraw");
+  assert.deepEqual(calls.find(c => c[0] === "withdrawTerms")!.slice(1), ["base", "nep141:base.omft.near"]);
+  const w = calls.at(-1)!;
+  assert.equal(w[0], "trades.preparePoaWithdraw");
+  assert.equal(w[1].to, EVM); assert.equal(w[1].amount, 200000000000000n); assert.equal(w[1].asset_id, "nep141:base.omft.near");
 });

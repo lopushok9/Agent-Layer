@@ -265,3 +265,20 @@ test("auto route: wallet delivery through 1Click is refused when the wallet is n
   await init("u1");
   await assert.rejects(trades.prepareAuto("u1", { token_in: "NEAR", token_out: "USDC@near", amount_in: ONE, deliver_to: "wallet" }), /only 1Click quotes this pair.*deliver_to intents/);
 });
+
+test("PoA withdraw: ONE relayed ft_withdraw to the omft token itself with memo WITHDRAW_TO:<evm>; fee-sized amounts refused", async () => {
+  const w = world();
+  w.balance["nep141:base.omft.near"] = "293653298058670";
+  const { trades, init } = setup(w);
+  await init("u1");
+  const EVM = "0xF9B83E2b759D9C92461a0fb569C1CC2deEDC15b9";
+  const terms = { token: "base.omft.near", symbol: "ETH", decimals: 18, fee: 560000000000n, min: 1n };
+  const p: any = await trades.preparePoaWithdraw("u1", { asset_id: "nep141:base.omft.near", amount: 293653298058670n, to: EVM, network: "base", terms });
+  assert.equal(p.bridge_withdraw.arrives, "0.00029309329805867");
+  const r: any = await trades.execute("u1", p.operation_id, "back to base");
+  assert.equal(r.status, "confirmed");
+  const { msg } = signedOf(w);
+  assert.deepEqual(msg.intents, [{ intent: "ft_withdraw", token: "base.omft.near", receiver_id: "base.omft.near", amount: "293653298058670", memo: `WITHDRAW_TO:${EVM}` }]);
+  await assert.rejects(trades.preparePoaWithdraw("u1", { asset_id: "nep141:base.omft.near", amount: 560000000000n, to: EVM, network: "base", terms }), /exceed the bridge fee/);
+  await assert.rejects(trades.preparePoaWithdraw("u1", { asset_id: "nep141:base.omft.near", amount: 10n ** 18n, to: EVM, network: "base", terms }), /intents balance holds/);
+});

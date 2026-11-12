@@ -18,7 +18,7 @@ export const intentsDepositAddressInput = z.strictObject({
   asset: z.string().min(1).max(20).optional().describe("Filter by symbol, e.g. ETH or USDC"),
 });
 
-type BridgeToken = { defuse_asset_identifier: string; origin_chain_address: string; decimals: number; asset_name: string; min_deposit_amount: string; intents_token_id: string };
+type BridgeToken = { defuse_asset_identifier: string; origin_chain_address: string; decimals: number; asset_name: string; min_deposit_amount: string; intents_token_id: string; near_token_id?: string; min_withdrawal_amount?: string; withdrawal_fee?: string };
 
 export class PoaBridgeClient {
   constructor(private url = POA_BRIDGE_URL, private fetcher: typeof fetch = globalThis.fetch) {}
@@ -36,6 +36,21 @@ export class PoaBridgeClient {
 
 export class IntentsDeposits {
   constructor(private accounts: NearAccountService, private cs: ChainSignatures | null, private bridge = new PoaBridgeClient()) {}
+
+  // Withdrawal terms for a bridged (omft) token back to its EVM chain: the
+  // intents ft_withdraw goes to the token contract itself with memo
+  // WITHDRAW_TO:<address>; the bridge sends amount - withdrawal_fee.
+  async withdrawTerms(network: keyof typeof CHAINS, intentsAssetId: string) {
+    const chain = CHAINS[network];
+    const list = await this.bridge.supportedTokens(chain);
+    const t = (Array.isArray(list.tokens) ? list.tokens : []).find(x => (x as BridgeToken)?.intents_token_id === intentsAssetId) as BridgeToken | undefined;
+    if (!t || !t.defuse_asset_identifier?.startsWith(`${chain}:`)) throw new NearPublicError(`intents: the PoA bridge does not withdraw ${intentsAssetId.slice(0, 80)} to ${network}; nothing was signed`);
+    const token = intentsAssetId.slice("nep141:".length);
+    if (t.near_token_id !== token || !/\.omft\.near$/.test(token)) throw new NearPublicError("intents: unexpected PoA bridge token data; nothing was signed");
+    const fee = String(t.withdrawal_fee ?? ""), min = String(t.min_withdrawal_amount ?? "1");
+    if (!UINT.test(fee) || !UINT.test(min)) throw new NearPublicError("intents: the PoA bridge did not report its withdrawal fee; nothing was signed");
+    return { token, symbol: t.asset_name.replace(/[^\x20-\x7e]/g, "?").slice(0, 20), decimals: t.decimals, fee: BigInt(fee), min: BigInt(min) };
+  }
 
   async depositAddress(userId: string, input: z.input<typeof intentsDepositAddressInput>) {
     const p = intentsDepositAddressInput.parse(input);

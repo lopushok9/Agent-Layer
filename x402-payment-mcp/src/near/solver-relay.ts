@@ -62,7 +62,8 @@ export function tokenDiffMessage(signerId: string, deadline: string, diff: Recor
 // Moves `amount` of a NEAR-chain token from the intents balance to `receiver`:
 // wNEAR arrives as native NEAR (no storage needed); other NEP-141 tokens via
 // ft_transfer, which intents.near refunds to the intents balance if it fails.
-export function withdrawIntent(assetId: string, amount: string, receiver: string, storageDeposit?: string): IntentJson {
+export function withdrawIntent(assetId: string, amount: string, receiver: string, storageDeposit?: string, memo?: string): IntentJson {
+  if (memo) return { intent: "ft_withdraw", token: assetId.slice("nep141:".length), receiver_id: receiver, amount, memo };
   if (assetId === WNEAR_ID) return { intent: "native_withdraw", receiver_id: receiver, amount };
   if (!assetId.startsWith("nep141:")) throw new Error("only NEP-141 tokens can be withdrawn to a NEAR account");
   return { intent: "ft_withdraw", token: assetId.slice("nep141:".length), receiver_id: receiver, amount, ...(storageDeposit ? { storage_deposit: storageDeposit } : {}), min_gas: FT_WITHDRAW_MIN_GAS };
@@ -120,7 +121,7 @@ export const intentsWithdrawInput = z.strictObject({
   amount: z.string().regex(/^[1-9]\d{0,77}$/).describe("Amount in the token's smallest unit (NEAR: yocto, 24 decimals)"),
 });
 export type IntentsTradePlan = { token_in: string; token_out: string; amount_in: string; quoted_out: string; min_amount_out: string; deliver_to?: "intents" | "wallet"; storage_deposit?: string | null };
-export type IntentsWithdrawPlan = { asset_id: string; amount: string; receiver_id: string; storage_deposit: string | null };
+export type IntentsWithdrawPlan = { asset_id: string; amount: string; receiver_id: string; storage_deposit: string | null; memo?: string };
 type SignedPlan = { trade: IntentsTradePlan } | { withdraw: IntentsWithdrawPlan } | { oneclick: IntentsPlan };
 type PlanKind = "trade" | "withdraw" | "oneclick";
 const KIND_NAME: Record<PlanKind, string> = { trade: "intents_trade", withdraw: "intents_withdraw", oneclick: "intents_swap" };
@@ -229,6 +230,29 @@ export class IntentsTrades {
     };
   }
 
+  // Bridged (PoA omft) token from the intents balance back to its EVM chain:
+  // one signed ft_withdraw to the token contract with memo WITHDRAW_TO:<to>;
+  // the bridge burns it and sends amount - fee on that chain. Relay pays gas.
+  async preparePoaWithdraw(userId: string, p: { asset_id: string; amount: bigint; to: string; network: string; terms: { token: string; symbol: string; decimals: number; fee: bigint; min: bigint } }) {
+    const account = await this.accounts.account(userId);
+    const self = account.accountId;
+    if (!/^0x[0-9a-fA-F]{40}$/.test(p.to)) throw new NearPublicError("intents: withdrawal address is not an EVM address; nothing was signed");
+    if (p.amount < p.terms.min || p.amount <= p.terms.fee) throw new NearPublicError(`intents: amount must exceed the bridge fee ${formatUnits(p.terms.fee, p.terms.decimals)} ${p.terms.symbol} (minimum ${formatUnits(p.terms.min, p.terms.decimals)}); nothing was signed`);
+    const have = await this.intents.intentsBalanceOf(self, p.asset_id);
+    if (have < p.amount) throw new NearPublicError(`intents: the intents balance holds ${have} of ${p.terms.symbol} (smallest units), needs ${p.amount}; nothing was signed`);
+    const plan: IntentsWithdrawPlan = { asset_id: p.asset_id, amount: p.amount.toString(), receiver_id: p.terms.token, storage_deposit: null, memo: `WITHDRAW_TO:${p.to}` };
+    const intent = withdrawIntent(plan.asset_id, plan.amount, plan.receiver_id, undefined, plan.memo);
+    const op = await this.preview(userId, account, { withdraw: plan }, { type: "nep413_intents", verifying_contract: INTENTS_CONTRACT, signer_id: self, intents: [intent] });
+    return {
+      operation_id: op.id, kind: "intents_withdraw", signer_id: self, verifying_contract: INTENTS_CONTRACT,
+      bridge_withdraw: { bridge: "PoA bridge", asset_id: p.asset_id, symbol: p.terms.symbol, network: p.network, amount: p.amount.toString(), formatted: formatUnits(p.amount, p.terms.decimals), bridge_fee: formatUnits(p.terms.fee, p.terms.decimals), arrives: formatUnits(p.amount - p.terms.fee, p.terms.decimals), to: p.to, intent },
+      intents_balance_before: formatUnits(have, p.terms.decimals),
+      network_fee: "none on NEAR for this account: the relay submits the intent; the bridge fee is taken from the amount",
+      expires_at: op.expiresAt.toISOString(),
+      how_it_executes: `At execution the server signs ONE NEP-413 ft_withdraw intent sending ${p.terms.token} to the token contract itself with memo WITHDRAW_TO:${p.to}, dry-runs it on intents.near and publishes it to the Solver Relay; the PoA bridge then pays out on ${p.network}, usually within minutes.`,
+    };
+  }
+
   // One entry point for swaps from the intents balance: ask the Solver Relay and
   // 1Click (non-binding) in parallel, take the relay when it quotes within
   // RELAY_PREFERENCE_BPS of 1Click (single settlement, seconds), otherwise
@@ -324,7 +348,7 @@ export class IntentsTrades {
         const w = plan.withdraw;
         const have = await this.intents.intentsBalanceOf(op.accountId, w.asset_id);
         if (have < BigInt(w.amount)) throw new NearPublicError("intents: the intents balance no longer covers the withdrawal; nothing was signed");
-        intents = [withdrawIntent(w.asset_id, w.amount, w.receiver_id, w.storage_deposit ?? undefined)];
+        intents = [withdrawIntent(w.asset_id, w.amount, w.receiver_id, w.storage_deposit ?? undefined, w.memo)];
         quoteHashes = [];
         expected = { withdrawn: w.amount, asset_id: w.asset_id, to: w.receiver_id };
         matched = false;
