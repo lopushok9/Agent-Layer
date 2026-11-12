@@ -10,12 +10,13 @@ export function memoryStore() {
     async createOperation(p: any, ttl: number) { const op = { ...structuredClone(p), id: randomUUID(), expiresAt: new Date(Date.now() + ttl * 1000), status: "prepared", purpose: null, nonce: null, txHash: null, signedTx: null, outcome: null, result: null, error: null, createdAt: new Date() }; ops.set(op.id, op); return structuredClone(op); },
     async operation(u: string, id: string) { const o = ops.get(id); return o && o.userId === u ? structuredClone(o) : null; },
     async recent() { return [...ops.values()]; },
-    async reserve(u: string, id: string, kind: string, purpose: string) {
+    async reserve(u: string, id: string, kind: string, purpose: string, parentPlanId?: string) {
       const o = ops.get(id);
       if (!o || o.userId !== u) throw new Error("operation not found for this user");
       if (o.kind !== kind) throw new Error("operation type does not match this execution tool");
       if (o.status !== "prepared" || o.consumed) throw new Error("preview already consumed; check near_operation_status, never submit it again");
-      if ([...ops.values()].some(x => x.userId === u && ["reserved", "signing", "submitted", "unknown"].includes(x.status))) throw new Error("an unresolved NEAR operation exists for this account; reconcile it with near_operation_status first");
+      if ([...ops.values()].some(x => x.userId === u && x.id !== parentPlanId && ["reserved", "signing", "submitted", "unknown"].includes(x.status))) throw new Error("an unresolved NEAR operation exists for this account; reconcile it with near_operation_status first");
+      if (parentPlanId) { const p = ops.get(parentPlanId); if (!p || p.kind !== "near_plan" || p.status !== "submitted") throw new Error("operation is not a step of a running plan"); }
       if (o.expiresAt < new Date()) throw new Error("preview expired; prepare a new operation");
       Object.assign(o, { status: "reserved", consumed: true, purpose }); return structuredClone(o);
     },

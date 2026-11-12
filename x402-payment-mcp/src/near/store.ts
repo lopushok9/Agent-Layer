@@ -6,7 +6,7 @@ import type { NormalizedNearAction } from "./transaction.js";
 export type NearNetwork = "mainnet" | "testnet";
 export type NearAccountRecord = { userId: string; network: NearNetwork; accountId: string; publicKey: string; signerKind: NearSignerKind; cdpAccountName: string | null; sealedKey: string | null };
 export type NearOperationState = "prepared" | "reserved" | "signing" | "submitted" | "confirmed" | "failed" | "unknown";
-export type NearOperationKind = "near_tx" | "chain_signature" | "intents_swap" | "intents_trade";
+export type NearOperationKind = "near_tx" | "chain_signature" | "intents_swap" | "intents_trade" | "near_plan";
 export type NearOperation = {
   id: string; userId: string; network: NearNetwork; accountId: string; publicKey: string; kind: NearOperationKind;
   receiverId: string; actions: NormalizedNearAction[]; descriptions: unknown[]; plan: Record<string, unknown> | null;
@@ -52,7 +52,9 @@ export class NearStore {
   // Consumes a preview exactly once. Execution is serialized per account: an
   // unresolved operation blocks the next one, so nonces never race and an
   // unknown outcome is reconciled before anything else is signed.
-  async reserve(userId: string, id: string, kind: NearOperationKind, purpose: string): Promise<NearOperation> {
+  // A step of a running near_plan passes the plan's id: the plan itself is
+  // unresolved while it runs and must not block its own steps.
+  async reserve(userId: string, id: string, kind: NearOperationKind, purpose: string, parentPlanId?: string): Promise<NearOperation> {
     const c = await this.pool.connect();
     try {
       await c.query("BEGIN");
@@ -62,7 +64,11 @@ export class NearStore {
       if (!x) throw new Error("operation not found for this user");
       if (x.kind !== kind) throw new Error("operation type does not match this execution tool");
       if (x.status !== "prepared" || x.consumed_at) throw new Error("preview already consumed; check near_operation_status, never submit it again");
-      const pending = await c.query("SELECT id FROM near_operations WHERE user_id=$1 AND network=$2 AND account_id=$3 AND status = ANY($4) LIMIT 1", [userId, x.network, x.account_id, UNRESOLVED]);
+      const pending = await c.query("SELECT id FROM near_operations WHERE user_id=$1 AND network=$2 AND account_id=$3 AND status = ANY($4) AND id::text <> $5 LIMIT 1", [userId, x.network, x.account_id, UNRESOLVED, parentPlanId ?? ""]);
+      if (parentPlanId) {
+        const parent = await c.query("SELECT id FROM near_operations WHERE id=$1 AND user_id=$2 AND kind='near_plan' AND status='submitted'", [parentPlanId, userId]);
+        if (!parent.rowCount) throw new Error("operation is not a step of a running plan");
+      }
       if (pending.rowCount) throw new Error("an unresolved NEAR operation exists for this account; reconcile it with near_operation_status first");
       const saved = await c.query("UPDATE near_operations SET status='reserved',purpose=$3,consumed_at=now(),updated_at=now() WHERE id=$1 AND user_id=$2 AND expires_at>now() RETURNING *", [id, userId, purpose]);
       if (!saved.rows[0]) throw new Error("preview expired; prepare a new operation");
