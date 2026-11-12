@@ -86,3 +86,19 @@ test("omni_balances: without the 1Click list, amounts still show and USD is null
   assert.equal(r.partial, true);
   assert.match(r.errors.join(" "), /token list is unavailable/);
 });
+
+test("omni_balances: Rhea Lend positions under defi, borrowed subtracts from the total; a failed reader is reported", async () => {
+  const { b } = setup();
+  b.lend = { positions: async () => [
+    { side: "supplied", symbol: "USDC", token_id: USDC, amount: "500000", formatted: "0.5", decimals: 6, apr_percent: 8.99 },
+    { side: "borrowed", symbol: "wNEAR", token_id: "wrap.near", amount: "100000000000000000000000", formatted: "0.1", decimals: 24, apr_percent: 2.5 },
+  ] } as any;
+  const r: any = await b.all("u1");
+  assert.deepEqual(r.defi.rhea_lend.positions.map((p: any) => [p.side, p.symbol, p.value_usd]), [["supplied", "USDC", 0.5], ["borrowed", "wNEAR", 0.35]]);
+  assert.equal(r.defi.rhea_lend.net_value_usd, 0.15);
+  assert.equal(r.total_value_usd, Math.round((0.71 + 1.5 + 1.58 + 1.17 + 2.5 + 0.15) * 100) / 100);
+  b.lend = { positions: async () => { throw new Error("rpc down"); } } as any;
+  const f: any = await b.all("u1");
+  assert.equal(f.defi.rhea_lend.error, "unavailable");
+  assert.equal(f.partial, true);
+});

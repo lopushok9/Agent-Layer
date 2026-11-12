@@ -2,6 +2,7 @@ import { erc20Abi, getAddress, isAddress, type Address } from "viem";
 import { STORAGE_BYTE_COST, type NearAccountService } from "./account.js";
 import { EVM_CHAINS, type ChainSignatures, type EvmNetwork } from "./chain-signatures.js";
 import type { NearIntents, OneClickToken } from "./intents.js";
+import type { RheaLend } from "./rhea-lend.js";
 import { assertAccountId, formatNear } from "./units.js";
 
 // One read for everything this NEAR Omni Account holds: native NEAR and NEP-141
@@ -23,6 +24,8 @@ const ONECLICK_CHAIN: Record<EvmNetwork, string> = { base: "base", ethereum: "et
 type Row = { symbol: string; asset: string; amount: string; formatted: string; decimals: number; value_usd: number | null; unlisted?: true };
 
 export class OmniBalances {
+  // Optional DeFi position readers (set by the app).
+  lend: RheaLend | null = null;
   constructor(
     private accounts: NearAccountService,
     private intents: NearIntents,
@@ -39,11 +42,12 @@ export class OmniBalances {
     const errors: string[] = [];
     const guard = <T>(label: string, p: Promise<T>) => p.catch(e => { errors.push(`${label}: ${String((e as Error)?.message ?? e).replace(/[^\x20-\x7e]/g, "").slice(0, 160)}`); return null; });
 
-    const [wallet, intents, evm, tokens] = await Promise.all([
+    const [wallet, intents, evm, tokens, lend] = await Promise.all([
       guard("near wallet", this.wallet(self, catalog)),
       guard("intents", this.intents.balances(userId)),
       this.cs ? guard("evm", this.evm(self, catalog)) : Promise.resolve(null),
       catalog,
+      this.lend ? guard("rhea lend", this.lend.positions(self)) : Promise.resolve(null),
     ]);
     if (!tokens.length) errors.push("prices: the 1Click token list is unavailable, USD values omitted");
 
@@ -56,10 +60,16 @@ export class OmniBalances {
       intents: intents ? { contract: "intents.near", assets: intentRows, total_value_usd: sum(intentRows) } : { contract: "intents.near", error: "unavailable" },
       ...(this.cs ? { evm: evm ? { address: evm.address, networks: evm.networks } : { error: "unavailable" } } : {}),
     };
-    const total = round(sum(wallet?.rows ?? []) + sum(intentRows) + (evm?.networks ?? []).reduce((s, n) => s + ("total_value_usd" in n ? n.total_value_usd : 0), 0));
+    // Rhea Lend: supplied + collateral count positive, borrowed negative.
+    const nearPrices = new Map(tokens.filter(t => t.blockchain === "near" && t.contractAddress).map(t => [t.contractAddress!, t.price]));
+    const lendRows = (lend ?? []).map(r => { const price = nearPrices.get(r.token_id); return { ...r, value_usd: price === undefined ? null : usd(BigInt(r.amount), r.decimals, price) }; });
+    const lendNet = round(lendRows.reduce((t, r) => t + (r.value_usd ?? 0) * (r.side === "borrowed" ? -1 : 1), 0));
+    const defi = this.lend ? { rhea_lend: lend ? { contract: "contract.main.burrow.near", positions: lendRows, net_value_usd: lendNet } : { contract: "contract.main.burrow.near", error: "unavailable" } } : null;
+    const total = round(sum(wallet?.rows ?? []) + sum(intentRows) + (evm?.networks ?? []).reduce((s, n) => s + ("total_value_usd" in n ? n.total_value_usd : 0), 0) + (lend ? lendNet : 0));
     return {
       account_id: self,
       ...sections,
+      ...(defi ? { defi } : {}),
       total_value_usd: total,
       prices: "1Click token list (cached up to 5 min); assets without a price show value_usd null and are not in totals",
       ...(errors.length ? { partial: true, errors } : {}),

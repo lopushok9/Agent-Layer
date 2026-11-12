@@ -10,6 +10,7 @@ import type { OmniBalances } from "./balances.js";
 import { yieldSearchInput, type YieldSearch } from "./yields.js";
 import { nearPlanInput, type NearPlans } from "./plan.js";
 import { rheaLpExitInput, rheaLpInput, type RheaPools } from "./rhea.js";
+import { rheaLendSupplyInput, rheaLendWithdrawInput, type RheaLend } from "./rhea-lend.js";
 import { evmSwapInput, type EvmSwaps } from "./swap.js";
 import { nearTransactionInput } from "./transaction.js";
 
@@ -30,7 +31,7 @@ Workflow:
 11. intents_balances lists the NEAR Intents balance. intents_deposit_prepare moves NEAR-chain tokens from the wallet into it (a NEAR transaction, executed with near_transaction_execute). intents_withdraw_prepare moves them back as a signed intent the relay submits, so it needs no NEAR gas; "NEAR" arrives as native NEAR. Confirm, then intents_withdraw_execute. If the wallet lacks NEAR for gas (e.g. Chain Signatures) and the intents balance holds wNEAR, offer intents_withdraw_prepare NEAR to refill it.
 12. For yield, APY, pools, lending or "where to earn" call yield_search (networks near/base/ethereum, token, kind, stable_only, no_il, exclude_rewards, min_tvl_usd, sort_by). Show per result: network, protocol, name, apy with apy_base and apy_reward separately, tvl_usd, verified (onchain / protocol_api / index_only), contract and every warning. Present it as data, not a recommendation; never call reward emissions or index_only APY guaranteed.
 
-13. Multi-step NEAR actions are one plan with one confirmation: rhea_lp_prepare adds liquidity to a Rhea pool (pool_id from yield_search, contract v2.ref-finance.near; amounts in human units per token, "auto" matches the pool ratio) and plans only the steps still needed (Rhea storage and token registration, wrapping NEAR, deposits into Rhea, the add with a minimum of LP shares); rhea_lp_exit_prepare removes liquidity and withdraws both tokens to the wallet in one transaction. For other protocols build the steps yourself with near_plan_prepare (each step one receiver; add checks such as an internal balance >= amount before the step that spends it). Show title, every step with receiver, actions, attached NEAR and checks, and the totals; after confirmation call near_plan_execute once. A failed check or step stops the plan before later steps are signed; status unknown: near_plan_status, never a new plan for the same step until it is reconciled. After a stop, call the adapter again: it plans only what is left.
+13. Multi-step NEAR actions are one plan with one confirmation: rhea_lp_prepare adds liquidity to a Rhea pool (pool_id from yield_search, contract v2.ref-finance.near; amounts in human units per token, "auto" matches the pool ratio) and plans only the steps still needed (Rhea storage and token registration, wrapping NEAR, deposits into Rhea, the add with a minimum of LP shares); rhea_lp_exit_prepare removes liquidity and withdraws both tokens to the wallet in one transaction. rhea_lend_supply_prepare / rhea_lend_withdraw_prepare supply one token to Rhea Lend for the supply APR (no impermanent loss) and take it back; tell the user that the first supply registers the account with 0.1 NEAR Rhea Lend never refunds. omni_balances shows Rhea Lend positions under defi. For other protocols build the steps yourself with near_plan_prepare (each step one receiver; add checks such as an internal balance >= amount before the step that spends it). Show title, every step with receiver, actions, attached NEAR and checks, and the totals; after confirmation call near_plan_execute once. A failed check or step stops the plan before later steps are signed; status unknown: near_plan_status, never a new plan for the same step until it is reconciled. After a stop, call the adapter again: it plans only what is left.
 
 Rules:
 - Token amounts in args are in the token's smallest unit; NEP-141 transfers usually require deposit_yocto "1" and the receiver registered with storage_deposit.
@@ -47,7 +48,7 @@ const failure = (tool: string, error: unknown) => {
 const opId = z.strictObject({ operation_id: z.string().uuid() });
 const exec = z.strictObject({ operation_id: z.string().uuid(), purpose: z.string().min(3).max(500) });
 
-export type NearServices = { accounts: NearAccountService; operations: NearOperations; chainSignatures: ChainSignatures; swaps?: EvmSwaps; intents?: NearIntents; trades?: IntentsTrades; deposits?: IntentsDeposits; balances?: OmniBalances; yields?: YieldSearch; plans?: NearPlans; rhea?: RheaPools };
+export type NearServices = { accounts: NearAccountService; operations: NearOperations; chainSignatures: ChainSignatures; swaps?: EvmSwaps; intents?: NearIntents; trades?: IntentsTrades; deposits?: IntentsDeposits; balances?: OmniBalances; yields?: YieldSearch; plans?: NearPlans; rhea?: RheaPools; lend?: RheaLend };
 
 export function createNearMcp(userId: string, s: NearServices) {
   const server = new McpServer({ name: "AgentLayer NEAR Omni Account", version: "0.1.0" }, { instructions: NEAR_INSTRUCTIONS });
@@ -73,6 +74,13 @@ export function createNearMcp(userId: string, s: NearServices) {
       input => rhea.prepareAdd(userId, input));
     tool("rhea_lp_exit_prepare", { title: "Preview leaving a Rhea pool", description: "Plan (near_plan) to remove liquidity from a Rhea pool (all shares by default) with min amounts from predict_remove_liquidity minus slippage and withdraw every pool token's Rhea balance to the wallet in the same transaction (wNEAR arrives as native NEAR); registers the wallet on a token first if needed. Execute with near_plan_execute.", inputSchema: rheaLpExitInput, annotations: { readOnlyHint: false, destructiveHint: false } },
       input => rhea.prepareExit(userId, input));
+  }
+  if (s.lend) {
+    const lend = s.lend;
+    tool("rhea_lend_supply_prepare", { title: "Preview supplying a token to Rhea Lend", description: "Plan (near_plan) to supply one token to Rhea Lend (contract.main.burrow.near) from the NEAR wallet to earn the variable supply APR: registers the account first if needed (0.1 NEAR storage that Rhea Lend never refunds), wraps NEAR when supplying NEAR, then ft_transfer_call with msg \"\" (supplied, not collateral, cannot be liquidated). Execute with near_plan_execute.", inputSchema: rheaLendSupplyInput, annotations: { readOnlyHint: false, destructiveHint: false } },
+      input => lend.prepareSupply(userId, input));
+    tool("rhea_lend_withdraw_prepare", { title: "Preview withdrawing from Rhea Lend", description: "Plan (near_plan) to withdraw a supplied token (amount or \"all\") from Rhea Lend to the NEAR wallet with execute(Withdraw), registering the wallet on the token first if needed and unwrapping wNEAR to NEAR by default. Warns when the market's free liquidity is lower than the amount. Execute with near_plan_execute.", inputSchema: rheaLendWithdrawInput, annotations: { readOnlyHint: false, destructiveHint: false } },
+      input => lend.prepareWithdraw(userId, input));
   }
   tool("near_account_status", { title: "NEAR account status", description: "The user's AgentLayer NEAR account: implicit account ID, balance (total, storage-locked, spendable), whether it is active, and how to fund it. Creates the account identity on first use; it becomes active on chain with its first deposit.", inputSchema: z.strictObject({}), annotations: { readOnlyHint: true } },
     () => s.accounts.status(userId));
