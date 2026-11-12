@@ -45,6 +45,7 @@ import { YieldSearch } from "./near/yields.js";
 import { NearPlans } from "./near/plan.js";
 import { RheaPools } from "./near/rhea.js";
 import { RheaLend } from "./near/rhea-lend.js";
+import { OmniTransfer } from "./near/omni-transfer.js";
 import { createNearMcp, type NearServices } from "./near/mcp.js";
 
 // NEAR Omni Account: independent product on its own MCP resource (/near/mcp).
@@ -62,7 +63,10 @@ function nearServices(config:Config,store:Store,wallets:SmartWalletService,contr
   const lend=new RheaLend(accounts,plans);
   const balances=new OmniBalances(accounts,intents,chainSignatures);
   balances.lend=lend;
-  return{accounts,operations,chainSignatures,swaps:new EvmSwaps(chainSignatures),intents,trades:new IntentsTrades(accounts,nearStore,intents,new SolverRelayClient(undefined,undefined,process.env.SOLVER_RELAY_API_KEY||undefined)),deposits:new IntentsDeposits(accounts,chainSignatures),balances,yields:new YieldSearch(accounts,intents,chainSignatures),plans,rhea:new RheaPools(accounts,plans),lend};
+  const trades=new IntentsTrades(accounts,nearStore,intents,new SolverRelayClient(undefined,undefined,process.env.SOLVER_RELAY_API_KEY||undefined));
+  const deposits=new IntentsDeposits(accounts,chainSignatures);
+  const transfers=new OmniTransfer(accounts,operations,nearStore,intents,trades,chainSignatures,deposits);
+  return{accounts,operations,chainSignatures,swaps:new EvmSwaps(chainSignatures),intents,trades,deposits,transfers,balances,yields:new YieldSearch(accounts,intents,chainSignatures),plans,rhea:new RheaPools(accounts,plans),lend};
 }
 
 export async function createApp(config:Config){

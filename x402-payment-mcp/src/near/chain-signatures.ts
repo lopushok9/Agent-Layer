@@ -122,11 +122,11 @@ export class ChainSignatures {
   // Builds the exact EIP-1559 transaction with the same builder as the smart
   // wallet (verified ABI, decoded call, ERC-7730 display), simulates it from the
   // derived address with asset tracing, and previews the NEAR sign() over its hash.
-  async prepare(userId: string, input: EvmCallInput) {
+  async prepare(userId: string, input: EvmCallInput, extra: Record<string, unknown> = {}, planExtra: Record<string, unknown> = {}) {
     const parsed = evmCallInput.parse(input);
     const from = await this.fromAddress(userId);
     const built = await this.build(parsed.network, from, parsed);
-    return this.previewCalls(userId, parsed.network, from, built.calls, [built.description], parsed.received_tolerance_bps);
+    return this.previewCalls(userId, parsed.network, from, built.calls, [built.description], parsed.received_tolerance_bps, extra, planExtra);
   }
 
   // Several calls in one atomic transaction (EIP-7702 executeBatch).
@@ -152,7 +152,7 @@ export class ChainSignatures {
   // One EVM transaction from the derived address: a single call is sent as is;
   // several calls are sent atomically as executeBatch to the address itself,
   // which requires its EIP-7702 delegation to the pinned Simple7702Account.
-  async previewCalls(userId: string, network: EvmNetwork, from: Address, calls: NormalizedCall[], descriptions: CallDescription[], toleranceBps: number, extra: Record<string, unknown> = {}) {
+  async previewCalls(userId: string, network: EvmNetwork, from: Address, calls: NormalizedCall[], descriptions: CallDescription[], toleranceBps: number, extra: Record<string, unknown> = {}, planExtra: Record<string, unknown> = {}) {
     const chainId = EVM_CHAINS[network];
     const rpc = this.client(network);
     if (await rpc.getChainId() !== chainId) throw new NearPublicError("evm RPC chain ID mismatch");
@@ -179,7 +179,7 @@ export class ChainSignatures {
     const plan: EvmPlan = { network, chainId, from, path: DERIVATION_PATH, tx: { to: outer.to, value: value.toString(), data: outer.data, nonce, gas: gas.toString(), maxFeePerGas: maxFeePerGas.toString(), maxPriorityFeePerGas: maxPriorityFeePerGas.toString() }, payload, simulation, ...(calls.length > 1 ? { calls } : {}) };
     const signArgs = { request: { path: DERIVATION_PATH, payload_v2: { Ecdsa: payload.slice(2) }, domain_id: 0 } };
     const nearTx = { receiverId: this.accounts.config.mpcContract, actions: [{ type: "function_call" as const, method: "sign", args_base64: Buffer.from(JSON.stringify(signArgs)).toString("base64"), gas: MPC_SIGN_GAS.toString(), deposit: "1" }] };
-    return this.operations.preview(userId, nearTx, "chain_signature", { evm: plan }, {
+    return this.operations.preview(userId, nearTx, "chain_signature", { ...planExtra, evm: plan }, {
       ...extra,
       evm_transaction: { network, chain_id: chainId, from, to: outer.to, value_wei: value.toString(), value_eth: formatEther(value), data: outer.data, nonce, gas_limit: gas.toString(), max_fee_per_gas: maxFeePerGas.toString(), max_evm_network_fee_wei: maxGasCost.toString(), max_evm_network_fee_eth: formatEther(maxGasCost), signing_payload: payload, ...(calls.length > 1 ? { kind: "eip7702_execute_batch", atomic: true } : {}) },
       ...(calls.length === 1 ? { evm_call: descriptions[0] } : { evm_calls: descriptions }),

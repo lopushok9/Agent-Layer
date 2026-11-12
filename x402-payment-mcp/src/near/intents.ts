@@ -73,7 +73,7 @@ export class OneClickClient {
   }
 
   quote(body: Record<string, unknown>) { return this.request<OneClickQuote>("/v0/quote", { method: "POST", body }); }
-  submit(txHash: string, depositAddress: string, nearSenderAccount: string) { return this.request<unknown>("/v0/deposit/submit", { method: "POST", body: { txHash, depositAddress, nearSenderAccount } }); }
+  submit(txHash: string, depositAddress: string, nearSenderAccount?: string) { return this.request<unknown>("/v0/deposit/submit", { method: "POST", body: { txHash, depositAddress, ...(nearSenderAccount ? { nearSenderAccount } : {}) } }); }
   status(depositAddress: string) { return this.request<Record<string, any>>(`/v0/status?depositAddress=${encodeURIComponent(depositAddress)}`); }
 }
 
@@ -97,7 +97,7 @@ export const intentsTransferInput = z.strictObject({
   amount: z.string().regex(/^[1-9]\d{0,77}$/).describe("Amount in the token's smallest unit"),
 });
 
-export type IntentsPlan = { deposit_address: string; deposit_memo: string | null; correlation_id: string | null; deadline: string; origin_asset: string; destination_asset: string; amount_in: string; min_amount_out: string; recipient: string; pay_from?: "wallet" | "intents"; deliver_to?: "chain" | "intents" };
+export type IntentsPlan = { deposit_address: string; deposit_memo: string | null; correlation_id: string | null; deadline: string; origin_asset: string; destination_asset: string; amount_in: string; min_amount_out: string; recipient: string; pay_from?: "wallet" | "intents" | "evm"; deliver_to?: "chain" | "intents" };
 export const INTENTS_CONTRACT = "intents.near";
 // ft_transfer_call keeps ~30 TGas for itself and its resolve and gives the rest
 // to ft_on_transfer, so 30 TGas fails with FunctionCallZeroAttachedGas (seen on
@@ -222,7 +222,39 @@ export class NearIntents {
     return { amountOut: out, ...(typeof q.quote.timeEstimate === "number" ? { timeEstimate: q.quote.timeEstimate } : {}) };
   }
 
-  submitDeposit(txHash: string, depositAddress: string, sender: string) { return this.client.submit(txHash, depositAddress, sender); }
+  submitDeposit(txHash: string, depositAddress: string, sender?: string) { return this.client.submit(txHash, depositAddress, sender); }
+
+  // 1Click from an EVM chain (Base/Ethereum): the Chain Signatures address sends
+  // the origin token to an EVM deposit address; refunds go back to that address.
+  async quoteFromEvm(userId: string, p: { origin: OneClickToken; dest: OneClickToken; amount: string; deliver_to: "chain" | "intents"; slippage_bps: number }) {
+    if (!this.cs) throw new NearPublicError("intents: Chain Signatures is not configured; nothing was signed");
+    const self = (await this.accounts.account(userId)).accountId;
+    const from = await this.cs.fromAddress(userId);
+    const recipient = p.deliver_to === "intents" ? self : await this.recipient(userId, self, p.dest.blockchain);
+    const deadline = new Date(this.now() + QUOTE_DEADLINE_MS).toISOString();
+    const request = { dry: false, swapType: "EXACT_INPUT", slippageTolerance: p.slippage_bps, originAsset: p.origin.assetId, depositType: "ORIGIN_CHAIN", destinationAsset: p.dest.assetId, amount: p.amount, refundTo: from, refundType: "ORIGIN_CHAIN", recipient, recipientType: p.deliver_to === "intents" ? "INTENTS" : "DESTINATION_CHAIN", deadline, quoteWaitingTimeMs: 3000 };
+    const q = await this.client.quote(request);
+    const r = q?.quoteRequest ?? {};
+    for (const k of ["swapType", "originAsset", "destinationAsset", "amount", "recipient", "refundTo", "depositType", "refundType", "recipientType", "slippageTolerance"])
+      if (String(r[k]).toLowerCase() !== String((request as Record<string, unknown>)[k]).toLowerCase()) throw new NearPublicError(`intents: 1Click quote does not match the request (${k}); nothing was signed`);
+    const d = q?.quote?.depositAddress;
+    if (typeof d !== "string" || !isAddress(d, { strict: false }) || d.toLowerCase() === from.toLowerCase()) throw new NearPublicError("intents: 1Click returned an unexpected EVM deposit address; nothing was signed");
+    if (q.quote.depositMemo) throw new NearPublicError("intents: unexpected deposit memo for an EVM deposit; nothing was signed");
+    const { amountIn, amountOut, minAmountOut } = q.quote;
+    if (amountIn !== p.amount || !UINT.test(amountOut) || !UINT.test(minAmountOut) || BigInt(minAmountOut) === 0n || BigInt(minAmountOut) > BigInt(amountOut)) throw new NearPublicError("intents: 1Click quote amounts are inconsistent; nothing was signed");
+    const deposit = getAddress(d);
+    const plan: IntentsPlan = { deposit_address: deposit, deposit_memo: null, correlation_id: q.correlationId ?? null, deadline, origin_asset: p.origin.assetId, destination_asset: p.dest.assetId, amount_in: p.amount, min_amount_out: minAmountOut, recipient, pay_from: "evm", deliver_to: p.deliver_to };
+    const fmt = (v: string, dec: number) => formatUnits(BigInt(v), dec);
+    return { from, plan, description: {
+      protocol: "near_intents_1click", pay_from: `Chain Signatures address ${from} on ${p.origin.blockchain}`, deliver_to: p.deliver_to,
+      origin: { asset_id: p.origin.assetId, symbol: p.origin.symbol, amount: p.amount, formatted: fmt(p.amount, p.origin.decimals) },
+      destination: { asset_id: p.dest.assetId, symbol: p.dest.symbol, blockchain: p.dest.blockchain, quoted: amountOut, quoted_formatted: fmt(amountOut, p.dest.decimals), minimum: minAmountOut, minimum_formatted: fmt(minAmountOut, p.dest.decimals), ...(q.quote.amountOutUsd ? { quoted_usd: q.quote.amountOutUsd } : {}) },
+      ...(q.quote.amountInUsd ? { amount_in_usd: q.quote.amountInUsd } : {}),
+      recipient, refund_to: `${from} on ${p.origin.blockchain}`, deposit_address: deposit, deposit_deadline: deadline,
+      ...(q.quote.timeEstimate !== undefined ? { time_estimate_seconds: q.quote.timeEstimate } : {}),
+      protection: `Solvers must deliver at least the minimum; otherwise, or after the deposit deadline, 1Click refunds the deposit to ${from} on ${p.origin.blockchain}.`,
+    } };
+  }
 
   private describe(p: z.infer<typeof intentsSwapInput>, origin: OneClickToken, dest: OneClickToken, q: OneClickQuote, plan: IntentsPlan, wrap: bigint) {
     const fmt = (v: string, d: number) => formatUnits(BigInt(v), d);
@@ -386,7 +418,7 @@ export class NearIntents {
       recipient: plan.recipient, minimum_out: plan.min_amount_out,
       ...(clean(d.amountOut) ? { amount_out: d.amountOut } : {}), ...(clean(d.refundedAmount) && d.refundedAmount !== "0" ? { refunded_amount: d.refundedAmount } : {}),
       origin_tx: hashes(d.originChainTxHashes), destination_tx: hashes(d.destinationChainTxHashes),
-      note: `SUCCESS: delivered. PENDING_DEPOSIT/KNOWN_DEPOSIT_TX/PROCESSING: in progress, check again. REFUNDED: returned to this NEAR account${plan.pay_from === "intents" ? "'s intents balance" : ""}. INCOMPLETE_DEPOSIT/FAILED: report the operation_id.`,
+      note: `SUCCESS: delivered. PENDING_DEPOSIT/KNOWN_DEPOSIT_TX/PROCESSING: in progress, check again. REFUNDED: returned to ${plan.pay_from === "evm" ? "the Chain Signatures EVM address" : `this NEAR account${plan.pay_from === "intents" ? "'s intents balance" : ""}`}. INCOMPLETE_DEPOSIT/FAILED: report the operation_id.`,
     };
   }
 }

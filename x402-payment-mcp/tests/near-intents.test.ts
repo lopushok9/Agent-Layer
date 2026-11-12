@@ -208,3 +208,25 @@ test("intents balances, deposit and withdraw", async () => {
   assert.deepEqual(decode([...ops.values()].at(-1)), [["ft_withdraw", { token: "wrap.near", receiver_id: self, amount: AMOUNT }, "1"]]);
   await assert.rejects(intents.prepareWithdraw("u1", { asset: "SOL@sol", amount: "1" }), /NEAR-chain NEP-141/);
 });
+
+test("intents quoteFromEvm: ORIGIN_CHAIN quote refunds to the EVM address and needs an EVM deposit address; tampering is refused", async () => {
+  const EVM_DEP = "0x3333333333333333333333333333333333333333";
+  const w = world();
+  w.tamper = q => { q.quote.depositAddress = EVM_DEP; };
+  const { intents, init } = setup(w);
+  const self = await init("u1");
+  const eth = await intents.asset("ETH@base", "o"), wnear = await intents.asset("NEAR", "d");
+  const r: any = await intents.quoteFromEvm("u1", { origin: eth, dest: wnear, amount: "100000000000000", deliver_to: "chain", slippage_bps: 100 });
+  const req = w.quotes.at(-1);
+  assert.equal(req.depositType, "ORIGIN_CHAIN"); assert.equal(req.refundType, "ORIGIN_CHAIN");
+  assert.equal(req.refundTo, EVM); assert.equal(req.recipient, self); assert.equal(req.recipientType, "DESTINATION_CHAIN");
+  assert.equal(r.plan.deposit_address, EVM_DEP); assert.equal(r.plan.pay_from, "evm");
+  assert.match(r.description.protection, /refunds the deposit to 0xF9B8/);
+  // NEAR-style deposit address or the account's own EVM address are refused
+  const bad = world(); const s2 = setup(bad); await s2.init("u1");
+  await assert.rejects(s2.intents.quoteFromEvm("u1", { origin: eth, dest: wnear, amount: "1", deliver_to: "chain", slippage_bps: 100 }), /unexpected EVM deposit address/);
+  const own = world(); own.tamper = q => { q.quote.depositAddress = EVM; }; const s3 = setup(own); await s3.init("u1");
+  await assert.rejects(s3.intents.quoteFromEvm("u1", { origin: eth, dest: wnear, amount: "1", deliver_to: "chain", slippage_bps: 100 }), /unexpected EVM deposit address/);
+  const swapped = world(); swapped.tamper = q => { q.quote.depositAddress = EVM_DEP; q.quoteRequest.refundTo = "0x4444444444444444444444444444444444444444"; }; const s4 = setup(swapped); await s4.init("u1");
+  await assert.rejects(s4.intents.quoteFromEvm("u1", { origin: eth, dest: wnear, amount: "1", deliver_to: "chain", slippage_bps: 100 }), /does not match the request \(refundTo\)/);
+});

@@ -11,12 +11,14 @@ import { yieldSearchInput, type YieldSearch } from "./yields.js";
 import { nearPlanInput, type NearPlans } from "./plan.js";
 import { rheaLpExitInput, rheaLpInput, type RheaPools } from "./rhea.js";
 import { rheaLendSupplyInput, rheaLendWithdrawInput, type RheaLend } from "./rhea-lend.js";
+import { omniTransferInput, type OmniTransfer } from "./omni-transfer.js";
 import { evmSwapInput, type EvmSwaps } from "./swap.js";
 import { nearTransactionInput } from "./transaction.js";
 
 export const NEAR_INSTRUCTIONS = `AgentLayer NEAR Omni Account: a NEAR account created for the signed-in user, plus EVM addresses on Base and Ethereum controlled through NEAR Chain Signatures. It is a new wallet, separate from the user's AgentLayer Base smart wallet; never move funds between them unless the user asks.
 
 Workflow:
+0a. To move value between the NEAR wallet, the NEAR Intents balance and the Base/Ethereum address (in any direction, optionally changing the token) use omni_transfer_prepare first: it picks the route and previews one operation; show omni_transfer and the operation details, confirm, then omni_transfer_execute once and omni_transfer_status until final. The specific intents_* and evm_* tools remain for special cases.
 0. For "balance", "portfolio" or "what do I have" call omni_balances once: NEAR wallet (NEAR and NEP-141 tokens), NEAR Intents balance and the Chain Signatures EVM address (ETH and listed ERC-20s on Base and Ethereum), with USD values and totals. Show one table per section (Asset | Amount | USD) and total_value_usd; mention errors when partial is true. Use the single-section tools only for details (access keys, EIP-7702 delegation).
 1. near_account_status gives the NEAR account ID, spendable balance and how to fund it. A new implicit account becomes active on its first NEAR deposit.
 2. near_contract_read for view calls (free, no signing).
@@ -48,7 +50,7 @@ const failure = (tool: string, error: unknown) => {
 const opId = z.strictObject({ operation_id: z.string().uuid() });
 const exec = z.strictObject({ operation_id: z.string().uuid(), purpose: z.string().min(3).max(500) });
 
-export type NearServices = { accounts: NearAccountService; operations: NearOperations; chainSignatures: ChainSignatures; swaps?: EvmSwaps; intents?: NearIntents; trades?: IntentsTrades; deposits?: IntentsDeposits; balances?: OmniBalances; yields?: YieldSearch; plans?: NearPlans; rhea?: RheaPools; lend?: RheaLend };
+export type NearServices = { accounts: NearAccountService; operations: NearOperations; chainSignatures: ChainSignatures; swaps?: EvmSwaps; intents?: NearIntents; trades?: IntentsTrades; deposits?: IntentsDeposits; balances?: OmniBalances; yields?: YieldSearch; plans?: NearPlans; rhea?: RheaPools; lend?: RheaLend; transfers?: OmniTransfer };
 
 export function createNearMcp(userId: string, s: NearServices) {
   const server = new McpServer({ name: "AgentLayer NEAR Omni Account", version: "0.1.0" }, { instructions: NEAR_INSTRUCTIONS });
@@ -74,6 +76,15 @@ export function createNearMcp(userId: string, s: NearServices) {
       input => rhea.prepareAdd(userId, input));
     tool("rhea_lp_exit_prepare", { title: "Preview leaving a Rhea pool", description: "Plan (near_plan) to remove liquidity from a Rhea pool (all shares by default) with min amounts from predict_remove_liquidity minus slippage and withdraw every pool token's Rhea balance to the wallet in the same transaction (wNEAR arrives as native NEAR); registers the wallet on a token first if needed. Execute with near_plan_execute.", inputSchema: rheaLpExitInput, annotations: { readOnlyHint: false, destructiveHint: false } },
       input => rhea.prepareExit(userId, input));
+  }
+  if (s.transfers) {
+    const transfers = s.transfers;
+    tool("omni_transfer_prepare", { title: "Preview moving value between NEAR, NEAR Intents, Base and Ethereum", description: "One preview for moving a token between this account's places: near (NEAR wallet), intents (NEAR Intents balance), base / ethereum (the Chain Signatures EVM address). Picks the route and builds exactly ONE signed operation: wallet -> intents deposit; intents -> wallet withdraw (relay, no gas); 1Click from the wallet, from the intents balance or from an EVM deposit; PoA bridge deposit for EVM -> intents of the same token. receive_asset swaps on the way (e.g. ETH on Base -> NEAR in the wallet). Never signs.", inputSchema: omniTransferInput, annotations: { readOnlyHint: false, destructiveHint: false } },
+      input => transfers.prepare(userId, input));
+    tool("omni_transfer_execute", { title: "Execute a confirmed omni transfer", description: "After the user confirmed the exact omni_transfer_prepare preview: executes its one operation once (NEAR transaction, signed intent or Chain Signatures EVM transfer) and, for 1Click from an EVM chain, reports the deposit to 1Click. Then omni_transfer_status.", inputSchema: exec, annotations: { readOnlyHint: false, destructiveHint: true } },
+      ({ operation_id, purpose }) => transfers.execute(userId, operation_id, purpose));
+    tool("omni_transfer_status", { title: "Status of an omni transfer", description: "Reconciles an omni transfer: NEAR transaction, relay settlement or EVM receipt, then the 1Click swap status (SUCCESS / REFUNDED) where a swap is involved. Safe to call repeatedly.", inputSchema: opId, annotations: { readOnlyHint: true } },
+      ({ operation_id }) => transfers.status(userId, operation_id));
   }
   if (s.lend) {
     const lend = s.lend;
