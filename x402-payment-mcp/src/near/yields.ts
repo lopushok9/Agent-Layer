@@ -11,6 +11,9 @@ import type { NearIntents, OneClickToken } from "./intents.js";
 //   each asset's utilization and rate model, replacing the index rows.
 // - Morpho API: listed MetaMorpho vaults with their ERC-4626 address and net APY
 //   after the curator fee, replacing the index rows.
+// - Rhea DEX (api.rhea.finance pool/search, top 500 pools by TVL): APR is
+//   recomputed as last-24h fees / TVL x 365 (the API's own apy for DCL pools is
+//   not consistent with its fees), replacing the index rows.
 // - Aave v3: the index APY of shown rows is re-checked on-chain with
 //   Pool.getReserveData (currentLiquidityRate).
 // Every field from these sources is untrusted third-party data; text is
@@ -18,6 +21,9 @@ import type { NearIntents, OneClickToken } from "./intents.js";
 export const DEFILLAMA_URL = "https://yields.llama.fi/pools";
 export const MORPHO_URL = "https://api.morpho.org/graphql";
 export const RHEA_LEND = "contract.main.burrow.near";
+export const RHEA_POOLS_URL = "https://api.rhea.finance/pool/search?type=all&sort=tvl&limit=500&offset=0&farm=false&hide_low_pool=false&order_by=desc&token_type=&token_list=";
+const RHEA_DEX = "v2.ref-finance.near", RHEA_DCL = "dclv2.ref-labs.near";
+const STABLE = /^(USDC|USDT|USDT\.E|USDC\.E|USDT\.E|DAI|FRAX|USN|USDS|EURC|PYUSD|USDE|GHO|RLUSD|USD0|USDA|SDAI|SUSDS|USDBC)$/i;
 const AAVE_POOL: Record<EvmNetwork, Address> = { base: "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5", ethereum: "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2" };
 const LLAMA_CHAIN: Record<string, Network> = { Near: "near", Base: "base", Ethereum: "ethereum" };
 const CHAIN_ID: Record<EvmNetwork, number> = { base: 8453, ethereum: 1 };
@@ -47,12 +53,13 @@ type Row = {
   network: Network; protocol: string; kind: Kind; name: string; tokens: string[];
   apy: number | null; apy_base: number | null; apy_reward: number | null; apy_30d_mean?: number | null;
   tvl_usd: number | null; stablecoin: boolean; il_risk: boolean; outlier?: boolean;
-  source: "defillama" | "rhea_onchain" | "morpho_api";
+  source: "defillama" | "rhea_onchain" | "rhea_dex_api" | "morpho_api";
   verified: "onchain" | "protocol_api" | "index_only";
   contract?: string; asset?: string; pool_id?: string;
   check?: Record<string, number | string | null>;
   warnings: string[];
-  _underlying?: string[]; _meta?: string | null;
+  underlying?: string[];
+  _underlying?: string[]; _meta?: string | null; _flags?: { dcl?: boolean; meme?: boolean; turnover?: number; farm?: boolean };
 };
 
 type LlamaPool = { chain?: unknown; project?: unknown; symbol?: unknown; pool?: unknown; poolMeta?: unknown; underlyingTokens?: unknown; rewardTokens?: unknown; apy?: unknown; apyBase?: unknown; apyReward?: unknown; apyMean30d?: unknown; tvlUsd?: unknown; stablecoin?: unknown; ilRisk?: unknown; exposure?: unknown; outlier?: unknown };
@@ -61,6 +68,7 @@ export class YieldSearch {
   private llama: { at: number; rows: Row[] } | null = null;
   private llamaInflight: Promise<Row[]> | null = null;
   private morpho: { at: number; rows: Row[] } | null = null;
+  private rheaDex: { at: number; rows: Row[] } | null = null;
 
   constructor(
     private accounts: NearAccountService,
@@ -78,19 +86,31 @@ export class YieldSearch {
     const errors: string[] = [];
     const guard = <T>(label: string, f: () => Promise<T>) => f().catch(e => { errors.push(`${label}: ${clean(String((e as Error)?.message ?? e), 160)}`); return null; });
 
-    const [llama, rhea, morpho] = await Promise.all([
+    const [llama, rhea, dex, morpho, catalog] = await Promise.all([
       guard("defillama", () => this.llamaRows()),
       want.has("near") ? guard("rhea_lend", () => this.rheaRows()) : Promise.resolve(null),
+      want.has("near") ? guard("rhea_dex", () => this.rheaDexRows()) : Promise.resolve(null),
       evm.length ? guard("morpho_api", () => this.morphoRows()) : Promise.resolve(null),
+      this.intents.catalog().catch(() => [] as OneClickToken[]),
     ]);
+    // Underlying token symbols (e.g. rNEAR -> wNEAR) so a token search finds
+    // staking and wrapper positions too.
+    const symbolOf = new Map<string, string>();
+    for (const t of catalog) if (t.contractAddress && ["near", "base", "eth"].includes(t.blockchain)) symbolOf.set(t.contractAddress.toLowerCase(), t.symbol);
 
+    // Cached rows are cloned before anything below annotates them.
     let rows: Row[] = [];
     for (const r of llama ?? []) {
       if (!want.has(r.network)) continue;
       if (rhea && r.protocol === "rhea-lend") continue;          // replaced by on-chain rows
+      if (dex && r.protocol === "rhea-dex") continue;            // replaced by Rhea DEX rows
       if (morpho && r.protocol.startsWith("morpho")) continue;   // replaced by Morpho API vaults
-      rows.push(r);
+      const c = structuredClone(r);
+      const under = (c._underlying ?? []).flatMap(u => { const s = symbolOf.get(u.toLowerCase()); return s ? [s] : []; });
+      if (under.length && under.some(u => !c.tokens.some(t => norm(t) === norm(u)))) c.underlying = [...new Set(under)];
+      rows.push(c);
     }
+    for (const r of dex ?? []) rows.push(structuredClone(r));
     if (rhea) {
       const index = new Map((llama ?? []).filter(r => r.protocol === "rhea-lend").map(r => [r._underlying?.[0] ?? "", r]));
       for (const r of rhea) {
@@ -99,7 +119,7 @@ export class YieldSearch {
         rows.push(r);
       }
     }
-    for (const r of morpho ?? []) if (want.has(r.network)) rows.push(r);
+    for (const r of morpho ?? []) if (want.has(r.network)) rows.push(structuredClone(r));
 
     const score = (r: Row) => p.exclude_rewards ? r.apy_base : r.apy;
     const token = p.token ? norm(p.token) : null;
@@ -109,7 +129,7 @@ export class YieldSearch {
       if (p.stable_only && !r.stablecoin) return false;
       if (p.no_il && r.il_risk) return false;
       if (!p.include_outliers && r.outlier) return false;
-      if (token && !r.tokens.some(t => norm(t) === token)) return false;
+      if (token && ![...r.tokens, ...(r.underlying ?? [])].some(t => norm(t) === token)) return false;
       const s = score(r);
       if (s === null || s <= 0) return false;
       if (p.min_apy !== undefined && s < p.min_apy) return false;
@@ -125,10 +145,10 @@ export class YieldSearch {
 
     return {
       query: p,
-      results: shown.map(({ _underlying, _meta, ...r }) => r),
+      results: shown.map(({ _underlying, _meta, _flags, ...r }) => r),
       matched, shown: shown.length,
       sources: {
-        defillama: llama ? "ok" : "failed", ...(want.has("near") ? { rhea_lend_onchain: rhea ? "ok" : "failed" } : {}),
+        defillama: llama ? "ok" : "failed", ...(want.has("near") ? { rhea_lend_onchain: rhea ? "ok" : "failed", rhea_dex_api: dex ? "ok" : "failed" } : {}),
         ...(evm.length ? { morpho_api: morpho ? "ok" : "failed", aave_onchain_check: this.cs ? "on shown rows" : "unavailable" } : {}),
       },
       ...(errors.length ? { partial: true, errors } : {}),
@@ -210,6 +230,42 @@ export class YieldSearch {
       if (page.length < 100) break;
     }
     return out;
+  }
+
+  // ---- Rhea DEX pools ------------------------------------------------------
+  private async rheaDexRows(): Promise<Row[]> {
+    if (this.rheaDex && this.now() - this.rheaDex.at < CACHE_MS) return this.rheaDex.rows;
+    const res = await this.fetcher(RHEA_POOLS_URL, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(15_000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const body = await res.json() as { data?: { list?: any[] } };
+    const list = body?.data?.list;
+    if (!Array.isArray(list)) throw new Error("unexpected response");
+    const rows = list.flatMap(x => {
+      const ids = Array.isArray(x?.token_account_ids) ? x.token_account_ids : null;
+      const syms = Array.isArray(x?.token_symbols) ? x.token_symbols : null;
+      if (!ids || !syms || ids.length < 2 || ids.length > 8 || syms.length !== ids.length || !ids.every((t: unknown) => typeof t === "string" && t.length <= 64) || typeof x.id !== "string" && typeof x.id !== "number") return [];
+      const tvl = dec(x.tvl), fees = dec(x.fee_volume_24h), volume = dec(x.volume_24h), fee = dec(x.total_fee);
+      if (tvl === null || tvl <= 0 || fees === null || volume === null) return [];
+      const kind = clean(String(x.pool_kind ?? ""), 20);
+      const tokens = syms.map((s: unknown) => clean(String(s), 20));
+      const dcl = kind === "DCL";
+      const id = clean(String(x.id), 200);
+      const apr = round(fees * 365 / tvl * 100, 4);
+      const stable = tokens.every((t: string) => STABLE.test(t));
+      const correlated = kind === "RATED_SWAP" || kind === "STABLE_SWAP";
+      const turnover = volume / tvl;
+      return [{
+        network: "near", protocol: "rhea-dex", kind: "lp", name: `${tokens.join("/")} (${dcl ? "DCL concentrated" : kind.toLowerCase()}${fee !== null ? `, fee ${round(fee * 100, 3)}%` : ""})`, tokens,
+        apy: apr, apy_base: apr, apy_reward: null, tvl_usd: round(tvl, 0), stablecoin: stable, il_risk: !(stable || correlated),
+        outlier: apr > 1000 || turnover > 5,
+        source: "rhea_dex_api", verified: "protocol_api", contract: dcl ? RHEA_DCL : RHEA_DEX, pool_id: id,
+        check: { pool_kind: kind, volume_24h_usd: round(volume, 0), fees_24h_usd: round(fees, 2), rhea_reported_apy: dec(x.apy) === null ? null : round(dec(x.apy)!, 2) },
+        warnings: [], _underlying: ids,
+        _flags: { dcl, meme: x.is_meme === true || (Array.isArray(x.uncertified_tokens) && x.uncertified_tokens.length > 0), turnover, farm: x.is_farm === true },
+      } satisfies Row];
+    });
+    this.rheaDex = { at: this.now(), rows };
+    return rows;
   }
 
   // ---- Morpho vaults ------------------------------------------------------
@@ -298,6 +354,13 @@ function annotate(r: Row) {
   if ((r.tvl_usd ?? 0) < 1_000_000) r.warnings.push("TVL below $1M: thin liquidity, APY moves fast");
   if (r._meta && /fee|lock|cooldown|exit/i.test(r._meta)) r.warnings.push(`pool note: ${r._meta}`);
   if (r.source === "rhea_onchain") r.warnings.push("Rhea farm rewards are not included");
+  if (r.source === "rhea_dex_api") {
+    r.warnings.push("APR from the last 24h of trading fees only; daily volume swings a lot");
+    if (r._flags?.dcl) r.warnings.push("concentrated liquidity: a position earns only while the price is in its range; the pool average is not what a position gets");
+    if (r._flags?.meme) r.warnings.push("pool holds a meme or uncertified token: it can lose most of its value quickly");
+    if ((r._flags?.turnover ?? 0) > 2) r.warnings.push(`24h volume was ${round(r._flags!.turnover!, 1)}x TVL; likely a spike, not a steady rate`);
+    if (r._flags?.farm) r.warnings.push("a farm exists for this pool; its rewards are not included");
+  }
   if (r.kind === "other") r.warnings.push("protocol type not classified (often RWA, credit or structured products): check what backs the yield");
   if (r.stablecoin && (r.apy ?? 0) > 20) r.warnings.push("stablecoin yield above 20% usually means credit, leverage or emission risk");
   if (r.kind === "staking") r.warnings.push("liquid staking: unstaking may take days; the token can trade below its value");
@@ -313,6 +376,7 @@ function classify(project: string, multi: boolean): Kind {
 const ALIASES: Record<string, string> = { WETH: "ETH", WNEAR: "NEAR", "USDC.E": "USDC", "USDT.E": "USDT", USDBC: "USDC" };
 function norm(s: string) { const u = s.toUpperCase(); return ALIASES[u] ?? u; }
 function clean(s: string, n: number) { return s.replace(/[^\x20-\x7e]/g, "?").slice(0, n); }
+function dec(v: unknown): number | null { const n = typeof v === "string" && /^-?\d{1,40}(\.\d+)?$/.test(v) ? Number(v) : typeof v === "number" ? v : NaN; return Number.isFinite(n) ? n : null; }
 function num(v: unknown): number | null { return typeof v === "number" && Number.isFinite(v) ? v : null; }
 function big(v: unknown): bigint | null { return typeof v === "string" && /^\d{1,78}$/.test(v) ? BigInt(v) : null; }
 function round(n: number, d = 2) { const f = 10 ** d; return Math.round(n * f) / f; }

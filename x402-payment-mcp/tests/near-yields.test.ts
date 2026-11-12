@@ -14,6 +14,7 @@ const LLAMA = [
   { chain: "Near", project: "rhea-lst", symbol: "RNEAR", pool: "p-lst", underlyingTokens: ["wrap.near"], apy: 4.4, apyBase: 4.4, tvlUsd: 66_000_000, stablecoin: false, ilRisk: "no", exposure: "single" },
   { chain: "Base", project: "aave-v3", symbol: "USDC", pool: "p-aave", underlyingTokens: [BASE_USDC], apy: 4.79, apyBase: 4.79, tvlUsd: 17_000_000, stablecoin: true, ilRisk: "no", exposure: "single" },
   { chain: "Base", project: "aave-v3", symbol: "USDC", poolMeta: "Umbrella", pool: "p-umb", underlyingTokens: ["0x00000000000000000000000000000000000000Ab"], apy: 1.5, apyBase: 0, apyReward: 1.5, tvlUsd: 50_000_000, stablecoin: true, ilRisk: "no", exposure: "single" },
+  { chain: "Near", project: "rhea-dex", symbol: "WNEAR-USDC", pool: "p-rdex", underlyingTokens: ["wrap.near", USDC_NEAR], apy: 3, apyBase: 3, tvlUsd: 2_000_000, ilRisk: "yes", exposure: "multi" },
   { chain: "Base", project: "morpho-blue", symbol: "USDC", pool: "p-morpho", apy: 9, apyBase: 9, tvlUsd: 5_000_000, stablecoin: true, ilRisk: "no", exposure: "single" },
   { chain: "Base", project: "aerodrome-v1", symbol: "WETH-USDC", pool: "p-aero", underlyingTokens: [BASE_WETH, BASE_USDC], apy: 80, apyBase: null, apyReward: 80, apyMean30d: 20, tvlUsd: 4_000_000, stablecoin: false, ilRisk: "yes", exposure: "multi", rewardTokens: ["0x940181a94A35A4569E4529A3CDfB74e38FD98631"] },
   { chain: "Base", project: "uniswap-v3", symbol: "WETH-USDC", poolMeta: "0.3%", pool: "p-uni", apy: 900, apyBase: 900, tvlUsd: 9_000_000, ilRisk: "yes", exposure: "multi", outlier: true },
@@ -21,12 +22,20 @@ const LLAMA = [
   { chain: "Arbitrum", project: "aave-v3", symbol: "USDC", pool: "p-arb", apy: 50, apyBase: 50, tvlUsd: 9e9, exposure: "single" },
   { chain: "Base", project: "tiny", symbol: "USDC", pool: "p-tiny", apy: 40, apyBase: 40, tvlUsd: 1000, exposure: "single" },
 ];
+const RHEA_POOLS = [
+  { id: "5515", pool_kind: "DEGEN_SWAP", token_account_ids: ["wrap.near", USDC_NEAR], token_symbols: ["wNEAR", "USDC"], tvl: "500000", volume_24h: "400000", fee_volume_24h: "1000", total_fee: "0.003", apy: "73", is_meme: false, uncertified_tokens: [] },
+  { id: "meme.near|wrap.near|10000", pool_kind: "DCL", token_account_ids: ["meme.near", "wrap.near"], token_symbols: ["MEME", "wNEAR"], tvl: "300000", volume_24h: "90000", fee_volume_24h: "900", total_fee: "0.01", apy: "29724.2", is_meme: true, uncertified_tokens: [] },
+  { id: "spike.near|wrap.near|10000", pool_kind: "DCL", token_account_ids: ["spike.near", "wrap.near"], token_symbols: ["SPIKE", "wNEAR"], tvl: "300000", volume_24h: "3000000", fee_volume_24h: "30000", total_fee: "0.01", apy: "1", uncertified_tokens: ["spike.near"] },
+  { id: "3515", pool_kind: "RATED_SWAP", token_account_ids: ["linear-protocol.near", "wrap.near"], token_symbols: ["LINEAR", "wNEAR"], tvl: "3000000", volume_24h: "20000", fee_volume_24h: "10", total_fee: "0.0005", apy: "0.12" },
+  { id: "bad", pool_kind: "SIMPLE_POOL", token_account_ids: ["a.near"], token_symbols: ["A"], tvl: "1e9", volume_24h: "1", fee_volume_24h: "1" },
+];
 const MORPHO = [{ address: VAULT, name: "Gauntlet USDC Prime", chain: { id: 8453 }, asset: { address: BASE_USDC, symbol: "USDC" }, state: { totalAssetsUsd: 399_000_000, apy: 0.045, netApy: 0.05, netApyExcludingRewards: 0.04, fee: 0.1 } }];
 
 function setup(o: { llamaDown?: boolean } = {}) {
   let llamaCalls = 0;
   const fetcher = (async (url: string) => {
     if (url.startsWith("https://yields.llama.fi")) { llamaCalls++; if (o.llamaDown) return new Response("down", { status: 503 }); return new Response(JSON.stringify({ data: LLAMA })); }
+    if (url.startsWith("https://api.rhea.finance/pool/search")) return new Response(JSON.stringify({ code: 0, data: { list: RHEA_POOLS, total: RHEA_POOLS.length } }));
     if (url === "https://api.morpho.org/graphql") return new Response(JSON.stringify({ data: { vaults: { items: MORPHO } } }));
     throw new Error(`unexpected ${url}`);
   }) as typeof fetch;
@@ -37,7 +46,7 @@ function setup(o: { llamaDown?: boolean } = {}) {
       ["closed.near", { supplied: { balance: "1" }, reserved: "0", borrowed: { balance: "0" }, config: { ...RATE, can_deposit: false } }],
     ] };
   } };
-  const catalog = [{ assetId: `nep141:${USDC_NEAR}`, blockchain: "near", symbol: "USDC", decimals: 6, price: 1, contractAddress: USDC_NEAR }];
+  const catalog = [{ assetId: `nep141:${USDC_NEAR}`, blockchain: "near", symbol: "USDC", decimals: 6, price: 1, contractAddress: USDC_NEAR }, { assetId: "nep141:wrap.near", blockchain: "near", symbol: "wNEAR", decimals: 24, price: 3.5, contractAddress: "wrap.near" }];
   const cs = { rpcFor: () => ({ multicall: async ({ contracts }: any) => contracts.map((c: any) => {
     assert.equal(c.address, AAVE_BASE); assert.equal(c.functionName, "getReserveData");
     if (c.args[0] !== BASE_USDC) return { status: "success", result: { currentLiquidityRate: 0n, aTokenAddress: "0x0000000000000000000000000000000000000000" } };
@@ -98,6 +107,35 @@ test("yield_search: a failed source is reported while the others still answer", 
   assert.equal(r.partial, true);
   assert.equal(r.sources.defillama, "failed");
   assert.match(r.errors[0], /defillama: HTTP 503/);
-  assert.deepEqual(r.results.map((x: any) => x.protocol).sort(), ["morpho"]); // rhea TVL 150k < 250k default
-  assert.equal((await y.search({ networks: ["near"], min_tvl_usd: 0 })).results[0]!.protocol, "rhea-lend");
+  assert.deepEqual([...new Set(r.results.map((x: any) => x.protocol))].sort(), ["morpho", "rhea-dex"]); // rhea lend TVL 150k < 250k default
+  assert.ok((await y.search({ networks: ["near"], min_tvl_usd: 0 })).results.some(x => x.protocol === "rhea-lend"));
+});
+
+test("yield_search: Rhea DEX pools with APR recomputed from 24h fees, underlying-token matching, flags for DCL, memes and volume spikes", async () => {
+  const { y } = setup();
+  const r: any = await y.search({ networks: ["near"], token: "NEAR", min_tvl_usd: 0, limit: 50 });
+  const pool = (id: string) => r.results.find((x: any) => x.pool_id === id);
+  assert.ok(!r.results.some((x: any) => x.source === "defillama" && x.protocol === "rhea-dex"));
+  const degen = pool("5515");
+  assert.deepEqual([degen.apy, degen.tvl_usd, degen.contract, degen.verified, degen.il_risk, degen.check.rhea_reported_apy], [73, 500000, "v2.ref-finance.near", "protocol_api", true, 73]);
+  const meme = pool("meme.near|wrap.near|10000");
+  assert.equal(meme.apy, 109.5); assert.equal(meme.contract, "dclv2.ref-labs.near"); assert.equal(meme.check.rhea_reported_apy, 29724.2);
+  assert.ok(meme.warnings.some((w: string) => /concentrated/.test(w)) && meme.warnings.some((w: string) => /meme or uncertified/.test(w)));
+  assert.equal(pool("spike.near|wrap.near|10000"), undefined);           // turnover 10x: outlier, hidden by default
+  assert.equal(pool("bad"), undefined);
+  const lst = pool("3515");
+  assert.equal(lst.il_risk, false);                                        // rated swap of correlated assets
+  const rnear = r.results.find((x: any) => x.protocol === "rhea-lst");
+  assert.deepEqual(rnear.underlying, ["wNEAR"]);                           // RNEAR found through wrap.near
+  const spike: any = await y.search({ networks: ["near"], token: "SPIKE", min_tvl_usd: 0, include_outliers: true });
+  assert.ok(spike.results[0].warnings.some((w: string) => /10x TVL/.test(w)) && spike.results[0].warnings.some((w: string) => /meme or uncertified/.test(w)));
+});
+
+test("yield_search: cached rows are not mutated by annotations or on-chain checks", async () => {
+  const { y } = setup();
+  const a: any = await y.search({ token: "USDC", stable_only: true, min_tvl_usd: 100_000 });
+  const b: any = await y.search({ token: "USDC", stable_only: true, min_tvl_usd: 100_000 });
+  assert.deepEqual(b.results.map((x: any) => [x.pool_id ?? x.contract, x.apy, x.warnings.length]), a.results.map((x: any) => [x.pool_id ?? x.contract, x.apy, x.warnings.length]));
+  const aave = b.results.find((x: any) => x.protocol === "aave-v3" && x.name === "USDC");
+  assert.equal(aave.check.defillama_apy_base, 4.79);
 });
