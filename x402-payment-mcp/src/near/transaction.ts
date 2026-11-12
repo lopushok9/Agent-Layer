@@ -61,6 +61,12 @@ export function normalizeNearTransaction(input: NearTransactionInput): Normalize
   return { receiverId, actions };
 }
 
+// Rebuilds a stored transaction in canonical key order. Postgres JSONB
+// reorders object keys, so fingerprints must be taken over this form.
+export function renormalizeNearTransaction(tx: NormalizedNearTransaction): NormalizedNearTransaction {
+  return normalizeNearTransaction({ receiver_id: tx.receiverId, actions: tx.actions.map(a => a.type === "transfer" ? { type: "transfer" as const, amount_yocto: a.amount } : { type: "function_call" as const, method_name: a.method, args_base64: a.args_base64, gas: a.gas, deposit_yocto: a.deposit }) });
+}
+
 export function totals(tx: NormalizedNearTransaction) {
   let deposit = 0n, gasTotal = 0n;
   for (const a of tx.actions) {

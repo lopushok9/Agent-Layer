@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { NearAccountService } from "./account.js";
 import { NearPublicError, type NearOperations } from "./operations.js";
 import type { NearOperation, NearStore } from "./store.js";
-import { nearFingerprint, nearTransactionInput, normalizeNearTransaction, type NormalizedNearTransaction } from "./transaction.js";
+import { nearFingerprint, nearTransactionInput, normalizeNearTransaction, renormalizeNearTransaction, type NormalizedNearTransaction } from "./transaction.js";
 import { canonicalJson } from "./solver-relay.js";
 import { assertAccountId, formatNear } from "./units.js";
 
@@ -107,9 +107,9 @@ export class NearPlans {
         const r = await this.check(c).catch(() => ({ ok: false, actual: "unreadable" }));
         if (!r.ok) return stop("failed", `stopped before step ${i + 1} (${s.title}): check failed: ${c.label} (got ${r.actual}, need ${c.op} ${c.value}); this step and later ones were not signed`);
       }
-      const tx: NormalizedNearTransaction = { receiverId: s.receiverId, actions: s.actions };
+      const tx = renormalizeNearTransaction({ receiverId: s.receiverId, actions: s.actions });
       const child = await this.store.createOperation({
-        userId, network: op.network, accountId: op.accountId, publicKey: op.publicKey, kind: "near_tx", receiverId: s.receiverId, actions: s.actions,
+        userId, network: op.network, accountId: op.accountId, publicKey: op.publicKey, kind: "near_tx", receiverId: tx.receiverId, actions: tx.actions,
         descriptions: (op.descriptions[i] as any)?.actions ?? [], plan: { near_plan: id, step: i + 1 }, fingerprint: nearFingerprint(op.network, op.accountId, op.publicKey, tx),
       }, this.config.previewTtlSeconds);
       progress.child = child.id;

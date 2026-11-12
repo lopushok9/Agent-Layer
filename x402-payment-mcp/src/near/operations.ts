@@ -3,7 +3,7 @@ import type { NearAccountService } from "./account.js";
 import { STORAGE_BYTE_COST, publicKeyBytes } from "./account.js";
 import { NearRpcError, summarizeOutcome, type TxOutcome } from "./rpc.js";
 import type { NearOperation, NearStore } from "./store.js";
-import { buildNearTransaction, describeNearTransaction, nearFingerprint, normalizeNearTransaction, signNearTransaction, totals, type NearTransactionInput, type NormalizedNearTransaction } from "./transaction.js";
+import { buildNearTransaction, describeNearTransaction, nearFingerprint, normalizeNearTransaction, renormalizeNearTransaction, signNearTransaction, totals, type NearTransactionInput, type NormalizedNearTransaction } from "./transaction.js";
 import { assertAccountId, formatNear, GAS_PER_TGAS } from "./units.js";
 
 export const nearReadInput = z.strictObject({
@@ -121,7 +121,7 @@ export class NearOperations {
       const account = await this.accounts.account(userId);
       if (account.accountId !== op.accountId || account.publicKey !== op.publicKey || account.network !== op.network) throw new Error("preview no longer matches this NEAR account");
       const tx: NormalizedNearTransaction = { receiverId: op.receiverId, actions: op.actions };
-      if (nearFingerprint(op.network, op.accountId, op.publicKey, normalizeAgain(tx)) !== op.fingerprint) throw new Error("preview binding mismatch");
+      if (nearFingerprint(op.network, op.accountId, op.publicKey, renormalizeNearTransaction(tx)) !== op.fingerprint) throw new Error("preview binding mismatch");
       await this.rpc.assertNetwork();
       const key = await this.rpc.viewAccessKey(op.accountId, op.publicKey);
       if (!key) throw new NearPublicError("this NEAR account has no active service key on chain; fund the implicit account first");
@@ -191,10 +191,6 @@ export class NearOperations {
 }
 
 // Stored actions are re-validated through the same normalizer before signing.
-function normalizeAgain(tx: NormalizedNearTransaction): NormalizedNearTransaction {
-  return normalizeNearTransaction({ receiver_id: tx.receiverId, actions: tx.actions.map(a => a.type === "transfer" ? { type: "transfer" as const, amount_yocto: a.amount } : { type: "function_call" as const, method_name: a.method, args_base64: a.args_base64, gas: a.gas, deposit_yocto: a.deposit }) });
-}
-
 function safeMessage(e: unknown): string {
   return e instanceof NearPublicError ? e.message : e instanceof NearRpcError ? `NEAR RPC error: ${e.kind}` : "execution stopped before signing";
 }

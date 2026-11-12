@@ -3,7 +3,7 @@ import test from "node:test";
 import { NearPlans } from "../src/near/plan.js";
 import { RheaPools } from "../src/near/rhea.js";
 import { memoryStore } from "./near-fakes.js";
-import { describeNearTransaction } from "../src/near/transaction.js";
+import { describeNearTransaction, nearFingerprint, renormalizeNearTransaction } from "../src/near/transaction.js";
 
 const SELF = "c1f18b054c4273bc6e13111282f3acdff9b7c9f352ed4f0840f1f792b0d46bf4";
 const PK = "ed25519:E45JqeiCWmQhodkZoy7sx1qEE4jcBVZpBE4goYXKtN2o";
@@ -29,6 +29,8 @@ function setup(views: Record<string, (args: any) => unknown>, outcomes: string[]
     }),
     execute: async (u: string, id: string, purpose: string, kind: string, _w: string, parent?: string) => {
       const o = await store.reserve(u, id, kind as any, purpose, parent);
+      // Same binding check as NearOperations.execute (store reorders keys like JSONB).
+      if (nearFingerprint(o.network, o.accountId, o.publicKey, renormalizeNearTransaction({ receiverId: o.receiverId, actions: o.actions })) !== o.fingerprint) throw new Error("preview binding mismatch");
       executed.push({ receiverId: o.receiverId, methods: o.actions.map((a: any) => a.method), parent });
       const status = outcomes.shift() ?? "confirmed";
       await store.update(u, id, { status: status as any });
