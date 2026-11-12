@@ -24,6 +24,11 @@ const WNEAR = "wrap.near";
 const DEC = /^\d{1,30}(\.\d{1,36})?$/;
 const ALIASES: Record<string, string> = { NEAR: WNEAR, WNEAR: WNEAR, USDC: "17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1", USDT: "usdt.tether-token.near" };
 const CATALOG_TTL = 10 * 60_000;
+// execute(Withdraw): own work + ft_transfer (10 TGas) + after_ft_transfer (20 TGas).
+// Kept low because NEAR prepays gas at min_gas_purchase_price (1e9 yocto/gas:
+// 100 TGas = 0.1 NEAR up front, refunded after). Too little gas makes execute
+// panic before anything moves.
+const WITHDRAW_TGAS = 60;
 
 const tokenField = z.string().min(1).max(64).describe('Token symbol (NEAR, USDC, USDT, ...) or NEP-141 contract id; NEAR means wrap.near');
 export const rheaLendSupplyInput = z.strictObject({
@@ -161,7 +166,7 @@ export class RheaLend {
     const steps: { title: string; transaction: { receiver_id: string; actions: PlanAction[] }; checks: PlanCheck[] }[] = [];
     if (reg) steps.push({ title: `Register the wallet on ${t.symbol}`, transaction: { receiver_id: t.id, actions: [storageDeposit(self, reg)] }, checks: [] });
     const withdraw = all ? { token_id: t.id } : { token_id: t.id, max_amount: inner.toString() };
-    steps.push({ title: `Withdraw ${all ? "all supplied" : formatUnits(out, t.decimals)} ${t.symbol} from Rhea Lend`, transaction: { receiver_id: RHEA_LEND, actions: [call("execute", { actions: [{ Withdraw: withdraw }] }, ONE_YOCTO, 100)] }, checks: [] });
+    steps.push({ title: `Withdraw ${all ? "all supplied" : formatUnits(out, t.decimals)} ${t.symbol} from Rhea Lend`, transaction: { receiver_id: RHEA_LEND, actions: [call("execute", { actions: [{ Withdraw: withdraw }] }, ONE_YOCTO, WITHDRAW_TGAS)] }, checks: [] });
     const unwrap = t.id === WNEAR && p.unwrap_near && out > 0n;
     if (unwrap) steps.push({
       title: `Unwrap ${formatNear(out)} wNEAR to NEAR`,
