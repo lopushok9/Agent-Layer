@@ -209,6 +209,13 @@ export class ChainSignatures {
       const code = await rpc.getCode({ address: call.to, blockNumber });
       if (!code || code === "0x") throw new NearPublicError("evm calldata target has no contract code on the selected network; nothing was signed");
     }
+    // The RPC rejects a simulation whose value exceeds the balance; name that
+    // plainly instead of reporting the simulator as unavailable.
+    const value = calls.reduce((t, c) => t + BigInt(c.value), 0n);
+    if (value > 0n) {
+      const balance = await rpc.getBalance({ address: from, blockNumber });
+      if (balance < value) throw new NearPublicError(`insufficient ETH on derived address ${from}: the call sends ${formatEther(value)} ETH on ${network} plus gas, has ${formatEther(balance)}; nothing was signed`);
+    }
     let result: { results: readonly { status: string; data?: Hex; logs?: readonly any[]; gasUsed: bigint }[]; assetChanges?: unknown };
     // Sequential calls from the derived address: the same msg.sender and order as
     // executeBatch, which calls each target from the account itself.

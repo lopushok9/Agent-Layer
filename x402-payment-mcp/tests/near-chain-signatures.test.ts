@@ -240,7 +240,9 @@ test("a signature that does not recover to the derived address is never broadcas
 
 test("prepare refuses reverting calls and unfunded derived addresses before anything is signed", async () => {
   await assert.rejects(world({ revert: true }).chainSigs.prepare("u", { network: "base", to: "0x000000000000000000000000000000000000dEaD", value_wei: "0", data: "0x12345678" }), /simulation reverted at call 0 .*exceeds balance.*nothing was signed/);
-  await assert.rejects(world({ ethBalance: 0n }).chainSigs.prepare("u", { network: "base", to: "0x000000000000000000000000000000000000dEaD", value_wei: "1" }), /insufficient ETH/);
+  const poor = world({ ethBalance: 0n });
+  await assert.rejects(poor.chainSigs.prepare("u", { network: "base", to: "0x000000000000000000000000000000000000dEaD", value_wei: "1", data: "0x12345678" }), /insufficient ETH .*the call sends 0.000000000000000001 ETH on base plus gas, has 0; nothing was signed/);
+  assert.equal(poor.evm.simulated, 0, "the RPC is not asked to simulate a value above the balance");
 });
 
 test("MPC response parser accepts the mainnet wire format and rejects malformed values", () => {
