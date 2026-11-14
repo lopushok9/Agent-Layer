@@ -21,6 +21,38 @@ NEAR scales these capabilities from individual blockchains to the omnichain leve
 
 **Secure, limitless, agent-native, united by the NEAR blockchain.**
 
+### Quick setup (Claude Code)
+
+**1. Connect the MCP** — `https://near-omni-mcp-production.up.railway.app/near/mcp`
+
+```bash
+claude mcp add --transport http near-omni https://near-omni-mcp-production.up.railway.app/near/mcp
+```
+
+Run `/mcp`, choose `near-omni` and sign in with Google.
+
+**2. `/balance` slash command** — one table for the NEAR wallet, NEAR Intents and Base / Ethereum:
+
+```bash
+mkdir -p ~/.claude/skills/balance && curl -fsSL https://raw.githubusercontent.com/lopushok9/Agent-Layer/feat/near-omni-account/skills/balance/SKILL.md -o ~/.claude/skills/balance/SKILL.md
+```
+
+**3. Live NEAR balance in the status line** — `Ⓝ 2.0151 NEAR` under the prompt, refreshed every 30 s (read-only, public NEAR RPC):
+
+```bash
+mkdir -p ~/.claude/near-omni && curl -fsSL https://raw.githubusercontent.com/lopushok9/Agent-Layer/feat/near-omni-account/near-omni/near_statusline.py -o ~/.claude/near-omni/near_statusline.py
+```
+
+Add to `~/.claude/settings.json`, using the account ID from `/balance`:
+
+```json
+"statusLine": {
+  "type": "command",
+  "command": "python3 ~/.claude/near-omni/near_statusline.py <your-near-account-id>",
+  "refreshInterval": 30
+}
+```
+
 ![NEAR Omni architecture](docs/near-omni-architecture.png)
 
 ---
@@ -84,7 +116,7 @@ RPC URLs never come from MCP input, and there is no generic "sign arbitrary byte
    ```bash
    claude mcp add --transport http near-omni https://near-omni-mcp-production.up.railway.app/near/mcp
    ```
-   Then run `/mcp`, choose `near-omni` and sign in with Google or GitHub. Any MCP client with OAuth works the same way.
+   Then run `/mcp`, choose `near-omni` and sign in with Google. Any MCP client with OAuth works the same way.
 2. **Ask "show my NEAR Omni balance"** → the agent calls `omni_balances` and you see one table for the NEAR wallet, NEAR Intents and Base / Ethereum, with USD values. Your NEAR account and its derived EVM address are created on first use.
 3. **Ask "how do I fund my NEAR account?"** → `near_account_status` returns your account ID. Send a little NEAR to it from any wallet or exchange; the account becomes active on the first deposit.
 4. **Ask "find the best USDC yield on NEAR"** → `yield_search` returns pools and lending rates with APY and TVL.
