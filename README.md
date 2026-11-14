@@ -5,6 +5,8 @@
 [![Node 24.x](https://img.shields.io/badge/node-24.x-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![docs](https://img.shields.io/badge/docs-agent--layer.tech-blue)](https://docs.agent-layer.tech/)
 
+> **NEAR Hackathon 2026:** our submission, **NEAR Omni** (one NEAR account that controls NEAR DeFi, NEAR Intents and EVM accounts through Chain Signatures, as an MCP server for AI agents), lives in the [`feat/near-omni-account`](https://github.com/lopushok9/Agent-Layer/tree/feat/near-omni-account) branch. That branch is the hackathon branch: see its README for the product, how to try it and the [hackathon diff](https://github.com/lopushok9/Agent-Layer/compare/pre-hackathon...hackathon-submission).
+
 Try AgentLayer — an agent-native, local crypto wallet with built-in tools from leading protocols: pay with x402, swap, earn yield, and issue fiat cards with stables.
 
 ## Install
