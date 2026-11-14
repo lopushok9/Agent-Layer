@@ -6,7 +6,7 @@ import type { NormalizedNearAction } from "./transaction.js";
 export type NearNetwork = "mainnet" | "testnet";
 export type NearAccountRecord = { userId: string; network: NearNetwork; accountId: string; publicKey: string; signerKind: NearSignerKind; cdpAccountName: string | null; sealedKey: string | null };
 export type NearOperationState = "prepared" | "reserved" | "signing" | "submitted" | "confirmed" | "failed" | "unknown";
-export type NearOperationKind = "near_tx" | "chain_signature" | "intents_swap" | "intents_trade" | "near_plan";
+export type NearOperationKind = "near_tx" | "chain_signature" | "intents_swap" | "intents_trade" | "near_plan" | "x402_authorization";
 export type NearOperation = {
   id: string; userId: string; network: NearNetwork; accountId: string; publicKey: string; kind: NearOperationKind;
   receiverId: string; actions: NormalizedNearAction[]; descriptions: unknown[]; plan: Record<string, unknown> | null;
@@ -32,8 +32,7 @@ export class NearStore {
     return stored;
   }
 
-  async createOperation(p: Pick<NearOperation, "userId" | "network" | "accountId" | "publicKey" | "kind" | "receiverId" | "actions" | "descriptions" | "plan" | "fingerprint">, ttlSeconds: number): Promise<NearOperation> {
-    const id = randomUUID();
+  async createOperation(p: Pick<NearOperation, "userId" | "network" | "accountId" | "publicKey" | "kind" | "receiverId" | "actions" | "descriptions" | "plan" | "fingerprint">, ttlSeconds: number, id: string = randomUUID()): Promise<NearOperation> {
     await this.pool.query(`INSERT INTO near_operations(id,user_id,network,account_id,public_key,kind,receiver_id,actions,descriptions,plan,fingerprint,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now()+($12*interval '1 second'))`,
       [id, p.userId, p.network, p.accountId, p.publicKey, p.kind, p.receiverId, JSON.stringify(p.actions), JSON.stringify(p.descriptions), p.plan ? JSON.stringify(p.plan) : null, p.fingerprint, ttlSeconds]);
     return (await this.operation(p.userId, id))!;

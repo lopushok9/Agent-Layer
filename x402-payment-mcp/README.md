@@ -636,3 +636,10 @@ Normal first-wallet creation remains available. Existing archived wallet records
 guards remain active. They preserve the already-created wallet and its former
 wallet's unresolved operation without resetting signatures or moving funds.
 OAuth/PAT scopes and payer binding of existing payment previews are unchanged.
+
+### NEAR-controlled x402 payments
+
+The separate `/near/mcp` resource can pay Base USDC APIs through NEAR Chain
+Signatures with an explicit `near:transact near:x402:pay` grant. It uses the
+NEAR-derived address, preserves payment authorizations across restarts, and
+verifies settlement on Base. See [NEAR x402 setup and recovery](NEAR_X402.md).

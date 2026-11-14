@@ -67,14 +67,14 @@ export class NearOperations {
     return this.preview(userId, tx, "near_tx", null);
   }
 
-  async preview(userId: string, tx: NormalizedNearTransaction, kind: NearOperation["kind"], plan: Record<string, unknown> | null, extra: Record<string, unknown> = {}) {
+  async preview(userId: string, tx: NormalizedNearTransaction, kind: NearOperation["kind"], plan: Record<string, unknown> | null, extra: Record<string, unknown> = {}, operationId?: string) {
     const account = await this.accounts.account(userId);
     const [e] = await this.estimate(account.accountId, [tx]);
     const { deposit, gas, maxFee, prepay, creates, creationCharge, gasPrice, available, warnings, descriptions } = e!;
     if (deposit + prepay > available) throw new NearPublicError(`insufficient NEAR: needs ${formatNear(deposit + prepay)} NEAR up front (attached ${formatNear(deposit)} + max fee ${formatNear(maxFee)}; gas is prepaid at ${formatNear(e!.minGasPurchasePrice * 10n ** 12n)} NEAR/TGas and the excess refunded), available ${formatNear(available > 0n ? available : 0n)}; nothing was signed`);
     const fingerprint = nearFingerprint(this.config.network, account.accountId, account.publicKey, tx);
     const fullPlan = { ...(plan ?? {}), gas_price: gasPrice.toString(), max_fee_yocto: maxFee.toString(), creates_receiver: creates };
-    const op = await this.store.createOperation({ userId, network: this.config.network, accountId: account.accountId, publicKey: account.publicKey, kind, receiverId: tx.receiverId, actions: tx.actions, descriptions, plan: fullPlan, fingerprint }, this.config.previewTtlSeconds);
+    const op = await this.store.createOperation({ userId, network: this.config.network, accountId: account.accountId, publicKey: account.publicKey, kind, receiverId: tx.receiverId, actions: tx.actions, descriptions, plan: fullPlan, fingerprint }, this.config.previewTtlSeconds, operationId);
     return {
       operation_id: op.id, kind, network: this.config.network, signer_id: account.accountId, receiver_id: tx.receiverId, actions: descriptions,
       total_attached_yocto: deposit.toString(), total_attached_near: formatNear(deposit), prepaid_gas: gas.toString(),
@@ -158,9 +158,11 @@ export class NearOperations {
 
   // Reconciles one operation. A transaction the RPC does not know yet is
   // re-sent byte-for-byte: same hash and nonce, so it can execute at most once.
-  async status(userId: string, id: string) {
+  async status(userId: string, id: string, internalKind?: "x402_authorization") {
     const op = await this.store.operation(userId, id);
     if (!op) throw new NearPublicError("operation not found for this user");
+    // Payment signatures are internal credentials, never generic MCP output.
+    if (op.kind === "x402_authorization" && internalKind !== op.kind) return { operation_id: id, kind: op.kind, status: op.status, message: "Use x402_status for this payment." };
     // Signed intents are reconciled by intents_status, never re-sent as NEAR transactions.
     if (op.kind === "intents_trade") return { operation_id: id, kind: op.kind, status: op.status, intent_hash: op.txHash, result: op.result, error: op.error, message: "Use intents_status for this operation." };
     if (!op.txHash || op.status === "confirmed" || op.status === "failed" || op.status === "prepared" || op.status === "reserved") {

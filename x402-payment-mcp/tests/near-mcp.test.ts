@@ -9,7 +9,7 @@ import type { Config } from "../src/config.js";
 import { createNearMcp, NEAR_INSTRUCTIONS } from "../src/near/mcp.js";
 import { NearPublicError } from "../src/near/operations.js";
 import { oauthRouter } from "../src/oauth.js";
-import { NEAR_SCOPE, pkceChallenge, TokenService } from "../src/security.js";
+import { NEAR_SCOPE, NEAR_X402_SCOPE, pkceChallenge, TokenService } from "../src/security.js";
 import type { LoginState, OAuthClient, Store } from "../src/store.js";
 
 async function config(nearEnabled = true): Promise<Config> {
@@ -21,12 +21,15 @@ test("tokens: near:transact tokens are audience-bound to /near/mcp and never acc
   const c = await config();
   const tokens = await TokenService.create(c);
   const near = await tokens.accessToken("u", "client", [NEAR_SCOPE]);
+  const combined = await tokens.accessToken("u", "client", [NEAR_SCOPE, NEAR_X402_SCOPE]);
   const x402 = await tokens.accessToken("u", "client", ["x402:pay", "wallet:transact"]);
   const store = { verifyPersonalToken: async () => ({ id: "p", userId: "u", scope: "x402:pay", expiresAt: new Date(Date.now() + 1e6) }) } as any;
   const nearVerifier = createTokenVerifier(c, tokens, store, c.nearResource);
   const mainVerifier = createTokenVerifier(c, tokens, store);
   assert.deepEqual((await nearVerifier.verifyAccessToken(near)).scopes, [NEAR_SCOPE]);
   assert.equal(String((await nearVerifier.verifyAccessToken(near)).resource), c.nearResource);
+  assert.deepEqual((await nearVerifier.verifyAccessToken(combined)).scopes, [NEAR_SCOPE, NEAR_X402_SCOPE]);
+  await assert.rejects(mainVerifier.verifyAccessToken(combined));
   await assert.rejects(mainVerifier.verifyAccessToken(near));
   await assert.rejects(nearVerifier.verifyAccessToken(x402));
   await assert.rejects(nearVerifier.verifyAccessToken("alx402_personal"), /personal access tokens/);
@@ -47,16 +50,19 @@ async function authorize(c: Config, params: Record<string, string>) {
   } finally { server.close(); }
 }
 
-test("authorize: the NEAR resource grants only near:transact, and the x402 resource never grants it", async () => {
+test("authorize: NEAR payment scope is explicit and cannot cross resources", async () => {
   const c = await config();
   const near = await authorize(c, { resource: c.nearResource });
   assert.equal(near.status, 200);
   assert.equal(near.saved?.scope, NEAR_SCOPE, "scope defaults to near:transact for the NEAR resource");
-  assert.deepEqual(near.meta, { resource: c.nearResource, authorization_servers: [c.issuer], scopes_supported: [NEAR_SCOPE], bearer_methods_supported: ["header"] });
+  assert.deepEqual(near.meta, { resource: c.nearResource, authorization_servers: [c.issuer], scopes_supported: [NEAR_SCOPE, NEAR_X402_SCOPE], bearer_methods_supported: ["header"] });
   assert.equal((await authorize(c, { resource: c.nearResource, scope: `${NEAR_SCOPE} wallet:transact` })).status, 400);
   assert.equal((await authorize(c, { resource: c.nearResource, scope: "x402:pay" })).status, 400);
   assert.equal((await authorize(c, { resource: c.resource, scope: NEAR_SCOPE })).status, 400);
   assert.equal((await authorize(c, { resource: c.resource })).saved?.scope, "x402:pay", "existing default is unchanged");
+  assert.equal((await authorize(c, { resource: c.nearResource, scope: `${NEAR_SCOPE} ${NEAR_X402_SCOPE}` })).saved?.scope, `${NEAR_SCOPE} ${NEAR_X402_SCOPE}`);
+  assert.equal((await authorize(c, { resource: c.nearResource, scope: NEAR_X402_SCOPE })).status, 400);
+  assert.equal((await authorize(c, { resource: c.resource, scope: NEAR_X402_SCOPE })).status, 400);
   const disabled = await authorize(await config(false), { resource: c.nearResource });
   assert.equal(disabled.status, 400);
   assert.equal(disabled.meta, null);
@@ -76,7 +82,7 @@ test("NEAR MCP publishes its own tools and instructions and hides provider error
   const init = await request("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "0" } });
   assert.equal(init.result.instructions, NEAR_INSTRUCTIONS);
   const tools = (await request("tools/list")).result.tools as { name: string; inputSchema: any; annotations?: any }[];
-  assert.deepEqual(tools.map(t => t.name).sort(), ["evm_address_status", "evm_batch_prepare", "evm_call_execute", "evm_call_prepare", "evm_delegation_prepare", "near_account_status", "near_activity", "near_contract_read", "near_operation_status", "near_transaction_execute", "near_transaction_prepare"]);
+  assert.deepEqual(tools.map(t => t.name).sort(), ["evm_address_status", "evm_batch_prepare", "evm_call_execute", "evm_call_prepare", "evm_delegation_prepare", "name_register_prepare", "near_account_status", "near_activity", "near_contract_read", "near_operation_status", "near_transaction_execute", "near_transaction_prepare"]);
   assert.ok(!tools.some(t => /^(x402|transaction_|smart_wallet)/.test(t.name)), "no Base wallet tools on the NEAR endpoint");
   assert.equal(tools.find(t => t.name === "near_transaction_execute")!.annotations.destructiveHint, true);
   const status = await request("tools/call", { name: "near_account_status", arguments: {} });

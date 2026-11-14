@@ -46,11 +46,14 @@ import { NearPlans } from "./near/plan.js";
 import { RheaPools } from "./near/rhea.js";
 import { RheaLend } from "./near/rhea-lend.js";
 import { OmniTransfer } from "./near/omni-transfer.js";
+import { NearX402Payments } from "./near/x402.js";
+import { NearX402Store } from "./near/x402-store.js";
 import { createNearMcp, type NearServices } from "./near/mcp.js";
 
 // NEAR Omni Account: independent product on its own MCP resource (/near/mcp).
 // Enabled only by NEAR_RPC_URL; it reuses login, the database and the
-// deployment-owned EVM RPCs, and never touches the smart wallet or x402 paths.
+// deployment-owned EVM RPCs. NEAR payments use their own derived payer; the
+// existing smart-wallet x402 signer remains separate.
 function nearServices(config:Config,store:Store,wallets:SmartWalletService,contracts:ContractMetadata|null=null):NearServices|null{
   const near=loadNearConfig();if(!near)return null;
   const nearStore=new NearStore(store.pool);const accounts=new NearAccountService(near,nearStore,new NearRpc(near.rpcUrl,near.network),wallets.cdp.solana);
@@ -66,7 +69,9 @@ function nearServices(config:Config,store:Store,wallets:SmartWalletService,contr
   const trades=new IntentsTrades(accounts,nearStore,intents,new SolverRelayClient(undefined,undefined,process.env.SOLVER_RELAY_API_KEY||undefined));
   const deposits=new IntentsDeposits(accounts,chainSignatures);
   const transfers=new OmniTransfer(accounts,operations,nearStore,intents,trades,chainSignatures,deposits);
-  return{accounts,operations,chainSignatures,swaps:new EvmSwaps(chainSignatures),intents,trades,deposits,transfers,balances,yields:new YieldSearch(accounts,intents,chainSignatures),plans,rhea:new RheaPools(accounts,plans),lend};
+  const paymentKey=near.keyEncryptionKey??config.WALLET_OPERATION_ENCRYPTION_KEY;
+  const payments=near.network==="mainnet"&&paymentKey?new NearX402Payments(config,accounts,operations,nearStore,chainSignatures,new NearX402Store(store.pool,paymentKey),store):undefined;
+  return{...(payments?{payments}:{}),accounts,operations,chainSignatures,swaps:new EvmSwaps(chainSignatures),intents,trades,deposits,transfers,balances,yields:new YieldSearch(accounts,intents,chainSignatures),plans,rhea:new RheaPools(accounts,plans),lend};
 }
 
 export async function createApp(config:Config){
@@ -91,7 +96,7 @@ export async function createApp(config:Config){
   const near=nearServices(config,store,wallets,contracts);
   if(near){
     const nearAuth=requireBearerAuth({verifier:createTokenVerifier(config,tokens,store,config.nearResource),requiredScopes:[NEAR_SCOPE],resourceMetadataUrl:`${config.issuer}/.well-known/oauth-protected-resource/near/mcp`});
-    app.post("/near/mcp",nearAuth,async(req,res,next)=>{try{const authInfo=(req as typeof req&{auth?:{extra?:Record<string,unknown>}}).auth;const userId=authInfo?.extra?.userId;if(typeof userId!=="string")throw new OAuthError(OAuthErrorCode.InvalidToken,"token has no user identity");const server=createNearMcp(userId,near);const transport=new NodeStreamableHTTPServerTransport({sessionIdGenerator:undefined});await server.connect(transport);await transport.handleRequest(req,res,req.body);}catch(e){next(e);}});
+    app.post("/near/mcp",nearAuth,async(req,res,next)=>{try{const authInfo=(req as typeof req&{auth?:{scopes?:string[];extra?:Record<string,unknown>}}).auth;const userId=authInfo?.extra?.userId;if(typeof userId!=="string")throw new OAuthError(OAuthErrorCode.InvalidToken,"token has no user identity");const server=createNearMcp(userId,near,authInfo?.scopes??[]);const transport=new NodeStreamableHTTPServerTransport({sessionIdGenerator:undefined});await server.connect(transport);await transport.handleRequest(req,res,req.body);}catch(e){next(e);}});
     app.all("/near/mcp",(_req,res)=>res.status(405).set("Allow","POST").end());
   }
   app.use((err:unknown,_req:express.Request,res:express.Response,_next:express.NextFunction)=>{console.error(err);if(res.headersSent)return;res.status(500).json({error:"server_error",error_description:"The request could not be completed"});});

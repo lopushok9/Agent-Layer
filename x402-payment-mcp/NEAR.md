@@ -1,6 +1,6 @@
 # NEAR Omni Account (hackathon product)
 
-A separate MCP endpoint, `POST /near/mcp`, alongside the existing Base smart wallet (`/mcp`). It reuses login, Postgres and the deployment's EVM RPCs. It does not change the smart wallet, x402 or existing OAuth grants. Spec: [NEAR_OMNI_ACCOUNT_SPEC.md](NEAR_OMNI_ACCOUNT_SPEC.md).
+A separate MCP endpoint, `POST /near/mcp`, alongside the existing Base smart wallet (`/mcp`). It reuses login, Postgres and the deployment's EVM RPCs. It preserves the existing smart wallet and its x402 backend. Optional [NEAR x402 payments](NEAR_X402.md) use the NEAR-derived Base address under a separate explicit OAuth permission. Spec: [NEAR_OMNI_ACCOUNT_SPEC.md](NEAR_OMNI_ACCOUNT_SPEC.md).
 
 ## What works
 
@@ -22,7 +22,8 @@ A separate MCP endpoint, `POST /near/mcp`, alongside the existing Base smart wal
 | Rhea pools | `src/near/rhea.ts` | `rhea_lp_prepare` / `rhea_lp_exit_prepare` for simple, stable, rated and degen pools on `v2.ref-finance.near` (not DCL). Adding: amounts in human units per token symbol or contract, `auto` = pool ratio (no imbalance fee); plans only the needed steps: Rhea storage (102 bytes + 148 per token at 1e19 yocto/byte) with `register_tokens`, wrapping NEAR (with wrap.near registration if missing), deposits of only what the Rhea balance lacks, then `add_liquidity` (simple: amounts from `predict_add_simple_liquidity`, `min_amounts`) or `add_stable_liquidity` (`min_shares` from `predict_add_{stable,rated,degen}_liquidity` minus slippage) with 0.005 NEAR for the LP share record (refunded excess); the add re-checks Rhea balances and the prediction before signing. Exit: `remove_liquidity` with `min_amounts` and `withdraw` (amount 0 = all; wNEAR arrives as native NEAR) for every token in ONE transaction, registering the wallet on a token first if needed. Method choice, storage math and the oracle behaviour (adding uses the stored degen price; only `remove_liquidity_by_tokens` needs a fresh one) come from the audited ref-exchange source. |
 | Rhea Lend | `src/near/rhea-lend.ts` | `rhea_lend_supply_prepare` / `rhea_lend_withdraw_prepare` on `contract.main.burrow.near` (Burrow source + live contract). Supply: NEP-145 registration of `storage_balance_bounds.min` (0.1 NEAR, `registration_only`; `storage_unregister` always panics, so it stays locked), wrapping NEAR if needed, then `ft_transfer_call` with msg `""` (supplied balance, not collateral); refuses wallet shortfall and the asset's `supplied_limit`. Withdraw: `execute({actions:[{Withdraw:{token_id, max_amount?}}]})` with 1 yocto (no amount = all supplied shares; partial amounts in token decimals + `extra_decimals`), wallet registration on the token if missing, optional `near_withdraw` unwrap checked against the wallet wNEAR; warns when free liquidity (supplied + reserved - borrowed - margin debt) is lower. Positions (supplied / collateral / borrowed with the contract APR) appear in `omni_balances` under `defi.rhea_lend`, borrowed counted negative in the total. |
 | Omni transfer | `src/near/omni-transfer.ts` | `omni_transfer_prepare` / `omni_transfer_execute` / `omni_transfer_status`: one entry point for moving a token between `near` (wallet), `intents` (NEAR Intents balance), `base` and `ethereum` (Chain Signatures address), optionally receiving another token. Every route is ONE signed operation built by the existing modules: wallet -> intents `ft_transfer_call` (near_tx); intents -> wallet withdraw intent via the Solver Relay (no gas, NEAR native); 1Click paid from the wallet or from the intents balance; from Base/Ethereum one ETH or ERC-20 `transfer` to a 1Click EVM deposit address (`quoteFromEvm`: ORIGIN_CHAIN deposit and refund to the EVM address, quote echo checked, deposit address must be an EVM address other than ours) or, for the same token into intents, to the PoA bridge deposit address (bridge minimum checked). The 1Click/PoA plan is stored next to the EVM plan; execute submits the EVM tx hash to 1Click, status adds the 1Click swap status after the EVM receipt. On intents a bare symbol resolves against what the balance holds. |
-| MCP and OAuth | `src/near/mcp.ts`, `src/oauth.ts` | 38 tools. `near:transact` is granted only for the `/near/mcp` resource and its tokens carry their own audience. |
+| x402 API payments | `src/near/x402.ts`, `src/near/x402-store.ts` | Base USDC exact/EIP-3009 authorization signed through the NEAR account; encrypted durable nonce, single HTTP dispatch, receipt/nonce reconciliation, optional pinned EIP-7702 payer. Tools require an explicit `near:x402:pay` grant in addition to `near:transact`. [Setup and recovery](NEAR_X402.md). |
+| MCP and OAuth | `src/near/mcp.ts`, `src/oauth.ts` | Payment tools are added only for `near:transact near:x402:pay`; legacy grants keep their original tools. NEAR scopes are granted only for the `/near/mcp` resource and its tokens carry their own audience. |
 
 ## Enable
 
@@ -48,3 +49,16 @@ CDP_API_KEY_ID=… CDP_API_KEY_SECRET=… CDP_WALLET_SECRET=… \
 
 - Aurora account + XCC, NEAR Intents / 1Click swap and Earn, HOT Bridge.
 - An end-to-end mainnet run with real funds (NEAR transfer, then a Chain Signatures call on Base).
+
+### Basename registration
+
+`name_register_prepare({name, years, set_primary?})` checks availability and
+prepares registration of a single-label `name.base.eth` on Base. The owner and
+address records use this NEAR account's derived EVM address. The default sets
+it as the account's primary name; pass `set_primary: false` to leave the
+current primary name unchanged. Review the registration price, simulation,
+Base gas and NEAR signing fee; after confirmation call `evm_call_execute` and
+reconcile with `near_operation_status`. The name can be taken before execution.
+
+Ethereum `.eth` registration is not implemented by this command: ENSv2 uses
+stablecoin payment and a separate commit/reveal workflow.

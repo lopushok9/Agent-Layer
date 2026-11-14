@@ -3,8 +3,9 @@ import { calculateJwkThumbprint, decodeProtectedHeader, importJWK, jwtVerify, Si
 import type { Config } from "./config.js";
 
 // The NEAR Omni Account endpoint is a separate protected resource. Its scope is
-// never combined with other scopes, and its tokens carry the NEAR audience.
+// never combined with the /mcp scopes; its tokens carry the NEAR audience.
 export const NEAR_SCOPE = "near:transact";
+export const NEAR_X402_SCOPE = "near:x402:pay";
 
 export const randomToken = (bytes = 32) => randomBytes(bytes).toString("base64url");
 

@@ -7,7 +7,7 @@ export function memoryStore() {
   const store = {
     async account(u: string, n: string) { return accounts.get(`${u}:${n}`) ?? null; },
     async saveAccount(a: NearAccountRecord) { const k = `${a.userId}:${a.network}`; if (!accounts.has(k)) accounts.set(k, a); return accounts.get(k)!; },
-    async createOperation(p: any, ttl: number) { const op = { ...jsonb(p), id: randomUUID(), expiresAt: new Date(Date.now() + ttl * 1000), status: "prepared", purpose: null, nonce: null, txHash: null, signedTx: null, outcome: null, result: null, error: null, createdAt: new Date() }; ops.set(op.id, op); return structuredClone(op); },
+    async createOperation(p: any, ttl: number, id = randomUUID()) { if (ops.has(id)) throw new Error("duplicate operation"); const op = { ...jsonb(p), id, expiresAt: new Date(Date.now() + ttl * 1000), status: "prepared", purpose: null, nonce: null, txHash: null, signedTx: null, outcome: null, result: null, error: null, createdAt: new Date() }; ops.set(op.id, op); return structuredClone(op); },
     async operation(u: string, id: string) { const o = ops.get(id); return o && o.userId === u ? structuredClone(o) : null; },
     async recent() { return [...ops.values()]; },
     async reserve(u: string, id: string, kind: string, purpose: string, parentPlanId?: string) {
