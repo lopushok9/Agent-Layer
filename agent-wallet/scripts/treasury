@@ -1,0 +1,16 @@
+#!/bin/sh
+# Operator console for the AgentLayer shared agent account (Airwallex sandbox).
+# Usage: agent-wallet/scripts/treasury status | approvals | approve <id> | agent <id> --budget ...
+set -eu
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+PACKAGE_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd -P)
+if [ -n "${AGENT_WALLET_PYTHON:-}" ]; then
+  PY=$AGENT_WALLET_PYTHON
+elif [ -x "$PACKAGE_ROOT/.runtime-venv/bin/python" ]; then
+  PY=$PACKAGE_ROOT/.runtime-venv/bin/python
+elif [ -x "$HOME/.openclaw/agent-wallet-runtime/current/agent-wallet/.runtime-venv/bin/python" ]; then
+  PY=$HOME/.openclaw/agent-wallet-runtime/current/agent-wallet/.runtime-venv/bin/python
+else
+  PY=python3
+fi
+PYTHONPATH="$PACKAGE_ROOT${PYTHONPATH:+:$PYTHONPATH}" exec "$PY" -m agent_wallet.airwallex.cli "$@"

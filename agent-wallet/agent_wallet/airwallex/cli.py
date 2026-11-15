@@ -166,6 +166,8 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--environment", default="sandbox", choices=["sandbox", "production"])
     sub.add_parser("status", help="Budgets, spend and reservations per agent")
     sub.add_parser("balances", help="Airwallex account balances")
+    db = sub.add_parser("dashboard", help="Local operator web dashboard (127.0.0.1)")
+    db.add_argument("--port", type=int, default=8787)
     a = sub.add_parser("account", help="Shared account settings")
     a.add_argument("--reserve-floor"); a.add_argument("--card-ttl", type=int); a.add_argument("--name")
     g = sub.add_parser("agent", help="Create or update an agent's budget and policy")
@@ -194,6 +196,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "dashboard":
+        from agent_wallet.airwallex.dashboard import serve
+        serve(args.port, args.user_id)
+        return 0
     try:
         return asyncio.run(run(args))
     except WalletBackendError as exc:

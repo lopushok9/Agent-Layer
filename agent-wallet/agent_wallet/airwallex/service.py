@@ -173,7 +173,8 @@ class TreasuryService:
                               merchant_name: str | None = None) -> dict[str, Any]:
         """Sandbox: the merchant runs an authorization against the agent's card."""
         payment = self.treasury.get_payment(payment_id)
-        if payment["status"] != T.CARD_ISSUED:
+        replay = payment["status"] == T.SETTLED and payment.get("card_id")
+        if payment["status"] != T.CARD_ISSUED and not replay:
             raise WalletBackendError("No live card for this payment (status %s)." % payment["status"])
         charge = T.money(amount if amount is not None else payment["amount"])
         mcc = mcc or payment.get("mcc") or ((payment.get("card_controls") or {}).get("allowed_merchant_categories") or ["5734"])[0]
@@ -183,7 +184,13 @@ class TreasuryService:
                   "amount": T._fmt(charge), "currency": payment["currency"], "mcc": mcc,
                   "card_transaction_id": tx.get("card_transaction_id")}
         attempts = list(payment.get("charge_attempts") or []) + [{**result, "at": time.time()}]
-        if tx.get("process_result") == "APPROVED":
+        if replay:
+            # A merchant re-using a settled single-use card: show what the rail says, keep the ledger as is.
+            if tx.get("process_result") == "APPROVED":
+                raise WalletBackendError("Unexpected: a settled single-use card approved another charge; freeze the agent.")
+            payment = self.treasury.transition(payment_id, T.SETTLED, actor="merchant", allowed_from={T.SETTLED},
+                                               charge_attempts=attempts, failure_reason=tx.get("failure_reason"))
+        elif tx.get("process_result") == "APPROVED":
             payment = self.treasury.transition(payment_id, T.SETTLED, actor="merchant", allowed_from={T.CARD_ISSUED},
                                                settled_amount=T._fmt(charge), charge_attempts=attempts,
                                                card_transaction_id=tx.get("card_transaction_id"))
