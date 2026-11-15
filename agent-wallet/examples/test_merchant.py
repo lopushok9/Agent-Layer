@@ -48,7 +48,7 @@ main{max-width:860px;margin:32px auto;padding:0 32px}table{width:100%;border-col
 td,th{padding:12px 14px;border-bottom:1px solid #d9d9d9;text-align:left}th{font:500 10px "IBM Plex Mono",Menlo,monospace;text-transform:uppercase;letter-spacing:.08em;color:#6b6b6b;border-bottom:1px solid #000}
 .n{font-family:"IBM Plex Mono",Menlo,monospace}a.b,button{display:inline-block;background:#000;color:#fff;border:1px solid #000;padding:8px 14px;font:500 11px "IBM Plex Mono",Menlo,monospace;text-transform:uppercase;letter-spacing:.06em;text-decoration:none;cursor:pointer}
 form{border:1px solid #000;padding:20px;display:grid;gap:14px;max-width:420px}label{display:grid;gap:4px;font:500 10px "IBM Plex Mono",Menlo,monospace;text-transform:uppercase;letter-spacing:.08em}
-input{border:1px solid #000;padding:9px 10px;font:14px "IBM Plex Mono",Menlo,monospace}.row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+input{width:100%;min-width:0;border:1px solid #000;padding:9px 10px;font:14px "IBM Plex Mono",Menlo,monospace}.row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
 .tot{display:flex;justify-content:space-between;border-top:1px solid #000;padding-top:12px;font-weight:600}.ok{color:#0a7d32}.no{color:#c8102e}
 .box{border:1px solid #000;padding:20px;max-width:520px}.box h2{margin:0 0 10px;font-size:18px}</style>"""
 
