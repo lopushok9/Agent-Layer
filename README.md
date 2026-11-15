@@ -5,6 +5,29 @@
 [![Node 24.x](https://img.shields.io/badge/node-24.x-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![docs](https://img.shields.io/badge/docs-agent--layer.tech-blue)](https://docs.agent-layer.tech/)
 
+# AgentLayer Treasury — built for the Airwallex Agentic Banking Hackathon
+
+> **Hackathon submission.** This branch (`feat/airwallex-agent-cards`) adds **AgentLayer Treasury** on top of the existing AgentLayer wallet.
+> Hackathon work only: [diff against the pre-hackathon base](https://github.com/lopushok9/Agent-Layer/compare/7504528...feat/airwallex-agent-cards) · [full write-up, setup and APIs → `AIRWALLEX_TREASURY.md`](AIRWALLEX_TREASURY.md)
+
+**Agents spend from one shared Airwallex business account, each under a budget the human operator sets.
+They pay with stablecoins (x402) where the merchant accepts it. Where only cards work, the agent gets a single-use
+Airwallex card whose limits *are* the approved purchase. Card numbers never reach the model.**
+
+- **Policy in code, not prompts.** Every request gets a deterministic decision: auto-approve, operator approval, or deny.
+- **x402 first, fiat fallback.** The merchant is probed for HTTP 402. Otherwise a virtual card is issued through Airwallex Issuing with `authorization_controls` that match the approved amount, merchant category, single use and a 60-minute window.
+- **PCI-safe agent checkout.** Card details go from Airwallex straight into the wallet's encrypted CardVault. The agent only gets `last4` + a vault reference, and the vault executor fills the checkout.
+- **Operator console.** Web dashboard and `treasury` CLI: budgets, approvals, pause/freeze, audit log, live Airwallex transactions.
+- **Idle cash → yield.** Unreserved funds above the reserve floor can sit in the wallet's Morpho USDC vault.
+- **Verified in the Airwallex sandbox.** An overcharge, a wrong merchant category and a reused card are declined by Airwallex itself; the approved charge clears.
+
+```bash
+AIRWALLEX_CLIENT_ID=... AIRWALLEX_API_KEY=... ./scripts/airwallex-demo.sh   # full scripted scenario (sandbox)
+agent-wallet/scripts/treasury dashboard                                     # http://127.0.0.1:8787
+```
+
+---
+
 Try AgentLayer — an agent-native, local crypto wallet with built-in tools from leading protocols: pay with x402, swap, earn yield, and issue fiat cards with stables.
 
 ## Install

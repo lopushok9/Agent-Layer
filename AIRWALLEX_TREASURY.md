@@ -6,6 +6,37 @@ card whose limits *are* the approved purchase. Card numbers never reach the mode
 
 Built for the Airwallex Agentic Banking Hackathon. Runs entirely on the Airwallex sandbox.
 
+## Original pitch (submitted at shortlisting)
+
+> Agentic commerce solution supporting both stablecoin and fiat payments. Agents carry out business tasks from a
+> shared account, each with a budget and spending limits set by a human operator. When a merchant does not accept x402
+> payments, an agent can switch to a fiat payment flow through vault. If needed, it may issue a dedicated card for that
+> purpose, subject to the operator's policy and approval. Operators can set and adjust limits, track spending across
+> agents, and review payments in a single interface. A CLI lets them manage agents and respond to exceptions when
+> needed. Unspent funds can be deposited into a vault to earn yield.
+
+## What we delivered against it
+
+| Pitch | Built (all live against the Airwallex sandbox) |
+|---|---|
+| Shared account, budgets and spending limits per agent | One Airwallex account. Each agent has a budget, a per-transaction limit, an auto-approve threshold, allowed merchant categories and allowed rails. Spent and reserved amounts are tracked per agent. |
+| Stablecoin **and** fiat | The treasury probes the merchant first. An HTTP 402 with x402 terms → USDC on Base via the wallet's x402 tools. Otherwise → an Airwallex card. |
+| Dedicated card, subject to policy and approval | One single-use virtual card per purchase, issued only after a deterministic `decide()` (auto-approve, operator approval or deny). Its Airwallex `authorization_controls` equal the approved purchase: amount, merchant category, single use, 60-minute window. |
+| Fiat flow through the vault | Card details go from Airwallex straight into the local encrypted CardVault, and the agent only holds `last4` + `vault_reference`. Checkout is done by the vault executor: a local test-shop form in the sandbox, `use_saved_card` / Kernel browser in production. |
+| One interface to set limits, track spend and review payments | A local web dashboard with the approval queue, per-agent budgets, limits and pause, the payment feed, an audit log, and a **live Airwallex Issuing transactions** panel. |
+| CLI to manage agents and handle exceptions | `treasury` CLI: agents, limits, approve/deny, pause (freezes the agent's live cards at Airwallex), cancel, sync, idle. Agents also get `/card-pay` in Claude Code. |
+| Unspent funds earn yield | `treasury idle` computes cash that is not reserved, not committed to budgets and above the reserve floor, and can go to the wallet's Morpho USDC vault on Base. |
+
+**Proven end to end in the sandbox.** An agent requests a $19.99 dataset and gets a single-use card. The treasury then
+pays the test shop's checkout from the vault, and Airwallex itself enforces the policy on the card rail:
+
+| Merchant tries | Airwallex says |
+|---|---|
+| $24 upsell instead of the approved $19.99 | `LIMIT_EXCEEDED` |
+| Casino credits (MCC 7995) | `MERCHANT_CATEGORY_NOT_ALLOWED` |
+| The approved $19.99 | `APPROVED`, cleared |
+| Charging the same card again | `CARD_CLOSED` |
+
 ---
 
 ## The problem
