@@ -138,6 +138,7 @@ class CardCatalog:
             "status": status if isinstance(status, str) and status in STATUSES else "unknown",
             "card_type": record.get("card_type"),
             "details_stored": details_ready(record),
+            "provider": record.get("provider") if record.get("provider") in {"laso", "airwallex"} else entry.get("provider", "laso"),
         })
         if isinstance(number, str) and re.fullmatch(r"[0-9]{12,19}", number):
             entry["last4"] = number[-4:]
@@ -201,7 +202,8 @@ class CardCatalog:
         if job and not active:
             refresh_state = "credentials_expired"
         return {
-            "vault_reference": reference, "provider": "laso", "currency": "USD",
+            "vault_reference": reference,
+            "provider": entry.get("provider") if entry.get("provider") in {"laso", "airwallex"} else "laso", "currency": "USD",
             "status": status if isinstance(status, str) and status in STATUSES else "unknown",
             "card_type": card_type if isinstance(card_type, str) and card_type in CARD_TYPES else None,
             "last4": last4 if isinstance(last4, str) and re.fullmatch(r"[0-9]{4}", last4) else None,

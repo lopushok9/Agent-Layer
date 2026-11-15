@@ -112,6 +112,11 @@ class OpenClawWalletAdapter:
         """Append optional read-only connector tools without risking core tools."""
         tools = tools + OpenClawWalletAdapter._card_tool_specs() + OpenClawWalletAdapter._vault_use_tool_specs()
         try:
+            from agent_wallet.airwallex.tools import tool_specs as treasury_tool_specs
+            tools = tools + treasury_tool_specs()
+        except Exception:
+            pass
+        try:
             from agent_wallet.connectors.catalog import enabled_connector_tools
 
             connector_tools = enabled_connector_tools(include_write=False)
@@ -5106,6 +5111,12 @@ class OpenClawWalletAdapter:
             "continue_vault_operation",
             "get_vault_operation",
             "cancel_vault_operation",
+            "treasury_my_budget",
+            "treasury_request_payment",
+            "treasury_payment_status",
+            "treasury_simulate_charge",
+            "treasury_record_x402",
+            "treasury_cancel_payment",
         }
     )
 
@@ -5182,6 +5193,10 @@ class OpenClawWalletAdapter:
 
             if tool_name.startswith("imd_"):
                 return await self._invoke_imd_tool(tool_name, args)
+
+            if tool_name.startswith("treasury_"):
+                from agent_wallet.airwallex import tools as treasury_tools
+                return await treasury_tools.invoke(tool_name, args, user_id=self.user_id)
 
             if tool_name in {"kernel_browser", "use_saved_card", "continue_vault_operation", "get_vault_operation", "cancel_vault_operation"}:
                 return await self._invoke_vault_tool(tool_name, args)
