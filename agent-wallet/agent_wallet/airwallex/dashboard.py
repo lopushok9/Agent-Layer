@@ -59,6 +59,7 @@ button:hover{background:#000;color:#fff}button.ok{background:#000;color:#fff}but
 <section><h2>Payments</h2><table><thead><tr><th>Time</th><th>Agent</th><th>Merchant</th><th>Amount</th><th>Rail</th><th>Status</th><th>Card</th><th>Decision</th></tr></thead><tbody id="pays"></tbody></table></section>
 <section><h2>Audit log</h2><div id="events"></div></section>
 </div>
+<section><h2>Airwallex Issuing · live card transactions</h2><table><thead><tr><th>Time</th><th>Card</th><th>Merchant</th><th>MCC</th><th>Amount</th><th>Type</th><th>Result</th></tr></thead><tbody id="aw"></tbody></table></section>
 </main>
 <script>
 const TOKEN="__TOKEN__";
@@ -78,7 +79,9 @@ async function load(){
  $("events").innerHTML=d.events.slice().reverse().map(e=>`<div class="ev"><span class="muted">${t(e.at)}</span> <b>${esc(e.actor)}</b> ${esc(e.kind.replace(/_/g," "))} ${e.amount?"$"+esc(e.amount):""} ${e.failure_reason?'<span style="color:var(--red)">'+esc(e.failure_reason)+'</span>':""}</div>`).join("");
 }
 function limits(id,b,p,a){const nb=prompt("Budget for "+id,b);if(nb===null)return;const np=prompt("Per-transaction limit",p);if(np===null)return;const na=prompt("Auto-approve up to",a);if(na===null)return;act("/api/limits",{agent_id:id,budget:nb,per_tx_limit:np,auto_approve_limit:na});}
-load();setInterval(load,2000);
+async function loadAw(){try{const d=await (await fetch("/api/airwallex")).json();
+ $("aw").innerHTML=(d.items||[]).length?d.items.map(e=>`<tr><td class="muted mono">${esc((e.at||"").replace("T"," ").slice(0,19))}</td><td class="mono">•••• ${esc(e.last4)}</td><td>${esc(e.merchant)}</td><td class="mono">${esc(e.mcc)}</td><td class="mono">$${esc(e.amount)}</td><td class="mono">${esc(e.type)}</td><td><span class="s ${e.result=="APPROVED"?"settled":"denied"}">${esc(e.result)}</span> <span class="mono muted">${esc(e.failure_reason||"")}</span></td></tr>`).join(""):`<tr><td colspan="7" class="empty">${esc(d.error||"No card transactions yet.")}</td></tr>`;}catch(_){}}
+load();setInterval(load,2000);loadAw();setInterval(loadAw,6000);
 </script></body></html>"""
 
 
@@ -109,6 +112,18 @@ def serve(port: int = 8787, user_id: str | None = None) -> None:
                 dash["payments"] = service.treasury.list_payments(limit=40)
                 dash["events"] = service.treasury.read()["events"][-30:]
                 return self._send(200, dash)
+            if self.path == "/api/airwallex":
+                try:
+                    data = run(service.issuing.client.request("GET", "/api/v1/issuing/card_transaction_events",
+                                                              params={"page_size": 40}))
+                except Exception as exc:  # show the reason, never card data
+                    return self._send(200, {"items": [], "error": "Airwallex unavailable: " + type(exc).__name__})
+                items = [{"at": e.get("transacted_at"), "last4": str(e.get("masked_card_number") or "")[-4:],
+                          "merchant": (e.get("merchant") or {}).get("name"), "mcc": (e.get("merchant") or {}).get("category_code"),
+                          "amount": e.get("transaction_amount"), "type": e.get("type"),
+                          "result": e.get("process_result"), "failure_reason": e.get("failure_reason")}
+                         for e in data.get("items", [])]
+                return self._send(200, {"items": items})
             self._send(404, {"error": "not found"})
 
         def do_POST(self) -> None:
