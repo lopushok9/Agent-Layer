@@ -19,28 +19,36 @@ from agent_wallet.wallet_layer.base import WalletBackendError
 
 PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AgentLayer Treasury</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#0d0f12;--panel:#151920;--line:#232a35;--text:#e6e9ef;--dim:#8a93a3;--green:#3ecf8e;--red:#f06464;--amber:#f5b942;--blue:#5aa9ff;--violet:#a78bfa}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Inter","Segoe UI",sans-serif}
-header{display:flex;align-items:center;justify-content:space-between;padding:18px 28px;border-bottom:1px solid var(--line)}
-h1{font-size:17px;margin:0;font-weight:600;letter-spacing:.2px}h1 span{color:var(--dim);font-weight:400}
-.pill{font-size:12px;padding:3px 9px;border-radius:99px;background:#1d2430;color:var(--dim)}
-main{padding:22px 28px;display:grid;gap:22px;max-width:1300px;margin:0 auto}
-.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:14px}.kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
-.kpi b{display:block;font-size:22px;font-weight:600;margin-top:4px;font-variant-numeric:tabular-nums}.kpi small{color:var(--dim)}
-section{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px}h2{font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:var(--dim);margin:0 0 12px;font-weight:600}
-table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}th{text-align:left;color:var(--dim);font-weight:500;font-size:12px;padding:6px 8px;border-bottom:1px solid var(--line)}
-td{padding:8px;border-bottom:1px solid #1b212b;vertical-align:middle}tr:last-child td{border-bottom:0}
-.bar{height:6px;border-radius:4px;background:#222a36;overflow:hidden;min-width:120px}.bar i{display:block;height:100%;float:left}
-.s{font-size:12px;padding:2px 8px;border-radius:99px;white-space:nowrap}.settled{background:#123527;color:var(--green)}.card_issued,.x402_ready,.approved{background:#14283f;color:var(--blue)}
-.pending_approval{background:#3a2d10;color:var(--amber)}.denied,.declined{background:#3a1616;color:var(--red)}.expired,.cancelled{background:#22262d;color:var(--dim)}
-.rail{font-size:11px;padding:2px 7px;border-radius:6px;border:1px solid var(--line);color:var(--violet)}.rail.card{color:var(--blue)}
-button{background:#1f2632;color:var(--text);border:1px solid #2c3544;border-radius:8px;padding:6px 12px;cursor:pointer;font:inherit}button:hover{border-color:#3c4758}
-button.ok{background:#14372a;border-color:#1f5a43;color:var(--green)}button.no{background:#3a1818;border-color:#5a2525;color:var(--red)}
-.appr{display:grid;gap:10px}.ap{display:flex;justify-content:space-between;gap:16px;align-items:center;border:1px solid #3a2d10;background:#1a160c;border-radius:10px;padding:12px 14px}
-.ap .why{color:var(--amber);font-size:12px}.muted{color:var(--dim)}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
-.grid2{display:grid;grid-template-columns:2fr 1fr;gap:22px}.ev{font-size:12px;border-bottom:1px solid #1b212b;padding:6px 0}.ev:last-child{border:0}
-.empty{color:var(--dim);padding:6px 0}@media(max-width:900px){.kpis{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}}
+:root{--bg:#fff;--text:#000;--dim:#6b6b6b;--line:#000;--hair:#d9d9d9;--green:#0a7d32;--red:#c8102e;--amber:#9a6200;--blue:#000;--violet:#000}
+*{box-sizing:border-box;border-radius:0!important}
+body{margin:0;background:var(--bg);color:var(--text);font:13px/1.5 "IBM Plex Sans","Helvetica Neue",Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+header{display:flex;align-items:baseline;justify-content:space-between;padding:20px 32px;border-bottom:2px solid var(--line)}
+h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.06em;text-transform:uppercase}h1 span{color:var(--dim);font-weight:400;text-transform:none;letter-spacing:0}
+.pill{font:11px "IBM Plex Mono",ui-monospace,Menlo,monospace;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin-left:18px}
+#env{color:var(--text);border:1px solid var(--line);padding:3px 8px}
+main{padding:28px 32px 48px;display:grid;gap:28px;max-width:1320px;margin:0 auto}
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);border:1px solid var(--line)}
+.kpi{padding:16px 18px;border-right:1px solid var(--line)}.kpi:last-child{border-right:0}
+.kpi small{font:11px "IBM Plex Mono",ui-monospace,Menlo,monospace;text-transform:uppercase;letter-spacing:.06em;color:var(--dim)}
+.kpi b{display:block;font:500 26px/1.2 "IBM Plex Mono",ui-monospace,Menlo,monospace;margin-top:10px;font-variant-numeric:tabular-nums}
+section{border:1px solid var(--line);padding:0}
+h2{font:600 11px "IBM Plex Mono",ui-monospace,Menlo,monospace;text-transform:uppercase;letter-spacing:.1em;margin:0;padding:10px 16px;border-bottom:1px solid var(--line);background:#000;color:#fff}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th{text-align:left;font:500 10px "IBM Plex Mono",ui-monospace,Menlo,monospace;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);padding:9px 12px;border-bottom:1px solid var(--line)}
+td{padding:10px 12px;border-bottom:1px solid var(--hair);vertical-align:middle}tr:last-child td{border-bottom:0}
+.bar{height:8px;border:1px solid var(--line);background:#fff;overflow:hidden;min-width:120px}.bar i{display:block;height:100%;float:left}
+.s{font:500 10px "IBM Plex Mono",ui-monospace,Menlo,monospace;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;padding:2px 6px;border:1px solid currentColor}
+.settled{color:var(--green)}.card_issued,.x402_ready,.approved{color:var(--text)}.pending_approval{color:var(--amber)}.denied,.declined{color:var(--red)}.expired,.cancelled{color:var(--dim)}
+.rail{font:500 10px "IBM Plex Mono",ui-monospace,Menlo,monospace;text-transform:uppercase;letter-spacing:.06em;padding:2px 6px;border:1px solid var(--line)}.rail.x402{background:#000;color:#fff}
+button{background:#fff;color:#000;border:1px solid #000;padding:6px 12px;cursor:pointer;font:500 11px "IBM Plex Mono",ui-monospace,Menlo,monospace;text-transform:uppercase;letter-spacing:.06em}
+button:hover{background:#000;color:#fff}button.ok{background:#000;color:#fff}button.ok:hover{background:#fff;color:#000}button.no:hover{background:var(--red);border-color:var(--red);color:#fff}
+.appr{display:grid}.ap{display:flex;justify-content:space-between;gap:16px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--hair);border-left:4px solid var(--amber)}.ap:last-child{border-bottom:0}
+.ap .why{color:var(--amber);font:11px "IBM Plex Mono",ui-monospace,Menlo,monospace;margin-top:4px}.muted{color:var(--dim)}.mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:11px}
+.grid2{display:grid;grid-template-columns:2fr 1fr;gap:28px;align-items:start}td.mono,#pays td:nth-child(-n+2){white-space:nowrap}#events{padding:4px 16px}.ev{font:11px/1.5 "IBM Plex Mono",ui-monospace,Menlo,monospace;border-bottom:1px solid var(--hair);padding:7px 0}.ev:last-child{border:0}
+.empty{color:var(--dim);padding:14px 16px}td.empty{padding:14px 12px}
+@media(max-width:900px){.kpis{grid-template-columns:repeat(2,1fr)}.kpi{border-bottom:1px solid var(--line)}.grid2{grid-template-columns:1fr}main,header{padding-left:16px;padding-right:16px}section{overflow-x:auto}}
 </style></head><body>
 <header><h1>AgentLayer Treasury <span id="acct"></span></h1><div><span class="pill" id="env">Airwallex sandbox</span> <span class="pill" id="upd"></span></div></header>
 <main>
@@ -65,7 +73,7 @@ async function load(){
  const T=d.totals, k=[["Agent budgets",T.budget],["Spent",T.spent],["Reserved on cards / x402",T.reserved],["Available to agents",T.available],["Waiting approvals",d.pending_approvals.length]];
  $("kpis").innerHTML=k.map(([l,v],i)=>`<div class="kpi"><small>${l}</small><b>${i<4?"$":""}${esc(v)}</b></div>`).join("");
  $("appr").innerHTML=d.pending_approvals.length?d.pending_approvals.map(p=>`<div class="ap"><div><b>${esc(p.agent_id)}</b> wants <b>$${esc(p.amount)}</b> at ${esc(p.merchant)} <span class="rail ${esc(p.rail)}">${esc(p.rail)}</span><div class="muted">${esc(p.purpose)}</div><div class="why">${esc(p.decision.reasons.join(", "))}</div></div><div><button class="ok" onclick="act('/api/approve',{payment_id:'${p.payment_id}'})">Approve &amp; issue</button> <button class="no" onclick="act('/api/deny',{payment_id:'${p.payment_id}'})">Deny</button></div></div>`).join(""):'<div class="empty">Nothing needs your attention.</div>';
- $("agents").innerHTML=d.agents.map(a=>{const b=+a.budget||1,sp=+a.spent/b*100,rs=+a.reserved/b*100;return `<tr><td><b>${esc(a.name)}</b><div class="muted mono">${esc(a.agent_id)}</div></td><td><span class="s ${a.status=="active"?"settled":"denied"}">${esc(a.status)}</span></td><td><div class="bar"><i style="width:${sp}%;background:var(--green)"></i><i style="width:${rs}%;background:var(--blue)"></i></div></td><td>$${esc(a.spent)}</td><td>$${esc(a.reserved)}</td><td><b>$${esc(a.available)}</b> <span class="muted">/ ${esc(a.budget)}</span></td><td>$${esc(a.per_tx_limit)}</td><td>$${esc(a.auto_approve_limit)}</td><td>${a.rails.map(r=>`<span class="rail ${r}">${r}</span>`).join(" ")}</td><td class="mono">${esc(a.allowed_mcc.join(", ")||"any")}</td><td><button onclick="act('/api/${a.status=="active"?"pause":"resume"}',{agent_id:'${a.agent_id}'})">${a.status=="active"?"Pause + freeze":"Resume"}</button> <button onclick="limits('${a.agent_id}','${a.budget}','${a.per_tx_limit}','${a.auto_approve_limit}')">Limits</button></td></tr>`}).join("");
+ $("agents").innerHTML=d.agents.map(a=>{const b=+a.budget||1,sp=+a.spent/b*100,rs=+a.reserved/b*100;return `<tr><td><b>${esc(a.name)}</b><div class="muted mono">${esc(a.agent_id)}</div></td><td><span class="s ${a.status=="active"?"settled":"denied"}">${esc(a.status)}</span></td><td><div class="bar"><i style="width:${sp}%;background:#000"></i><i style="width:${rs}%;background:repeating-linear-gradient(45deg,#000 0 2px,#fff 2px 5px)"></i></div></td><td>$${esc(a.spent)}</td><td>$${esc(a.reserved)}</td><td><b>$${esc(a.available)}</b> <span class="muted">/ ${esc(a.budget)}</span></td><td>$${esc(a.per_tx_limit)}</td><td>$${esc(a.auto_approve_limit)}</td><td>${a.rails.map(r=>`<span class="rail ${r}">${r}</span>`).join(" ")}</td><td class="mono">${esc(a.allowed_mcc.join(", ")||"any")}</td><td><button onclick="act('/api/${a.status=="active"?"pause":"resume"}',{agent_id:'${a.agent_id}'})">${a.status=="active"?"Pause + freeze":"Resume"}</button> <button onclick="limits('${a.agent_id}','${a.budget}','${a.per_tx_limit}','${a.auto_approve_limit}')">Limits</button></td></tr>`}).join("");
  $("pays").innerHTML=d.payments.length?d.payments.map(p=>`<tr><td class="muted">${t(p.created_at)}</td><td>${esc(p.agent_id)}</td><td>${esc(p.merchant)}</td><td>$${esc(p.settled_amount||p.amount)}</td><td><span class="rail ${esc(p.rail)}">${esc(p.rail)}</span></td><td><span class="s ${esc(p.status)}">${esc(p.status.replace("_"," "))}</span>${p.failure_reason&&p.status!="settled"?`<div class="muted mono">last: ${esc(p.failure_reason)}</div>`:""}</td><td class="mono">${p.card_last4?"•••• "+esc(p.card_last4):""}</td><td class="muted">${esc((p.decision.reasons||[]).join(", "))}</td></tr>`).join(""):'<tr><td colspan="8" class="empty">No payments yet.</td></tr>';
  $("events").innerHTML=d.events.slice().reverse().map(e=>`<div class="ev"><span class="muted">${t(e.at)}</span> <b>${esc(e.actor)}</b> ${esc(e.kind.replace(/_/g," "))} ${e.amount?"$"+esc(e.amount):""} ${e.failure_reason?'<span style="color:var(--red)">'+esc(e.failure_reason)+'</span>':""}</div>`).join("");
 }

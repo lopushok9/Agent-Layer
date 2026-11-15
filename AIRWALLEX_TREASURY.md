@@ -105,6 +105,10 @@ $T request research-bot --merchant X --amount 19.99 --purpose "..." [--url https
 $T charge <id> [--amount 24] [--mcc 7995]      # sandbox: merchant runs the authorization
 ```
 
+In Claude Code the plugin also ships `/card-pay [amount] [merchant] — [purpose]`. It checks the budget, confirms,
+requests the single-use card (card rail, no x402 probe), shows `•••• last4` and its controls, and runs the sandbox
+merchant charge or cancels.
+
 Agents: add the wallet MCP server to Claude Code, Codex or Cursor (see `claude-code/plugins/agent-wallet`) and point it
 at this package with `AGENT_WALLET_PACKAGE_ROOT=<repo>/agent-wallet`. The agent then sees the `treasury_*` tools next
 to the wallet's x402, swap, vault and `use_saved_card` tools.
@@ -122,8 +126,15 @@ payload shapes.
 
 ## Sandbox vs production
 
-- Merchant charges are simulated with `simulation/issuing/create`. In production, the merchant's real authorization
-  hits the same card controls, and the agent pays through `use_saved_card` from the vault.
+- Merchant charges are simulated with `simulation/issuing/create`. In production the checkout itself is done by the
+  wallet's existing vault executor. The agent opens the merchant's checkout page in a managed **Kernel** cloud browser
+  (`kernel_browser`), then calls `use_saved_card(vault_reference, checkout=…)` with field selectors and the
+  displayed total. The executor fills the number, expiry and CVV inside the browser, rechecks the total, submits, and
+  returns only a status and redacted diagnostics. The model never sees the card details. The merchant's real
+  authorization then hits the same Airwallex card controls (amount, category, single use, `active_to`). The same
+  path can be exercised end to end in the sandbox with a public test merchant whose backend authorizes the
+  submitted card number through `simulation/issuing/create` (`card_number` is accepted). We did not ship that
+  merchant in this build.
 - The agent identity is a host-bound id (`AGENTLAYER_AGENT_ID`), the same trust model as Airwallex's agent-cards
   demo. Production needs a per-agent credential.
 - Simulated sandbox transactions may stay `PENDING`; settlement in the ledger comes from the authorization result
