@@ -8,6 +8,8 @@
 # AgentLayer Treasury — built for the Airwallex Agentic Banking Hackathon
 
 > **Hackathon submission.** This branch (`feat/airwallex-agent-cards`) adds **AgentLayer Treasury** on top of the existing AgentLayer wallet.
+> **Video walkthrough:** https://youtu.be/npUMjUEbB1o
+>
 > Hackathon work only: [diff against the pre-hackathon base](https://github.com/lopushok9/Agent-Layer/compare/7504528...feat/airwallex-agent-cards) · [full write-up, setup and APIs → `AIRWALLEX_TREASURY.md`](AIRWALLEX_TREASURY.md)
 
 **Agents spend from one shared Airwallex business account, each under a budget the human operator sets.

@@ -6,6 +6,8 @@ card whose limits *are* the approved purchase. Card numbers never reach the mode
 
 Built for the Airwallex Agentic Banking Hackathon. Runs entirely on the Airwallex sandbox.
 
+**Video walkthrough:** https://youtu.be/npUMjUEbB1o
+
 ## Original pitch (submitted at shortlisting)
 
 > Agentic commerce solution supporting both stablecoin and fiat payments. Agents carry out business tasks from a
