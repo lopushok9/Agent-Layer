@@ -108,7 +108,7 @@ Requirements: macOS (for the Keychain-backed CardVault), Python 3.10+, an Airwal
 enabled. All amounts are sandbox money.
 
 ```bash
-git clone <this repo> && cd <repo>
+git clone -b feat/airwallex-agent-cards https://github.com/lopushok9/Agent-Layer.git && cd Agent-Layer
 python3 -m venv agent-wallet/.runtime-venv
 agent-wallet/.runtime-venv/bin/pip install -r agent-wallet/requirements.txt
 
