@@ -3,7 +3,7 @@
   "name": "Agent Wallet",
   "description": "Plugin-friendly wallet backend for OpenClaw agents with safe wallet tools and runtime instructions across Solana and local EVM.",
   "version": "0.1.139",
-  "skills": ["skills/wallet-operator"],
+  "skills": ["skills/wallet-operator", "skills/agent-treasury"],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
