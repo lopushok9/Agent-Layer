@@ -56,6 +56,17 @@ def tool_specs() -> list[AgentToolSpec]:
             read_only=False, risk_level="low",
         ),
         AgentToolSpec(
+            name="treasury_checkout",
+            description=("Sandbox: pay a local test merchant's checkout (http://127.0.0.1/...) with the card issued for payment_id. "
+                         "The treasury reads the card from the vault and submits the merchant's form itself; you get back only the "
+                         "merchant's result (approved/declined + Airwallex reason). Real merchants: use use_saved_card with vault_reference."),
+            input_schema={"type": "object", "properties": {"payment_id": _PAYMENT,
+                                                           "checkout_url": {"type": "string", "maxLength": 2048,
+                                                                            "description": "The merchant form's POST URL, e.g. http://127.0.0.1:8800/pay/dataset"}},
+                          "required": ["payment_id", "checkout_url"], "additionalProperties": False},
+            read_only=False, risk_level="medium",
+        ),
+        AgentToolSpec(
             name="treasury_record_x402",
             description="Report the outcome of an x402 payment you made for an x402_ready treasury payment: settled (with amount and transaction hash) or failed (releases the reservation).",
             input_schema={"type": "object", "properties": {"payment_id": _PAYMENT, "outcome": {"type": "string", "enum": ["settled", "failed"]},
@@ -107,6 +118,8 @@ async def invoke(tool_name: str, args: dict[str, Any], *, user_id: str | None) -
     if tool_name == "treasury_simulate_charge":
         data = await service.simulate_charge(args["payment_id"], amount=args.get("amount"), mcc=args.get("mcc"))
         return AgentToolResult(tool=tool_name, ok=True, data=data)
+    if tool_name == "treasury_checkout":
+        return AgentToolResult(tool=tool_name, ok=True, data=await service.checkout(args["payment_id"], args["checkout_url"]))
     if tool_name == "treasury_record_x402":
         data = service.record_x402(args["payment_id"], outcome=args["outcome"], amount=args.get("amount"),
                                    transaction=args.get("transaction"))

@@ -60,7 +60,8 @@ Code: [`agent-wallet/agent_wallet/airwallex/`](agent-wallet/agent_wallet/airwall
 
 ### Agent tools (exposed through the existing AgentLayer wallet MCP server)
 
-`treasury_my_budget`, `treasury_request_payment`, `treasury_payment_status`, `treasury_simulate_charge` (sandbox),
+`treasury_my_budget`, `treasury_request_payment`, `treasury_payment_status`, `treasury_checkout` and
+`treasury_simulate_charge` (sandbox),
 `treasury_record_x402`, `treasury_cancel_payment`. With `AGENTLAYER_AGENT_ID` set, a host session is bound to one
 agent and cannot read or spend another agent's budget.
 
@@ -89,6 +90,9 @@ export AIRWALLEX_CLIENT_ID=...  AIRWALLEX_API_KEY=...
 
 # Operator UI
 agent-wallet/scripts/treasury dashboard          # http://127.0.0.1:8787
+
+# Test shop that takes Airwallex-issued cards (sandbox)
+PYTHONPATH=agent-wallet python agent-wallet/examples/test_merchant.py   # http://127.0.0.1:8800
 ```
 
 Operator CLI:
@@ -102,7 +106,8 @@ $T approvals ;  $T approve <id> ;  $T deny <id>
 $T pause ops-bot                               # pause agent + freeze its live cards at Airwallex
 $T payments ;  $T events ;  $T sync ;  $T idle ;  $T balances
 $T request research-bot --merchant X --amount 19.99 --purpose "..." [--url https://merchant] [--mcc 5734]
-$T charge <id> [--amount 24] [--mcc 7995]      # sandbox: merchant runs the authorization
+$T checkout <id> --url http://127.0.0.1:8800/pay/dataset   # pay the test shop's checkout from the vault
+$T charge <id> [--amount 24] [--mcc 7995]      # sandbox: bare merchant authorization
 ```
 
 In Claude Code the plugin also ships `/card-pay [amount] [merchant] — [purpose]`. It checks the budget, confirms,
@@ -135,6 +140,15 @@ payload shapes.
   path can be exercised end to end in the sandbox with a public test merchant whose backend authorizes the
   submitted card number through `simulation/issuing/create` (`card_number` is accepted). We did not ship that
   merchant in this build.
+- **Test merchant (`agent-wallet/examples/test_merchant.py`).** "Northwind Data Store" is a local shop with a card
+  checkout form. `treasury_checkout` / `treasury checkout` reads the card from the vault and submits that form, and the
+  agent only gets the shop's result. The shop's backend charges the card on the Airwallex sandbox: it finds the issued
+  card by number, checks expiry and CVC against its details, and authorizes the item's price and MCC by `card_id`,
+  single phase (authorize + clear). The charges then appear in the sandbox under Issuing → transactions with the shop's
+  name. In a live run, the $24 upsell got `LIMIT_EXCEEDED`, casino credits `MERCHANT_CATEGORY_NOT_ALLOWED`, the
+  approved $19.99 `APPROVED` and cleared, and a second charge on the same card `CARD_CLOSED`. Note: the simulation's
+  `card_number` path declined every request with `EXPIRY_MISSING` and documents no expiry field, which is why the shop
+  verifies the expiry itself and authorizes by `card_id`.
 - The agent identity is a host-bound id (`AGENTLAYER_AGENT_ID`), the same trust model as Airwallex's agent-cards
   demo. Production needs a per-agent credential.
 - Simulated sandbox transactions may stay `PENDING`; settlement in the ledger comes from the authorization result

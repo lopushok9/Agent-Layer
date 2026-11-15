@@ -180,24 +180,87 @@ class TreasuryService:
         mcc = mcc or payment.get("mcc") or ((payment.get("card_controls") or {}).get("allowed_merchant_categories") or ["5734"])[0]
         tx = await self.issuing.simulate_authorization(card_id=payment["card_id"], amount=charge, currency=payment["currency"],
                                                        merchant_category_code=mcc, merchant_name=merchant_name or payment["merchant"])
+        return self._record_charge(payment, tx, charge=charge, mcc=mcc, actor="merchant", replay=bool(replay))
+
+    def _record_charge(self, payment: dict[str, Any], tx: dict[str, Any], *, charge: Decimal, mcc: str, actor: str,
+                       replay: bool = False, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+        payment_id = payment["payment_id"]
         result = {"process_result": tx.get("process_result"), "failure_reason": tx.get("failure_reason"),
                   "amount": T._fmt(charge), "currency": payment["currency"], "mcc": mcc,
-                  "card_transaction_id": tx.get("card_transaction_id")}
+                  "card_transaction_id": tx.get("card_transaction_id"), **(extra or {})}
         attempts = list(payment.get("charge_attempts") or []) + [{**result, "at": time.time()}]
         if replay:
             # A merchant re-using a settled single-use card: show what the rail says, keep the ledger as is.
             if tx.get("process_result") == "APPROVED":
                 raise WalletBackendError("Unexpected: a settled single-use card approved another charge; freeze the agent.")
-            payment = self.treasury.transition(payment_id, T.SETTLED, actor="merchant", allowed_from={T.SETTLED},
+            payment = self.treasury.transition(payment_id, T.SETTLED, actor=actor, allowed_from={T.SETTLED},
                                                charge_attempts=attempts, failure_reason=tx.get("failure_reason"))
         elif tx.get("process_result") == "APPROVED":
-            payment = self.treasury.transition(payment_id, T.SETTLED, actor="merchant", allowed_from={T.CARD_ISSUED},
+            payment = self.treasury.transition(payment_id, T.SETTLED, actor=actor, allowed_from={T.CARD_ISSUED},
                                                settled_amount=T._fmt(charge), charge_attempts=attempts,
                                                card_transaction_id=tx.get("card_transaction_id"))
         else:
-            payment = self.treasury.transition(payment_id, T.CARD_ISSUED, actor="merchant", allowed_from={T.CARD_ISSUED},
+            payment = self.treasury.transition(payment_id, T.CARD_ISSUED, actor=actor, allowed_from={T.CARD_ISSUED},
                                                charge_attempts=attempts, failure_reason=tx.get("failure_reason"))
         return {"charge": result, **self._agent_view(payment)}
+
+    async def checkout(self, payment_id: str, checkout_url: str) -> dict[str, Any]:
+        """Sandbox: submit a local test merchant's checkout form with the card sealed for this payment.
+
+        The card details are read from the vault inside this executor and posted straight to the
+        merchant; only the merchant's status comes back. Production checkout uses use_saved_card
+        (fixed HTTPS request or Kernel browser) against public merchants instead.
+        """
+        import re
+        from urllib.parse import urlsplit
+
+        import httpx
+
+        from agent_wallet.card_runtime_secrets import CardRuntimeSecrets
+        from agent_wallet.card_vault import CardVault
+
+        if not self.issuing.client.is_sandbox:
+            raise WalletBackendError("Local test checkout exists only with the Airwallex sandbox; use use_saved_card in production.")
+        parts = urlsplit(checkout_url or "")
+        if parts.scheme not in {"http", "https"} or parts.hostname not in {"127.0.0.1", "localhost", "::1"} \
+                or parts.username or parts.password or parts.fragment:
+            raise WalletBackendError("treasury_checkout only submits to a local test merchant (127.0.0.1). "
+                                     "For real merchants use use_saved_card with the vault_reference.")
+        payment = self.treasury.get_payment(payment_id)
+        replay = payment["status"] == T.SETTLED and payment.get("card_id")
+        if payment["status"] != T.CARD_ISSUED and not replay:
+            raise WalletBackendError("No live card for this payment (status %s)." % payment["status"])
+        ref = payment.get("vault_reference")
+        if not ref:
+            raise WalletBackendError("This card's details were not sealed into the vault; checkout is unavailable.")
+        vault = CardVault(self.user_id)
+        fields = CardRuntimeSecrets(vault).load_for_executor(ref)
+        form = {"card_number": fields["card.number"], "exp_month": fields["card.exp_month"],
+                "exp_year": fields["card.exp_year"], "cvc": fields["card.cvv"], "payment_ref": payment_id}
+        try:
+            async with httpx.AsyncClient(trust_env=False, follow_redirects=False, timeout=45) as client:
+                response = await client.post(checkout_url, data=form, headers={"Accept": "application/json"})
+        except httpx.HTTPError:
+            raise WalletBackendError("Merchant did not answer; check the payment with treasury sync before retrying.") from None
+        finally:
+            form.clear()
+            fields.clear()
+        try:
+            data = response.json()
+        except ValueError:
+            data = {}
+        if not isinstance(data, dict) or data.get("status") not in {"approved", "declined"}:
+            raise WalletBackendError("Merchant returned no payment result (HTTP %s)." % response.status_code)
+        reason = data.get("failure_reason")
+        reason = reason if isinstance(reason, str) and re.fullmatch(r"[A-Z_]{1,64}", reason) else None
+        mcc = data.get("mcc") if isinstance(data.get("mcc"), str) and re.fullmatch(r"[0-9]{4}", data["mcc"]) else "0000"
+        merchant = str(data.get("merchant") or "test merchant")[:60]
+        order = str(data.get("order_id") or "")[:64] or None
+        tx = {"process_result": "APPROVED" if data["status"] == "approved" else "DECLINED", "failure_reason": reason,
+              "card_transaction_id": str(data.get("card_transaction_id") or "")[:64] or None}
+        return self._record_charge(payment, tx, charge=T.money(data.get("amount") or 0), mcc=mcc,
+                                   actor="merchant:" + merchant, replay=bool(replay),
+                                   extra={"merchant": merchant, "order_id": order, "via": "checkout_form"})
 
     def record_x402(self, payment_id: str, *, outcome: str, amount: Any = None, transaction: str | None = None) -> dict[str, Any]:
         payment = self.treasury.get_payment(payment_id)

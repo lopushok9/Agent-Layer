@@ -1,7 +1,7 @@
 ---
 description: Pay a card-only merchant from the operator's shared Airwallex account with a single-use virtual card issued for this one purchase (sandbox).
-argument-hint: "[amount] [merchant] — [purpose]"
-allowed-tools: AskUserQuestion, mcp__plugin_wallet_agent-wallet__treasury_my_budget, mcp__plugin_wallet_agent-wallet__treasury_request_payment, mcp__plugin_wallet_agent-wallet__treasury_payment_status, mcp__plugin_wallet_agent-wallet__treasury_simulate_charge, mcp__plugin_wallet_agent-wallet__treasury_cancel_payment, mcp__agentlayer-treasury__treasury_my_budget, mcp__agentlayer-treasury__treasury_request_payment, mcp__agentlayer-treasury__treasury_payment_status, mcp__agentlayer-treasury__treasury_simulate_charge, mcp__agentlayer-treasury__treasury_cancel_payment
+argument-hint: "[amount] [merchant] — [purpose] [checkout URL]"
+allowed-tools: AskUserQuestion, mcp__plugin_wallet_agent-wallet__treasury_my_budget, mcp__plugin_wallet_agent-wallet__treasury_request_payment, mcp__plugin_wallet_agent-wallet__treasury_payment_status, mcp__plugin_wallet_agent-wallet__treasury_simulate_charge, mcp__plugin_wallet_agent-wallet__treasury_checkout, mcp__plugin_wallet_agent-wallet__treasury_cancel_payment, mcp__agentlayer-treasury__treasury_my_budget, mcp__agentlayer-treasury__treasury_request_payment, mcp__agentlayer-treasury__treasury_payment_status, mcp__agentlayer-treasury__treasury_simulate_charge, mcp__agentlayer-treasury__treasury_checkout, mcp__agentlayer-treasury__treasury_cancel_payment
 disable-model-invocation: true
 ---
 
@@ -24,6 +24,9 @@ Read the amount, merchant and purpose from the arguments. Any missing piece is a
 - merchant name
 - purpose (one line saying what is bought and why)
 - merchant category, with options `5734 Software`, `7372 Cloud / IT services`, `5817 Digital goods`. "Other" takes a 4-digit MCC.
+
+If the arguments contain a local test merchant checkout URL (for example `http://127.0.0.1:8800/pay/dataset` from
+`agent-wallet/examples/test_merchant.py`), keep it for step 5.
 
 Never split one purchase into several to stay under a limit.
 
@@ -54,10 +57,13 @@ Act on `status`:
 
 ## 5. Merchant charge (sandbox)
 
-Ask with `AskUserQuestion` (header `Charge`): `Run the merchant's charge of $<amount> against card •••• <last4> now?`
-The options are `Charge` and `Cancel purchase`.
+Ask with `AskUserQuestion` (header `Charge`): `Pay <merchant> $<amount> with card •••• <last4> now?`
+The options are `Pay` and `Cancel purchase`.
 
-- `Charge` → `treasury_simulate_charge` with `payment_id`. Report `process_result` and the payment status.
+- `Pay` with a checkout URL → `treasury_checkout` with `payment_id` and `checkout_url`. The treasury submits the
+  merchant's checkout form from the vault, and the merchant charges the card on the Airwallex sandbox.
+- `Pay` without a URL → `treasury_simulate_charge` with `payment_id`. The merchant's authorization is simulated directly.
+- In both cases, report the merchant result and `process_result` from `charge`, plus the payment status.
   `APPROVED` means the payment is `settled`. A decline (`LIMIT_EXCEEDED`, `MERCHANT_CATEGORY_NOT_ALLOWED`,
   `CARD_CLOSED`, `OUT_OF_ALLOWED_TIME_RANGE`) means the merchant charged something other than what was approved.
   Report it, and note that a different total needs a new request.

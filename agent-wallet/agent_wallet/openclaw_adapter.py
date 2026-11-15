@@ -5115,6 +5115,7 @@ class OpenClawWalletAdapter:
             "treasury_request_payment",
             "treasury_payment_status",
             "treasury_simulate_charge",
+            "treasury_checkout",
             "treasury_record_x402",
             "treasury_cancel_payment",
         }

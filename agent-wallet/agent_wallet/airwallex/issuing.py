@@ -132,6 +132,59 @@ class Issuing:
         return await self.client.request("POST", "/api/v1/simulation/issuing/create", json_body=body)
 
 
+    async def authorize_card_number(self, *, card_number: str, exp_month: str, exp_year: str, cvc: str,
+                                    amount: Decimal, currency: str, merchant_category_code: str,
+                                    merchant_name: str) -> dict[str, Any]:
+        """Sandbox merchant side: charge the card details a checkout form received.
+
+        The simulation's card_number path declines with EXPIRY_MISSING and has no documented expiry
+        field, so this plays the card network: find the issued card by number, verify expiry and CVC
+        against its sensitive details, then authorize by card_id (single phase: authorize and clear).
+        A failed verification is still sent to Airwallex as a declined authorization
+        (transaction_failure_reason), so it appears in Issuing transactions. Airwallex applies the card's
+        own controls (limit, merchant category, single use, active window) to the rest.
+        """
+        import hmac
+
+        if not self.client.is_sandbox:
+            raise AirwallexError("Card-number authorization simulation exists only in the Airwallex sandbox.")
+        number = "".join(ch for ch in card_number if ch.isdigit())
+        cards = (await self.client.request("GET", "/api/v1/issuing/cards", params={"page_size": 200})).get("items", [])
+        candidates = [c for c in cards if str(c.get("card_number", "")).endswith(number[-4:])] if len(number) >= 12 else []
+        card_id, failure = None, None
+        for card in candidates:
+            if card.get("card_status") != "ACTIVE":
+                continue
+            details = await self.sensitive_details(card["card_id"])
+            if hmac.compare_digest(str(details.get("card_number", "")), number):
+                card_id = card["card_id"]
+                if (int(details.get("expiry_month") or 0) != int(exp_month or -1)
+                        or int(details.get("expiry_year") or 0) % 100 != int(exp_year or -1) % 100):
+                    failure = "INVALID_EXPIRY_DATE"
+                elif not hmac.compare_digest(str(details.get("cvv", "")), str(cvc or "")):
+                    failure = "CVV_INVALID"
+                details.clear()
+                break
+            details.clear()
+        if card_id is None and candidates:
+            # Closed/frozen card: its details are no longer readable; let Airwallex decline it by id.
+            card_id = sorted(candidates, key=lambda c: c.get("created_at") or "")[-1]["card_id"]
+        number = ""
+        if card_id is None:
+            return {"process_result": "DECLINED", "failure_reason": "CARD_INVALID"}
+        body = {
+            "card_id": card_id,
+            "transaction_amount": float(amount),
+            "transaction_currency": currency,
+            "merchant_category_code": merchant_category_code,
+            "merchant_info": merchant_name[:43].ljust(43),
+            "auth_code": "%06d" % (uuid.uuid4().int % 1000000),
+            "single_phase": True,
+        }
+        if failure:
+            body["transaction_failure_reason"] = failure
+        return await self.client.request("POST", "/api/v1/simulation/issuing/create", json_body=body)
+
 def seal_card_into_vault(user_id: str | None, *, card: dict[str, Any], details: dict[str, Any],
                          agent_id: str, payment_id: str, amount: Decimal, currency: str) -> dict[str, Any]:
     """Seal Airwallex card details into the CardVault in the same record shape the

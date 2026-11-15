@@ -137,6 +137,12 @@ async def run(args: argparse.Namespace) -> int:
         color = GREEN if ch["process_result"] == "APPROVED" else RED
         print(_c(f"Airwallex: {ch['process_result']} {ch.get('failure_reason') or ''}  {ch['amount']} {ch['currency']} mcc {ch['mcc']}", color))
         print(f"payment status: {_status(result['status'])}")
+    elif cmd == "checkout":
+        result = await service.checkout(_resolve(service, args.payment_id), args.url)
+        ch = result["charge"]
+        color = GREEN if ch["process_result"] == "APPROVED" else RED
+        print(_c(f"{ch.get('merchant')}: {ch['process_result']} {ch.get('failure_reason') or ''}  {ch['amount']} {ch['currency']} mcc {ch['mcc']}  {ch.get('order_id') or ''}", color))
+        print(f"payment status: {_status(result['status'])}")
     elif cmd == "request":
         result = await service.request_payment(agent_id=args.agent_id, merchant=args.merchant, amount=args.amount,
                                                purpose=args.purpose, merchant_url=args.url, mcc=args.mcc)
@@ -185,6 +191,8 @@ def build_parser() -> argparse.ArgumentParser:
     sh = sub.add_parser("show"); sh.add_argument("payment_id")
     ch = sub.add_parser("charge", help="Sandbox: simulate the merchant's card authorization")
     ch.add_argument("payment_id"); ch.add_argument("--amount"); ch.add_argument("--mcc")
+    co = sub.add_parser("checkout", help="Sandbox: pay a local test merchant's checkout form with the payment's card")
+    co.add_argument("payment_id"); co.add_argument("--url", required=True)
     rq = sub.add_parser("request", help="Act as an agent: request a purchase")
     rq.add_argument("agent_id"); rq.add_argument("--merchant", required=True); rq.add_argument("--amount", required=True)
     rq.add_argument("--purpose", required=True); rq.add_argument("--url"); rq.add_argument("--mcc")
