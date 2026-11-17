@@ -447,6 +447,33 @@ The MCP client receives a 15-minute ES256 access token plus a rotating opaque re
 
 The provider choice uses ordinary links so it works reliably in mobile and embedded browsers. After Google or GitHub verifies the user's identity, the service shows the requesting MCP client's name, return origin, and payment scope and requires an explicit one-time approval. Provider state is signed and bound to the selected provider, and an authorization code is issued only after that final approval, so a login link prepared by another client cannot silently deliver the user's grant to that client. The page immediately displays progress after a tap, and the final POST uses an explicit `303 See Other`. Its CSP permits the form redirect only to the exact registered client origin; this avoids browsers blocking the OAuth callback while retaining a narrow form destination policy. Duplicate approval submissions return the same short-lived PKCE-bound code instead of failing or minting another grant, which makes the redirect reliable in hosts that repeat form navigation.
 
+### Passkeys
+
+The login page also offers **Sign in with a passkey** and **Create an account
+with a passkey** (WebAuthn via `@simplewebauthn/server`). A passkey is one more
+identity of a user, recorded as provider `passkey` with the credential id as
+subject; wallets and their keys are unchanged. Passkeys live in iCloud
+Keychain, Google Password Manager or a security key and are unlocked with
+Face ID, a fingerprint or the device PIN; user verification is required.
+
+- Sign-in and sign-up end on the same consent page as Google/GitHub.
+- Ceremony challenges are single-use, expire after five minutes and are bound
+  to the login request (or, when adding, to the pending consent).
+- The server checks origin (`PUBLIC_BASE_URL`), RP ID, signature and user
+  verification, and stores the public key, counter, transports and whether the
+  passkey is synced.
+- A new passkey account gets a new wallet. Existing Google/GitHub users add a
+  passkey to their account from the consent page after signing in
+  (`Add a passkey for next sign-in`), so a later passkey sign-in reaches the
+  same wallet. Keeping the provider login gives a recovery path if every
+  device holding the passkey is lost.
+- Passkeys are bound to the RP ID: the `PUBLIC_BASE_URL` host by default, or
+  `PASSKEY_RP_ID` set to a parent domain (e.g. `agent-layer.tech`) so they keep
+  working if the service moves to another subdomain. Choose it before users
+  register: changing it later makes existing passkeys unusable.
+- Personal access tokens and Link connection still sign in with Google or
+  GitHub.
+
 ## Payment flow
 
 1. `x402_search` searches CDP Bazaar (default) or Agentic Market and returns each resource's `url`, price, and the provider's untrusted input hint.

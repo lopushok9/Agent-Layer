@@ -2,6 +2,10 @@ import { z } from "zod";
 
 const Env = z.object({
   PUBLIC_BASE_URL: z.string().url().transform((v) => v.replace(/\/$/, "")),
+  // Passkeys are bound to this domain. Defaults to the PUBLIC_BASE_URL host; a
+  // parent domain (agent-layer.tech for pay.agent-layer.tech) keeps them valid
+  // if the service moves to another subdomain.
+  PASSKEY_RP_ID: z.string().regex(/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/, "PASSKEY_RP_ID must be a lowercase domain").optional(),
   MCP_DANGEROUSLY_ALLOW_INSECURE_ISSUER_URL: z.enum(["true","1","false","0"]).default("false").transform(v=>v==="true"||v==="1"),
   PORT: z.coerce.number().int().positive().default(3000),
   DATABASE_URL: z.string().min(1),
@@ -75,8 +79,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   if (privateJwk.kty !== "EC" || privateJwk.crv !== "P-256" || !privateJwk.d) {
     throw new Error("OAUTH_SIGNING_PRIVATE_JWK must be a private P-256 JWK");
   }
+  if(value.PASSKEY_RP_ID&&publicUrl.hostname!==value.PASSKEY_RP_ID&&!publicUrl.hostname.endsWith(`.${value.PASSKEY_RP_ID}`))throw new Error("PASSKEY_RP_ID must be the PUBLIC_BASE_URL host or a parent domain of it");
   const resource = `${value.PUBLIC_BASE_URL}/mcp`;
-  return { ...value, privateJwk, issuer: value.PUBLIC_BASE_URL, resource, link: linkConfig(value) };
+  return { ...value, privateJwk, issuer: value.PUBLIC_BASE_URL, resource, link: linkConfig(value), passkeyRpId: value.PASSKEY_RP_ID ?? publicUrl.hostname };
 }
 
 export type LinkConfig = { clientId: string; clientSecret: string; publishableKey: string; encryptionKey: Buffer };
