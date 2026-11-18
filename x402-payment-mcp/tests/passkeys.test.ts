@@ -97,6 +97,9 @@ test("the login page offers passkeys under a CSP that allows only same-origin ca
     assert.match(csp, /connect-src 'self'/);
     assert.match(csp, /form-action 'self'/);
     assert.match(csp, /script-src 'nonce-/);
+    assert.match(csp, /font-src 'self'/);
+    assert.ok(page.indexOf("Sign in with a passkey") < page.indexOf("Continue with GitHub"), "the passkey comes first");
+    assert.match(page, /<img src="\/assets\/nofrontend-logo\.png"/);
     for (const [, js] of page.matchAll(/<script nonce="[^"]+">([\s\S]*?)<\/script>/g)) new Script(js!);
   } finally { await h.close(); }
 });
@@ -211,4 +214,16 @@ test("after a GitHub sign-in the consent page offers to add a passkey, with a va
     assert.match(r.headers.get("content-security-policy") ?? "", /connect-src 'self'/);
     for (const [, js] of page.matchAll(/<script nonce="[^"]+">([\s\S]*?)<\/script>/g)) new Script(js!);
   } finally { globalThis.fetch = realFetch; await h.close(); }
+});
+
+test("the page assets are served from this origin with their types, and nothing else is", async () => {
+  const h = await harness();
+  try {
+    const font = await fetch(`${h.base}/assets/geist.woff2`);
+    assert.deepEqual([font.status, font.headers.get("content-type"), font.headers.get("x-content-type-options")], [200, "font/woff2", "nosniff"]);
+    assert.equal(Buffer.from(await font.arrayBuffer()).subarray(0, 4).toString(), "wOF2");
+    const logo = await fetch(`${h.base}/assets/nofrontend-logo.png`);
+    assert.deepEqual([logo.status, logo.headers.get("content-type")], [200, "image/png"]);
+    for (const path of ["GEIST-LICENSE.txt", "..%2Fpackage.json", "%2E%2E%2Fsrc%2Foauth.ts"]) assert.equal((await fetch(`${h.base}/assets/${path}`)).status, 404, path);
+  } finally { await h.close(); }
 });

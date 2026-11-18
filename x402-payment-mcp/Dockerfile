@@ -14,5 +14,6 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY migrations ./dist/migrations
+COPY assets ./dist/assets
 USER node
 CMD ["node", "dist/src/index.js"]
