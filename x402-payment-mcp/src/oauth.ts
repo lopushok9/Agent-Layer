@@ -66,6 +66,7 @@ export function oauthRouter(config: Config, store: Store, tokens: TokenService, 
     if(decision!=="allow"&&decision!=="deny")return oauthJsonError(res,400,"invalid_request","invalid consent decision");
     const grant=decision==="allow"?await store.approvePendingConsent(consentToken):await store.denyPendingConsent(consentToken);
     if(!grant)return oauthJsonError(res,400,"invalid_request","authorization request is invalid or expired");
+    store.usage?.record({kind:"auth",name:`consent_${decision}`,userId:grant.userId,clientId:grant.clientId,ok:true});
     if(decision==="deny")return redirectOAuthError(res,grant,"access_denied","The user denied the authorization request");
     finishLogin(res,grant,consentToken);
   }));

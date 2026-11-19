@@ -474,6 +474,29 @@ Face ID, a fingerprint or the device PIN; user verification is required.
 - Personal access tokens and Link connection still sign in with Google or
   GitHub.
 
+### Usage statistics
+
+Every MCP tool call and every sign-in step is stored in `usage_events`
+(migration `015`): tool or event name, user id, OAuth client, success,
+latency, and for failures a scrubbed error class (addresses, URLs, emails,
+ids and numbers replaced). Tool arguments and results are never stored.
+Sign-in events: `google`, `github`, `passkey`, `passkey_register`,
+`passkey_add` (with `new_user` when the sign-in created the user),
+`consent_allow`, `consent_deny`. Rows older than 400 days are deleted.
+
+Set `STATS_TOKEN` (32+ characters) to enable the aggregated report:
+
+```bash
+curl -H "Authorization: Bearer $STATS_TOKEN" "https://x402.agent-layer.tech/v1/stats?days=30"
+```
+
+It returns users (total, new per day, by sign-in method), smart wallets,
+DAU/WAU/MAU and daily activity, a funnel (new users → called a tool →
+transacted), per-tool calls/users/errors/p50/p95 latency, top errors,
+clients, sign-in events, wallet operations by network and status,
+signatures and x402 payments (count and USDC). The report contains no user
+ids, addresses or emails. Without `STATS_TOKEN` the endpoint answers 404.
+
 ## Payment flow
 
 1. `x402_search` searches CDP Bazaar (default) or Agentic Market and returns each resource's `url`, price, and the provider's untrusted input hint.

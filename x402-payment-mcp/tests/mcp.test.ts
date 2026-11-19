@@ -141,3 +141,15 @@ test("Basename registration tools are published when configured, with their inst
   assert.deepEqual(Object.keys(tools.find(t=>t.name==="name_register_preview")!.inputSchema.properties).sort(),["name","set_primary","years"]);
   assert.match(c.init.result.instructions,/Name registration \(when name_register_preview exists\): Basenames only/);
 });
+
+test("every tool call is recorded with its outcome and latency, never its arguments", async () => {
+  const events:any[]=[];
+  const s=await connect({walletStatus:async()=>({address:"0xabc"}),search:async()=>{throw new Error("Bazaar returned 503 for https://api.cdp.coinbase.com/x?q=secret");}},null,["x402:pay"],undefined,undefined,undefined,{usage:{record:(e:any)=>events.push(e)},clientId:"client-7"});
+  await s.call("wallet_status",{});
+  await s.call("x402_search",{query:"my secret query"});
+  assert.deepEqual(events.map(e=>[e.kind,e.name,e.userId,e.clientId,e.ok]),[["tool","wallet_status","user-1","client-7",true],["tool","x402_search","user-1","client-7",false]]);
+  assert.ok(events.every(e=>typeof e.ms==="number"&&e.ms>=0));
+  assert.equal(events[0].detail,null);
+  assert.match(events[1].detail,/Bazaar returned/);
+  assert.ok(!JSON.stringify(events).includes("my secret query"),"arguments are not recorded");
+});

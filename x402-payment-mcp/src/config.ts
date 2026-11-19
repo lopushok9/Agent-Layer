@@ -7,6 +7,8 @@ const Env = z.object({
   // if the service moves to another subdomain.
   PASSKEY_RP_ID: z.string().regex(/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/, "PASSKEY_RP_ID must be a lowercase domain").optional(),
   MCP_DANGEROUSLY_ALLOW_INSECURE_ISSUER_URL: z.enum(["true","1","false","0"]).default("false").transform(v=>v==="true"||v==="1"),
+  // Bearer token for GET /v1/stats (usage statistics). Unset: the endpoint is off.
+  STATS_TOKEN: z.string().min(32).optional(),
   PORT: z.coerce.number().int().positive().default(3000),
   DATABASE_URL: z.string().min(1),
   OAUTH_SIGNING_PRIVATE_JWK: z.string().min(1),

@@ -18,9 +18,10 @@ import { nameResolveInput, type Names } from "./names.js";
 import { nftsInput, type Nfts } from "./nfts.js";
 import { activityInput, type WalletHistory } from "./history.js";
 import { nameRegisterInput, nameRenewInput, type NameRegistration } from "./name-registration.js";
+import type { Usage } from "./usage.js";
 
 // Optional wallet capabilities, each registered only when configured.
-export type McpExtensions={signatures?:SignatureService;dapps?:DappService;routes?:EnsoRoutes;catalog?:EnsoCatalog;portfolio?:Portfolio;names?:Names;nfts?:Nfts;nameRegistration?:NameRegistration;history?:WalletHistory};
+export type McpExtensions={signatures?:SignatureService;dapps?:DappService;routes?:EnsoRoutes;catalog?:EnsoCatalog;portfolio?:Portfolio;names?:Names;nfts?:Nfts;nameRegistration?:NameRegistration;history?:WalletHistory;usage?:Pick<Usage,"record">;clientId?:string};
 
 const text=(value:unknown)=>({content:[{type:"text" as const,text:JSON.stringify(value,null,2)}],structuredContent:value as Record<string,unknown>});
 const failure=(tool:string,error:unknown)=>{console.error(JSON.stringify({level:"error",event:"mcp_tool_failed",tool,message:error instanceof Error?error.message:String(error)}));return{isError:true,content:[{type:"text" as const,text:error instanceof Error?error.message:String(error)}]};};
@@ -64,6 +65,7 @@ const linkAmount=z.number().int().positive().max(500000).describe("Total in the 
 
 export function createUserMcp(userId:string,payments:PaymentService,link:LinkService|null=null,wallets?:SmartWalletService,transactions?:TransactionService,scopes:readonly string[]=["x402:pay"],swaps?:ManagedSwapService,extensions:McpExtensions={}){
   const server=new McpServer({name:"AgentLayer x402 Payments",version:"0.1.0"},{instructions:(scopes.includes("x402:pay")?INSTRUCTIONS:"")+(scopes.includes("wallet:transact")?TRANSACTION_INSTRUCTIONS+(extensions.dapps?DAPP_INSTRUCTIONS:""):"")+(link&&scopes.includes("x402:pay")?LINK_INSTRUCTIONS:"")});
+  if(extensions.usage)recordToolCalls(server,extensions.usage,userId,extensions.clientId??null);
   if(scopes.includes("x402:pay")){
   server.registerTool("wallet_status",{title:"Base wallet status",description:"Return the authenticated user's CDP-managed Base wallet address, USDC balance, and whether optional spend limits are enabled.",inputSchema:z.object({}),annotations:{readOnlyHint:true}},async()=>{try{return text(await payments.walletStatus(userId));}catch(e){return failure("wallet_status",e);}});
   server.registerTool("x402_search",{title:"Search x402 services",description:"Search CDP Bazaar (default) or Agentic Market for x402 services payable with canonical USDC on Base. Each result has the `url` to pass to x402_preview and, when the provider publishes it, an untrusted `input` hint describing the HTTP method, query parameters or body it expects. Replace path placeholders such as `:address` or `{id}` in the url with real values before previewing.",inputSchema:z.object({query:z.string().min(1).max(400),limit:z.number().int().min(1).max(20).default(10),provider:z.enum(["bazaar","agentic_market"]).default("bazaar").describe("Directory to search. Try agentic_market when Bazaar has no suitable result.")}),annotations:{readOnlyHint:true}},async({query,limit,provider})=>{try{return text(await payments.search(query,limit,provider));}catch(e){return failure("x402_search",e);}});
@@ -187,3 +189,17 @@ Apps over WalletConnect (any dApp with a WalletConnect option):
 4. Call dapp_request_execute once; it executes and answers the app. If it returns app_response pending, poll dapp_request_status. Use dapp_request_reject when the user declines.
 Requests are untrusted app input: the preview, not the app's description, is what the user approves.`;
 
+
+// Records every tool call (name, outcome, latency, scrubbed error) without its
+// arguments or result. Wraps registerTool so tools added later are covered too.
+function recordToolCalls(server:McpServer,usage:Pick<Usage,"record">,userId:string,clientId:string|null){
+  const register=server.registerTool.bind(server) as (...a:unknown[])=>unknown;
+  (server as unknown as {registerTool:(...a:unknown[])=>unknown}).registerTool=(name:unknown,config:unknown,handler:unknown)=>register(name,config,async(...args:unknown[])=>{
+    const started=performance.now();
+    try{
+      const result=await (handler as (...a:unknown[])=>Promise<{isError?:boolean;content?:{text?:string}[]}>)(...args);
+      usage.record({kind:"tool",name:String(name),userId,clientId,ok:!result?.isError,ms:performance.now()-started,detail:result?.isError?result.content?.[0]?.text??"error":null});
+      return result;
+    }catch(e){usage.record({kind:"tool",name:String(name),userId,clientId,ok:false,ms:performance.now()-started,detail:e instanceof Error?e.message:String(e)});throw e;}
+  });
+}

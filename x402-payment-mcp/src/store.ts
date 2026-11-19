@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { Pool, type PoolClient } from "pg";
 import { randomUUID } from "node:crypto";
 import { sha256 } from "./security.js";
+import { Usage } from "./usage.js";
 
 export type OAuthClient = { clientId: string; clientName: string; redirectUris: string[] };
 export type LoginState = { id: string; clientId: string; redirectUri: string; state: string; codeChallenge: string; resource: string; scope: string };
@@ -18,12 +19,13 @@ export type BatchChannelContext = { chargedCumulativeAmount?:string; balance?:st
 
 export class Store {
   readonly pool: Pool;
+  readonly usage: Usage;
   // A payment holds its advisory-lock connection for the whole paid request and
   // still needs the main pool for its own queries. Sharing one pool lets enough
   // concurrent payments take every connection and then wait on each other forever.
   readonly lockPool: Pool;
   private oauthCleanupTimer?:ReturnType<typeof setInterval>;
-  constructor(databaseUrl: string) { const options={ connectionString: databaseUrl, ssl: databaseTls(databaseUrl), connectionTimeoutMillis: POOL_CONNECT_TIMEOUT_MS }; this.pool = new Pool(options); this.lockPool = new Pool(options); }
+  constructor(databaseUrl: string) { const options={ connectionString: databaseUrl, ssl: databaseTls(databaseUrl), connectionTimeoutMillis: POOL_CONNECT_TIMEOUT_MS }; this.pool = new Pool(options); this.lockPool = new Pool(options); this.usage = new Usage(this.pool); }
   async close() { if(this.oauthCleanupTimer)clearInterval(this.oauthCleanupTimer);await Promise.all([this.pool.end(),this.lockPool.end()]); }
   async migrate() { const c = await this.pool.connect(); try { await runMigrations(c); } finally { c.release(); } }
 
@@ -44,7 +46,7 @@ export class Store {
     await this.cleanupOAuthArtifacts();this.oauthCleanupTimer=setInterval(()=>{void this.cleanupOAuthArtifacts().catch(error=>console.error("OAuth cleanup failed",error));},15*60*1000);this.oauthCleanupTimer.unref();
   }
   async cleanupOAuthArtifacts(){
-    await this.pool.query(`UPDATE payment_previews SET request_headers=NULL WHERE request_headers IS NOT NULL AND expires_at<=now(); DELETE FROM oauth_login_states WHERE expires_at<=now(); DELETE FROM passkey_challenges WHERE expires_at<=now(); DELETE FROM oauth_pending_consents WHERE expires_at<=now(); DELETE FROM oauth_codes WHERE expires_at<=now(); DELETE FROM refresh_tokens WHERE expires_at<=now() OR (revoked_at IS NOT NULL AND revoked_at<=now()-interval '1 day'); DELETE FROM oauth_rate_limits WHERE window_start<=now()-interval '1 day'; DELETE FROM token_login_states WHERE expires_at<=now(); DELETE FROM token_manager_sessions WHERE expires_at<=now(); DELETE FROM link_connect_attempts WHERE expires_at<=now(); DELETE FROM personal_access_tokens WHERE expires_at<=now()-interval '30 days' OR revoked_at<=now()-interval '30 days'; DELETE FROM oauth_clients c WHERE COALESCE(c.last_used_at,c.created_at)<=now()-interval '90 days' AND NOT EXISTS(SELECT 1 FROM oauth_login_states s WHERE s.client_id=c.client_id) AND NOT EXISTS(SELECT 1 FROM oauth_pending_consents p WHERE p.client_id=c.client_id) AND NOT EXISTS(SELECT 1 FROM oauth_codes o WHERE o.client_id=c.client_id) AND NOT EXISTS(SELECT 1 FROM refresh_tokens r WHERE r.client_id=c.client_id);`);
+    await this.pool.query(`UPDATE payment_previews SET request_headers=NULL WHERE request_headers IS NOT NULL AND expires_at<=now(); DELETE FROM oauth_login_states WHERE expires_at<=now(); DELETE FROM passkey_challenges WHERE expires_at<=now(); DELETE FROM usage_events WHERE at<=now()-interval '400 days'; DELETE FROM oauth_pending_consents WHERE expires_at<=now(); DELETE FROM oauth_codes WHERE expires_at<=now(); DELETE FROM refresh_tokens WHERE expires_at<=now() OR (revoked_at IS NOT NULL AND revoked_at<=now()-interval '1 day'); DELETE FROM oauth_rate_limits WHERE window_start<=now()-interval '1 day'; DELETE FROM token_login_states WHERE expires_at<=now(); DELETE FROM token_manager_sessions WHERE expires_at<=now(); DELETE FROM link_connect_attempts WHERE expires_at<=now(); DELETE FROM personal_access_tokens WHERE expires_at<=now()-interval '30 days' OR revoked_at<=now()-interval '30 days'; DELETE FROM oauth_clients c WHERE COALESCE(c.last_used_at,c.created_at)<=now()-interval '90 days' AND NOT EXISTS(SELECT 1 FROM oauth_login_states s WHERE s.client_id=c.client_id) AND NOT EXISTS(SELECT 1 FROM oauth_pending_consents p WHERE p.client_id=c.client_id) AND NOT EXISTS(SELECT 1 FROM oauth_codes o WHERE o.client_id=c.client_id) AND NOT EXISTS(SELECT 1 FROM refresh_tokens r WHERE r.client_id=c.client_id);`);
   }
   async createLoginState(data: Omit<LoginState, "id">): Promise<string> {
     const id = randomUUID();
@@ -65,9 +67,12 @@ export class Store {
     try { await c.query("BEGIN");
       let r = await c.query(`SELECT user_id FROM oauth_identities WHERE provider=$1 AND provider_subject=$2 FOR UPDATE`, [provider, providerSubject]);
       let userId: string;
+      const created = !r.rowCount;
       if (r.rowCount) userId = r.rows[0].user_id;
       else { userId=randomUUID(); await c.query(`INSERT INTO users(id,display_name,email) VALUES ($1,$2,$3)`,[userId,displayName,email]); await c.query(`INSERT INTO oauth_identities(provider,provider_subject,user_id) VALUES ($1,$2,$3)`,[provider,providerSubject,userId]); }
-      await c.query("COMMIT"); return userId;
+      await c.query("COMMIT");
+      this.usage.record({ kind: "auth", name: provider, userId, ok: true, detail: created ? "new_user" : null });
+      return userId;
     } catch(e) { await c.query("ROLLBACK"); throw e; } finally { c.release(); }
   }
   async createPasskeyChallenge(c: { purpose: PasskeyPurpose; challenge: string; loginState?: string; consentToken?: string }): Promise<string> {
@@ -99,11 +104,14 @@ export class Store {
       if (!userId) await c.query(`INSERT INTO users(id,display_name,email) VALUES ($1,NULL,NULL)`, [owner]);
       await c.query(`INSERT INTO oauth_identities(provider,provider_subject,user_id) VALUES ('passkey',$1,$2)`, [p.id, owner]);
       await c.query(`INSERT INTO passkey_credentials(credential_id,user_id,public_key,counter,transports,device_type,backed_up) VALUES($1,$2,$3,$4,$5,$6,$7)`, [p.id, owner, Buffer.from(p.publicKey), p.counter, p.transports, p.deviceType, p.backedUp]);
-      await c.query("COMMIT"); return owner;
+      await c.query("COMMIT");
+      this.usage.record({ kind: "auth", name: userId ? "passkey_add" : "passkey_register", userId: owner, ok: true, detail: userId ? null : "new_user" });
+      return owner;
     } catch (e) { await c.query("ROLLBACK"); throw e; } finally { c.release(); }
   }
   async markPasskeyUsed(id: string, counter: number, backedUp: boolean) {
-    await this.pool.query(`UPDATE passkey_credentials SET counter=$2, backed_up=$3, last_used_at=now() WHERE credential_id=$1`, [id, counter, backedUp]);
+    const r = await this.pool.query(`UPDATE passkey_credentials SET counter=$2, backed_up=$3, last_used_at=now() WHERE credential_id=$1 RETURNING user_id`, [id, counter, backedUp]);
+    if (r.rowCount) this.usage.record({ kind: "auth", name: "passkey", userId: r.rows[0].user_id, ok: true });
   }
   // The user of a pending consent the browser holds the token of: proof the
   // user has just signed in, so a passkey may be added to that account.
@@ -226,7 +234,7 @@ export function previewUnavailableMessage(row:{used?:boolean;expired?:boolean}|u
 }
 
 // Applied in order on every start; each file must stay idempotent.
-export const MIGRATIONS = ["001_initial.sql", "002_personal_tokens.sql", "003_arc_transfers.sql", "004_request_headers.sql", "005_preview_challenge.sql", "006_link_wallet.sql", "007_smart_wallets.sql", "008_managed_swaps.sql", "009_user_operation_proof.sql", "010_nonce_cancellation.sql", "011_wallet_replacements.sql", "012_wallet_signatures.sql", "013_dapp_connections.sql", "014_passkeys.sql"] as const;
+export const MIGRATIONS = ["001_initial.sql", "002_personal_tokens.sql", "003_arc_transfers.sql", "004_request_headers.sql", "005_preview_challenge.sql", "006_link_wallet.sql", "007_smart_wallets.sql", "008_managed_swaps.sql", "009_user_operation_proof.sql", "010_nonce_cancellation.sql", "011_wallet_replacements.sql", "012_wallet_signatures.sql", "013_dapp_connections.sql", "014_passkeys.sql", "015_usage_events.sql"] as const;
 const migrationFile=(name:string)=>readFile(new URL(`../migrations/${name}`,import.meta.url),"utf8");
 // Concurrent starts (several replicas, migrate:prod beside the app, parallel
 // test files) race IF NOT EXISTS DDL on catalog indexes such as
