@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.144 - 2026-11-19
+
+- Allow the Codex and Cursor x402 skills to resolve a requested service endpoint
+  from conversation context, merchant documentation, search, or a generated
+  checkout, without requiring the user to repeat its URL. Preserve payment
+  previews, confirmation thresholds, and wallet policy checks.
+
 ## v0.1.143 - 2026-11-07
 
 Reliable tokenized-stock buys on Base.
