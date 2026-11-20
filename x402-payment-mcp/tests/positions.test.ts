@@ -35,7 +35,7 @@ function mockRpc(table: Record<string, Handler | unknown>, extra: Record<string,
 const scanner = (rpc: any) => { const cache = new Map<string, unknown>(); return new PositionScanner(() => rpc, async (k, _ttl, load) => { if (!cache.has(k)) cache.set(k, await load()); return cache.get(k); }); };
 const price = async (t: string) => ({ [weth.toLowerCase()]: 2000, [usdc.toLowerCase()]: 1 } as Record<string, number>)[t.toLowerCase()] ?? null;
 const tokenMeta = { [`${weth}:symbol`]: "WETH", [`${weth}:decimals`]: 18, [`${usdc}:symbol`]: "USDC", [`${usdc}:decimals`]: 6 };
-const aaveIdle = { [`${aaveProvider}:getPool`]: aavePool, [`${aaveProvider}:getPoolDataProvider`]: aaveData, [`${aavePool}:getUserAccountData`]: [0n, 0n, 0n, 0n, 0n, 0n] };
+const aaveIdle = { [`${aaveProvider}:getPool`]: aavePool, [`${aaveProvider}:getPoolDataProvider`]: aaveData, [`${aavePool}:getUserAccountData`]: [0n, 0n, 0n, 0n, 0n, 0n], [`${aaveData}:getAllATokens`]: [{ symbol: "aWETH", tokenAddress: aToken }] };
 const transfer = (hash: string, from: string, to: string, token: string, category = "erc20", token_id: string | null = null) => ({ id: `${hash}:${from}:${to}:${token_id}`, hash, block: 1, time: "2026-11-01T00:00:00.000Z", category, token: token.toLowerCase(), symbol: "T", decimals: 18, amount_raw: "1", token_id, from: from.toLowerCase(), to: to.toLowerCase() });
 const history = (transfers: any[]) => ({ address: meLc, transfers, complete: true }) as any;
 
@@ -163,4 +163,19 @@ test("Morpho positions are rebuilt from the account's events when the API is dow
   assert.equal(m.collateral, 0.101314);
   assert.ok(Math.abs(m.borrow - 0.0000317076) < 1e-9, "borrow shares x total borrow assets / total borrow shares");
   assert.deepEqual([m.liquidation_ltv_percent, m.source], [86, "onchain_events"]);
+});
+
+test("with the full history, Aave and Comets the account never touched are not read", async () => {
+  const calls: string[] = [];
+  const rpc = mockRpc({ ...aaveIdle, [`${voter}:isGauge`]: false, [`${cometUsdc}:balanceOf`]: 0n, [`${cometUsdc}:borrowBalanceOf`]: 0n });
+  const spy = { ...rpc, readContract: async (c: any) => { calls.push(`${getAddress(c.address)}:${c.functionName}`); return rpc.readContract(c); }, multicall: async (m: any) => { for (const c of m.contracts) calls.push(`${getAddress(c.address)}:${c.functionName}`); return rpc.multicall(m); } };
+  const s = await scanner(spy).scan("base", me, history([transfer("0x06", friend, me, usdc)]), price);
+  assert.deepEqual(s.errors, []);
+  assert.ok(!calls.includes(`${aavePool}:getUserAccountData`) && !calls.some(c => c.startsWith(cometUsdc)), "no account reads");
+  calls.length = 0;
+  await scanner(spy).scan("base", me, history([transfer("0x07", "0x0000000000000000000000000000000000000000", me, aToken), transfer("0x08", me, cometUsdc, usdc)]), price);
+  assert.ok(calls.includes(`${aavePool}:getUserAccountData`) && calls.includes(`${cometUsdc}:balanceOf`), "an aToken mint and a Comet deposit are read");
+  calls.length = 0;
+  await scanner(spy).scan("base", me, { ...history([]), complete: false }, price);
+  assert.ok(calls.includes(`${aavePool}:getUserAccountData`) && calls.includes(`${cometUsdc}:balanceOf`), "a partial history checks everything");
 });

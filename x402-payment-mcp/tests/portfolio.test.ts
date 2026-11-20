@@ -77,7 +77,7 @@ function harness({ poolType = "V2_VOLATILE", rpcDown = false, alchemyDown = fals
         convertToAssets: 1_050_000n, asset: usdc,
         balanceOf: peapodsBalance,
         // Aave v3: no position.
-        getPool: "0x000000000000000000000000000000000000Aa01", getPoolDataProvider: "0x000000000000000000000000000000000000aA02", getUserAccountData: [0n, 0n, 0n, 0n, 0n, 0n],
+        getPool: "0x000000000000000000000000000000000000Aa01", getPoolDataProvider: "0x000000000000000000000000000000000000aA02", getUserAccountData: [0n, 0n, 0n, 0n, 0n, 0n], getAllATokens: [],
       };
       return functionName in values ? values[functionName] : Promise.reject(new Error("reverted"));
     },

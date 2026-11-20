@@ -38,6 +38,7 @@ const aavePoolAbi = parseAbi(["function getUserAccountData(address) view returns
 const aaveDataAbi = parseAbi([
   "struct TokenData { string symbol; address tokenAddress; }",
   "function getAllReservesTokens() view returns (TokenData[])",
+  "function getAllATokens() view returns (TokenData[])",
   "function getUserReserveData(address asset, address user) view returns (uint256 currentATokenBalance, uint256 currentStableDebt, uint256 currentVariableDebt, uint256 principalStableDebt, uint256 scaledVariableDebt, uint256 stableBorrowRate, uint256 liquidityRate, uint40 stableRateLastUpdated, bool usageAsCollateralEnabled)",
   "function getReserveTokensAddresses(address asset) view returns (address aTokenAddress, address stableDebtTokenAddress, address variableDebtTokenAddress)",
   "function getReserveData(address asset) view returns (uint256 unbacked, uint256 accruedToTreasuryScaled, uint256 totalAToken, uint256 totalStableDebt, uint256 totalVariableDebt, uint256 liquidityRate, uint256 variableBorrowRate, uint256 stableBorrowRate, uint256 averageStableBorrowRate, uint256 liquidityIndex, uint256 variableBorrowIndex, uint40 lastUpdateTimestamp)",
@@ -89,9 +90,13 @@ export class PositionScanner {
     const errors: string[] = [];
     const guard = async <T>(label: string, run: () => Promise<T>, fallback: T) => { try { return await run(); } catch { errors.push(`${label} could not be read`); return fallback; } };
     const sentTo = history ? interactedContracts(history) : new Set<string>();
+    // With the full history, a protocol the account never touched is skipped:
+    // an Aave position always moved an aToken, a Comet position always moved
+    // tokens to, from or of the Comet. A partial or missing history checks all.
+    const seen = history?.complete ? touchedAddresses(history) : null;
     const [aave, compound, liquidity, staked] = await Promise.all([
-      guard("Aave v3 position", () => this.aave(network, account, price), null),
-      guard("Compound v3 positions", () => this.compound(network, account, sentTo, price), []),
+      guard("Aave v3 position", () => this.aave(network, account, price, seen), null),
+      guard("Compound v3 positions", () => this.compound(network, account, sentTo, price, seen), []),
       history ? guard("Liquidity position NFTs", () => this.liquidityNfts(network, account, history, price), []) : Promise.resolve([]),
       history ? guard("Gauge-staked LP", () => this.stakedLp(network, account, sentTo, price), []) : Promise.resolve([]),
     ]);
@@ -131,12 +136,16 @@ export class PositionScanner {
     return roundUsd(rows.filter(r => r !== null));
   }
 
-  private async aave(network: WalletNetwork, account: Address, price: Price) {
+  private async aave(network: WalletNetwork, account: Address, price: Price, seen: Set<string> | null) {
     const rpc = this.rpc(network);
     const { pool, data } = await this.cached(`aave:${network}`, 3600_000, async () => {
       const [pool, data] = await Promise.all([rpc.readContract({ address: AAVE_PROVIDER[network], abi: aaveProviderAbi, functionName: "getPool" }), rpc.readContract({ address: AAVE_PROVIDER[network], abi: aaveProviderAbi, functionName: "getPoolDataProvider" })]);
       return { pool: getAddress(pool), data: getAddress(data) };
     }) as { pool: Address; data: Address };
+    if (seen) {
+      const aTokens = await this.cached(`aave-atokens:${network}`, 3600_000, async () => (await rpc.readContract({ address: data, abi: aaveDataAbi, functionName: "getAllATokens" })).map(t => t.tokenAddress.toLowerCase())) as string[];
+      if (!aTokens.some(t => seen.has(t))) return null;
+    }
     const [collateralBase, debtBase, availableBase, liqThreshold, ltv, health] = await rpc.readContract({ address: pool, abi: aavePoolAbi, functionName: "getUserAccountData", args: [account] });
     if (collateralBase === 0n && debtBase === 0n) return null;
     const reserves = await this.cached(`aave-reserves:${network}`, 3600_000, async () => (await rpc.readContract({ address: data, abi: aaveDataAbi, functionName: "getAllReservesTokens" })).map(r => getAddress(r.tokenAddress))) as Address[];
@@ -161,8 +170,9 @@ export class PositionScanner {
     };
   }
 
-  private async compound(network: WalletNetwork, account: Address, sentTo: Set<string>, price: Price) {
-    const rpc = this.rpc(network), comets = COMETS[network];
+  private async compound(network: WalletNetwork, account: Address, sentTo: Set<string>, price: Price, seen: Set<string> | null) {
+    const rpc = this.rpc(network), comets = COMETS[network].filter(c => !seen || seen.has(c.toLowerCase()));
+    if (comets.length === 0) return [];
     const balances = await rpc.multicall({ contracts: comets.flatMap(c => [{ address: c, abi: cometAbi, functionName: "balanceOf", args: [account] }, { address: c, abi: cometAbi, functionName: "borrowBalanceOf", args: [account] }] as const), allowFailure: true });
     const out = await Promise.all(comets.map(async (comet, i) => {
       const supplyRaw = balances[2 * i]?.status === "success" ? balances[2 * i]!.result as bigint : 0n, borrowRaw = balances[2 * i + 1]?.status === "success" ? balances[2 * i + 1]!.result as bigint : 0n;
@@ -339,6 +349,11 @@ export class PositionScanner {
 // and other contracts that hold its funds.
 export function interactedContracts(history: History) {
   return new Set(history.transfers.filter(t => t.from === history.address && t.category === "erc20" && t.to !== ZERO && isAddress(t.to) && !ENTRYPOINTS.has(t.to)).map(t => t.to));
+}
+
+// Every address in the account's history: tokens moved and both ends.
+export function touchedAddresses(history: History) {
+  return new Set(history.transfers.flatMap(t => [t.token, t.from, t.to]));
 }
 
 // Token amounts of concentrated liquidity L between two ticks at the current

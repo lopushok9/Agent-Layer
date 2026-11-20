@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { nftChanges } from "./nft-changes.js";
 import { CdpClient, type EvmSmartAccount } from "@coinbase/cdp-sdk";
-import { createPublicClient, http, concat, numberToHex, size, type Address, type Hex, type Chain, type TypedDataDefinition } from "viem";
+import { createPublicClient, http, concat, numberToHex, size, type Address, type Hex, type Chain, type PublicClient, type TypedDataDefinition } from "viem";
 import { base, mainnet } from "viem/chains";
 import type { Config } from "./config.js";
 import { chainIds, jsonValue, type NormalizedCall, type WalletNetwork } from "./transaction-builder.js";
@@ -29,10 +29,16 @@ export class SmartWalletService {
     if (!existing) await this.registry.saveWallet(userId, { ownerName, accountName, ownerAddress: owner.address, address: account.address });
     return account;
   }
-  rpc(network: WalletNetwork) {
+  // One client per network, so concurrent reads from any caller share it:
+  // eth_calls made in the same tick (no sender, value or overrides) are sent
+  // as one Multicall3 aggregate; each still resolves or reverts on its own.
+  private clients = new Map<WalletNetwork, PublicClient>();
+  rpc(network: WalletNetwork): PublicClient {
     const url = network === "base" ? this.config.BASE_RPC_URL : this.config.ETHEREUM_RPC_URL;
     if (!url) throw new Error(`${network} RPC is not configured`);
-    return createPublicClient({ chain: (network === "base" ? base : mainnet) as Chain, transport: http(url, { timeout: 15_000, retryCount: 0 }) });
+    let client = this.clients.get(network);
+    if (!client) { client = createPublicClient({ chain: (network === "base" ? base : mainnet) as Chain, transport: http(url, { timeout: 15_000, retryCount: 0 }), batch: { multicall: { wait: 0, batchSize: 4096 } } }) as PublicClient; this.clients.set(network, client); }
+    return client;
   }
   async status(userId: string, network: WalletNetwork) {
     const account = await this.account(userId);
