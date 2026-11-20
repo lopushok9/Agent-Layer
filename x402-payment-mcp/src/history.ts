@@ -22,7 +22,7 @@ const HOST: Record<WalletNetwork, string> = { base: "base-mainnet", ethereum: "e
 const CATEGORIES: Category[] = ["external", "internal", "erc20", "erc721", "erc1155"];
 const PAGES_PER_DIRECTION = 3;
 export const ZERO = "0x0000000000000000000000000000000000000000";
-const ENTRYPOINTS = new Set(["0x5ff137d4b0fdcd49dca30c7cf57e578a026d2789", "0x0000000071727de22e5e9d8baf0edac6f37da032", "0x4337084d9e255ff0702461cf8895ce9e3b5ff108"]);
+export const ENTRYPOINTS = new Set(["0x5ff137d4b0fdcd49dca30c7cf57e578a026d2789", "0x0000000071727de22e5e9d8baf0edac6f37da032", "0x4337084d9e255ff0702461cf8895ce9e3b5ff108"]);
 // A static list of well-known contracts, the same address on Base and
 // Ethereum. Anything else is shown by address only.
 const LABELS: Record<string, string> = {

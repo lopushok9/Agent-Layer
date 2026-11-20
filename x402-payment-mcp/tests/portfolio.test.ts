@@ -36,19 +36,20 @@ const depositHistory = [
   move(airdropHash, "0x0000000000000000000000000000000000000000", account, airdrop, 10n ** 24n, "FREE"),
 ];
 
-function harness({ poolType = "V2_VOLATILE", rpcDown = false, alchemyDown = false, url = rpcUrl as string | undefined, peapodsBalance = 0n, morphoDown = false, morphoRows = [] as any[], transfers = [] as any[], historyDown = false } = {}) {
+function harness({ poolType = "V2_VOLATILE", rpcDown = false, alchemyDown = false, url = rpcUrl as string | undefined, peapodsBalance = 0n, morphoDown = false, morphoRows = [] as any[], transfers = [] as any[], historyDown = false, logsDown = false, noPrice = [] as string[], geckoRows = [] as any[] } = {}) {
   const enso: { path: string; query: any }[] = [], http: { url: string; body: any }[] = [];
   const api = { get: async (path: string, query: any) => { enso.push({ path, query }); return path === "wallet/balances" ? [{ token: "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", amount: "10000000000000000", decimals: 18, price: "2000", symbol: "ETH" }] : { data: defi.filter(d => query.address.map((a: string) => a.toLowerCase()).includes(d.address)) }; } };
   const fetcher = async (u: string, init: any) => {
-    http.push({ url: u, body: JSON.parse(init.body) });
+    http.push({ url: u, body: init?.body ? JSON.parse(init.body) : null });
     if (u === "https://api.morpho.org/graphql") return morphoDown ? new Response("down", { status: 503 }) : Response.json({ data: { userByAddress: { marketPositions: morphoRows } } });
     if (u.startsWith("https://base-mainnet.g.alchemy.com/v2/")) {
       if (historyDown) return new Response("down", { status: 503 });
       const body = JSON.parse(init.body).params[0];
       return Response.json({ result: { transfers: transfers.filter(t => body.fromAddress ? t.from === account.toLowerCase() : t.to === account.toLowerCase()) } });
     }
+    if (u.startsWith("https://api.geckoterminal.com/")) return Response.json({ data: geckoRows });
     if (alchemyDown) return new Response("down", { status: 503 });
-    if (u.includes("/prices/v1/")) return Response.json({ data: [{ prices: [{ currency: "usd", value: "2000" }] }] });
+    if (u.includes("/prices/v1/")) { const asked = String(JSON.parse(init.body).addresses?.[0]?.address ?? "").toLowerCase(); return Response.json({ data: [{ prices: noPrice.includes(asked) ? [] : [{ currency: "usd", value: "2000" }] }] }); }
     return Response.json({ data: { tokens } });
   };
   const reads: string[] = [], readAddresses: string[] = [];
@@ -75,10 +76,16 @@ function harness({ poolType = "V2_VOLATILE", rpcDown = false, alchemyDown = fals
         POOL_TYPE: stringToHex(poolType, { size: 32 }), index0: past ? 0n : 10n ** 21n * 10n ** 18n / 10n ** 16n / 1000n, index1: past ? 0n : 2n * 10n ** 12n * 10n ** 18n / 10n ** 16n / 1000n,
         convertToAssets: 1_050_000n, asset: usdc,
         balanceOf: peapodsBalance,
+        // Aave v3: no position.
+        getPool: "0x000000000000000000000000000000000000Aa01", getPoolDataProvider: "0x000000000000000000000000000000000000aA02", getUserAccountData: [0n, 0n, 0n, 0n, 0n, 0n],
       };
       return functionName in values ? values[functionName] : Promise.reject(new Error("reverted"));
     },
     getBlockNumber: async () => 143_200n,
+    multicall: async ({ contracts }: { contracts: unknown[] }) => { if (rpcDown) throw new Error("rpc down"); return contracts.map(() => ({ status: "failure", error: new Error("reverted") })); },
+    getCode: async () => "0x",
+    getLogs: async () => { if (logsDown) throw new Error("logs down"); return []; },
+    simulateContract: async () => { throw new Error("reverted"); },
   };
   const p = new Portfolio(api as any, { account: async () => ({ address: account }), rpc: () => rpc as any }, () => url, fetcher as any);
   return { p, enso, http, reads, readAddresses };
@@ -117,14 +124,18 @@ test("portfolio includes a curated Peapods balance and Morpho collateral and deb
 });
 
 test("failed Morpho or Peapods reads are visible and do not produce a net total", async () => {
-  const r: any = await harness({ morphoDown: true }).p.portfolio("alice", { network: "base" });
+  // Morpho API down: its events are read on-chain instead (none here).
+  const fallback: any = await harness({ morphoDown: true }).p.portfolio("alice", { network: "base" });
+  assert.deepEqual(fallback.morpho_market_positions, []);
+  assert.match(fallback.sources.morpho_markets, /on-chain/);
+  const r: any = await harness({ morphoDown: true, logsDown: true }).p.portfolio("alice", { network: "base" });
   assert.equal(r.morpho_market_positions, null); assert.equal(r.defi_totals.net_portfolio_usd, null);
   assert.ok(r.defi_errors.includes("Morpho market positions unavailable"));
   const down: any = await harness({ rpcDown: true }).p.portfolio("alice", { network: "base" });
   assert.ok(down.defi_errors.includes("Vault balance could not be read: 0x23574154842bC86Cf5BbC5f99376Cfa1E2f82497"));
   assert.equal(down.defi_totals.net_portfolio_usd, null);
   const noHistory: any = await harness({ historyDown: true }).p.portfolio("alice", { network: "base" });
-  assert.ok(noHistory.defi_errors.includes("Transfer history unavailable: vault positions that Enso does not index may be missing"));
+  assert.ok(noHistory.defi_errors.some((e: string) => e.startsWith("Transfer history unavailable")));
   assert.equal(noHistory.defi_totals.net_portfolio_usd, null);
 });
 
@@ -189,4 +200,29 @@ test("only an Alchemy v2 RPC URL yields a key", () => {
   assert.equal(alchemyKey("https://base-rpc.publicnode.com"), null);
   assert.equal(alchemyKey("https://evil.example/?u=https://base-mainnet.g.alchemy.com/v2/testkey123"), null);
   assert.equal(alchemyKey(undefined), null);
+});
+
+test("an LP with one priced side is valued at twice that side, and says so", async () => {
+  // The pool holds 1000 WETH and 2,000,000 USDC; USDC has no index price here.
+  const usdcRow = tokens[1]!, saved = usdcRow.tokenPrices;
+  usdcRow.tokenPrices = [];
+  let r: any;
+  try { r = await harness({ noPrice: [usdc.toLowerCase()] }).p.portfolio("alice", { network: "base", min_value_usd: 0 }); } finally { usdcRow.tokenPrices = saved; }
+  const lpRow = find(r, "vAMMV2-WETH/USDC");
+  // 2 x 1000 WETH x $2000 = $4M over 0.01 LP supply; the account holds 1e-9 LP.
+  assert.equal(lpRow.position.tvl_usd, 4_000_000);
+  assert.equal(lpRow.price_usd, 4_000_000 / 0.01);
+  assert.match(lpRow.position.price_source, /USDC valued at the pool's own rate/);
+});
+
+test("a DEX price is used only for a token with deep enough pools", async () => {
+  const deep = "0x5555555555555555555555555555555555555555", shallow = spam;
+  const extra = [{ tokenAddress: deep, tokenBalance: hex(10n ** 18n), tokenMetadata: { decimals: 18, symbol: "DEEP" }, tokenPrices: [] }];
+  tokens.push(...extra);
+  try {
+    const r: any = await harness({ geckoRows: [{ attributes: { address: deep, price_usd: "3.5", total_reserve_in_usd: "250000" } }, { attributes: { address: shallow, price_usd: "999", total_reserve_in_usd: "120" } }] }).p.portfolio("alice", { network: "base", min_value_usd: 0 });
+    const d = find(r, "DEEP");
+    assert.deepEqual([d.price_usd, d.value_usd, d.price_source, d.dex_liquidity_usd], [3.5, 3.5, "dex", 250000]);
+    assert.ok(!r.assets.some((a: any) => a.token.toLowerCase() === shallow), "a token with a $120 pool stays unpriced and hidden");
+  } finally { tokens.splice(tokens.length - extra.length, extra.length); }
 });

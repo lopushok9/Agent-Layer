@@ -1,7 +1,8 @@
 import { getAddress, hexToString, isAddress, parseAbi, type Address, type Hex, type PublicClient } from "viem";
 import { z } from "zod";
 import type { EnsoApi } from "./enso-routes.js";
-import { depositedShareTokens, WalletHistory } from "./history.js";
+import { depositedShareTokens, WalletHistory, type History } from "./history.js";
+import { PositionScanner, type Scan } from "./positions.js";
 import { chainIds, walletNetwork, type WalletNetwork } from "./transaction-builder.js";
 
 export const portfolioInput = z.strictObject({
@@ -12,7 +13,7 @@ export const portfolioInput = z.strictObject({
 type Fetch = typeof fetch;
 type Wallets = { account(userId: string): Promise<{ address: Address }>; rpc(network: WalletNetwork): PublicClient };
 type DefiToken = Record<string, any>;
-type Holding = { token: string; symbol: string | null; decimals: number; amount_raw: bigint; price: number | null };
+type Holding = { token: string; symbol: string | null; decimals: number; amount_raw: bigint; price: number | null; staked?: { gauge: Address; reward: unknown } };
 type Pool = Awaited<ReturnType<Portfolio["poolStats"]>>;
 type Underlying = { token: Address; symbol: string | null; decimals: number | null };
 
@@ -39,6 +40,9 @@ const CURATED: Record<WalletNetwork, Record<string, string>> = {
   ethereum: {},
 };
 const MAX_DISCOVERED = 30;
+// A DEX price is used only for a token whose pools hold at least this much.
+const MIN_DEX_LIQUIDITY_USD = 10_000;
+const GECKO_NETWORK: Record<WalletNetwork, string> = { base: "base", ethereum: "eth" };
 const WETH_BASE = getAddress("0x4200000000000000000000000000000000000006");
 const MORPHO_QUERY = `query Portfolio($address: String!, $chainId: Int!) { userByAddress(address: $address, chainId: $chainId) { marketPositions { market { marketId lltv loanAsset { address symbol decimals } collateralAsset { address symbol decimals } state { borrowApy } } state { supplyAssets supplyAssetsUsd borrowAssets borrowAssetsUsd collateral collateralUsd } } } }`;
 
@@ -53,7 +57,8 @@ const MORPHO_QUERY = `query Portfolio($address: String!, $chainId: Int!) { userB
 export class Portfolio {
   private cache = new Map<string, { at: number; data: unknown }>();
   private defi = new Map<string, { at: number; data: DefiToken | null }>();
-  constructor(private api: EnsoApi, private wallets: Wallets, private rpcUrl: (network: WalletNetwork) => string | undefined, private fetcher: Fetch = fetch, private now: () => number = Date.now, private history: WalletHistory = new WalletHistory(wallets, rpcUrl, fetcher, now)) {}
+  private scanner: PositionScanner;
+  constructor(private api: EnsoApi, private wallets: Wallets, private rpcUrl: (network: WalletNetwork) => string | undefined, private fetcher: Fetch = fetch, private now: () => number = Date.now, private history: WalletHistory = new WalletHistory(wallets, rpcUrl, fetcher, now)) { this.scanner = new PositionScanner(network => this.wallets.rpc(network), (k, ttl, load) => this.cached(k, ttl, load)); }
 
   async portfolio(userId: string, input: z.input<typeof portfolioInput>) {
     const p = portfolioInput.parse(input);
@@ -68,24 +73,66 @@ export class Portfolio {
       source = "enso";
       holdings = await this.cached(`enso:${p.network}:${address}`, 30_000, () => this.ensoHoldings(p.network, address)) as Holding[];
     }
-    const found = await this.discover(p.network, address, holdings);
+    let history: History | null = null;
+    const historyErrors: string[] = [];
+    if (this.history.available(p.network)) {
+      try { history = await this.history.load(p.network, address); }
+      catch { historyErrors.push("Transfer history unavailable: positions found from it (vaults outside Enso, liquidity NFTs, gauge stakes, unrecognised contracts) may be missing"); }
+    }
+    const found = await this.discover(p.network, address, holdings, history);
     holdings = found.holdings;
-    const discoveryErrors = found.errors;
+    const prices = new Map(holdings.filter(h => h.price !== null).map(h => [h.token, h.price!]));
+    if (p.network === "base" && prices.has(NATIVE) && !prices.has(WETH_BASE.toLowerCase())) prices.set(WETH_BASE.toLowerCase(), prices.get(NATIVE)!);
+    if (prices.has(NATIVE)) prices.set("0x0000000000000000000000000000000000000000", prices.get(NATIVE)!);
+    const dex = new Map<string, { price: number; liquidity_usd: number }>();
+    const priceOf = async (t: Address) => {
+      const k = t.toLowerCase();
+      const known = prices.get(k) ?? await this.alchemyPrice(key, p.network, t);
+      if (known !== null) return known;
+      const d = (await this.dexPrices(p.network, [k])).get(k);
+      if (d) dex.set(k, d);
+      return d?.price ?? null;
+    };
+    const scan: Scan = await this.scanner.scan(p.network, address, history, priceOf);
+    // LP staked in a gauge is held by the gauge; it is shown like a held LP.
+    for (const st of scan.staked) {
+      const meta = await this.scanner.token(p.network, st.pool).catch(() => null);
+      if (meta) holdings.push({ token: st.pool.toLowerCase(), symbol: meta.symbol, decimals: meta.decimals, amount_raw: st.amount_raw, price: null, staked: { gauge: st.gauge, reward: st.reward } });
+    }
+    // Aave debt tokens are liabilities (in lending.aave_v3), not assets.
+    const debtRows = holdings.filter(h => scan.debtTokens.has(h.token)).length;
+    holdings = holdings.filter(h => !scan.debtTokens.has(h.token));
     const meta = await this.defiTokens(p.network, holdings.filter(h => h.token !== NATIVE).map(h => h.token));
     for (const token of found.candidates) {
       if (meta.has(token) || !holdings.some(h => h.token === token)) continue;
       const vault = await this.vaultMeta(p.network, token);
       if (vault) meta.set(token, vault);
     }
-    const prices = new Map(holdings.filter(h => h.price !== null).map(h => [h.token, h.price!]));
-    if (p.network === "base" && prices.has(NATIVE) && !prices.has(WETH_BASE.toLowerCase())) prices.set(WETH_BASE.toLowerCase(), prices.get(NATIVE)!);
-    const morpho = await this.morphoPositions(p.network, address).catch(() => null);
+    for (const st of scan.staked) {
+      const k = st.pool.toLowerCase();
+      if (!meta.has(k)) { const lp = await this.lpMeta(p.network, st.pool).catch(() => null); if (lp) meta.set(k, lp); }
+    }
+    // Plain tokens without an index price: a DEX price when the token's pools
+    // are deep enough, else they stay unpriced (and hidden as likely spam).
+    const unpriced = holdings.filter(h => h.price === null && h.token !== NATIVE && !meta.has(h.token) && !scan.tokenUnderlying.has(h.token)).map(h => h.token);
+    for (const [k, v] of await this.dexPrices(p.network, unpriced)) dex.set(k, v);
+    const morphoApi = await this.morphoPositions(p.network, address).catch(() => null);
+    const morpho = morphoApi ?? (history ? await this.scanner.morphoOnchain(p.network, address, priceOf).catch(() => null) : null);
     const rows = await Promise.all(holdings.map(async h => {
       const d = meta.get(h.token);
       const amount = Number(h.amount_raw) / 10 ** h.decimals;
-      const base = { token: h.token === NATIVE ? NATIVE : getAddress(h.token), symbol: h.symbol, amount, amount_raw: h.amount_raw.toString() };
-      if (!d) return { ...base, price_usd: h.price, value_usd: h.price === null ? null : round(amount * h.price), defi: false };
-      const { price_usd: computed, ...position } = await this.position(p.network, getAddress(h.token), h, d, key, prices);
+      const base = { token: h.token === NATIVE ? NATIVE : getAddress(h.token), symbol: h.symbol, amount, amount_raw: h.amount_raw.toString(), ...(h.staked ? { staked_in_gauge: h.staked.gauge, pending_reward: h.staked.reward } : {}) };
+      const underlying = scan.tokenUnderlying.get(h.token);
+      if (!d && h.price === null && underlying) {
+        const up = await priceOf(underlying);
+        return { ...base, price_usd: up, value_usd: up === null ? null : round(amount * up), defi: true, price_source: "underlying asset 1:1 (lending receipt token)" };
+      }
+      if (!d) {
+        const dx = h.price === null ? dex.get(h.token) : undefined;
+        const price = h.price ?? dx?.price ?? null;
+        return { ...base, price_usd: price, value_usd: price === null ? null : round(amount * price), defi: false, ...(dx ? { price_source: "dex", dex_liquidity_usd: Math.round(dx.liquidity_usd) } : {}) };
+      }
+      const { price_usd: computed, ...position } = await this.position(p.network, getAddress(h.token), h, d, key, prices, priceOf);
       const price = h.price ?? computed;
       return { ...base, price_usd: price, value_usd: price === null ? null : round(amount * price), defi: true, position };
     }));
@@ -93,21 +140,36 @@ export class Portfolio {
     // anything else needs a price at or above the dust threshold.
     const shown = rows.filter(r => r.value_usd === null ? r.defi : r.value_usd >= p.min_value_usd);
     shown.sort((a, b) => (b.value_usd ?? -1) - (a.value_usd ?? -1));
+    const discoveryErrors = [...historyErrors, ...found.errors, ...scan.errors];
     const walletTotal = shown.reduce((s, r) => s + (r.value_usd ?? 0), 0);
-    const supplied = morpho?.reduce((s, m) => s + (m.supply_usd ?? 0) + (m.collateral_usd ?? 0), 0) ?? 0;
-    const debt = morpho?.reduce((s, m) => s + (m.borrow_usd ?? 0), 0) ?? 0;
-    const totalsComplete = morpho !== null && discoveryErrors.length === 0 && shown.every(r => r.value_usd !== null) && morpho.every(m => (m.supply === 0 || m.supply_usd !== null) && (m.collateral === 0 || m.collateral_usd !== null) && (m.borrow === 0 || m.borrow_usd !== null));
+    // Totals: wallet assets (incl. receipt tokens and gauge-staked LP) plus
+    // value held outside the wallet, minus debt. Unknown values make them
+    // incomplete rather than wrong.
+    const parts: { usd: number | null; debt?: boolean }[] = [
+      ...(morpho ?? []).flatMap(m => [{ usd: m.supply > 0 ? m.supply_usd : 0 }, { usd: m.collateral > 0 ? m.collateral_usd : 0 }, { usd: m.borrow > 0 ? m.borrow_usd : 0, debt: true }]),
+      ...scan.compound.flatMap(c => [{ usd: c.collateral_usd }, { usd: c.borrow > 0 ? c.borrow_usd : 0, debt: true }]),
+      ...(scan.aave ? [{ usd: scan.aave.debt_usd, debt: true }] : []),
+      ...scan.liquidity.flatMap(l => [{ usd: l.value_usd }, { usd: l.fees_usd ?? 0 }]),
+    ];
+    const outside = parts.filter(x => !x.debt), debts = parts.filter(x => x.debt);
+    const sum = (xs: typeof parts) => xs.some(x => x.usd === null) ? null : xs.reduce((s, x) => s + x.usd!, 0);
+    const outsideUsd = sum(outside), debtUsd = sum(debts);
+    const totalsComplete = morpho !== null && discoveryErrors.length === 0 && shown.every(r => r.value_usd !== null) && outsideUsd !== null && debtUsd !== null;
     return {
       network: p.network, address,
-      total_value_usd: round(shown.reduce((s, r) => s + (r.value_usd ?? 0), 0)),
+      total_value_usd: round(walletTotal),
       asset_count: shown.length, position_count: shown.filter(r => r.defi).length,
       hidden_asset_count: rows.length - shown.length,
       hidden_reason: `no price and not a DeFi position, or worth less than $${p.min_value_usd}; names of hidden tokens are not shown (airdropped tokens are often spam)`,
       assets: shown.map(({ defi: _, ...r }) => r),
       morpho_market_positions: morpho,
+      lending: { aave_v3: scan.aave, compound_v3: scan.compound },
+      liquidity_positions: scan.liquidity,
+      unrecognized_interactions: scan.unrecognized,
+      ...(debtRows ? { debt_tokens_note: `${debtRows} Aave debt token(s) are shown as debt under lending.aave_v3, not as assets` } : {}),
       defi_errors: [...discoveryErrors, ...(morpho === null ? ["Morpho market positions unavailable"] : [])],
-      defi_totals: { collateral_and_supply_usd: morpho === null || morpho.some(m => (m.supply > 0 && m.supply_usd === null) || (m.collateral > 0 && m.collateral_usd === null)) ? null : round(supplied), debt_usd: morpho === null || morpho.some(m => m.borrow > 0 && m.borrow_usd === null) ? null : round(debt), net_portfolio_usd: totalsComplete ? round(walletTotal + supplied - debt) : null, complete: totalsComplete, note: "Complete applies only to visible wallet assets and supported Morpho market positions. Other non-tokenized positions and hidden assets are not included." },
-      sources: { balances_and_prices: source, positions: "enso; ERC-4626 vaults found in the account's transfer history (shares minted in a transaction where the account sent funds) and curated vaults, read on-chain", morpho_markets: "Morpho API", position_prices: "on-chain (pool reserves, ERC-4626 convertToAssets)" },
+      defi_totals: { held_outside_wallet_usd: outsideUsd === null ? null : round(outsideUsd), debt_usd: debtUsd === null ? null : round(debtUsd), net_portfolio_usd: totalsComplete ? round(walletTotal + outsideUsd! - debtUsd!) : null, complete: totalsComplete, note: "total_value_usd is the wallet (including lending receipt tokens and gauge-staked LP). held_outside_wallet_usd adds Morpho supply and collateral, Compound collateral and liquidity NFTs with their fees; debt is Morpho, Aave and Compound borrowing. unrecognized_interactions and hidden assets are not included." },
+      sources: { balances_and_prices: source, positions: "enso; ERC-4626 vaults from transfer history and curated vaults; Aave v3, Compound v3, Uniswap v3/v4 and Aerodrome Slipstream position NFTs, Aerodrome gauge stakes, read on-chain", morpho_markets: morphoApi ? "Morpho API" : "Morpho Blue events and state, read on-chain", position_prices: "on-chain (pool reserves and prices, ERC-4626 convertToAssets); a token without an index price may be priced from a DEX (GeckoTerminal) when its pools hold at least $" + MIN_DEX_LIQUIDITY_USD.toLocaleString("en-US") + ", or at a pool's own rate inside an LP position" },
       trust: "Balances, prices, APY and TVL are third-party data; fee APR is estimated by this server from one day of the pool's fee index. Informational, not advice; past fees do not predict future ones.",
     };
   }
@@ -116,13 +178,9 @@ export class Portfolio {
   // account in one of its own deposits (from its transfer history), plus the
   // curated vaults. Their balances are read on-chain; a curated vault's
   // on-chain balance replaces whatever the index reported.
-  private async discover(network: WalletNetwork, address: Address, holdings: Holding[]) {
+  private async discover(network: WalletNetwork, address: Address, holdings: Holding[], history: History | null) {
     const errors: string[] = [];
-    let minted: string[] = [];
-    if (this.history.available(network)) {
-      try { minted = depositedShareTokens(await this.history.load(network, address)); }
-      catch { errors.push("Transfer history unavailable: vault positions that Enso does not index may be missing"); }
-    }
+    const minted = history ? depositedShareTokens(history) : [];
     const curated = Object.keys(CURATED[network]);
     const candidates = [...new Set([...curated, ...minted])].slice(0, MAX_DISCOVERED);
     const rpc = this.wallets.rpc(network);
@@ -242,7 +300,7 @@ export class Portfolio {
     return new Map(tokens.flatMap(t => { const d = this.defi.get(keyOf(t))?.data; return d ? [[t, d] as const] : []; }));
   }
 
-  private async position(network: WalletNetwork, token: Address, h: Holding, d: DefiToken, key: string | null, prices: Map<string, number>) {
+  private async position(network: WalletNetwork, token: Address, h: Holding, d: DefiToken, key: string | null, prices: Map<string, number>, fallbackPrice?: (t: Address) => Promise<number | null>) {
     const underlying: Underlying[] = (Array.isArray(d.underlyingTokens) ? d.underlyingTokens : []).slice(0, 8).filter((u: any) => typeof u?.address === "string" && isAddress(u.address)).map((u: any) => ({ token: getAddress(u.address), symbol: text(u.symbol, 30), decimals: Number.isInteger(u.decimals) ? u.decimals as number : null }));
     const out: Record<string, unknown> & { price_usd: number | null; tvl_usd: number | null; apy: number | null } = {
       protocol: text(d.protocol ?? d.protocolSlug, 64), primary_address: typeof d.primaryAddress === "string" && isAddress(d.primaryAddress) ? getAddress(d.primaryAddress) : null,
@@ -250,7 +308,7 @@ export class Portfolio {
       ...(d.discovered === "transfer_history" || d.discovered === "curated" ? { discovered_by: d.discovered, discovery_note: "ERC-4626 vault outside Enso's index; value is the vault's own convertToAssets, APY unknown" } : {}),
     };
     const info = (t: Address) => underlying.find(u => u.token === t);
-    const priceOf = async (t: Address) => prices.get(t.toLowerCase()) ?? await this.alchemyPrice(key, network, t);
+    const priceOf = async (t: Address) => prices.get(t.toLowerCase()) ?? await this.alchemyPrice(key, network, t) ?? (fallbackPrice ? await fallbackPrice(t) : null);
     if (/^(aerodrome|velodrome)/.test(String(out.protocol))) {
       try {
         const s = await this.cached(`pool:${network}:${token}`, 60_000, () => this.poolStats(network, token)) as Pool;
@@ -262,6 +320,16 @@ export class Portfolio {
           const tvl = Number(s.reserve0) / 10 ** d0 * p0 + Number(s.reserve1) / 10 ** d1 * p1;
           out.price_usd = tvl / (Number(s.supply) / 10 ** h.decimals);
           out.tvl_usd ??= round(tvl);
+        } else if ((p0 === null) !== (p1 === null) && !s.stable && d0 !== null && d1 !== null && s.supply > 0n && s.reserve0 > 0n && s.reserve1 > 0n) {
+          // One side priced, x*y=k pool: both halves hold equal value, so the
+          // pool is worth twice its priced side (the other token is valued at
+          // the pool's own rate).
+          const known = p0 !== null ? Number(s.reserve0) / 10 ** d0 * p0 : Number(s.reserve1) / 10 ** d1 * p1!;
+          const tvl = 2 * known;
+          out.price_usd = tvl / (Number(s.supply) / 10 ** h.decimals);
+          out.tvl_usd ??= round(tvl);
+          const unknown = p0 === null ? (info(s.token0)?.symbol ?? "token0") : (info(s.token1)?.symbol ?? "token1");
+          Object.assign(out, { price_source: `${unknown} valued at the pool's own rate`, price_note: tvl < MIN_DEX_LIQUIDITY_USD ? `thin pool (about $${round(tvl)}): this value may not be realisable` : "derived from this pool's reserves; a thin pool can be far from the market" });
         } else if (h.price === null) out.price_error = "no price for the pool's tokens";
         if (out.apy === null) {
           if (s.stable) out.apy_error = "stable or unknown pool curve: fee APR is not estimated (reserves may not be 50/50 in value)";
@@ -283,6 +351,43 @@ export class Portfolio {
         if (ad !== null && ap !== null) out.price_usd = Number(assets) / 10 ** ad * ap;
         else out.price_error = "no price for the vault's asset";
       } catch { out.price_error = "not priced: not an ERC-4626 vault or a supported pool"; }
+    }
+    return out;
+  }
+
+  // Pool metadata for a gauge-staked Aerodrome LP that Enso does not index.
+  private async lpMeta(network: WalletNetwork, pool: Address): Promise<DefiToken | null> {
+    const rpc = this.wallets.rpc(network);
+    const [t0, t1] = await Promise.all([rpc.readContract({ address: pool, abi: poolAbi, functionName: "token0" }), rpc.readContract({ address: pool, abi: poolAbi, functionName: "token1" })]);
+    const [a, b] = await Promise.all([this.scanner.token(network, getAddress(t0)), this.scanner.token(network, getAddress(t1))]);
+    return { protocol: "aerodrome", primaryAddress: pool, underlyingTokens: [{ address: a.token, symbol: a.symbol, decimals: a.decimals }, { address: b.token, symbol: b.symbol, decimals: b.decimals }] };
+  }
+
+  // DEX prices from GeckoTerminal, kept only for tokens whose pools hold at
+  // least MIN_DEX_LIQUIDITY_USD (a token with a shallow pool can be given any
+  // price). Shared by all users for 5 minutes; failures mean no price.
+  private async dexPrices(network: WalletNetwork, tokens: string[]) {
+    const out = new Map<string, { price: number; liquidity_usd: number }>();
+    const missing: string[] = [];
+    for (const t of new Set(tokens)) {
+      const hit = this.cache.get(`dex:${network}:${t}`);
+      if (hit && this.now() - hit.at < 300_000) { if (hit.data) out.set(t, hit.data as { price: number; liquidity_usd: number }); }
+      else missing.push(t);
+    }
+    for (let i = 0; i < Math.min(missing.length, 90); i += 30) {
+      const batch = missing.slice(i, i + 30);
+      try {
+        const res = await this.fetcher(`https://api.geckoterminal.com/api/v2/networks/${GECKO_NETWORK[network]}/tokens/multi/${batch.join(",")}`, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(8_000) });
+        if (!res.ok) break;
+        const body = await res.json() as { data?: any[] };
+        const found = new Map<string, { price: number; liquidity_usd: number }>();
+        for (const row of Array.isArray(body?.data) ? body.data : []) {
+          const a = row?.attributes, addr = typeof a?.address === "string" ? a.address.toLowerCase() : "";
+          const price = positive(Number(a?.price_usd)), liquidity = Number(a?.total_reserve_in_usd);
+          if (isAddress(addr) && price !== null && Number.isFinite(liquidity) && liquidity >= MIN_DEX_LIQUIDITY_USD) found.set(addr, { price, liquidity_usd: liquidity });
+        }
+        for (const t of batch) { const v = found.get(t) ?? null; this.cache.set(`dex:${network}:${t}`, { at: this.now(), data: v }); if (v) out.set(t, v); }
+      } catch { break; }
     }
     return out;
   }
