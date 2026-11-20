@@ -18,7 +18,10 @@ test("the stats endpoint is off without a token and refuses a wrong one", async 
   const usage = { stats: async (days: number) => ({ window_days: days }) } as any;
   const serve = async (token: string | undefined) => { const app = express(); app.use(statsRouter({ STATS_TOKEN: token }, usage)); const s = app.listen(0); await new Promise(r => s.once("listening", r)); return { base: `http://127.0.0.1:${(s.address() as any).port}`, close: () => s.close() }; };
   const off = await serve(undefined);
-  try { assert.equal((await fetch(`${off.base}/v1/stats`, { headers: { authorization: "Bearer anything" } })).status, 404); } finally { off.close(); }
+  try {
+    assert.equal((await fetch(`${off.base}/v1/stats`, { headers: { authorization: "Bearer anything" } })).status, 404);
+    assert.equal((await fetch(`${off.base}/stats`)).status, 404);
+  } finally { off.close(); }
   const token = randomBytes(24).toString("base64url");
   const on = await serve(token);
   try {
@@ -28,6 +31,14 @@ test("the stats endpoint is off without a token and refuses a wrong one", async 
     assert.equal((await fetch(`${on.base}/v1/stats?days=0`, { headers: { authorization: `Bearer ${token}` } })).status, 400);
     const ok = await fetch(`${on.base}/v1/stats?days=7`, { headers: { authorization: `Bearer ${token}` } });
     assert.deepEqual([ok.status, ok.headers.get("cache-control"), await ok.json()], [200, "no-store", { window_days: 7 }]);
+    const page = await fetch(`${on.base}/stats`);
+    const html = await page.text();
+    assert.equal(page.status, 200, "the dashboard page itself needs no token");
+    assert.match(page.headers.get("content-security-policy") ?? "", /default-src 'none'; connect-src 'self';.*script-src 'nonce-/);
+    assert.equal(page.headers.get("referrer-policy"), "no-referrer");
+    assert.match(html, /location\.hash/, "the token is read from the URL fragment");
+    assert.match(html, /Authorization:"Bearer "\+token/, "and sent only in the header");
+    assert.ok(!html.includes(token), "the page never contains the token");
   } finally { on.close(); }
 });
 

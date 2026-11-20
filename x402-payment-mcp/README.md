@@ -497,6 +497,11 @@ clients, sign-in events, wallet operations by network and status,
 signatures and x402 payments (count and USDC). The report contains no user
 ids, addresses or emails. Without `STATS_TOKEN` the endpoint answers 404.
 
+The dashboard is at `/stats#<STATS_TOKEN>` (or open `/stats` and paste the
+token). The token stays in the URL fragment, which browsers never send to
+the server; the page passes it to `/v1/stats` only in the Authorization
+header. Charts are inline SVG under the page CSP, no external scripts.
+
 ## Payment flow
 
 1. `x402_search` searches CDP Bazaar (default) or Agentic Market and returns each resource's `url`, price, and the provider's untrusted input hint.
