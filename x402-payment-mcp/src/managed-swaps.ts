@@ -61,6 +61,7 @@ export class ManagedSwapService {
     const saved = await this.store.createOperation({ userId, network: p.network, address: p.account, kind: "swap", swapPlan: plan, calls: [], descriptions: [], fingerprint: swapFingerprint(plan), simulation }, Math.min(this.ttl, 300));
     return { ...publicOperation(saved), next_step: approval ? "Show the exact Permit2 approval. Use transaction_prepare/transaction_execute for that approval after confirmation; wait for confirmation, then preview the swap again." : "Show tokens, exact input, expected output, minimum output, slippage and fees. After confirmation call swap_execute once with operation_id and purpose." };
   }
+  operation(userId: string, id: string) { return this.store.operation(userId, id); }
   async execute(userId: string, id: string, purpose: string) {
     return this.lock.withPaymentLock(userId, async () => {
       const pending = await this.store.operation(userId, id);

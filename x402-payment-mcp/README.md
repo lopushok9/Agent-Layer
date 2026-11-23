@@ -362,11 +362,25 @@ contract (Enso uses `delegate`, i.e. delegatecall, for them). Use
 `transaction_prepare` against the protocol contract instead. All Enso requests
 share one queue spaced 1.1 s apart, the free plan's limit of one per second.
 
-## CDP managed swap alternative
+## Swaps
 
 With the same `wallet:transact` scope, use `swap_preview` -> `swap_execute` ->
 `transaction_status` instead of constructing router ABI/calldata. Supported networks
-are Ethereum and Base mainnet; CDP Trade API does not support testnet swaps.
+are Ethereum and Base mainnet.
+
+`swap_preview` asks Enso first (`provider: "enso"`): the same verified
+`EnsoRouter.safeRouteSingle` route as `route_preview`, returned as a normal
+transaction preview with any exact ERC-20 approval in the same batch and the
+minimum output enforced on-chain. Enso aggregates DEXs and other aggregators
+and charges no protocol fee; on Base ETH->USDC it returned 0.03-0.07% more than
+the best single Uniswap v3 pool and 0.15-0.31% more than CDP, whose swap API
+takes 0.15%. `swap_execute` sends such a preview as its prepared calls.
+
+CDP's managed swap below (`provider: "cdp"`) is the fallback when `ENSO_API_KEY`
+is not set, Enso cannot route the pair (the reason is in `enso_unavailable`), or
+the slippage is 0 bps, which Enso does not accept.
+
+### CDP managed swap
 
 Example `swap_preview` input (1 USDC on Base, output WETH):
 
